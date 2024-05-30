@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RtAudio/RtAudio.h"
+#include <functional>
 
 namespace MakeASound
 {
@@ -13,6 +14,16 @@ struct DeviceManager
 
         manager.setErrorCallback(errorCallback);
     }
+
+    ~DeviceManager()
+    {
+        if (isStreamRunning())
+            stopStream();
+
+        if (isStreamOpen())
+            closeStream();
+    }
+
     unsigned int getDeviceCount() { return manager.getDeviceCount(); }
 
     std::vector<std::string> getDeviceNames() { return manager.getDeviceNames(); };
@@ -62,17 +73,37 @@ struct DeviceManager
 
         auto format = getFormat(config.format);
         auto frames = config.bufferFrames;
-
+        audioCallback = config.callback;
         auto options =
             optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
+
+        auto callback = [](void* outputBuffer,
+                           void* inputBuffer,
+                           unsigned int nFrames,
+                           double streamTime,
+                           RtAudioStreamStatus status,
+                           void* userData)
+        {
+            AudioCallbackInfo info;
+            info.inputBuffer = inputBuffer;
+            info.outputBuffer = outputBuffer;
+            info.nFrames = nFrames;
+            info.streamTime = streamTime;
+            info.status = status;
+
+            auto& cb = *static_cast<Callback*>(userData);
+
+            cb(info);
+            return info.errorCode;
+        };
 
         auto error = manager.openStream(out.get(),
                                         in.get(),
                                         format,
                                         config.sampleRate,
                                         &frames,
-                                        config.callback,
-                                        config.userData,
+                                        callback,
+                                        &audioCallback,
                                         options.get());
 
         auto e = getError(error);
@@ -97,6 +128,7 @@ struct DeviceManager
     void showWarnings(bool value) { manager.showWarnings(value); }
 
 private:
+    Callback audioCallback;
     RtAudio manager;
 };
 

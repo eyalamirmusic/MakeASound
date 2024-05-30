@@ -123,10 +123,10 @@ inline RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
 
 struct Flags
 {
-    bool nonInterleaved = false;
-    bool minimizeLatency = false;
+    bool nonInterleaved = true;
+    bool minimizeLatency = true;
     bool hogDevice = false;
-    bool scheduleRealTime = false;
+    bool scheduleRealTime = true;
     bool alsaUseDefault = false;
     bool jackDontConnect = false;
 };
@@ -186,6 +186,18 @@ enum class Format
     Float64
 };
 
+struct AudioCallbackInfo
+{
+    void* outputBuffer = nullptr;
+    void* inputBuffer = nullptr;
+    unsigned int nFrames {};
+    double streamTime {};
+    RtAudioStreamStatus status {};
+    int errorCode = 0;
+};
+
+using Callback = std::function<void(AudioCallbackInfo&)>;
+
 struct StreamConfig
 {
     std::optional<StreamParameters> input;
@@ -193,8 +205,7 @@ struct StreamConfig
     Format format = Format::Float32;
     unsigned int sampleRate = {};
     unsigned int bufferFrames = 0;
-    RtAudioCallback callback {};
-    void* userData = nullptr;
+    Callback callback = [](AudioCallbackInfo&) {};
     std::optional<StreamOptions> options;
 };
 

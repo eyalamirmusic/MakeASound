@@ -1,16 +1,24 @@
 #include <MakeASound/MakeASound.h>
+#include <iostream>
+#include <thread>
+
 
 int main()
 {
     MakeASound::DeviceManager manager;
 
     auto config = manager.getDefaultConfig();
-    auto stream = manager.openStream(config);
 
-   // auto config = MakeASound::createDefaultConfig()
+    config.callback = [](MakeASound::AudioCallbackInfo& info)
+    {
+        std::cout << info.nFrames;
+    };
 
-    // config
+    manager.openStream(config);
+    manager.startStream();
 
-    int x = 0;
+    while (true)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
     return 0;
 }
