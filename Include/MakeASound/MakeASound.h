@@ -92,6 +92,26 @@ struct StreamParameters
     unsigned int firstChannel {};
 };
 
+template <typename A, typename T, typename Func>
+std::unique_ptr<A> optionalToPointer(const std::optional<T>& val, Func func)
+{
+    if (val.has_value())
+        return std::make_unique<A>(func(val.value()));
+
+    return nullptr;
+}
+
+inline RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
+{
+    RtAudio::StreamParameters result;
+
+    result.deviceId = params.deviceId;
+    result.firstChannel = params.firstChannel;
+    result.nChannels = params.nChannels;
+
+    return result;
+}
+
 struct Flags
 {
     bool nonInterleaved = false;
@@ -102,13 +122,50 @@ struct Flags
     bool jackDontConnect = false;
 };
 
+inline RtAudioStreamFlags getFlags(Flags flags)
+{
+    RtAudioStreamFlags result {};
+
+    if (flags.nonInterleaved)
+        result |= RTAUDIO_NONINTERLEAVED;
+
+    if (flags.minimizeLatency)
+        result |= RTAUDIO_MINIMIZE_LATENCY;
+
+    if (flags.hogDevice)
+        result |= RTAUDIO_HOG_DEVICE;
+
+    if (flags.scheduleRealTime)
+        result |= RTAUDIO_SCHEDULE_REALTIME;
+
+    if (flags.alsaUseDefault)
+        result |= RTAUDIO_ALSA_USE_DEFAULT;
+
+    if (flags.jackDontConnect)
+        result |= RTAUDIO_JACK_DONT_CONNECT;
+
+    return result;
+}
+
 struct StreamOptions
 {
-    unsigned int flags {};
+    Flags flags {};
     unsigned int numberOfBuffers {};
-    std::string streamName;
+    std::string streamName {};
     int priority {};
 };
+
+inline RtAudio::StreamOptions getOptions(const StreamOptions& options)
+{
+    RtAudio::StreamOptions result;
+
+    result.flags = getFlags(options.flags);
+    result.priority = options.priority;
+    result.numberOfBuffers = options.numberOfBuffers;
+    result.streamName = options.streamName;
+
+    return result;
+}
 
 enum class Format
 {
@@ -122,15 +179,39 @@ enum class Format
 
 struct StreamConfig
 {
-    RtAudio::StreamParameters outputParameters;
-
-    RtAudio::StreamParameters inputParameters;
+    std::optional<StreamParameters> input;
+    std::optional<StreamParameters> output;
     Format format = Format::Float32;
     unsigned int sampleRate = {};
-    unsigned int* bufferFrames = nullptr;
+    unsigned int bufferFrames = 0;
     RtAudioCallback callback {};
     void* userData = nullptr;
-    RtAudio::StreamOptions* options = nullptr;
+    std::optional<StreamOptions> options;
+};
+
+inline RtAudioFormat getFormat(Format format)
+{
+    switch (format)
+    {
+        case Format::Int8:
+            return RTAUDIO_SINT8;
+        case Format::Int16:
+            return RTAUDIO_SINT16;
+        case Format::Int24:
+            return RTAUDIO_SINT24;
+        case Format::Int32:
+            return RTAUDIO_SINT32;
+        case Format::Float32:
+            return RTAUDIO_FLOAT32;
+        case Format::Float64:
+            return RTAUDIO_FLOAT64;
+    }
+
+    return RTAUDIO_FLOAT32;
+}
+
+struct StreamCreationResult
+{
 };
 
 struct DeviceManager
@@ -147,7 +228,35 @@ struct DeviceManager
     {
         return manager.getDefaultOutputDevice();
     }
-    Error openStream(const StreamConfig& /*config*/) { return Error::SYSTEM_ERROR; }
+    unsigned int openStream(const StreamConfig& config)
+    {
+        auto in = optionalToPointer<RtAudio::StreamParameters>(config.input,
+                                                               getStreamParams);
+        auto out = optionalToPointer<RtAudio::StreamParameters>(config.output,
+                                                                getStreamParams);
+
+        auto format = getFormat(config.format);
+        auto frames = config.bufferFrames;
+
+        auto options =
+            optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
+
+        auto error = manager.openStream(out.get(),
+                                        in.get(),
+                                        format,
+                                        config.sampleRate,
+                                        &frames,
+                                        config.callback,
+                                        config.userData,
+                                        options.get());
+
+        auto e = getError(error);
+
+        if (e != Error::NO_ERROR)
+            throw std::runtime_error(manager.getErrorText());
+
+        return frames;
+    }
     void closeStream() { manager.closeStream(); }
     RtAudioErrorType startStream() { return manager.startStream(); }
     RtAudioErrorType stopStream() { return manager.stopStream(); };
