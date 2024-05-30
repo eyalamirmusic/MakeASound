@@ -1,7 +1,24 @@
 #include <MakeASound/MakeASound.h>
-#include <iostream>
 #include <thread>
+#include <random>
 
+float getRandomFloat()
+{
+    static std::default_random_engine e;
+    static std::uniform_real_distribution dis(-0.1f, 0.1f);
+    return dis(e);
+}
+
+void audioCallback(MakeASound::AudioCallbackInfo& info)
+{
+    for (size_t channel = 0; channel < info.numOutputs; ++channel)
+    {
+        for (size_t sample = 0; sample < info.nFrames; ++sample)
+        {
+            info.getOutput<float>(channel)[sample] = getRandomFloat();
+        }
+    }
+}
 
 int main()
 {
@@ -9,10 +26,7 @@ int main()
 
     auto config = manager.getDefaultConfig();
 
-    config.callback = [](MakeASound::AudioCallbackInfo& info)
-    {
-        std::cout << info.nFrames;
-    };
+    config.callback = audioCallback;
 
     manager.openStream(config);
     manager.startStream();

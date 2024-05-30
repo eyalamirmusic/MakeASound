@@ -64,8 +64,9 @@ struct DeviceManager
         return config;
     }
 
-    unsigned int openStream(const StreamConfig& config)
+    unsigned int openStream(const StreamConfig& configToUse)
     {
+        config = configToUse;
         auto in = optionalToPointer<RtAudio::StreamParameters>(config.input,
                                                                getStreamParams);
         auto out = optionalToPointer<RtAudio::StreamParameters>(config.output,
@@ -73,7 +74,6 @@ struct DeviceManager
 
         auto format = getFormat(config.format);
         auto frames = config.bufferFrames;
-        audioCallback = config.callback;
         auto options =
             optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
 
@@ -84,16 +84,19 @@ struct DeviceManager
                            RtAudioStreamStatus status,
                            void* userData)
         {
+            auto& manager = *static_cast<DeviceManager*>(userData);
+
             AudioCallbackInfo info;
             info.inputBuffer = inputBuffer;
             info.outputBuffer = outputBuffer;
             info.nFrames = nFrames;
             info.streamTime = streamTime;
             info.status = status;
+            info.numInputs = manager.config.getInputChannels();
+            info.numOutputs = manager.config.getOutputChannels();
 
-            auto& cb = *static_cast<Callback*>(userData);
+            manager.config.callback(info);
 
-            cb(info);
             return info.errorCode;
         };
 
@@ -103,7 +106,7 @@ struct DeviceManager
                                         config.sampleRate,
                                         &frames,
                                         callback,
-                                        &audioCallback,
+                                        this,
                                         options.get());
 
         auto e = getError(error);
@@ -128,7 +131,7 @@ struct DeviceManager
     void showWarnings(bool value) { manager.showWarnings(value); }
 
 private:
-    Callback audioCallback;
+    StreamConfig config;
     RtAudio manager;
 };
 

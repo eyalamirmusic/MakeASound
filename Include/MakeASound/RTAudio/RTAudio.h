@@ -87,12 +87,22 @@ inline Error getError(RtAudioErrorType error)
     return Error::NO_ERROR;
 }
 
+unsigned int getDefaultNumChannels(const DeviceInfo& info, bool input)
+{
+    auto channels = info.outputChannels;
+
+    if (input)
+        channels = info.inputChannels;
+
+    return std::min(unsigned(2), channels);
+}
+
 struct StreamParameters
 {
     StreamParameters() = default;
     StreamParameters(const DeviceInfo& info, bool input)
         : deviceId(info.id)
-        , nChannels(input ? info.inputChannels : info.outputChannels)
+        , nChannels(getDefaultNumChannels(info, input))
     {
     }
 
@@ -188,6 +198,22 @@ enum class Format
 
 struct AudioCallbackInfo
 {
+    template <typename T>
+    const float* getInput(size_t channel) const
+    {
+        auto p = static_cast<T*>(inputBuffer);
+        return &p[channel * nFrames];
+    }
+
+    template <typename T>
+    float* getOutput(size_t channel)
+    {
+        auto p = static_cast<T*>(outputBuffer);
+        return &p[channel * nFrames];
+    }
+
+    unsigned int numInputs = 0;
+    unsigned int numOutputs = 0;
     void* outputBuffer = nullptr;
     void* inputBuffer = nullptr;
     unsigned int nFrames {};
@@ -198,8 +224,19 @@ struct AudioCallbackInfo
 
 using Callback = std::function<void(AudioCallbackInfo&)>;
 
+inline unsigned int getNumChannels(const std::optional<StreamParameters>& params)
+{
+    if (params)
+        return params->nChannels;
+
+    return 0;
+}
+
 struct StreamConfig
 {
+    unsigned int getInputChannels() const { return getNumChannels(input); }
+    unsigned int getOutputChannels() const { return getNumChannels(output); }
+
     std::optional<StreamParameters> input;
     std::optional<StreamParameters> output;
     Format format = Format::Float32;
