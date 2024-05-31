@@ -176,20 +176,26 @@ inline AudioCallbackStatus getStatus(RtAudioStreamStatus status)
 
 inline AudioCallbackInfo getCallbackInfo(void* outputBuffer,
                                          void* inputBuffer,
-                                         unsigned int nFrames,
+                                         unsigned int numSamples,
                                          double streamTime,
                                          RtAudioStreamStatus status,
+                                         unsigned int sampleRate,
+                                         unsigned int latency,
                                          const StreamConfig& config)
 {
     AudioCallbackInfo info;
 
     info.inputBuffer = inputBuffer;
     info.outputBuffer = outputBuffer;
-    info.nFrames = nFrames;
+    info.numSamples = numSamples;
     info.streamTime = streamTime;
     info.status = getStatus(status);
     info.numInputs = config.getInputChannels();
     info.numOutputs = config.getOutputChannels();
+    info.config = &config;
+    info.sampleRate = sampleRate;
+    info.latency = latency;
+    info.maxBlockSize = numSamples;
 
     return info;
 }

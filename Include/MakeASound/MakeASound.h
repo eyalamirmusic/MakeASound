@@ -53,16 +53,22 @@ struct DeviceManager
         config.output = StreamParameters(getDefaultInputDevice(), false);
 
         config.sampleRate = 44100;
-        config.bufferFrames = 512;
+        config.maxBlockSize = 512;
 
         return config;
+    }
+
+    void setConfig(const StreamConfig& configToUse)
+    {
+        stop();
+        openStream(configToUse);
+        startStream();
     }
 
     void start(const StreamConfig& configToUse, const Callback& cb)
     {
         callback = cb;
-        openStream(configToUse);
-        startStream();
+        setConfig(configToUse);
     }
 
     void stop()
@@ -73,6 +79,9 @@ struct DeviceManager
         if (isStreamOpen())
             closeStream();
     }
+
+    long getStreamLatency() { return manager.getStreamLatency(); }
+    unsigned int getStreamSampleRate() { return manager.getStreamSampleRate(); }
 
     Callback callback;
     StreamConfig config;
@@ -87,7 +96,7 @@ private:
                                                                 getStreamParams);
 
         auto format = getFormat(config.format);
-        auto frames = config.bufferFrames;
+        auto& frames = config.maxBlockSize;
         auto options =
             optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
 
@@ -112,8 +121,6 @@ private:
     void stopStream() { manager.stopStream(); };
     void abortStream() { manager.abortStream(); }
     std::string getErrorText() { return manager.getErrorText(); }
-    long getStreamLatency() { return manager.getStreamLatency(); }
-    unsigned int getStreamSampleRate() { return manager.getStreamSampleRate(); }
     double getStreamTime() { return manager.getStreamTime(); }
     void setStreamTime(double time) { manager.setStreamTime(time); }
     bool isStreamOpen() const { return manager.isStreamOpen(); }
@@ -131,9 +138,17 @@ inline int audioCallback(void* outputBuffer,
                          void* userData)
 {
     auto& manager = *static_cast<DeviceManager*>(userData);
+    auto sr = manager.getStreamSampleRate();
+    auto latency = manager.getStreamLatency();
 
-    auto info = getCallbackInfo(
-        outputBuffer, inputBuffer, nFrames, streamTime, status, manager.config);
+    auto info = getCallbackInfo(outputBuffer,
+                                inputBuffer,
+                                nFrames,
+                                streamTime,
+                                status,
+                                sr,
+                                latency,
+                                manager.config);
 
     manager.callback(info);
 

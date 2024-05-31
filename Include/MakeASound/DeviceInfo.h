@@ -97,32 +97,6 @@ enum class AudioCallbackStatus
     OutputUnderflow
 };
 
-struct AudioCallbackInfo
-{
-    template <typename T>
-    const float* getInput(size_t channel) const
-    {
-        auto p = static_cast<T*>(inputBuffer);
-        return &p[channel * nFrames];
-    }
-
-    template <typename T>
-    float* getOutput(size_t channel)
-    {
-        auto p = static_cast<T*>(outputBuffer);
-        return &p[channel * nFrames];
-    }
-
-    unsigned int numInputs = 0;
-    unsigned int numOutputs = 0;
-    void* outputBuffer = nullptr;
-    void* inputBuffer = nullptr;
-    unsigned int nFrames {};
-    double streamTime {};
-    AudioCallbackStatus status = AudioCallbackStatus::OK;
-    int errorCode = 0;
-};
-
 inline unsigned int getNumChannels(const std::optional<StreamParameters>& params)
 {
     if (params)
@@ -130,8 +104,6 @@ inline unsigned int getNumChannels(const std::optional<StreamParameters>& params
 
     return 0;
 }
-
-using Callback = std::function<void(AudioCallbackInfo&)>;
 
 struct StreamConfig
 {
@@ -141,8 +113,69 @@ struct StreamConfig
     std::optional<StreamParameters> input;
     std::optional<StreamParameters> output;
     Format format = Format::Float32;
+
     unsigned int sampleRate = {};
-    unsigned int bufferFrames = 0;
+    unsigned int maxBlockSize = 0;
     std::optional<StreamOptions> options;
 };
+
+struct AudioCallbackInfo
+{
+    template <typename T>
+    const T* getInput(size_t channel) const
+    {
+        auto p = static_cast<T*>(inputBuffer);
+        return &p[channel * numSamples];
+    }
+
+    template <typename T>
+    T* getOutput(size_t channel)
+    {
+        auto p = static_cast<T*>(outputBuffer);
+        return &p[channel * numSamples];
+    }
+
+    template <typename T>
+    const T* getInterleavedInputs() const
+    {
+        return static_cast<T*>(inputBuffer);
+    }
+
+    template <typename T>
+    const T* getInterleavedOutputs() const
+    {
+        return static_cast<T*>(outputBuffer);
+    }
+
+    bool operator==(const AudioCallbackInfo& other) const
+    {
+        return numInputs == other.numInputs && numOutputs == other.numOutputs
+               && sampleRate == other.sampleRate
+               && maxBlockSize == other.maxBlockSize;
+    }
+
+    bool operator!=(const AudioCallbackInfo& other) const
+    {
+        return !operator==(other);
+    }
+
+    unsigned int numInputs = 0;
+    unsigned int numOutputs = 0;
+    void* outputBuffer = nullptr;
+    void* inputBuffer = nullptr;
+    unsigned int numSamples {};
+    double streamTime {};
+    AudioCallbackStatus status = AudioCallbackStatus::OK;
+
+    unsigned int sampleRate = 0;
+    unsigned int maxBlockSize = 0;
+    unsigned int latency = 0;
+
+    int errorCode = 0;
+
+    const StreamConfig* config = nullptr;
+};
+
+using Callback = std::function<void(AudioCallbackInfo&)>;
+
 } // namespace MakeASound
