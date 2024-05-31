@@ -9,15 +9,18 @@ float getRandomFloat()
     return dis(e);
 }
 
-MakeASound::AudioCallbackInfo lastInfo;
+std::mutex mutex;
+
+void prepare(MakeASound::AudioCallbackInfo& info)
+{
+    std::lock_guard lock (mutex);
+    std::cout << "Block Size: " << info.maxBlockSize << std::endl;
+}
 
 void processBlock(MakeASound::AudioCallbackInfo& info)
 {
-    if (info != lastInfo)
-    {
-        lastInfo = info;
-        std::cout << "Block Size: " << info.maxBlockSize << std::endl;
-    }
+    if (info.dirty)
+        prepare(info);
 
     for (size_t channel = 0; channel < info.numOutputs; ++channel)
     {

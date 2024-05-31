@@ -171,6 +171,7 @@ struct AudioCallbackInfo
     unsigned int maxBlockSize = 0;
     unsigned int latency = 0;
 
+    bool dirty = false;
     int errorCode = 0;
 
     const StreamConfig* config = nullptr;

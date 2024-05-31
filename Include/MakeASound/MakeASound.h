@@ -83,6 +83,7 @@ struct DeviceManager
     long getStreamLatency() { return manager.getStreamLatency(); }
     unsigned int getStreamSampleRate() { return manager.getStreamSampleRate(); }
 
+    AudioCallbackInfo prevInfo;
     Callback callback;
     StreamConfig config;
 
@@ -149,6 +150,12 @@ inline int audioCallback(void* outputBuffer,
                                 sr,
                                 latency,
                                 manager.config);
+
+    if (manager.prevInfo != info)
+    {
+        manager.prevInfo = info;
+        info.dirty = true;
+    }
 
     manager.callback(info);
 
