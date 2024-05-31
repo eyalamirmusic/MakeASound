@@ -9,22 +9,6 @@ namespace MakeASound
 
 struct DeviceInfo
 {
-    DeviceInfo() = default;
-    DeviceInfo(const RtAudio::DeviceInfo& info)
-    {
-        id = info.ID;
-        name = info.name;
-        outputChannels = info.outputChannels;
-        inputChannels = info.inputChannels;
-        duplexChannels = info.duplexChannels;
-        isDefaultInput = info.isDefaultInput;
-        isDefaultOutput = info.isDefaultOutput;
-        sampleRates = info.sampleRates;
-        currentSampleRate = info.currentSampleRate;
-        preferredSampleRate = info.preferredSampleRate;
-        nativeFormats = info.nativeFormats;
-    }
-
     unsigned int id {};
     std::string name;
     unsigned int outputChannels {};
@@ -37,6 +21,24 @@ struct DeviceInfo
     unsigned int preferredSampleRate {};
     RtAudioFormat nativeFormats {};
 };
+
+DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
+{
+    DeviceInfo result;
+    result.id = info.ID;
+    result.name = info.name;
+    result.outputChannels = info.outputChannels;
+    result.inputChannels = info.inputChannels;
+    result.duplexChannels = info.duplexChannels;
+    result.isDefaultInput = info.isDefaultInput;
+    result.isDefaultOutput = info.isDefaultOutput;
+    result.sampleRates = info.sampleRates;
+    result.currentSampleRate = info.currentSampleRate;
+    result.preferredSampleRate = info.preferredSampleRate;
+    result.nativeFormats = info.nativeFormats;
+
+    return result;
+}
 
 enum class Error
 {

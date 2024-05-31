@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RtAudio/RtAudio.h"
+#include "RTAudio/RTAudio-Backend.h"
 #include <functional>
 
 namespace MakeASound
@@ -36,19 +36,19 @@ struct DeviceManager
         result.reserve(ids.size());
 
         for (auto id: ids)
-            result.emplace_back(manager.getDeviceInfo(id));
+            result.emplace_back(getInfo(manager.getDeviceInfo(id)));
 
         return result;
     }
 
     DeviceInfo getDefaultInputDevice()
     {
-        return manager.getDeviceInfo(manager.getDefaultInputDevice());
+        return getInfo(manager.getDeviceInfo(manager.getDefaultInputDevice()));
     }
 
     DeviceInfo getDefaultOutputDevice()
     {
-        return manager.getDeviceInfo(manager.getDefaultOutputDevice());
+        return getInfo(manager.getDeviceInfo(manager.getDefaultOutputDevice()));
     }
 
     StreamConfig getDefaultConfig()

@@ -13,10 +13,10 @@ void audioCallback(MakeASound::AudioCallbackInfo& info)
 {
     for (size_t channel = 0; channel < info.numOutputs; ++channel)
     {
+        auto channelData = info.getOutput<float>(channel);
+
         for (size_t sample = 0; sample < info.nFrames; ++sample)
-        {
-            info.getOutput<float>(channel)[sample] = getRandomFloat();
-        }
+            channelData[sample] = getRandomFloat();
     }
 }
 
@@ -25,7 +25,6 @@ int main()
     MakeASound::DeviceManager manager;
 
     auto config = manager.getDefaultConfig();
-
     config.callback = audioCallback;
 
     manager.openStream(config);
