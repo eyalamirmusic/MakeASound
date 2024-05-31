@@ -27,8 +27,7 @@ int main()
 
     config.callback = audioCallback;
 
-    manager.openStream(config);
-    manager.startStream();
+    manager.start(manager.getDefaultConfig());
 
     while (true)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

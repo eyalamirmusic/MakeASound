@@ -15,18 +15,7 @@ struct DeviceManager
         manager.setErrorCallback(errorCallback);
     }
 
-    ~DeviceManager()
-    {
-        if (isStreamRunning())
-            stopStream();
-
-        if (isStreamOpen())
-            closeStream();
-    }
-
-    unsigned int getDeviceCount() { return manager.getDeviceCount(); }
-
-    std::vector<std::string> getDeviceNames() { return manager.getDeviceNames(); };
+    ~DeviceManager() { stop(); }
 
     std::vector<DeviceInfo> getDevices()
     {
@@ -40,12 +29,10 @@ struct DeviceManager
 
         return result;
     }
-
     DeviceInfo getDefaultInputDevice()
     {
         return getInfo(manager.getDeviceInfo(manager.getDefaultInputDevice()));
     }
-
     DeviceInfo getDefaultOutputDevice()
     {
         return getInfo(manager.getDeviceInfo(manager.getDefaultOutputDevice()));
@@ -64,6 +51,22 @@ struct DeviceManager
         return config;
     }
 
+    void start(const StreamConfig& configToUse)
+    {
+        openStream(configToUse);
+        startStream();
+    }
+
+    void stop()
+    {
+        if (isStreamRunning())
+            stopStream();
+
+        if (isStreamOpen())
+            closeStream();
+    }
+
+private:
     unsigned int openStream(const StreamConfig& configToUse)
     {
         config = configToUse;
@@ -87,12 +90,8 @@ struct DeviceManager
             auto& manager = *static_cast<DeviceManager*>(userData);
             auto& config = manager.config;
 
-            auto info = getCallbackInfo(outputBuffer,
-                                        inputBuffer,
-                                        nFrames,
-                                        streamTime,
-                                        status,
-                                        config);
+            auto info = getCallbackInfo(
+                outputBuffer, inputBuffer, nFrames, streamTime, status, config);
 
             config.callback(info);
 
@@ -115,7 +114,6 @@ struct DeviceManager
 
         return frames;
     }
-
     void closeStream() { manager.closeStream(); }
     void startStream() { manager.startStream(); }
     void stopStream() { manager.stopStream(); };
@@ -129,7 +127,6 @@ struct DeviceManager
     bool isStreamRunning() const { return manager.isStreamRunning(); }
     void showWarnings(bool value) { manager.showWarnings(value); }
 
-private:
     StreamConfig config;
     RtAudio manager;
 };

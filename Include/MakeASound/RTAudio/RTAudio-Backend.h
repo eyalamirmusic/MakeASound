@@ -163,7 +163,7 @@ inline RtAudio::StreamOptions getOptions(const StreamOptions& options)
     return result;
 }
 
-inline AudioCallbackStatus getStatus(RtAudioFormat status)
+inline AudioCallbackStatus getStatus(RtAudioStreamStatus status)
 {
     if (status == RTAUDIO_OUTPUT_UNDERFLOW)
         return AudioCallbackStatus::OutputUnderflow;
@@ -175,11 +175,11 @@ inline AudioCallbackStatus getStatus(RtAudioFormat status)
 }
 
 inline AudioCallbackInfo getCallbackInfo(void* outputBuffer,
-                                  void* inputBuffer,
-                                  unsigned int nFrames,
-                                  double streamTime,
-                                  RtAudioStreamStatus status,
-                                  const StreamConfig& config)
+                                         void* inputBuffer,
+                                         unsigned int nFrames,
+                                         double streamTime,
+                                         RtAudioStreamStatus status,
+                                         const StreamConfig& config)
 {
     AudioCallbackInfo info;
 
