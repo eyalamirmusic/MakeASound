@@ -85,17 +85,16 @@ struct DeviceManager
                            void* userData)
         {
             auto& manager = *static_cast<DeviceManager*>(userData);
+            auto& config = manager.config;
 
-            AudioCallbackInfo info;
-            info.inputBuffer = inputBuffer;
-            info.outputBuffer = outputBuffer;
-            info.nFrames = nFrames;
-            info.streamTime = streamTime;
-            info.status = status;
-            info.numInputs = manager.config.getInputChannels();
-            info.numOutputs = manager.config.getOutputChannels();
+            auto info = getCallbackInfo(outputBuffer,
+                                        inputBuffer,
+                                        nFrames,
+                                        streamTime,
+                                        status,
+                                        config);
 
-            manager.config.callback(info);
+            config.callback(info);
 
             return info.errorCode;
         };

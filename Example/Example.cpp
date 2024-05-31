@@ -23,8 +23,8 @@ void audioCallback(MakeASound::AudioCallbackInfo& info)
 int main()
 {
     MakeASound::DeviceManager manager;
-
     auto config = manager.getDefaultConfig();
+
     config.callback = audioCallback;
 
     manager.openStream(config);
