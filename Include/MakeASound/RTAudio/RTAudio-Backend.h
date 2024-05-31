@@ -1,11 +1,70 @@
 #pragma once
 
-#pragma once
-
 #include <RtAudio.h>
 
 namespace MakeASound
 {
+
+template <typename BitType>
+bool bitCompare(BitType bits, BitType bit)
+{
+    return bits & bit;
+}
+
+enum class Format
+{
+    Int8,
+    Int16,
+    Int24,
+    Int32,
+    Float32,
+    Float64
+};
+
+inline RtAudioFormat getFormat(Format format)
+{
+    switch (format)
+    {
+        case Format::Int8:
+            return RTAUDIO_SINT8;
+        case Format::Int16:
+            return RTAUDIO_SINT16;
+        case Format::Int24:
+            return RTAUDIO_SINT24;
+        case Format::Int32:
+            return RTAUDIO_SINT32;
+        case Format::Float32:
+            return RTAUDIO_FLOAT32;
+        case Format::Float64:
+            return RTAUDIO_FLOAT64;
+    }
+
+    return RTAUDIO_FLOAT32;
+}
+
+using Formats = std::vector<Format>;
+
+inline void addFormat(Formats& formats, RtAudioFormat bits, Format format)
+{
+    auto bit = getFormat(format);
+
+    if (bitCompare(bits, bit))
+        formats.emplace_back(format);
+}
+
+inline Formats getFormats(RtAudioFormat formats)
+{
+    Formats result {};
+
+    addFormat(result, formats, Format::Int8);
+    addFormat(result, formats, Format::Int16);
+    addFormat(result, formats, Format::Int24);
+    addFormat(result, formats, Format::Int32);
+    addFormat(result, formats, Format::Float32);
+    addFormat(result, formats, Format::Float64);
+
+    return result;
+}
 
 struct DeviceInfo
 {
@@ -19,7 +78,7 @@ struct DeviceInfo
     std::vector<unsigned int> sampleRates;
     unsigned int currentSampleRate {};
     unsigned int preferredSampleRate {};
-    RtAudioFormat nativeFormats {};
+    Formats nativeFormats;
 };
 
 DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
@@ -35,7 +94,7 @@ DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
     result.sampleRates = info.sampleRates;
     result.currentSampleRate = info.currentSampleRate;
     result.preferredSampleRate = info.preferredSampleRate;
-    result.nativeFormats = info.nativeFormats;
+    result.nativeFormats = getFormats(info.nativeFormats);
 
     return result;
 }
@@ -188,16 +247,6 @@ inline RtAudio::StreamOptions getOptions(const StreamOptions& options)
     return result;
 }
 
-enum class Format
-{
-    Int8,
-    Int16,
-    Int24,
-    Int32,
-    Float32,
-    Float64
-};
-
 struct AudioCallbackInfo
 {
     template <typename T>
@@ -247,25 +296,4 @@ struct StreamConfig
     Callback callback = [](AudioCallbackInfo&) {};
     std::optional<StreamOptions> options;
 };
-
-inline RtAudioFormat getFormat(Format format)
-{
-    switch (format)
-    {
-        case Format::Int8:
-            return RTAUDIO_SINT8;
-        case Format::Int16:
-            return RTAUDIO_SINT16;
-        case Format::Int24:
-            return RTAUDIO_SINT24;
-        case Format::Int32:
-            return RTAUDIO_SINT32;
-        case Format::Float32:
-            return RTAUDIO_FLOAT32;
-        case Format::Float64:
-            return RTAUDIO_FLOAT64;
-    }
-
-    return RTAUDIO_FLOAT32;
-}
 } // namespace MakeASound
