@@ -5,6 +5,13 @@
 
 namespace MakeASound
 {
+int audioCallback(void* outputBuffer,
+                  void* inputBuffer,
+                  unsigned int nFrames,
+                  double streamTime,
+                  RtAudioStreamStatus status,
+                  void* userData);
+
 struct DeviceManager
 {
     DeviceManager()
@@ -51,8 +58,9 @@ struct DeviceManager
         return config;
     }
 
-    void start(const StreamConfig& configToUse)
+    void start(const StreamConfig& configToUse, const Callback& cb)
     {
+        callback = cb;
         openStream(configToUse);
         startStream();
     }
@@ -65,6 +73,9 @@ struct DeviceManager
         if (isStreamOpen())
             closeStream();
     }
+
+    Callback callback;
+    StreamConfig config;
 
 private:
     unsigned int openStream(const StreamConfig& configToUse)
@@ -80,30 +91,12 @@ private:
         auto options =
             optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
 
-        auto callback = [](void* outputBuffer,
-                           void* inputBuffer,
-                           unsigned int nFrames,
-                           double streamTime,
-                           RtAudioStreamStatus status,
-                           void* userData)
-        {
-            auto& manager = *static_cast<DeviceManager*>(userData);
-            auto& config = manager.config;
-
-            auto info = getCallbackInfo(
-                outputBuffer, inputBuffer, nFrames, streamTime, status, config);
-
-            config.callback(info);
-
-            return info.errorCode;
-        };
-
         auto error = manager.openStream(out.get(),
                                         in.get(),
                                         format,
                                         config.sampleRate,
                                         &frames,
-                                        callback,
+                                        audioCallback,
                                         this,
                                         options.get());
 
@@ -127,8 +120,24 @@ private:
     bool isStreamRunning() const { return manager.isStreamRunning(); }
     void showWarnings(bool value) { manager.showWarnings(value); }
 
-    StreamConfig config;
     RtAudio manager;
 };
+
+inline int audioCallback(void* outputBuffer,
+                         void* inputBuffer,
+                         unsigned int nFrames,
+                         double streamTime,
+                         RtAudioStreamStatus status,
+                         void* userData)
+{
+    auto& manager = *static_cast<DeviceManager*>(userData);
+
+    auto info = getCallbackInfo(
+        outputBuffer, inputBuffer, nFrames, streamTime, status, manager.config);
+
+    manager.callback(info);
+
+    return info.errorCode;
+}
 
 } // namespace MakeASound

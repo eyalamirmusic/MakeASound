@@ -143,7 +143,6 @@ struct StreamConfig
     Format format = Format::Float32;
     unsigned int sampleRate = {};
     unsigned int bufferFrames = 0;
-    Callback callback = [](AudioCallbackInfo&) {};
     std::optional<StreamOptions> options;
 };
 } // namespace MakeASound

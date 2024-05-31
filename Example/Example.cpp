@@ -23,11 +23,7 @@ void audioCallback(MakeASound::AudioCallbackInfo& info)
 int main()
 {
     MakeASound::DeviceManager manager;
-    auto config = manager.getDefaultConfig();
-
-    config.callback = audioCallback;
-
-    manager.start(manager.getDefaultConfig());
+    manager.start(manager.getDefaultConfig(), audioCallback);
 
     while (true)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
