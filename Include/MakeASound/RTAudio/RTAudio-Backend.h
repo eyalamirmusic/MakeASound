@@ -3,7 +3,7 @@
 #include <RtAudio.h>
 #include "../DeviceInfo.h"
 
-namespace MakeASound
+namespace MakeASound::RTAudio
 {
 
 template <typename BitType>

@@ -1,6 +1,9 @@
 #pragma once
 
 #include <vector>
+#include <optional>
+#include <string>
+#include <functional>
 
 namespace MakeASound
 {
@@ -178,5 +181,4 @@ struct AudioCallbackInfo
 };
 
 using Callback = std::function<void(AudioCallbackInfo&)>;
-
 } // namespace MakeASound
