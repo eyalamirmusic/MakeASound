@@ -71,7 +71,18 @@ inline unsigned int DeviceManager::getStreamSampleRate()
 
 inline unsigned int DeviceManager::openStream()
 {
-    getConcrete<RT>().callback = callback;
+    auto actualCallback = [this](AudioCallbackInfo& info)
+    {
+        if (prevInfo != info)
+        {
+            prevInfo = info;
+            info.dirty = true;
+        }
+
+        callback(info);
+    };
+
+    getConcrete<RT>().callback = actualCallback;
     auto res = getConcrete<RT>().openStream(config);
     getConcrete<RT>().start();
     return res;
