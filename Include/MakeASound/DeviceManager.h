@@ -25,6 +25,8 @@ public:
     unsigned int getStreamSampleRate();
 
 private:
+    unsigned int openStream();
+
     template <typename T>
     T& getConcrete()
     {

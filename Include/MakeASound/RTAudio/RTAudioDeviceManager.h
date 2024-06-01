@@ -21,8 +21,6 @@ struct DeviceManager
         manager.setErrorCallback(errorCallback);
     }
 
-    ~DeviceManager() { stop(); }
-
     std::vector<DeviceInfo> getDevices()
     {
         std::vector<DeviceInfo> result;
@@ -35,40 +33,18 @@ struct DeviceManager
 
         return result;
     }
+
     DeviceInfo getDefaultInputDevice()
     {
         return getInfo(manager.getDeviceInfo(manager.getDefaultInputDevice()));
     }
+
     DeviceInfo getDefaultOutputDevice()
     {
         return getInfo(manager.getDeviceInfo(manager.getDefaultOutputDevice()));
     }
 
-    StreamConfig getDefaultConfig()
-    {
-        StreamConfig config;
-
-        config.input = StreamParameters(getDefaultInputDevice(), true);
-        config.output = StreamParameters(getDefaultInputDevice(), false);
-
-        config.sampleRate = 44100;
-        config.maxBlockSize = 512;
-
-        return config;
-    }
-
-    void setConfig(const StreamConfig& configToUse)
-    {
-        stop();
-        openStream(configToUse);
-        startStream();
-    }
-
-    void start(const StreamConfig& configToUse, const Callback& cb)
-    {
-        callback = cb;
-        setConfig(configToUse);
-    }
+    void start() { startStream(); }
 
     void stop()
     {
@@ -79,14 +55,6 @@ struct DeviceManager
             closeStream();
     }
 
-    long getStreamLatency() { return manager.getStreamLatency(); }
-    unsigned int getStreamSampleRate() { return manager.getStreamSampleRate(); }
-
-    AudioCallbackInfo prevInfo;
-    Callback callback;
-    StreamConfig config;
-
-private:
     unsigned int openStream(const StreamConfig& configToUse)
     {
         config = configToUse;
@@ -116,6 +84,15 @@ private:
 
         return frames;
     }
+
+    long getStreamLatency() { return manager.getStreamLatency(); }
+    unsigned int getStreamSampleRate() { return manager.getStreamSampleRate(); }
+
+    AudioCallbackInfo prevInfo;
+    Callback callback;
+    StreamConfig config;
+
+private:
     void closeStream() { manager.closeStream(); }
     void startStream() { manager.startStream(); }
     void stopStream() { manager.stopStream(); };
@@ -161,4 +138,4 @@ inline int audioCallback(void* outputBuffer,
     return info.errorCode;
 }
 
-} // namespace MakeASound
+} // namespace MakeASound::RTAudio

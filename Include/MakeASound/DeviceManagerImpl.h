@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DeviceManager.h"
-#include "RtAudio/RTAudioDeviceManager.h"
+#include "RTAudio/RTAudioDeviceManager.h"
 
 namespace MakeASound
 {
@@ -13,7 +13,9 @@ inline DeviceManager::DeviceManager()
 }
 inline DeviceManager::~DeviceManager()
 {
+    stop();
 }
+
 inline std::vector<DeviceInfo> DeviceManager::getDevices()
 {
     return getConcrete<RT>().getDevices();
@@ -26,18 +28,33 @@ inline DeviceInfo DeviceManager::getDefaultOutputDevice()
 {
     return getConcrete<RT>().getDefaultOutputDevice();
 }
+
 inline StreamConfig DeviceManager::getDefaultConfig()
 {
-    return getConcrete<RT>().getDefaultConfig();
+    StreamConfig config;
+
+    config.input = StreamParameters(getDefaultInputDevice(), true);
+    config.output = StreamParameters(getDefaultInputDevice(), false);
+
+    config.sampleRate = 44100;
+    config.maxBlockSize = 512;
+
+    return config;
 }
+
 inline void DeviceManager::setConfig(const StreamConfig& configToUse)
 {
-    return getConcrete<RT>().setConfig(configToUse);
+    config = configToUse;
+    stop();
+    openStream();
 }
+
 inline void DeviceManager::start(const StreamConfig& configToUse, const Callback& cb)
 {
-    return getConcrete<RT>().start(configToUse, cb);
+    callback = cb;
+    setConfig(configToUse);
 }
+
 inline void DeviceManager::stop()
 {
     return getConcrete<RT>().stop();
@@ -50,5 +67,13 @@ inline long DeviceManager::getStreamLatency()
 inline unsigned int DeviceManager::getStreamSampleRate()
 {
     return getConcrete<RT>().getStreamSampleRate();
+}
+
+inline unsigned int DeviceManager::openStream()
+{
+    getConcrete<RT>().callback = callback;
+    auto res = getConcrete<RT>().openStream(config);
+    getConcrete<RT>().start();
+    return res;
 }
 } // namespace MakeASound
