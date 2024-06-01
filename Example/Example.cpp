@@ -9,18 +9,12 @@ float getRandomFloat()
     return dis(e);
 }
 
-std::mutex mutex;
-
-void prepare(MakeASound::AudioCallbackInfo& info)
-{
-    std::lock_guard lock (mutex);
-    std::cout << "Block Size: " << info.maxBlockSize << std::endl;
-}
-
 void processBlock(MakeASound::AudioCallbackInfo& info)
 {
     if (info.dirty)
-        prepare(info);
+    {
+        //Allocate memory, etc
+    }
 
     for (size_t channel = 0; channel < info.numOutputs; ++channel)
     {
@@ -31,27 +25,15 @@ void processBlock(MakeASound::AudioCallbackInfo& info)
     }
 }
 
-MakeASound::StreamConfig getConfig(MakeASound::DeviceManager& manager, int blockSize)
-{
-    MakeASound::StreamConfig config;
-
-    auto devices = manager.getDevices();
-    config.output = MakeASound::StreamParameters(devices[1], false);
-
-    config.sampleRate = 44100;
-    config.maxBlockSize = blockSize;
-
-    return config;
-}
-
 int main()
 {
     MakeASound::DeviceManager manager;
+    manager.start(manager.getDefaultConfig(), processBlock);
 
-    manager.start(getConfig(manager, 512), processBlock);
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-    manager.start(getConfig(manager, 256), processBlock);
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    while (true)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+    }
 
     return 0;
 }
