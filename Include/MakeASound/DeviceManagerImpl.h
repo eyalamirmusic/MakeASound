@@ -44,8 +44,8 @@ inline StreamConfig DeviceManager::getDefaultConfig()
 
 inline void DeviceManager::setConfig(const StreamConfig& configToUse)
 {
-    config = configToUse;
     stop();
+    config = configToUse;
     openStream();
 }
 
@@ -82,9 +82,12 @@ inline unsigned int DeviceManager::openStream()
         callback(info);
     };
 
-    getConcrete<RT>().callback = actualCallback;
-    auto res = getConcrete<RT>().openStream(config);
-    getConcrete<RT>().start();
+    auto& rt = getConcrete<RT>();
+
+    rt.callback = actualCallback;
+    auto res = rt.openStream(config);
+    rt.start();
+
     return res;
 }
 } // namespace MakeASound

@@ -130,8 +130,6 @@ inline int audioCallback(void* outputBuffer,
     manager.callback(info);
 
     return info.errorCode;
-
-    return info.errorCode;
 }
 
 } // namespace MakeASound::RTAudio
