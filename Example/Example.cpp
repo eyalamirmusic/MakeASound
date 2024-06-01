@@ -1,4 +1,5 @@
 #include <MakeASound/DeviceManagerImpl.h>
+#include "MakeASound/Serializing/Serializing.h"
 #include <thread>
 #include <random>
 
@@ -25,22 +26,11 @@ void processBlock(MakeASound::AudioCallbackInfo& info)
     }
 }
 
-inline MakeASound::StreamConfig getConfig(MakeASound::DeviceManager& manager,
-                                          int block)
-{
-    auto defaultConfig = manager.getDefaultConfig();
-    defaultConfig.maxBlockSize = block;
-
-    return defaultConfig;
-}
 
 int main()
 {
     MakeASound::DeviceManager manager;
-    manager.start(getConfig(manager, 512), processBlock);
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-    manager.start(getConfig(manager, 256), processBlock);
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    MakeASound::print(manager.getDefaultConfig());
 
     return 0;
 }

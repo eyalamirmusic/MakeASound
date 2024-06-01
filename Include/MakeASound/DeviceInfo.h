@@ -64,13 +64,17 @@ inline unsigned int getDefaultNumChannels(const DeviceInfo& info, bool input)
 struct StreamParameters
 {
     StreamParameters() = default;
-    StreamParameters(const DeviceInfo& info, bool input)
-        : deviceId(info.id)
-        , nChannels(getDefaultNumChannels(info, input))
+    StreamParameters(const DeviceInfo& deviceToUse, bool input, int numChannels = -1)
+        : device(deviceToUse)
     {
+        if (numChannels >= 0)
+            nChannels = numChannels;
+        else
+            nChannels = getDefaultNumChannels(deviceToUse, input);
     }
 
-    unsigned int deviceId {};
+    DeviceInfo device;
+
     unsigned int nChannels {};
     unsigned int firstChannel {};
 };

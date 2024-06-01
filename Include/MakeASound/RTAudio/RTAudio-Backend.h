@@ -119,7 +119,7 @@ inline RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
 {
     RtAudio::StreamParameters result;
 
-    result.deviceId = params.deviceId;
+    result.deviceId = params.device.id;
     result.firstChannel = params.firstChannel;
     result.nChannels = params.nChannels;
 
