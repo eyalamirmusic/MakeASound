@@ -51,7 +51,7 @@ struct DeviceInfo
 
 enum class Error
 {
-    NO_ERROR,
+    NoError,
     WARNING,
     UNKNOWN_ERROR,
     NO_DEVICES_FOUND,

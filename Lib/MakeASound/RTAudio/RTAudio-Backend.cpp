@@ -68,7 +68,7 @@ Error getError(RtAudioErrorType error)
     switch (error)
     {
         case RTAUDIO_NO_ERROR:
-            return Error::NO_ERROR;
+            return Error::NoError;
         case RTAUDIO_WARNING:
             return Error::WARNING;
         case RTAUDIO_UNKNOWN_ERROR:
@@ -93,7 +93,7 @@ Error getError(RtAudioErrorType error)
             return Error::THREAD_ERROR;
     }
 
-    return Error::NO_ERROR;
+    return Error::NoError;
 }
 
 RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
@@ -176,7 +176,7 @@ AudioCallbackInfo getCallbackInfo(void* outputBuffer,
     info.config = &config;
     info.sampleRate = sampleRate;
     info.latency = latency;
-    info.maxBlockSize = numSamples;
+    info.maxBlockSize = config.maxBlockSize;
 
     return info;
 }

@@ -34,7 +34,7 @@ StreamConfig DeviceManager::getDefaultConfig() const
     auto defaultConfig = StreamConfig();
 
     defaultConfig.input = StreamParameters(getDefaultInputDevice(), true);
-    defaultConfig.output = StreamParameters(getDefaultInputDevice(), false);
+    defaultConfig.output = StreamParameters(getDefaultOutputDevice(), false);
 
     defaultConfig.sampleRate = 44100;
     defaultConfig.maxBlockSize = 512;

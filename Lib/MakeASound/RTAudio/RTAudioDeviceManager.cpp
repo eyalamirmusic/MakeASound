@@ -7,8 +7,13 @@ namespace MakeASound::RTAudio
 
 DeviceManager::DeviceManager()
 {
-    auto errorCallback = [](RtAudioErrorType, const std::string& errorText)
-    { throw std::runtime_error(errorText); };
+    auto errorCallback = [](RtAudioErrorType type, const std::string& errorText)
+    {
+        if (type == RTAUDIO_WARNING || type == RTAUDIO_NO_ERROR)
+            return;
+
+        throw std::runtime_error(errorText);
+    };
 
     manager.setErrorCallback(errorCallback);
 }
@@ -63,19 +68,14 @@ unsigned int DeviceManager::openStream(const StreamConfig& configToUse)
     auto options =
         optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
 
-    auto error = manager.openStream(out.get(),
-                                    in.get(),
-                                    format,
-                                    config.sampleRate,
-                                    &frames,
-                                    audioCallback,
-                                    this,
-                                    options.get());
-
-    auto e = getError(error);
-
-    if (e != Error::NO_ERROR)
-        throw std::runtime_error(manager.getErrorText());
+    manager.openStream(out.get(),
+                       in.get(),
+                       format,
+                       config.sampleRate,
+                       &frames,
+                       audioCallback,
+                       this,
+                       options.get());
 
     return frames;
 }
