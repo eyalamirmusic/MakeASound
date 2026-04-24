@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../DeviceInfo/DeviceInfo.h"
-#include <any>
 #include <memory>
 
 namespace MakeASound
 {
+namespace RTAudio
+{
+struct DeviceManager;
+}
 
 class DeviceManager
 {
@@ -13,32 +16,26 @@ public:
     DeviceManager();
     ~DeviceManager();
 
-    std::vector<DeviceInfo> getDevices();
-    DeviceInfo getDefaultInputDevice();
-    DeviceInfo getDefaultOutputDevice();
-    StreamConfig getDefaultConfig();
+    std::vector<DeviceInfo> getDevices() const;
+    DeviceInfo getDefaultInputDevice() const;
+    DeviceInfo getDefaultOutputDevice() const;
+    StreamConfig getDefaultConfig() const;
 
     void setConfig(const StreamConfig& configToUse);
     void start(const StreamConfig& configToUse, const Callback& cb);
-    void stop();
+    void stop() const;
 
-    long getStreamLatency();
-    unsigned int getStreamSampleRate();
+    long getStreamLatency() const;
+    unsigned int getStreamSampleRate() const;
 
 private:
     unsigned int openStream();
-
-    template <typename T>
-    T& getConcrete()
-    {
-        return **std::any_cast<std::shared_ptr<T>>(&pimpl);
-    }
 
     AudioCallbackInfo prevInfo;
     Callback callback;
     StreamConfig config;
 
-    std::any pimpl;
+    std::unique_ptr<RTAudio::DeviceManager> pimpl;
 };
 
 } // namespace MakeASound

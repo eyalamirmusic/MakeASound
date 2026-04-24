@@ -3,11 +3,10 @@
 
 namespace MakeASound
 {
-using RT = RTAudio::DeviceManager;
 
 DeviceManager::DeviceManager()
+    : pimpl(std::make_unique<RTAudio::DeviceManager>())
 {
-    pimpl = std::make_shared<RT>();
 }
 
 DeviceManager::~DeviceManager()
@@ -15,22 +14,22 @@ DeviceManager::~DeviceManager()
     stop();
 }
 
-std::vector<DeviceInfo> DeviceManager::getDevices()
+std::vector<DeviceInfo> DeviceManager::getDevices() const
 {
-    return getConcrete<RT>().getDevices();
+    return pimpl->getDevices();
 }
 
-DeviceInfo DeviceManager::getDefaultInputDevice()
+DeviceInfo DeviceManager::getDefaultInputDevice() const
 {
-    return getConcrete<RT>().getDefaultInputDevice();
+    return pimpl->getDefaultInputDevice();
 }
 
-DeviceInfo DeviceManager::getDefaultOutputDevice()
+DeviceInfo DeviceManager::getDefaultOutputDevice() const
 {
-    return getConcrete<RT>().getDefaultOutputDevice();
+    return pimpl->getDefaultOutputDevice();
 }
 
-StreamConfig DeviceManager::getDefaultConfig()
+StreamConfig DeviceManager::getDefaultConfig() const
 {
     StreamConfig defaultConfig;
 
@@ -56,19 +55,19 @@ void DeviceManager::start(const StreamConfig& configToUse, const Callback& cb)
     setConfig(configToUse);
 }
 
-void DeviceManager::stop()
+void DeviceManager::stop() const
 {
-    return getConcrete<RT>().stop();
+    pimpl->stop();
 }
 
-long DeviceManager::getStreamLatency()
+long DeviceManager::getStreamLatency() const
 {
-    return getConcrete<RT>().getStreamLatency();
+    return pimpl->getStreamLatency();
 }
 
-unsigned int DeviceManager::getStreamSampleRate()
+unsigned int DeviceManager::getStreamSampleRate() const
 {
-    return getConcrete<RT>().getStreamSampleRate();
+    return pimpl->getStreamSampleRate();
 }
 
 unsigned int DeviceManager::openStream()
@@ -84,11 +83,9 @@ unsigned int DeviceManager::openStream()
         callback(info);
     };
 
-    auto& rt = getConcrete<RT>();
-
-    rt.callback = actualCallback;
-    auto res = rt.openStream(config);
-    rt.start();
+    pimpl->callback = actualCallback;
+    auto res = pimpl->openStream(config);
+    pimpl->start();
 
     return res;
 }
