@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Miro/Miro.h>
+
 #include <vector>
 #include <optional>
 #include <string>
@@ -22,6 +24,18 @@ using Formats = std::vector<Format>;
 
 struct DeviceInfo
 {
+    MIRO_REFLECT(id,
+                 name,
+                 outputChannels,
+                 inputChannels,
+                 duplexChannels,
+                 isDefaultOutput,
+                 isDefaultInput,
+                 sampleRates,
+                 currentSampleRate,
+                 preferredSampleRate,
+                 nativeFormats)
+
     unsigned int id {};
     std::string name;
     unsigned int outputChannels {};
@@ -73,6 +87,8 @@ struct StreamParameters
             nChannels = getDefaultNumChannels(deviceToUse, input);
     }
 
+    MIRO_REFLECT(device, nChannels, firstChannel)
+
     DeviceInfo device;
 
     unsigned int nChannels {};
@@ -81,6 +97,13 @@ struct StreamParameters
 
 struct Flags
 {
+    MIRO_REFLECT(nonInterleaved,
+                 minimizeLatency,
+                 hogDevice,
+                 scheduleRealTime,
+                 alsaUseDefault,
+                 jackDontConnect)
+
     bool nonInterleaved = true;
     bool minimizeLatency = true;
     bool hogDevice = false;
@@ -91,6 +114,8 @@ struct Flags
 
 struct StreamOptions
 {
+    MIRO_REFLECT(flags, numberOfBuffers, streamName, priority)
+
     Flags flags {};
     unsigned int numberOfBuffers {};
     std::string streamName {};
@@ -116,6 +141,8 @@ struct StreamConfig
 {
     unsigned int getInputChannels() const { return getNumChannels(input); }
     unsigned int getOutputChannels() const { return getNumChannels(output); }
+
+    MIRO_REFLECT(input, output, format, sampleRate, maxBlockSize, options)
 
     std::optional<StreamParameters> input;
     std::optional<StreamParameters> output;

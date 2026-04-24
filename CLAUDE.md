@@ -8,7 +8,7 @@ MakeASound is a header-only C++20 wrapper around [RtAudio](https://github.com/th
 
 ## Build
 
-Dependencies (RtAudio, [Miro](https://github.com/eyalamirmusic/Miro), magic_enum) are fetched automatically by [CPM.cmake](CMake/CPM.cmake) the first time CMake configures. No manual install is needed.
+Dependencies (RtAudio, [Miro](https://github.com/eyalamirmusic/Miro)) are fetched automatically by [CPM.cmake](CMake/CPM.cmake) the first time CMake configures. No manual install is needed.
 
 ```bash
 cmake -S . -B build -G Ninja
@@ -26,7 +26,7 @@ There is no test target and no lint/CI script wired up — `.clang-format` and `
 
 Three layers, all header-only:
 
-1. **Plain-data types** (`Include/MakeASound/DeviceInfo.h`) — backend-independent structs/enums (`DeviceInfo`, `StreamConfig`, `StreamParameters`, `Format`, `Flags`, `AudioCallbackInfo`, `Callback`). No RtAudio types leak into this header. `AudioCallbackInfo` carries buffers plus a `dirty` flag that is raised when the stream shape (channels, sample rate, block size) changes since the previous callback — consumers use it as the signal to (re)allocate working buffers.
+1. **Plain-data types** (`Include/MakeASound/DeviceInfo.h`) — backend-independent structs/enums (`DeviceInfo`, `StreamConfig`, `StreamParameters`, `Format`, `Flags`, `AudioCallbackInfo`, `Callback`). No RtAudio types leak into this header. `AudioCallbackInfo` carries buffers plus a `dirty` flag that is raised when the stream shape (channels, sample rate, block size) changes since the previous callback — consumers use it as the signal to (re)allocate working buffers. The data structs use `MIRO_REFLECT(...)` in-place to opt into Miro's JSON reflection — no separate serialization header.
 
 2. **Public façade** (`Include/MakeASound/DeviceManager.h` + `DeviceManagerImpl.h`) — `MakeASound::DeviceManager` uses a **type-erased pimpl via `std::any`** (holding a `std::shared_ptr<RTAudio::DeviceManager>`). This is why the implementation lives in `DeviceManagerImpl.h` (inline definitions) rather than a `.cpp`: the header-only contract would otherwise force every translation unit to see RtAudio. Clients that only need the types include `MakeASound.h` / `DeviceManager.h`; clients that actually construct a `DeviceManager` must include `DeviceManagerImpl.h` (see `Example/Example.cpp`). If a second backend is ever added, swap the `using RT = ...` alias and the `make_shared<RT>()` call in `DeviceManagerImpl.h`.
 
@@ -34,12 +34,12 @@ Three layers, all header-only:
 
 **Dirty-flag flow:** the façade wraps the user callback in a lambda that compares the incoming `AudioCallbackInfo` against `prevInfo` (via the struct's `operator==` on channels/sampleRate/maxBlockSize) and sets `info.dirty = true` on change. Preserve this wrapping when editing `DeviceManager::openStream` — the raw backend callback does not set `dirty`.
 
-**Serialization** (`Include/MakeASound/Serializing/Serializing.h`) is optional and lives behind its own include. It uses Miro's reflection layer via non-intrusive free `reflect(Miro::Reflector&, T&)` overloads in namespace `MakeASound` (found by ADL), so the core public headers stay free of a Miro dependency. Three generic Miro overloads are added in namespace `Miro` to cover types Miro doesn't handle natively: constrained templates for integral types other than `int`/`bool` (serialized as numbers — needed for the `unsigned int` fields throughout `DeviceInfo`), for enums (serialized as strings via `magic_enum`), and for `std::optional<T>` (empty → JSON `null`). The core library does not depend on Miro or magic_enum — only the `Example` target links them, so code under `Include/MakeASound/` outside the `Serializing/` subdir must not include these headers.
+**Serialization:** Miro provides everything needed natively — built-in reflection for primitives, integrals, `std::vector`/`std::array`/`std::map`/`std::optional`, and enums (string-named via `Miro::enumToString`). The data structs in `DeviceInfo.h` use `MIRO_REFLECT(...)` directly, so anything that includes `DeviceInfo.h` transitively pulls in Miro. The `MakeASound` INTERFACE target links Miro publicly to make this work for downstream consumers.
 
 ## Conventions
 
 - C++20, namespace `MakeASound` (backend code in `MakeASound::RTAudio`).
 - `.clang-format`: Allman braces, 4-space indent, 85-col limit, pointer-left, no tabs, `NamespaceIndentation: None`, `SortIncludes: false` (include order is intentional — don't reorder).
-- The `MakeASound` CMake target is `INTERFACE` (header-only); it links `rtaudio` transitively. Consumers that use `DeviceManagerImpl.h` inherit the RtAudio link automatically.
+- The `MakeASound` CMake target is `INTERFACE` (header-only); it links `rtaudio` and `Miro` transitively. Consumers that use `DeviceManagerImpl.h` inherit the RtAudio link automatically; anything including `DeviceInfo.h` gets Miro's headers via the same target.
 - always use auto for variables
 - use modern RAII code whenever possible

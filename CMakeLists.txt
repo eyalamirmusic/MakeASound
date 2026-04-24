@@ -10,9 +10,9 @@ find_package(RTAudio REQUIRED)
 find_package(Miro REQUIRED)
 
 add_library(MakeASound INTERFACE)
-target_link_libraries(MakeASound INTERFACE rtaudio)
+target_link_libraries(MakeASound INTERFACE rtaudio Miro)
 target_include_directories(MakeASound INTERFACE Include)
 
 add_executable(Example Example/Example.cpp)
-target_link_libraries(Example PRIVATE MakeASound Miro)
+target_link_libraries(Example PRIVATE MakeASound)
 

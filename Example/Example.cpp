@@ -1,5 +1,4 @@
 #include <MakeASound/DeviceManagerImpl.h>
-#include "MakeASound/Serializing/Serializing.h"
 #include <thread>
 #include <random>
 
