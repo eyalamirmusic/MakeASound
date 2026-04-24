@@ -2,7 +2,6 @@
 
 namespace MakeASound::RTAudio
 {
-
 RtAudioFormat getFormat(Format format)
 {
     switch (format)

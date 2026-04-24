@@ -31,7 +31,7 @@ DeviceInfo DeviceManager::getDefaultOutputDevice() const
 
 StreamConfig DeviceManager::getDefaultConfig() const
 {
-    StreamConfig defaultConfig;
+    auto defaultConfig = StreamConfig();
 
     defaultConfig.input = StreamParameters(getDefaultInputDevice(), true);
     defaultConfig.output = StreamParameters(getDefaultInputDevice(), false);
