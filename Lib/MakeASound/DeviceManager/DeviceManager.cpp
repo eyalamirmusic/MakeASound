@@ -1,6 +1,8 @@
 #include "DeviceManager.h"
 #include "../RTAudio/RTAudioDeviceManager.h"
 
+#include <stdexcept>
+
 namespace MakeASound
 {
 
@@ -72,6 +74,9 @@ unsigned int DeviceManager::getStreamSampleRate() const
 
 unsigned int DeviceManager::openStream()
 {
+    if (!callback)
+        throw std::runtime_error("MakeASound: openStream called without a callback");
+
     auto actualCallback = [this](AudioCallbackInfo& info)
     {
         if (prevInfo != info)

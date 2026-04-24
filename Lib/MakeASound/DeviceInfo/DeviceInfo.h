@@ -107,7 +107,7 @@ struct Flags
     bool nonInterleaved = true;
     bool minimizeLatency = true;
     bool hogDevice = false;
-    bool scheduleRealTime = true;
+    bool scheduleRealTime = false;
     bool alsaUseDefault = false;
     bool jackDontConnect = false;
 };
@@ -207,8 +207,6 @@ struct AudioCallbackInfo
 
     bool dirty = false;
     int errorCode = 0;
-
-    const StreamConfig* config = nullptr;
 };
 
 using Callback = std::function<void(AudioCallbackInfo&)>;

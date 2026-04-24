@@ -173,7 +173,6 @@ AudioCallbackInfo getCallbackInfo(void* outputBuffer,
     info.status = getStatus(status);
     info.numInputs = config.getInputChannels();
     info.numOutputs = config.getOutputChannels();
-    info.config = &config;
     info.sampleRate = sampleRate;
     info.latency = latency;
     info.maxBlockSize = config.maxBlockSize;

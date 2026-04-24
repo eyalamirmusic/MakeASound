@@ -77,6 +77,9 @@ unsigned int DeviceManager::openStream(const StreamConfig& configToUse)
                        this,
                        options.get());
 
+    cachedSampleRate = manager.getStreamSampleRate();
+    cachedLatency = manager.getStreamLatency();
+
     return frames;
 }
 
@@ -109,16 +112,14 @@ int audioCallback(void* outputBuffer,
                   void* userData)
 {
     auto& manager = *static_cast<DeviceManager*>(userData);
-    auto sr = manager.getStreamSampleRate();
-    auto latency = manager.getStreamLatency();
 
     auto info = getCallbackInfo(outputBuffer,
                                 inputBuffer,
                                 nFrames,
                                 streamTime,
                                 status,
-                                sr,
-                                latency,
+                                manager.cachedSampleRate,
+                                manager.cachedLatency,
                                 manager.config);
 
 

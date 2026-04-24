@@ -29,6 +29,9 @@ struct DeviceManager
     Callback callback;
     StreamConfig config;
 
+    unsigned int cachedSampleRate = 0;
+    long cachedLatency = 0;
+
 private:
     void closeStream();
     void startStream();
