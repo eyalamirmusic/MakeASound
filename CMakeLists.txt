@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 project(MakeASound)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 
 find_package(RTAudio REQUIRED)
-find_package(NlohmannJSON REQUIRED)
+find_package(Miro REQUIRED)
 find_package(MagicEnum REQUIRED)
 
 add_library(MakeASound INTERFACE)
@@ -14,5 +14,5 @@ target_link_libraries(MakeASound INTERFACE rtaudio)
 target_include_directories(MakeASound INTERFACE Include)
 
 add_executable(Example Example/Example.cpp)
-target_link_libraries(Example PRIVATE MakeASound nlohmann_json magic_enum)
+target_link_libraries(Example PRIVATE MakeASound Miro magic_enum)
 

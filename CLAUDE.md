@@ -8,7 +8,7 @@ MakeASound is a header-only C++20 wrapper around [RtAudio](https://github.com/th
 
 ## Build
 
-Dependencies (RtAudio, nlohmann_json, magic_enum) are fetched automatically by [CPM.cmake](CMake/CPM.cmake) the first time CMake configures. No manual install is needed.
+Dependencies (RtAudio, [Miro](https://github.com/eyalamirmusic/Miro), magic_enum) are fetched automatically by [CPM.cmake](CMake/CPM.cmake) the first time CMake configures. No manual install is needed.
 
 ```bash
 cmake -S . -B build -G Ninja
@@ -34,7 +34,7 @@ Three layers, all header-only:
 
 **Dirty-flag flow:** the façade wraps the user callback in a lambda that compares the incoming `AudioCallbackInfo` against `prevInfo` (via the struct's `operator==` on channels/sampleRate/maxBlockSize) and sets `info.dirty = true` on change. Preserve this wrapping when editing `DeviceManager::openStream` — the raw backend callback does not set `dirty`.
 
-**Serialization** (`Include/MakeASound/Serializing/Serializing.h`) is optional and lives behind its own include. It uses `NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE` to (de)serialize the public structs, plus generic `adl_serializer` specializations for any enum (via `magic_enum`) and for `std::optional<T>`. The core library does not depend on nlohmann_json or magic_enum — only the `Example` target links them, so code under `Include/MakeASound/` outside the `Serializing/` subdir must not include these headers.
+**Serialization** (`Include/MakeASound/Serializing/Serializing.h`) is optional and lives behind its own include. It uses Miro's reflection layer via non-intrusive free `reflect(Miro::Reflector&, T&)` overloads in namespace `MakeASound` (found by ADL), so the core public headers stay free of a Miro dependency. Three generic Miro overloads are added in namespace `Miro` to cover types Miro doesn't handle natively: constrained templates for integral types other than `int`/`bool` (serialized as numbers — needed for the `unsigned int` fields throughout `DeviceInfo`), for enums (serialized as strings via `magic_enum`), and for `std::optional<T>` (empty → JSON `null`). The core library does not depend on Miro or magic_enum — only the `Example` target links them, so code under `Include/MakeASound/` outside the `Serializing/` subdir must not include these headers.
 
 ## Conventions
 

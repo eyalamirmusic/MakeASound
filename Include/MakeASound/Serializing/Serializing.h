@@ -1,93 +1,128 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <Miro/Miro.h>
 #include <magic_enum/magic_enum.hpp>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <type_traits>
 #include "../DeviceInfo.h"
 
-namespace nlohmann
+namespace Miro
 {
-template <typename EnumType>
-struct adl_serializer<EnumType, std::enable_if_t<std::is_enum_v<EnumType>>>
+template <typename T>
+    requires std::is_integral_v<T>
+             && (!std::is_same_v<T, bool>) && (!std::is_same_v<T, int>)
+void reflect(Reflector& ref, T& value)
 {
-    static void to_json(json& j, const EnumType& enumVal)
-    {
-        j = magic_enum::enum_name(enumVal);
-    }
+    if (ref.isSaving())
+        ref.json = JSON(static_cast<double>(value));
+    else if (ref.json.isNumber())
+        value = static_cast<T>(ref.json.asNumber());
+}
 
-    static void from_json(const json& j, EnumType& enumVal)
+template <typename E>
+    requires std::is_enum_v<E>
+void reflect(Reflector& ref, E& value)
+{
+    if (ref.isSaving())
     {
-        if (auto val = magic_enum::enum_cast<EnumType>(j.get<std::string>()))
-            enumVal = *val;
+        ref.json = JSON(std::string(magic_enum::enum_name(value)));
     }
-};
+    else if (ref.json.isString())
+    {
+        if (auto parsed = magic_enum::enum_cast<E>(ref.json.asString()))
+            value = *parsed;
+    }
+}
 
 template <typename T>
-struct adl_serializer<std::optional<T>>
+void reflect(Reflector& ref, std::optional<T>& value)
 {
-    static void to_json(json& j, const std::optional<T>& opt)
+    if (ref.isSaving())
     {
-        if (opt)
-            j = *opt;
+        if (value)
+            reflect(ref, *value);
         else
-            j = nullptr;
+            ref.json = JSON(nullptr);
     }
-
-    static void from_json(const json& j, std::optional<T>& opt)
+    else if (ref.json.isNull())
     {
-        if (j.is_null())
-            opt.reset(); // Set to nullopt if the JSON is null
-        else
-            opt = j.get<T>(); // Deserialize the contained value
+        value.reset();
     }
-};
-} // namespace nlohmann
+    else
+    {
+        auto inner = T {};
+        reflect(ref, inner);
+        value = std::move(inner);
+    }
+}
+} // namespace Miro
 
 namespace MakeASound
 {
-using json = nlohmann::json;
+using JSON = Miro::JSON;
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DeviceInfo,
-                                   id,
-                                   name,
-                                   outputChannels,
-                                   inputChannels,
-                                   duplexChannels,
-                                   isDefaultInput,
-                                   isDefaultOutput,
-                                   sampleRates,
-                                   currentSampleRate,
-                                   preferredSampleRate,
-                                   nativeFormats);
+inline void reflect(Miro::Reflector& ref, DeviceInfo& v)
+{
+    ref["id"](v.id);
+    ref["name"](v.name);
+    ref["outputChannels"](v.outputChannels);
+    ref["inputChannels"](v.inputChannels);
+    ref["duplexChannels"](v.duplexChannels);
+    ref["isDefaultOutput"](v.isDefaultOutput);
+    ref["isDefaultInput"](v.isDefaultInput);
+    ref["sampleRates"](v.sampleRates);
+    ref["currentSampleRate"](v.currentSampleRate);
+    ref["preferredSampleRate"](v.preferredSampleRate);
+    ref["nativeFormats"](v.nativeFormats);
+}
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(StreamParameters,
-                                   device,
-                                   nChannels,
-                                   firstChannel);
+inline void reflect(Miro::Reflector& ref, StreamParameters& v)
+{
+    ref["device"](v.device);
+    ref["nChannels"](v.nChannels);
+    ref["firstChannel"](v.firstChannel);
+}
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Flags,
-                                   nonInterleaved,
-                                   minimizeLatency,
-                                   hogDevice,
-                                   scheduleRealTime,
-                                   alsaUseDefault,
-                                   jackDontConnect);
+inline void reflect(Miro::Reflector& ref, Flags& v)
+{
+    ref["nonInterleaved"](v.nonInterleaved);
+    ref["minimizeLatency"](v.minimizeLatency);
+    ref["hogDevice"](v.hogDevice);
+    ref["scheduleRealTime"](v.scheduleRealTime);
+    ref["alsaUseDefault"](v.alsaUseDefault);
+    ref["jackDontConnect"](v.jackDontConnect);
+}
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
-    StreamOptions, flags, numberOfBuffers, streamName, priority);
+inline void reflect(Miro::Reflector& ref, StreamOptions& v)
+{
+    ref["flags"](v.flags);
+    ref["numberOfBuffers"](v.numberOfBuffers);
+    ref["streamName"](v.streamName);
+    ref["priority"](v.priority);
+}
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
-    StreamConfig, input, output, format, sampleRate, maxBlockSize, options);
+inline void reflect(Miro::Reflector& ref, StreamConfig& v)
+{
+    ref["input"](v.input);
+    ref["output"](v.output);
+    ref["format"](v.format);
+    ref["sampleRate"](v.sampleRate);
+    ref["maxBlockSize"](v.maxBlockSize);
+    ref["options"](v.options);
+}
 
 template <typename T>
-json getJSON(const T& object)
+JSON getJSON(const T& object)
 {
-    return object;
+    return Miro::toJSON(object);
 }
 
 template <typename T>
 std::string getJSONString(const T& object, int indent = 4)
 {
-    return getJSON(object).dump(indent);
+    return Miro::toJSONString(object, indent);
 }
 
 template <typename T>
@@ -96,16 +131,16 @@ void print(const T& object)
     std::cout << getJSONString(object) << std::endl;
 }
 
-template<typename T>
-T fromJSON(const json& json)
+template <typename T>
+T fromJSON(const JSON& json)
 {
-    return json;
+    return Miro::createFromJSON<T>(json);
 }
 
-template<typename T>
+template <typename T>
 T fromJSONString(const std::string& text)
 {
-
+    return Miro::createFromJSONString<T>(text);
 }
 
 } // namespace MakeASound
