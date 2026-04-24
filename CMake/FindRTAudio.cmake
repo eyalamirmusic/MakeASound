@@ -11,9 +11,11 @@ include(CPM)
 
 CPMAddPackage(
         NAME RTAudio
-        GITHUB_REPOSITORY thestk/rtaudio
-        GIT_TAG master
+        URL https://github.com/thestk/rtaudio/archive/refs/tags/6.0.1.zip
         DOWNLOAD_ONLY YES
+        DOWNLOAD_NO_PROGRESS YES
+        LOG_DOWNLOAD YES
+        LOG_EXTRACT YES
 )
 
 add_library(rtaudio STATIC ${RTAudio_SOURCE_DIR}/RtAudio.cpp)
