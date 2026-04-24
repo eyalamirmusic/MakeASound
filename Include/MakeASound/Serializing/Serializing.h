@@ -59,59 +59,46 @@ void reflect(Reflector& ref, std::optional<T>& value)
 }
 } // namespace Miro
 
+MIRO_REFLECT_EXTERNAL(MakeASound::DeviceInfo,
+                      id,
+                      name,
+                      outputChannels,
+                      inputChannels,
+                      duplexChannels,
+                      isDefaultOutput,
+                      isDefaultInput,
+                      sampleRates,
+                      currentSampleRate,
+                      preferredSampleRate,
+                      nativeFormats)
+
+MIRO_REFLECT_EXTERNAL(MakeASound::StreamParameters, device, nChannels, firstChannel)
+
+MIRO_REFLECT_EXTERNAL(MakeASound::Flags,
+                      nonInterleaved,
+                      minimizeLatency,
+                      hogDevice,
+                      scheduleRealTime,
+                      alsaUseDefault,
+                      jackDontConnect)
+
+MIRO_REFLECT_EXTERNAL(MakeASound::StreamOptions,
+                      flags,
+                      numberOfBuffers,
+                      streamName,
+                      priority)
+
+MIRO_REFLECT_EXTERNAL(MakeASound::StreamConfig,
+                      input,
+                      output,
+                      format,
+                      sampleRate,
+                      maxBlockSize,
+                      options)
+
 namespace MakeASound
 {
 using JSON = Miro::JSON;
-
-inline void reflect(Miro::Reflector& ref, DeviceInfo& v)
-{
-    ref["id"](v.id);
-    ref["name"](v.name);
-    ref["outputChannels"](v.outputChannels);
-    ref["inputChannels"](v.inputChannels);
-    ref["duplexChannels"](v.duplexChannels);
-    ref["isDefaultOutput"](v.isDefaultOutput);
-    ref["isDefaultInput"](v.isDefaultInput);
-    ref["sampleRates"](v.sampleRates);
-    ref["currentSampleRate"](v.currentSampleRate);
-    ref["preferredSampleRate"](v.preferredSampleRate);
-    ref["nativeFormats"](v.nativeFormats);
-}
-
-inline void reflect(Miro::Reflector& ref, StreamParameters& v)
-{
-    ref["device"](v.device);
-    ref["nChannels"](v.nChannels);
-    ref["firstChannel"](v.firstChannel);
-}
-
-inline void reflect(Miro::Reflector& ref, Flags& v)
-{
-    ref["nonInterleaved"](v.nonInterleaved);
-    ref["minimizeLatency"](v.minimizeLatency);
-    ref["hogDevice"](v.hogDevice);
-    ref["scheduleRealTime"](v.scheduleRealTime);
-    ref["alsaUseDefault"](v.alsaUseDefault);
-    ref["jackDontConnect"](v.jackDontConnect);
-}
-
-inline void reflect(Miro::Reflector& ref, StreamOptions& v)
-{
-    ref["flags"](v.flags);
-    ref["numberOfBuffers"](v.numberOfBuffers);
-    ref["streamName"](v.streamName);
-    ref["priority"](v.priority);
-}
-
-inline void reflect(Miro::Reflector& ref, StreamConfig& v)
-{
-    ref["input"](v.input);
-    ref["output"](v.output);
-    ref["format"](v.format);
-    ref["sampleRate"](v.sampleRate);
-    ref["maxBlockSize"](v.maxBlockSize);
-    ref["options"](v.options);
-}
 
 template <typename T>
 JSON getJSON(const T& object)
