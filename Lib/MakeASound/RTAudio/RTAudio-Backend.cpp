@@ -1,18 +1,9 @@
-#pragma once
-
-#include <RtAudio.h>
-#include "../DeviceInfo.h"
+#include "RTAudio-Backend.h"
 
 namespace MakeASound::RTAudio
 {
 
-template <typename BitType>
-bool bitCompare(BitType bits, BitType bit)
-{
-    return bits & bit;
-}
-
-inline RtAudioFormat getFormat(Format format)
+RtAudioFormat getFormat(Format format)
 {
     switch (format)
     {
@@ -33,7 +24,7 @@ inline RtAudioFormat getFormat(Format format)
     return RTAUDIO_FLOAT32;
 }
 
-inline void addFormat(Formats& formats, RtAudioFormat bits, Format format)
+void addFormat(Formats& formats, RtAudioFormat bits, Format format)
 {
     auto bit = getFormat(format);
 
@@ -41,7 +32,7 @@ inline void addFormat(Formats& formats, RtAudioFormat bits, Format format)
         formats.emplace_back(format);
 }
 
-inline Formats getFormats(RtAudioFormat formats)
+Formats getFormats(RtAudioFormat formats)
 {
     Formats result {};
 
@@ -55,7 +46,7 @@ inline Formats getFormats(RtAudioFormat formats)
     return result;
 }
 
-inline DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
+DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
 {
     DeviceInfo result;
     result.id = info.ID;
@@ -73,7 +64,7 @@ inline DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
     return result;
 }
 
-inline Error getError(RtAudioErrorType error)
+Error getError(RtAudioErrorType error)
 {
     switch (error)
     {
@@ -106,16 +97,7 @@ inline Error getError(RtAudioErrorType error)
     return Error::NO_ERROR;
 }
 
-template <typename A, typename T, typename Func>
-std::unique_ptr<A> optionalToPointer(const std::optional<T>& val, Func func)
-{
-    if (val.has_value())
-        return std::make_unique<A>(func(val.value()));
-
-    return nullptr;
-}
-
-inline RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
+RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
 {
     RtAudio::StreamParameters result;
 
@@ -126,7 +108,7 @@ inline RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
     return result;
 }
 
-inline RtAudioStreamFlags getFlags(Flags flags)
+RtAudioStreamFlags getFlags(Flags flags)
 {
     RtAudioStreamFlags result {};
 
@@ -151,7 +133,7 @@ inline RtAudioStreamFlags getFlags(Flags flags)
     return result;
 }
 
-inline RtAudio::StreamOptions getOptions(const StreamOptions& options)
+RtAudio::StreamOptions getOptions(const StreamOptions& options)
 {
     RtAudio::StreamOptions result;
 
@@ -163,7 +145,7 @@ inline RtAudio::StreamOptions getOptions(const StreamOptions& options)
     return result;
 }
 
-inline AudioCallbackStatus getStatus(RtAudioStreamStatus status)
+AudioCallbackStatus getStatus(RtAudioStreamStatus status)
 {
     if (status == RTAUDIO_OUTPUT_UNDERFLOW)
         return AudioCallbackStatus::OutputUnderflow;
@@ -174,14 +156,14 @@ inline AudioCallbackStatus getStatus(RtAudioStreamStatus status)
     return AudioCallbackStatus::OK;
 }
 
-inline AudioCallbackInfo getCallbackInfo(void* outputBuffer,
-                                         void* inputBuffer,
-                                         unsigned int numSamples,
-                                         double streamTime,
-                                         RtAudioStreamStatus status,
-                                         unsigned int sampleRate,
-                                         unsigned int latency,
-                                         const StreamConfig& config)
+AudioCallbackInfo getCallbackInfo(void* outputBuffer,
+                                  void* inputBuffer,
+                                  unsigned int numSamples,
+                                  double streamTime,
+                                  RtAudioStreamStatus status,
+                                  unsigned int sampleRate,
+                                  unsigned int latency,
+                                  const StreamConfig& config)
 {
     AudioCallbackInfo info;
 
@@ -200,4 +182,4 @@ inline AudioCallbackInfo getCallbackInfo(void* outputBuffer,
     return info;
 }
 
-} // namespace MakeASound
+} // namespace MakeASound::RTAudio

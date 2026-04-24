@@ -1,7 +1,8 @@
 #pragma once
 
-#include "DeviceInfo.h"
+#include "../DeviceInfo/DeviceInfo.h"
 #include <any>
+#include <memory>
 
 namespace MakeASound
 {

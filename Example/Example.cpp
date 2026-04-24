@@ -1,4 +1,4 @@
-#include <MakeASound/DeviceManagerImpl.h>
+#include <MakeASound/MakeASound.h>
 #include <thread>
 #include <random>
 
