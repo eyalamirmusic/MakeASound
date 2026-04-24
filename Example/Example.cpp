@@ -30,7 +30,7 @@ void processBlock(MakeASound::AudioCallbackInfo& info)
 int main()
 {
     MakeASound::DeviceManager manager;
-    MakeASound::print(manager.getDefaultConfig());
+    Miro::logJSON(manager.getDefaultConfig());
 
     return 0;
 }
