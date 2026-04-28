@@ -7,7 +7,7 @@ namespace MakeASound
 {
 
 DeviceManager::DeviceManager()
-    : pimpl(std::make_unique<RTAudio::DeviceManager>())
+    : pimpl(EA::makeOwned<RTAudio::DeviceManager>())
 {
 }
 
@@ -16,7 +16,7 @@ DeviceManager::~DeviceManager()
     stop();
 }
 
-std::vector<DeviceInfo> DeviceManager::getDevices() const
+Vector<DeviceInfo> DeviceManager::getDevices() const
 {
     return pimpl->getDevices();
 }
@@ -67,12 +67,12 @@ long DeviceManager::getStreamLatency() const
     return pimpl->getStreamLatency();
 }
 
-unsigned int DeviceManager::getStreamSampleRate() const
+int DeviceManager::getStreamSampleRate() const
 {
     return pimpl->getStreamSampleRate();
 }
 
-unsigned int DeviceManager::openStream()
+int DeviceManager::openStream()
 {
     if (!callback)
         throw std::runtime_error("MakeASound: openStream called without a callback");

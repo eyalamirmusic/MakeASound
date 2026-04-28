@@ -18,15 +18,15 @@ DeviceManager::DeviceManager()
     manager.setErrorCallback(errorCallback);
 }
 
-std::vector<DeviceInfo> DeviceManager::getDevices()
+Vector<DeviceInfo> DeviceManager::getDevices()
 {
-    std::vector<DeviceInfo> result;
+    auto result = Vector<DeviceInfo> {};
     auto ids = manager.getDeviceIds();
 
-    result.reserve(ids.size());
+    result.reserve(static_cast<int>(ids.size()));
 
     for (auto id: ids)
-        result.emplace_back(getInfo(manager.getDeviceInfo(id)));
+        result.add(getInfo(manager.getDeviceInfo(id)));
 
     return result;
 }
@@ -55,7 +55,7 @@ void DeviceManager::stop()
         closeStream();
 }
 
-unsigned int DeviceManager::openStream(const StreamConfig& configToUse)
+int DeviceManager::openStream(const StreamConfig& configToUse)
 {
     config = configToUse;
     auto in = optionalToPointer<RtAudio::StreamParameters>(config.input,
@@ -64,14 +64,14 @@ unsigned int DeviceManager::openStream(const StreamConfig& configToUse)
                                                             getStreamParams);
 
     auto format = getFormat(config.format);
-    auto& frames = config.maxBlockSize;
+    auto frames = static_cast<unsigned int>(config.maxBlockSize);
     auto options =
         optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
 
     manager.openStream(out.get(),
                        in.get(),
                        format,
-                       config.sampleRate,
+                       static_cast<unsigned int>(config.sampleRate),
                        &frames,
                        audioCallback,
                        this,
@@ -79,8 +79,9 @@ unsigned int DeviceManager::openStream(const StreamConfig& configToUse)
 
     cachedSampleRate = manager.getStreamSampleRate();
     cachedLatency = manager.getStreamLatency();
+    config.maxBlockSize = static_cast<int>(frames);
 
-    return frames;
+    return static_cast<int>(frames);
 }
 
 long DeviceManager::getStreamLatency()
@@ -88,9 +89,9 @@ long DeviceManager::getStreamLatency()
     return manager.getStreamLatency();
 }
 
-unsigned int DeviceManager::getStreamSampleRate()
+int DeviceManager::getStreamSampleRate()
 {
-    return manager.getStreamSampleRate();
+    return static_cast<int>(manager.getStreamSampleRate());
 }
 
 void DeviceManager::closeStream() { manager.closeStream(); }
@@ -119,7 +120,7 @@ int audioCallback(void* outputBuffer,
                                 streamTime,
                                 status,
                                 manager.cachedSampleRate,
-                                manager.cachedLatency,
+                                static_cast<unsigned int>(manager.cachedLatency),
                                 manager.config);
 
 

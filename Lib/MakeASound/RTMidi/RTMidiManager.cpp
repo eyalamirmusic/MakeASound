@@ -1,45 +1,40 @@
 #include "RTMidiManager.h"
 
-#include <algorithm>
-
 namespace MakeASound::RTMidi
 {
 
 MidiManager::MidiManager()
-    : inputEnumerator(std::make_unique<::RtMidiIn>())
-    , outputEnumerator(std::make_unique<::RtMidiOut>())
-    , output(std::make_unique<::RtMidiOut>())
+    : inputEnumerator(EA::makeOwned<::RtMidiIn>())
+    , outputEnumerator(EA::makeOwned<::RtMidiOut>())
+    , output(EA::makeOwned<::RtMidiOut>())
 {
 }
 
-std::vector<MidiPortInfo> MidiManager::getInputPorts()
+Vector<MidiPortInfo> MidiManager::getInputPorts()
 {
     return getPorts(*inputEnumerator);
 }
 
-std::vector<MidiPortInfo> MidiManager::getOutputPorts()
+Vector<MidiPortInfo> MidiManager::getOutputPorts()
 {
     return getPorts(*outputEnumerator);
 }
 
-void MidiManager::openInput(unsigned int portId, const MidiInputCallback& cb)
+void MidiManager::openInput(int portId, const MidiInputCallback& cb)
 {
     closeInput(portId);
 
-    auto port = std::make_unique<InputPort>();
-    port->portId = portId;
-    port->callback = cb;
-    port->rtIn = std::make_unique<::RtMidiIn>();
-    port->rtIn->setCallback(midiInputTrampoline, port.get());
-    port->rtIn->openPort(portId);
-
-    inputs.push_back(std::move(port));
+    auto& port = inputs.createNew();
+    port.portId = portId;
+    port.callback = cb;
+    port.rtIn = EA::makeOwned<::RtMidiIn>();
+    port.rtIn->setCallback(midiInputTrampoline, &port);
+    port.rtIn->openPort(static_cast<unsigned int>(portId));
 }
 
-void MidiManager::closeInput(unsigned int portId)
+void MidiManager::closeInput(int portId)
 {
-    std::erase_if(inputs,
-                  [portId](auto& p) { return p->portId == portId; });
+    inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
 }
 
 void MidiManager::closeAllInputs()
@@ -47,24 +42,27 @@ void MidiManager::closeAllInputs()
     inputs.clear();
 }
 
-bool MidiManager::isInputOpen(unsigned int portId) const
+bool MidiManager::isInputOpen(int portId) const
 {
-    return std::ranges::any_of(inputs,
-                               [portId](auto& p) { return p->portId == portId; });
+    for (auto& p: inputs)
+        if (p->portId == portId)
+            return true;
+
+    return false;
 }
 
-std::vector<unsigned int> MidiManager::getOpenInputPorts() const
+Vector<int> MidiManager::getOpenInputPorts() const
 {
-    auto result = std::vector<unsigned int> {};
+    auto result = Vector<int> {};
     result.reserve(inputs.size());
 
     for (auto& p: inputs)
-        result.push_back(p->portId);
+        result.add(p->portId);
 
     return result;
 }
 
-void MidiManager::drainMessages(std::vector<MidiInputEvent>& out)
+void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
 {
     for (auto& port: inputs)
     {
@@ -75,17 +73,17 @@ void MidiManager::drainMessages(std::vector<MidiInputEvent>& out)
             continue;
 
         for (auto& msg: port->queue)
-            out.push_back(MidiInputEvent {port->portId, std::move(msg)});
+            out.add(MidiInputEvent {port->portId, std::move(msg)});
 
         port->queue.clear();
         port->lock.unlock();
     }
 }
 
-void MidiManager::openOutput(unsigned int portId)
+void MidiManager::openOutput(int portId)
 {
     closeOutput();
-    output->openPort(portId);
+    output->openPort(static_cast<unsigned int>(portId));
 }
 
 void MidiManager::closeOutput()
@@ -121,7 +119,7 @@ void midiInputTrampoline(double timestamp,
     }
 
     auto guard = EA::Locks::ScopedSpinLock {port.lock};
-    port.queue.push_back(std::move(msg));
+    port.queue.add(std::move(msg));
 }
 
 } // namespace MakeASound::RTMidi

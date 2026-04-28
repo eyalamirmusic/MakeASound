@@ -16,11 +16,11 @@ void processBlock(MakeASound::AudioCallbackInfo& info)
         //Allocate memory, etc
     }
 
-    for (size_t channel = 0; channel < info.numOutputs; ++channel)
+    for (auto channel = 0; channel < info.numOutputs; ++channel)
     {
         auto channelData = info.getOutput<float>(channel);
 
-        for (size_t sample = 0; sample < info.numSamples; ++sample)
+        for (auto sample = 0; sample < info.numSamples; ++sample)
             channelData[sample] = getRandomFloat();
     }
 }

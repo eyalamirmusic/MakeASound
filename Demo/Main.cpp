@@ -28,7 +28,7 @@ void renderWhiteNoise(MakeASound::AudioCallbackInfo& info, AudioState& state)
     auto playing = state.playing.load(std::memory_order_relaxed);
     auto gain = state.gain.load(std::memory_order_relaxed);
 
-    for (auto channel = 0u; channel < info.numOutputs; ++channel)
+    for (auto channel = 0; channel < info.numOutputs; ++channel)
     {
         auto channelData = info.getOutput<float>(channel);
 
@@ -38,7 +38,7 @@ void renderWhiteNoise(MakeASound::AudioCallbackInfo& info, AudioState& state)
             continue;
         }
 
-        for (auto sample = 0u; sample < info.numSamples; ++sample)
+        for (auto sample = 0; sample < info.numSamples; ++sample)
             channelData[sample] = getRandomFloat() * gain;
     }
 }
@@ -47,9 +47,9 @@ struct DeviceOption
 {
     MIRO_REFLECT(id, name, sampleRates)
 
-    unsigned int id {};
+    int id {};
     std::string name;
-    std::vector<unsigned int> sampleRates;
+    MakeASound::Vector<int> sampleRates;
 };
 
 struct AudioControls
@@ -64,7 +64,7 @@ struct MidiPortsState
 {
     MIRO_REFLECT(midiInputPorts, currentMidiPortId)
 
-    std::vector<MakeASound::MidiPortInfo> midiInputPorts;
+    MakeASound::Vector<MakeASound::MidiPortInfo> midiInputPorts;
     int currentMidiPortId {-1};
 };
 
@@ -81,11 +81,11 @@ struct UIState
 
     bool playing {};
     double gain {};
-    unsigned int currentDeviceId {};
-    unsigned int sampleRate {};
-    unsigned int blockSize {};
-    std::vector<DeviceOption> outputDevices;
-    std::vector<MakeASound::MidiPortInfo> midiInputPorts;
+    int currentDeviceId {};
+    int sampleRate {};
+    int blockSize {};
+    MakeASound::Vector<DeviceOption> outputDevices;
+    MakeASound::Vector<MakeASound::MidiPortInfo> midiInputPorts;
     int currentMidiPortId {-1};
 };
 } // namespace
@@ -126,26 +126,24 @@ struct DemoApp
             audio.gain.store(
                 static_cast<float>(Miro::Json::find(obj, "value")->asNumber()));
         else if (kind == "sampleRate")
-            applySampleRate(static_cast<unsigned int>(
-                Miro::Json::find(obj, "value")->asNumber()));
+            applySampleRate(
+                static_cast<int>(Miro::Json::find(obj, "value")->asNumber()));
         else if (kind == "blockSize")
-            applyBlockSize(static_cast<unsigned int>(
-                Miro::Json::find(obj, "value")->asNumber()));
+            applyBlockSize(
+                static_cast<int>(Miro::Json::find(obj, "value")->asNumber()));
         else if (kind == "device")
-            applyDevice(
-                static_cast<unsigned int>(Miro::Json::find(obj, "id")->asNumber()));
+            applyDevice(static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
         else if (kind == "midiPort")
-            applyMidiPort(
-                static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
+            applyMidiPort(static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
     }
 
-    void applySampleRate(unsigned int rate)
+    void applySampleRate(int rate)
     {
         config.sampleRate = rate;
         manager.setConfig(config);
     }
 
-    void applyBlockSize(unsigned int size)
+    void applyBlockSize(int size)
     {
         config.maxBlockSize = size;
         manager.setConfig(config);
@@ -161,7 +159,7 @@ struct DemoApp
             return;
         }
 
-        midi.openInput(static_cast<unsigned int>(portId),
+        midi.openInput(portId,
                        [this](const MakeASound::MidiMessage& msg)
                        { handleIncomingMidi(msg); });
         currentMidiPortId = portId;
@@ -203,7 +201,7 @@ struct DemoApp
                                    + Miro::toJSONString(controls) + ");");
     }
 
-    void applyDevice(unsigned int deviceId)
+    void applyDevice(int deviceId)
     {
         for (auto& device: manager.getDevices())
         {
@@ -237,8 +235,14 @@ struct DemoApp
             if (device.outputChannels == 0)
                 continue;
 
-            state.outputDevices.push_back(
-                DeviceOption {device.id, device.name, device.sampleRates});
+            auto sampleRates = MakeASound::Vector<int> {};
+            sampleRates.reserve(device.sampleRates.size());
+            for (auto rate: device.sampleRates)
+                sampleRates.add(rate);
+
+            state.outputDevices.create(device.id,
+                                       device.name,
+                                       std::move(sampleRates));
         }
 
         state.midiInputPorts = midi.getInputPorts();
@@ -268,7 +272,7 @@ struct DemoApp
     MakeASound::MidiManager midi;
     MakeASound::StreamConfig config;
     int currentMidiPortId {-1};
-    std::vector<MakeASound::MidiPortInfo> lastInputPorts;
+    MakeASound::Vector<MakeASound::MidiPortInfo> lastInputPorts;
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("DemoWeb")};
     eacp::Graphics::Window window;
     eacp::Threads::Timer midiPollTimer {[this] { pollMidiPorts(); }, 2};

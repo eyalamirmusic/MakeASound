@@ -1,7 +1,7 @@
 #pragma once
 
+#include "../Common/Common.h"
 #include "../DeviceInfo/DeviceInfo.h"
-#include <memory>
 
 namespace MakeASound
 {
@@ -16,7 +16,7 @@ public:
     DeviceManager();
     ~DeviceManager();
 
-    std::vector<DeviceInfo> getDevices() const;
+    Vector<DeviceInfo> getDevices() const;
     DeviceInfo getDefaultInputDevice() const;
     DeviceInfo getDefaultOutputDevice() const;
     StreamConfig getDefaultConfig() const;
@@ -26,16 +26,16 @@ public:
     void stop() const;
 
     long getStreamLatency() const;
-    unsigned int getStreamSampleRate() const;
+    int getStreamSampleRate() const;
 
 private:
-    unsigned int openStream();
+    int openStream();
 
     AudioCallbackInfo prevInfo;
     Callback callback;
     StreamConfig config;
 
-    std::unique_ptr<RTAudio::DeviceManager> pimpl;
+    OwningPointer<RTAudio::DeviceManager> pimpl;
 };
 
 } // namespace MakeASound

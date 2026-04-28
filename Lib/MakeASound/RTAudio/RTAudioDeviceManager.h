@@ -15,16 +15,16 @@ struct DeviceManager
 {
     DeviceManager();
 
-    std::vector<DeviceInfo> getDevices();
+    Vector<DeviceInfo> getDevices();
     DeviceInfo getDefaultInputDevice();
     DeviceInfo getDefaultOutputDevice();
 
     void start();
     void stop();
-    unsigned int openStream(const StreamConfig& configToUse);
+    int openStream(const StreamConfig& configToUse);
 
     long getStreamLatency();
-    unsigned int getStreamSampleRate();
+    int getStreamSampleRate();
 
     Callback callback;
     StreamConfig config;
@@ -44,7 +44,7 @@ private:
     bool isStreamRunning() const;
     void showWarnings(bool value);
 
-    RtAudio manager;
+    ::RtAudio manager;
 };
 
 } // namespace MakeASound::RTAudio

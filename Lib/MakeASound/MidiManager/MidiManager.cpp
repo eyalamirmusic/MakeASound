@@ -5,7 +5,7 @@ namespace MakeASound
 {
 
 MidiManager::MidiManager()
-    : pimpl(std::make_unique<RTMidi::MidiManager>())
+    : pimpl(EA::makeOwned<RTMidi::MidiManager>())
 {
 }
 
@@ -15,27 +15,27 @@ MidiManager::~MidiManager()
     closeOutput();
 }
 
-std::vector<MidiPortInfo> MidiManager::getInputPorts() const
+Vector<MidiPortInfo> MidiManager::getInputPorts() const
 {
     return pimpl->getInputPorts();
 }
 
-std::vector<MidiPortInfo> MidiManager::getOutputPorts() const
+Vector<MidiPortInfo> MidiManager::getOutputPorts() const
 {
     return pimpl->getOutputPorts();
 }
 
-void MidiManager::openInput(unsigned int portId)
+void MidiManager::openInput(int portId)
 {
     pimpl->openInput(portId, nullptr);
 }
 
-void MidiManager::openInput(unsigned int portId, const MidiInputCallback& cb)
+void MidiManager::openInput(int portId, const MidiInputCallback& cb)
 {
     pimpl->openInput(portId, cb);
 }
 
-void MidiManager::closeInput(unsigned int portId)
+void MidiManager::closeInput(int portId)
 {
     pimpl->closeInput(portId);
 }
@@ -45,12 +45,12 @@ void MidiManager::closeAllInputs()
     pimpl->closeAllInputs();
 }
 
-bool MidiManager::isInputOpen(unsigned int portId) const
+bool MidiManager::isInputOpen(int portId) const
 {
     return pimpl->isInputOpen(portId);
 }
 
-std::vector<unsigned int> MidiManager::getOpenInputPorts() const
+Vector<int> MidiManager::getOpenInputPorts() const
 {
     return pimpl->getOpenInputPorts();
 }
@@ -60,7 +60,7 @@ void MidiManager::drainMessages(MidiEvents& out)
     pimpl->drainMessages(out.raw());
 }
 
-void MidiManager::openOutput(unsigned int portId)
+void MidiManager::openOutput(int portId)
 {
     pimpl->openOutput(portId);
 }

@@ -3,15 +3,15 @@
 namespace MakeASound::RTMidi
 {
 
-std::vector<MidiPortInfo> getPorts(::RtMidi& backend)
+Vector<MidiPortInfo> getPorts(::RtMidi& backend)
 {
-    auto result = std::vector<MidiPortInfo> {};
+    auto result = Vector<MidiPortInfo> {};
     auto count = backend.getPortCount();
 
-    result.reserve(count);
+    result.reserve(static_cast<int>(count));
 
     for (auto id = 0u; id < count; ++id)
-        result.emplace_back(MidiPortInfo {id, backend.getPortName(id)});
+        result.add(MidiPortInfo {static_cast<int>(id), backend.getPortName(id)});
 
     return result;
 }

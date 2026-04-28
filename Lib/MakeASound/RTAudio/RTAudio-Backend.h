@@ -1,9 +1,8 @@
 #pragma once
 
 #include <RtAudio.h>
+#include "../Common/Common.h"
 #include "../DeviceInfo/DeviceInfo.h"
-
-#include <memory>
 
 namespace MakeASound::RTAudio
 {
@@ -15,12 +14,12 @@ bool bitCompare(BitType bits, BitType bit)
 }
 
 template <typename A, typename T, typename Func>
-std::unique_ptr<A> optionalToPointer(const std::optional<T>& val, Func func)
+OwningPointer<A> optionalToPointer(const std::optional<T>& val, Func func)
 {
     if (val.has_value())
-        return std::make_unique<A>(func(val.value()));
+        return EA::makeOwned<A>(func(val.value()));
 
-    return nullptr;
+    return {};
 }
 
 RtAudioFormat getFormat(Format format);

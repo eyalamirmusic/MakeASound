@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../Common/Common.h"
 #include <Miro/Miro.h>
 
 #include <cstdint>
@@ -15,7 +16,7 @@ struct MidiPortInfo
     MIRO_REFLECT(id, name)
     bool operator==(const MidiPortInfo&) const = default;
 
-    unsigned int id {};
+    int id {};
     std::string name;
 };
 
@@ -31,35 +32,35 @@ struct MidiInputEvent
 {
     MIRO_REFLECT(portId, message)
 
-    unsigned int portId {};
+    int portId {};
     MidiMessage message;
 };
 
 class MidiEvents
 {
 public:
-    static constexpr std::size_t defaultCapacity = 1024;
+    static constexpr int defaultCapacity = 1024;
 
     MidiEvents() { events.reserve(defaultCapacity); }
-    explicit MidiEvents(std::size_t capacity) { events.reserve(capacity); }
+    explicit MidiEvents(int capacity) { events.reserve(capacity); }
 
     void clear() noexcept { events.clear(); }
     bool empty() const noexcept { return events.empty(); }
-    std::size_t size() const noexcept { return events.size(); }
+    int size() const noexcept { return events.size(); }
 
     auto begin() noexcept { return events.begin(); }
     auto end() noexcept { return events.end(); }
     auto begin() const noexcept { return events.begin(); }
     auto end() const noexcept { return events.end(); }
 
-    MidiInputEvent& operator[](std::size_t i) { return events[i]; }
-    const MidiInputEvent& operator[](std::size_t i) const { return events[i]; }
+    MidiInputEvent& operator[](int i) { return events[i]; }
+    const MidiInputEvent& operator[](int i) const { return events[i]; }
 
-    std::vector<MidiInputEvent>& raw() noexcept { return events; }
-    const std::vector<MidiInputEvent>& raw() const noexcept { return events; }
+    Vector<MidiInputEvent>& raw() noexcept { return events; }
+    const Vector<MidiInputEvent>& raw() const noexcept { return events; }
 
 private:
-    std::vector<MidiInputEvent> events;
+    Vector<MidiInputEvent> events;
 };
 
 using MidiInputCallback = std::function<void(const MidiMessage&)>;

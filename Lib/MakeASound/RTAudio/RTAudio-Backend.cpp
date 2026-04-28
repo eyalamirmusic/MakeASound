@@ -48,16 +48,20 @@ Formats getFormats(RtAudioFormat formats)
 DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
 {
     DeviceInfo result;
-    result.id = info.ID;
+    result.id = static_cast<int>(info.ID);
     result.name = info.name;
-    result.outputChannels = info.outputChannels;
-    result.inputChannels = info.inputChannels;
-    result.duplexChannels = info.duplexChannels;
+    result.outputChannels = static_cast<int>(info.outputChannels);
+    result.inputChannels = static_cast<int>(info.inputChannels);
+    result.duplexChannels = static_cast<int>(info.duplexChannels);
     result.isDefaultInput = info.isDefaultInput;
     result.isDefaultOutput = info.isDefaultOutput;
-    result.sampleRates = info.sampleRates;
-    result.currentSampleRate = info.currentSampleRate;
-    result.preferredSampleRate = info.preferredSampleRate;
+
+    result.sampleRates.reserve(info.sampleRates.size());
+    for (auto rate: info.sampleRates)
+        result.sampleRates.push_back(static_cast<int>(rate));
+
+    result.currentSampleRate = static_cast<int>(info.currentSampleRate);
+    result.preferredSampleRate = static_cast<int>(info.preferredSampleRate);
     result.nativeFormats = getFormats(info.nativeFormats);
 
     return result;
@@ -100,9 +104,9 @@ RtAudio::StreamParameters getStreamParams(const StreamParameters& params)
 {
     RtAudio::StreamParameters result;
 
-    result.deviceId = params.device.id;
-    result.firstChannel = params.firstChannel;
-    result.nChannels = params.nChannels;
+    result.deviceId = static_cast<unsigned int>(params.device.id);
+    result.firstChannel = static_cast<unsigned int>(params.firstChannel);
+    result.nChannels = static_cast<unsigned int>(params.nChannels);
 
     return result;
 }
@@ -138,7 +142,7 @@ RtAudio::StreamOptions getOptions(const StreamOptions& options)
 
     result.flags = getFlags(options.flags);
     result.priority = options.priority;
-    result.numberOfBuffers = options.numberOfBuffers;
+    result.numberOfBuffers = static_cast<unsigned int>(options.numberOfBuffers);
     result.streamName = options.streamName;
 
     return result;
@@ -168,13 +172,13 @@ AudioCallbackInfo getCallbackInfo(void* outputBuffer,
 
     info.inputBuffer = inputBuffer;
     info.outputBuffer = outputBuffer;
-    info.numSamples = numSamples;
+    info.numSamples = static_cast<int>(numSamples);
     info.streamTime = streamTime;
     info.status = getStatus(status);
     info.numInputs = config.getInputChannels();
     info.numOutputs = config.getOutputChannels();
-    info.sampleRate = sampleRate;
-    info.latency = latency;
+    info.sampleRate = static_cast<int>(sampleRate);
+    info.latency = static_cast<int>(latency);
     info.maxBlockSize = config.maxBlockSize;
 
     return info;

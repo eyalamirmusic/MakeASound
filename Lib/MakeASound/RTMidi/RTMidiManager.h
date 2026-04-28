@@ -2,11 +2,6 @@
 
 #include "RTMidi-Backend.h"
 
-#include <ea_data_structures/ea_data_structures.h>
-
-#include <memory>
-#include <vector>
-
 namespace MakeASound::RTMidi
 {
 
@@ -18,39 +13,39 @@ struct InputPort
 {
     InputPort() { queue.reserve(256); }
 
-    unsigned int portId {};
-    std::unique_ptr<::RtMidiIn> rtIn;
+    int portId {};
+    OwningPointer<::RtMidiIn> rtIn;
     MidiInputCallback callback;
 
     EA::Locks::PrimitiveSpinLock lock;
-    std::vector<MidiMessage> queue;
+    Vector<MidiMessage> queue;
 };
 
 struct MidiManager
 {
     MidiManager();
 
-    std::vector<MidiPortInfo> getInputPorts();
-    std::vector<MidiPortInfo> getOutputPorts();
+    Vector<MidiPortInfo> getInputPorts();
+    Vector<MidiPortInfo> getOutputPorts();
 
-    void openInput(unsigned int portId, const MidiInputCallback& cb);
-    void closeInput(unsigned int portId);
+    void openInput(int portId, const MidiInputCallback& cb);
+    void closeInput(int portId);
     void closeAllInputs();
-    bool isInputOpen(unsigned int portId) const;
-    std::vector<unsigned int> getOpenInputPorts() const;
-    void drainMessages(std::vector<MidiInputEvent>& out);
+    bool isInputOpen(int portId) const;
+    Vector<int> getOpenInputPorts() const;
+    void drainMessages(Vector<MidiInputEvent>& out);
 
-    void openOutput(unsigned int portId);
+    void openOutput(int portId);
     void closeOutput();
     bool isOutputOpen() const;
 
     void sendMessage(const std::uint8_t* bytes, std::size_t size);
 
 private:
-    std::unique_ptr<::RtMidiIn> inputEnumerator;
-    std::unique_ptr<::RtMidiOut> outputEnumerator;
-    std::unique_ptr<::RtMidiOut> output;
-    std::vector<std::unique_ptr<InputPort>> inputs;
+    OwningPointer<::RtMidiIn> inputEnumerator;
+    OwningPointer<::RtMidiOut> outputEnumerator;
+    OwningPointer<::RtMidiOut> output;
+    EA::OwnedVector<InputPort> inputs;
 };
 
 } // namespace MakeASound::RTMidi

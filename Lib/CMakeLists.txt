@@ -6,5 +6,5 @@ add_library(MakeASound STATIC
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp)
 
-target_link_libraries(MakeASound PUBLIC Miro PRIVATE rtaudio rtmidi ea_data_structures)
+target_link_libraries(MakeASound PUBLIC Miro ea_data_structures PRIVATE rtaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})

@@ -36,16 +36,16 @@ struct DeviceInfo
                  preferredSampleRate,
                  nativeFormats)
 
-    unsigned int id {};
+    int id {};
     std::string name;
-    unsigned int outputChannels {};
-    unsigned int inputChannels {};
-    unsigned int duplexChannels {};
+    int outputChannels {};
+    int inputChannels {};
+    int duplexChannels {};
     bool isDefaultOutput {false};
     bool isDefaultInput {false};
-    std::vector<unsigned int> sampleRates;
-    unsigned int currentSampleRate {};
-    unsigned int preferredSampleRate {};
+    std::vector<int> sampleRates;
+    int currentSampleRate {};
+    int preferredSampleRate {};
     Formats nativeFormats;
 };
 
@@ -65,14 +65,14 @@ enum class Error
     THREAD_ERROR
 };
 
-inline unsigned int getDefaultNumChannels(const DeviceInfo& info, bool input)
+inline int getDefaultNumChannels(const DeviceInfo& info, bool input)
 {
     auto channels = info.outputChannels;
 
     if (input)
         channels = info.inputChannels;
 
-    return std::min(static_cast<unsigned>(2), channels);
+    return std::min(2, channels);
 }
 
 struct StreamParameters
@@ -91,8 +91,8 @@ struct StreamParameters
 
     DeviceInfo device;
 
-    unsigned int nChannels {};
-    unsigned int firstChannel {};
+    int nChannels {};
+    int firstChannel {};
 };
 
 struct Flags
@@ -117,7 +117,7 @@ struct StreamOptions
     MIRO_REFLECT(flags, numberOfBuffers, streamName, priority)
 
     Flags flags {};
-    unsigned int numberOfBuffers {};
+    int numberOfBuffers {};
     std::string streamName {};
     int priority {};
 };
@@ -129,7 +129,7 @@ enum class AudioCallbackStatus
     OutputUnderflow
 };
 
-inline unsigned int getNumChannels(const std::optional<StreamParameters>& params)
+inline int getNumChannels(const std::optional<StreamParameters>& params)
 {
     if (params)
         return params->nChannels;
@@ -139,8 +139,8 @@ inline unsigned int getNumChannels(const std::optional<StreamParameters>& params
 
 struct StreamConfig
 {
-    unsigned int getInputChannels() const { return getNumChannels(input); }
-    unsigned int getOutputChannels() const { return getNumChannels(output); }
+    int getInputChannels() const { return getNumChannels(input); }
+    int getOutputChannels() const { return getNumChannels(output); }
 
     MIRO_REFLECT(input, output, format, sampleRate, maxBlockSize, options)
 
@@ -148,22 +148,22 @@ struct StreamConfig
     std::optional<StreamParameters> output;
     Format format = Format::Float32;
 
-    unsigned int sampleRate = {};
-    unsigned int maxBlockSize = 0;
+    int sampleRate {};
+    int maxBlockSize = 0;
     std::optional<StreamOptions> options;
 };
 
 struct AudioCallbackInfo
 {
     template <typename T>
-    const T* getInput(size_t channel) const
+    const T* getInput(int channel) const
     {
         auto p = static_cast<T*>(inputBuffer);
         return &p[channel * numSamples];
     }
 
     template <typename T>
-    T* getOutput(size_t channel)
+    T* getOutput(int channel)
     {
         auto p = static_cast<T*>(outputBuffer);
         return &p[channel * numSamples];
@@ -193,17 +193,17 @@ struct AudioCallbackInfo
         return !operator==(other);
     }
 
-    unsigned int numInputs = 0;
-    unsigned int numOutputs = 0;
+    int numInputs = 0;
+    int numOutputs = 0;
     void* outputBuffer = nullptr;
     void* inputBuffer = nullptr;
-    unsigned int numSamples {};
+    int numSamples {};
     double streamTime {};
     AudioCallbackStatus status = AudioCallbackStatus::OK;
 
-    unsigned int sampleRate = 0;
-    unsigned int maxBlockSize = 0;
-    unsigned int latency = 0;
+    int sampleRate = 0;
+    int maxBlockSize = 0;
+    int latency = 0;
 
     bool dirty = false;
     int errorCode = 0;
