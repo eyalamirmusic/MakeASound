@@ -11,7 +11,7 @@ MidiManager::MidiManager()
 
 MidiManager::~MidiManager()
 {
-    closeInput();
+    closeAllInputs();
     closeOutput();
 }
 
@@ -25,19 +25,39 @@ std::vector<MidiPortInfo> MidiManager::getOutputPorts() const
     return pimpl->getOutputPorts();
 }
 
+void MidiManager::openInput(unsigned int portId)
+{
+    pimpl->openInput(portId, nullptr);
+}
+
 void MidiManager::openInput(unsigned int portId, const MidiInputCallback& cb)
 {
     pimpl->openInput(portId, cb);
 }
 
-void MidiManager::closeInput()
+void MidiManager::closeInput(unsigned int portId)
 {
-    pimpl->closeInput();
+    pimpl->closeInput(portId);
 }
 
-bool MidiManager::isInputOpen() const
+void MidiManager::closeAllInputs()
 {
-    return pimpl->isInputOpen();
+    pimpl->closeAllInputs();
+}
+
+bool MidiManager::isInputOpen(unsigned int portId) const
+{
+    return pimpl->isInputOpen(portId);
+}
+
+std::vector<unsigned int> MidiManager::getOpenInputPorts() const
+{
+    return pimpl->getOpenInputPorts();
+}
+
+void MidiManager::drainMessages(MidiEvents& out)
+{
+    pimpl->drainMessages(out.raw());
 }
 
 void MidiManager::openOutput(unsigned int portId)

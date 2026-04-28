@@ -153,9 +153,10 @@ struct DemoApp
 
     void applyMidiPort(int portId)
     {
+        midi.closeAllInputs();
+
         if (portId < 0)
         {
-            midi.closeInput();
             currentMidiPortId = -1;
             return;
         }
