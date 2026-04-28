@@ -13,6 +13,7 @@ namespace MakeASound
 struct MidiPortInfo
 {
     MIRO_REFLECT(id, name)
+    bool operator==(const MidiPortInfo&) const = default;
 
     unsigned int id {};
     std::string name;

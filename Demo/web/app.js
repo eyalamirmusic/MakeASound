@@ -38,21 +38,29 @@ window.demoSetState = function(state) {
     $('gain').value = state.gain;
     $('gainValue').textContent = Number(state.gain).toFixed(2);
 
+    rebuildMidiPorts(state.midiInputPorts, state.currentMidiPortId);
+};
+
+function rebuildMidiPorts(ports, currentId) {
     const midi = $('midiPort');
     midi.innerHTML = '';
     const none = document.createElement('option');
     none.value = -1;
     none.textContent = '(none)';
-    if (state.currentMidiPortId === -1) none.selected = true;
+    if (currentId === -1) none.selected = true;
     midi.appendChild(none);
 
-    for (const p of state.midiInputPorts) {
+    for (const p of ports) {
         const opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.name;
-        if (p.id === state.currentMidiPortId) opt.selected = true;
+        if (p.id === currentId) opt.selected = true;
         midi.appendChild(opt);
     }
+}
+
+window.demoSetMidiPorts = function(state) {
+    rebuildMidiPorts(state.midiInputPorts, state.currentMidiPortId);
 };
 
 window.demoUpdateAudio = function(controls) {

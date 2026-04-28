@@ -1,5 +1,6 @@
 #include <MakeASound/MakeASound.h>
 #include <eacp/WebView/WebView.h>
+#include <eacp/Core/Threads/Timer.h>
 #include <WebResources.h>
 
 #include <atomic>
@@ -57,6 +58,14 @@ struct AudioControls
 
     bool playing {};
     double gain {};
+};
+
+struct MidiPortsState
+{
+    MIRO_REFLECT(midiInputPorts, currentMidiPortId)
+
+    std::vector<MakeASound::MidiPortInfo> midiInputPorts;
+    int currentMidiPortId {-1};
 };
 
 struct UIState
@@ -233,9 +242,24 @@ struct DemoApp
 
         state.midiInputPorts = midi.getInputPorts();
         state.currentMidiPortId = currentMidiPortId;
+        lastInputPorts = state.midiInputPorts;
 
         webView.evaluateJavaScript("window.demoSetState(" + Miro::toJSONString(state)
                                    + ");");
+    }
+
+    void pollMidiPorts()
+    {
+        auto current = midi.getInputPorts();
+
+        if (current == lastInputPorts)
+            return;
+
+        lastInputPorts = current;
+
+        auto state = MidiPortsState {std::move(current), currentMidiPortId};
+        webView.evaluateJavaScript("window.demoSetMidiPorts("
+                                   + Miro::toJSONString(state) + ");");
     }
 
     AudioState audio;
@@ -243,8 +267,10 @@ struct DemoApp
     MakeASound::MidiManager midi;
     MakeASound::StreamConfig config;
     int currentMidiPortId {-1};
+    std::vector<MakeASound::MidiPortInfo> lastInputPorts;
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("DemoWeb")};
     eacp::Graphics::Window window;
+    eacp::Threads::Timer midiPollTimer {[this] { pollMidiPorts(); }, 2};
 };
 
 int main()
