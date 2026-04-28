@@ -51,10 +51,24 @@ struct DeviceOption
     std::vector<unsigned int> sampleRates;
 };
 
+struct AudioControls
+{
+    MIRO_REFLECT(playing, gain)
+
+    bool playing {};
+    double gain {};
+};
+
 struct UIState
 {
-    MIRO_REFLECT(
-        playing, gain, currentDeviceId, sampleRate, blockSize, outputDevices)
+    MIRO_REFLECT(playing,
+                 gain,
+                 currentDeviceId,
+                 sampleRate,
+                 blockSize,
+                 outputDevices,
+                 midiInputPorts,
+                 currentMidiPortId)
 
     bool playing {};
     double gain {};
@@ -62,6 +76,8 @@ struct UIState
     unsigned int sampleRate {};
     unsigned int blockSize {};
     std::vector<DeviceOption> outputDevices;
+    std::vector<MakeASound::MidiPortInfo> midiInputPorts;
+    int currentMidiPortId {-1};
 };
 } // namespace
 
@@ -109,6 +125,9 @@ struct DemoApp
         else if (kind == "device")
             applyDevice(
                 static_cast<unsigned int>(Miro::Json::find(obj, "id")->asNumber()));
+        else if (kind == "midiPort")
+            applyMidiPort(
+                static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
     }
 
     void applySampleRate(unsigned int rate)
@@ -121,6 +140,57 @@ struct DemoApp
     {
         config.maxBlockSize = size;
         manager.setConfig(config);
+    }
+
+    void applyMidiPort(int portId)
+    {
+        if (portId < 0)
+        {
+            midi.closeInput();
+            currentMidiPortId = -1;
+            return;
+        }
+
+        midi.openInput(static_cast<unsigned int>(portId),
+                       [this](const MakeASound::MidiMessage& msg)
+                       { handleIncomingMidi(msg); });
+        currentMidiPortId = portId;
+    }
+
+    void handleIncomingMidi(const MakeASound::MidiMessage& msg)
+    {
+        if (msg.bytes.size() >= 3)
+        {
+            auto status = msg.bytes[0] & 0xF0;
+            auto data1 = msg.bytes[1];
+            auto data2 = msg.bytes[2];
+
+            if (status == 0x90 && data2 > 0)
+            {
+                audio.playing.store(true);
+                audio.gain.store(static_cast<float>(data2) / 127.0f);
+            }
+            else if (status == 0x80 || (status == 0x90 && data2 == 0))
+            {
+                audio.playing.store(false);
+            }
+            else if (status == 0xB0 && data1 == 7)
+            {
+                audio.gain.store(static_cast<float>(data2) / 127.0f);
+            }
+        }
+
+        eacp::Threads::callAsync([this, msg]() { publishMidiToJS(msg); });
+    }
+
+    void publishMidiToJS(const MakeASound::MidiMessage& msg)
+    {
+        webView.evaluateJavaScript("window.demoMidiEvent("
+                                   + Miro::toJSONString(msg) + ");");
+
+        auto controls = AudioControls {audio.playing.load(), audio.gain.load()};
+        webView.evaluateJavaScript("window.demoUpdateAudio("
+                                   + Miro::toJSONString(controls) + ");");
     }
 
     void applyDevice(unsigned int deviceId)
@@ -161,13 +231,18 @@ struct DemoApp
                 DeviceOption {device.id, device.name, device.sampleRates});
         }
 
+        state.midiInputPorts = midi.getInputPorts();
+        state.currentMidiPortId = currentMidiPortId;
+
         webView.evaluateJavaScript("window.demoSetState(" + Miro::toJSONString(state)
                                    + ");");
     }
 
     AudioState audio;
     MakeASound::DeviceManager manager;
+    MakeASound::MidiManager midi;
     MakeASound::StreamConfig config;
+    int currentMidiPortId {-1};
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("DemoWeb")};
     eacp::Graphics::Window window;
 };

@@ -12,6 +12,7 @@ endif ()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 
 find_package(RTAudio REQUIRED)
+find_package(RTMidi REQUIRED)
 find_package(Miro REQUIRED)
 
 add_subdirectory(Lib)

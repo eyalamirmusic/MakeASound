@@ -19,3 +19,23 @@ select, input[type=range] { flex: 1; }
 .toggle input { width: 18px; height: 18px; }
 
 .value { flex: 0 0 48px; text-align: right; font-variant-numeric: tabular-nums; }
+
+h2 { font-size: 14px; margin: 24px 0 8px; opacity: 0.75; }
+
+#midiLog {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    height: 220px;
+    overflow-y: auto;
+    border: 1px solid rgba(127, 127, 127, 0.3);
+    border-radius: 4px;
+    padding: 8px 10px;
+    background: rgba(127, 127, 127, 0.05);
+}
+
+#midiLog .empty {
+    opacity: 0.5;
+    font-style: italic;
+}
+
+#midiLog div { white-space: pre; padding: 1px 0; }
