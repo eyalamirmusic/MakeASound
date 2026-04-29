@@ -1,4 +1,5 @@
 add_library(MakeASound STATIC
+        MakeASound/DeviceInfo/DeviceInfo.cpp
         MakeASound/DeviceManager/DeviceManager.cpp
         MakeASound/RTAudio/RTAudio-Backend.cpp
         MakeASound/RTAudio/RTAudioDeviceManager.cpp

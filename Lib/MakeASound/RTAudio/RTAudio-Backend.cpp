@@ -2,49 +2,6 @@
 
 namespace MakeASound::RTAudio
 {
-RtAudioFormat getFormat(Format format)
-{
-    switch (format)
-    {
-        case Format::Int8:
-            return RTAUDIO_SINT8;
-        case Format::Int16:
-            return RTAUDIO_SINT16;
-        case Format::Int24:
-            return RTAUDIO_SINT24;
-        case Format::Int32:
-            return RTAUDIO_SINT32;
-        case Format::Float32:
-            return RTAUDIO_FLOAT32;
-        case Format::Float64:
-            return RTAUDIO_FLOAT64;
-    }
-
-    return RTAUDIO_FLOAT32;
-}
-
-void addFormat(Formats& formats, RtAudioFormat bits, Format format)
-{
-    auto bit = getFormat(format);
-
-    if (bitCompare(bits, bit))
-        formats.emplace_back(format);
-}
-
-Formats getFormats(RtAudioFormat formats)
-{
-    Formats result {};
-
-    addFormat(result, formats, Format::Int8);
-    addFormat(result, formats, Format::Int16);
-    addFormat(result, formats, Format::Int24);
-    addFormat(result, formats, Format::Int32);
-    addFormat(result, formats, Format::Float32);
-    addFormat(result, formats, Format::Float64);
-
-    return result;
-}
-
 DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
 {
     DeviceInfo result;
@@ -62,7 +19,6 @@ DeviceInfo getInfo(const RtAudio::DeviceInfo& info)
 
     result.currentSampleRate = static_cast<int>(info.currentSampleRate);
     result.preferredSampleRate = static_cast<int>(info.preferredSampleRate);
-    result.nativeFormats = getFormats(info.nativeFormats);
 
     return result;
 }
@@ -170,8 +126,8 @@ AudioCallbackInfo getCallbackInfo(void* outputBuffer,
 {
     AudioCallbackInfo info;
 
-    info.inputBuffer = inputBuffer;
-    info.outputBuffer = outputBuffer;
+    info.inputBuffer = static_cast<float*>(inputBuffer);
+    info.outputBuffer = static_cast<float*>(outputBuffer);
     info.numSamples = static_cast<int>(numSamples);
     info.streamTime = streamTime;
     info.status = getStatus(status);

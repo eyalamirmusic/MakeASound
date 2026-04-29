@@ -57,8 +57,8 @@ void renderSine(MakeASound::AudioCallbackInfo& info,
     {
         for (auto channel = 0; channel < info.numOutputs; ++channel)
         {
-            auto out = info.getOutput<float>(channel);
-            std::fill_n(out, info.numSamples, 0.0f);
+            auto out = info.getOutput(channel);
+            std::ranges::fill(out, 0.0f);
         }
         return;
     }
@@ -67,14 +67,14 @@ void renderSine(MakeASound::AudioCallbackInfo& info,
     auto increment = twoPi * frequency / static_cast<float>(info.sampleRate);
     auto amplitude = gain * velocity;
 
-    auto first = info.getOutput<float>(0);
-    for (auto sample = 0; sample < info.numSamples; ++sample)
-        first[sample] = voice.renderSample(increment) * amplitude;
+    auto first = info.getOutput(0);
+    for (auto& sample: first)
+        sample = voice.renderSample(increment) * amplitude;
 
     for (auto channel = 1; channel < info.numOutputs; ++channel)
     {
-        auto out = info.getOutput<float>(channel);
-        std::copy_n(first, info.numSamples, out);
+        auto out = info.getOutput(channel);
+        std::ranges::copy(first, out.begin());
     }
 }
 

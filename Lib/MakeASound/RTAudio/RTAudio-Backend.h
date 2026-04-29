@@ -22,9 +22,6 @@ OwningPointer<A> optionalToPointer(const std::optional<T>& val, Func func)
     return {};
 }
 
-RtAudioFormat getFormat(Format format);
-void addFormat(Formats& formats, RtAudioFormat bits, Format format);
-Formats getFormats(RtAudioFormat formats);
 DeviceInfo getInfo(const RtAudio::DeviceInfo& info);
 Error getError(RtAudioErrorType error);
 RtAudio::StreamParameters getStreamParams(const StreamParameters& params);

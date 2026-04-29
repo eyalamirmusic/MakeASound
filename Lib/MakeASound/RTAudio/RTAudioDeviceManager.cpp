@@ -63,14 +63,13 @@ int DeviceManager::openStream(const StreamConfig& configToUse)
     auto out = optionalToPointer<RtAudio::StreamParameters>(config.output,
                                                             getStreamParams);
 
-    auto format = getFormat(config.format);
     auto frames = static_cast<unsigned int>(config.maxBlockSize);
     auto options =
         optionalToPointer<RtAudio::StreamOptions>(config.options, getOptions);
 
     manager.openStream(out.get(),
                        in.get(),
-                       format,
+                       RTAUDIO_FLOAT32,
                        static_cast<unsigned int>(config.sampleRate),
                        &frames,
                        audioCallback,

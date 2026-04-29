@@ -1,6 +1,5 @@
 #include <MakeASound/MakeASound.h>
 #include <eacp/WebView/WebView.h>
-#include <eacp/Core/Threads/Timer.h>
 #include <WebResources.h>
 
 #include <atomic>
@@ -30,16 +29,16 @@ void renderWhiteNoise(MakeASound::AudioCallbackInfo& info, AudioState& state)
 
     for (auto channel = 0; channel < info.numOutputs; ++channel)
     {
-        auto channelData = info.getOutput<float>(channel);
+        auto channelData = info.getOutput(channel);
 
         if (!playing)
         {
-            std::fill_n(channelData, info.numSamples, 0.0f);
+            std::ranges::fill(channelData, 0.0f);
             continue;
         }
 
-        for (auto sample = 0; sample < info.numSamples; ++sample)
-            channelData[sample] = getRandomFloat() * gain;
+        for (auto& sample: channelData)
+            sample = getRandomFloat() * gain;
     }
 }
 

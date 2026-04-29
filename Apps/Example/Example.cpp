@@ -18,10 +18,10 @@ void processBlock(MakeASound::AudioCallbackInfo& info)
 
     for (auto channel = 0; channel < info.numOutputs; ++channel)
     {
-        auto channelData = info.getOutput<float>(channel);
+        auto channelData = info.getOutput(channel);
 
-        for (auto sample = 0; sample < info.numSamples; ++sample)
-            channelData[sample] = getRandomFloat();
+        for (auto& sample: channelData)
+            sample = getRandomFloat();
     }
 }
 
