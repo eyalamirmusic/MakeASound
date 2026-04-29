@@ -1,46 +1,10 @@
 #include "DeviceManager.h"
 #include "../RTAudio/RTAudioDeviceManager.h"
 
-#include <algorithm>
 #include <stdexcept>
 
 namespace MakeASound
 {
-namespace
-{
-bool deviceSupports(const DeviceInfo& device, int rate)
-{
-    return std::ranges::find(device.sampleRates, rate) != device.sampleRates.end();
-}
-
-int pickDefaultSampleRate(const DeviceInfo& output, const DeviceInfo& input)
-{
-    auto isCommon = [&](int rate)
-    { return deviceSupports(output, rate) && deviceSupports(input, rate); };
-
-    if (output.preferredSampleRate > 0 && isCommon(output.preferredSampleRate))
-        return output.preferredSampleRate;
-
-    if (input.preferredSampleRate > 0 && isCommon(input.preferredSampleRate))
-        return input.preferredSampleRate;
-
-    auto best = 0;
-    for (auto rate: output.sampleRates)
-        if (rate > best && isCommon(rate))
-            best = rate;
-
-    if (best > 0)
-        return best;
-
-    if (output.preferredSampleRate > 0)
-        return output.preferredSampleRate;
-
-    if (!output.sampleRates.empty())
-        return output.sampleRates.front();
-
-    return 44100;
-}
-} // namespace
 
 DeviceManager::DeviceManager()
     : pimpl(EA::makeOwned<RTAudio::DeviceManager>())
@@ -77,7 +41,7 @@ StreamConfig DeviceManager::getDefaultConfig() const
     defaultConfig.input = StreamParameters(input, true);
     defaultConfig.output = StreamParameters(output, false);
 
-    defaultConfig.sampleRate = pickDefaultSampleRate(output, input);
+    defaultConfig.sampleRate = pickCompatibleSampleRate(output, input);
     defaultConfig.maxBlockSize = 512;
 
     return defaultConfig;

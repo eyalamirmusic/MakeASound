@@ -2,6 +2,7 @@
 
 #include <Miro/Miro.h>
 
+#include <algorithm>
 #include <vector>
 #include <optional>
 #include <string>
@@ -73,6 +74,46 @@ inline int getDefaultNumChannels(const DeviceInfo& info, bool input)
         channels = info.inputChannels;
 
     return std::min(2, channels);
+}
+
+inline bool deviceSupportsSampleRate(const DeviceInfo& device, int rate)
+{
+    return std::ranges::find(device.sampleRates, rate) != device.sampleRates.end();
+}
+
+// Pick a sample rate both devices can drive. Prefers the output's preferred
+// rate, then the input's preferred rate, then the highest rate present in
+// both lists, with output-only fallbacks if no common rate exists.
+inline int pickCompatibleSampleRate(const DeviceInfo& output,
+                                    const DeviceInfo& input)
+{
+    auto isCommon = [&](int rate)
+    {
+        return deviceSupportsSampleRate(output, rate)
+               && deviceSupportsSampleRate(input, rate);
+    };
+
+    if (output.preferredSampleRate > 0 && isCommon(output.preferredSampleRate))
+        return output.preferredSampleRate;
+
+    if (input.preferredSampleRate > 0 && isCommon(input.preferredSampleRate))
+        return input.preferredSampleRate;
+
+    auto best = 0;
+    for (auto rate: output.sampleRates)
+        if (rate > best && isCommon(rate))
+            best = rate;
+
+    if (best > 0)
+        return best;
+
+    if (output.preferredSampleRate > 0)
+        return output.preferredSampleRate;
+
+    if (!output.sampleRates.empty())
+        return output.sampleRates.front();
+
+    return 44100;
 }
 
 struct StreamParameters
