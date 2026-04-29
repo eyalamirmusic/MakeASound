@@ -43,6 +43,7 @@ StreamConfig DeviceManager::getDefaultConfig() const
 
     defaultConfig.sampleRate = pickCompatibleSampleRate(output, input);
     defaultConfig.maxBlockSize = 512;
+    defaultConfig.options = StreamOptions {};
 
     return defaultConfig;
 }

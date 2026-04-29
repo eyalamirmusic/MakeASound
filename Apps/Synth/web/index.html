@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MakeASound Synth</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>MakeASound Synth</h1>
+
+  <div class="row note">
+    <label>Voice</label>
+    <span id="voiceState" class="value-large">silent</span>
+  </div>
+
+  <div class="row">
+    <label for="gain">Gain</label>
+    <input id="gain" type="range" min="0" max="1" step="0.01" value="0.5" />
+    <span class="value" id="gainValue">0.50</span>
+  </div>
+
+  <div class="row">
+    <label for="device">Output device</label>
+    <select id="device"></select>
+  </div>
+
+  <div class="row">
+    <label for="sampleRate">Sample rate</label>
+    <select id="sampleRate"></select>
+  </div>
+
+  <div class="row">
+    <label for="blockSize">Block size</label>
+    <select id="blockSize">
+      <option>64</option><option>128</option><option>256</option>
+      <option selected>512</option><option>1024</option><option>2048</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="midiPort">MIDI input</label>
+    <select id="midiPort"></select>
+  </div>
+
+  <div class="row">
+    <label></label>
+    <button id="panic" type="button">All notes off</button>
+  </div>
+
+  <h2>MIDI log</h2>
+  <div id="midiLog"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

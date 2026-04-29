@@ -32,8 +32,5 @@ find_package(ea_data_structures REQUIRED)
 add_subdirectory(Lib)
 
 if (PROJECT_IS_TOP_LEVEL)
-    find_package(eacp REQUIRED)
-
-    add_subdirectory(Example)
-    add_subdirectory(Demo)
+    add_subdirectory(Apps)
 endif ()
