@@ -43,13 +43,20 @@ void renderWhiteNoise(MakeASound::AudioCallbackInfo& info, AudioState& state)
     }
 }
 
-struct DeviceOption
+struct DropdownItem
 {
-    MIRO_REFLECT(id, name, sampleRates)
+    MIRO_REFLECT(id, label)
 
     int id {};
-    std::string name;
-    MakeASound::Vector<int> sampleRates;
+    std::string label;
+};
+
+struct DropdownInfo
+{
+    MIRO_REFLECT(items, currentId)
+
+    MakeASound::Vector<DropdownItem> items;
+    int currentId {};
 };
 
 struct AudioControls
@@ -60,34 +67,58 @@ struct AudioControls
     double gain {};
 };
 
-struct MidiPortsState
-{
-    MIRO_REFLECT(midiInputPorts, currentMidiPortId)
-
-    MakeASound::Vector<MakeASound::MidiPortInfo> midiInputPorts;
-    int currentMidiPortId {-1};
-};
-
 struct UIState
 {
-    MIRO_REFLECT(playing,
-                 gain,
-                 currentDeviceId,
-                 sampleRate,
-                 blockSize,
-                 outputDevices,
-                 midiInputPorts,
-                 currentMidiPortId)
+    MIRO_REFLECT(playing, gain, blockSize, devices, sampleRates, midiPorts)
 
     bool playing {};
     double gain {};
-    int currentDeviceId {};
-    int sampleRate {};
     int blockSize {};
-    MakeASound::Vector<DeviceOption> outputDevices;
-    MakeASound::Vector<MakeASound::MidiPortInfo> midiInputPorts;
-    int currentMidiPortId {-1};
+    DropdownInfo devices;
+    DropdownInfo sampleRates;
+    DropdownInfo midiPorts;
 };
+
+DropdownInfo buildOutputDevices(MakeASound::DeviceManager& manager, int currentId)
+{
+    auto info = DropdownInfo {};
+    info.currentId = currentId;
+
+    for (auto& device: manager.getDevices())
+    {
+        if (device.outputChannels == 0)
+            continue;
+
+        info.items.create(device.id, device.name);
+    }
+
+    return info;
+}
+
+DropdownInfo buildSampleRates(const MakeASound::DeviceInfo& device, int currentRate)
+{
+    auto info = DropdownInfo {};
+    info.currentId = currentRate;
+
+    for (auto rate: device.sampleRates)
+        info.items.create(rate, std::to_string(rate) + " Hz");
+
+    return info;
+}
+
+DropdownInfo buildMidiPorts(
+    const MakeASound::Vector<MakeASound::MidiPortInfo>& ports,
+    int currentPortId)
+{
+    auto info = DropdownInfo {};
+    info.currentId = currentPortId;
+    info.items.create(-1, std::string {"(none)"});
+
+    for (auto& port: ports)
+        info.items.create(port.id, port.name);
+
+    return info;
+}
 } // namespace
 
 struct DemoApp
@@ -193,8 +224,9 @@ struct DemoApp
 
     void publishMidiToJS(const MakeASound::MidiMessage& msg)
     {
+        auto text = MakeASound::formatMessage(msg);
         webView.evaluateJavaScript("window.demoMidiEvent("
-                                   + Miro::toJSONString(msg) + ");");
+                                   + Miro::toJSONString(text) + ");");
 
         auto controls = AudioControls {audio.playing.load(),
                                        static_cast<double>(audio.gain.load())};
@@ -227,28 +259,17 @@ struct DemoApp
         auto state = UIState {};
         state.playing = audio.playing.load();
         state.gain = static_cast<double>(audio.gain.load());
-        state.sampleRate = config.sampleRate;
         state.blockSize = config.maxBlockSize;
-        state.currentDeviceId = config.output ? config.output->device.id : 0;
 
-        for (auto& device: manager.getDevices())
-        {
-            if (device.outputChannels == 0)
-                continue;
+        auto currentDeviceId = config.output ? config.output->device.id : 0;
+        state.devices = buildOutputDevices(manager, currentDeviceId);
 
-            auto sampleRates = MakeASound::Vector<int> {};
-            sampleRates.reserve(device.sampleRates.size());
-            for (auto rate: device.sampleRates)
-                sampleRates.add(rate);
+        if (config.output)
+            state.sampleRates =
+                buildSampleRates(config.output->device, config.sampleRate);
 
-            state.outputDevices.create(device.id,
-                                       device.name,
-                                       std::move(sampleRates));
-        }
-
-        state.midiInputPorts = midi.getInputPorts();
-        state.currentMidiPortId = currentMidiPortId;
-        lastInputPorts = state.midiInputPorts;
+        lastInputPorts = midi.getInputPorts();
+        state.midiPorts = buildMidiPorts(lastInputPorts, currentMidiPortId);
 
         webView.evaluateJavaScript("window.demoSetState(" + Miro::toJSONString(state)
                                    + ");");
@@ -261,11 +282,11 @@ struct DemoApp
         if (current == lastInputPorts)
             return;
 
-        lastInputPorts = current;
+        lastInputPorts = std::move(current);
 
-        auto state = MidiPortsState {std::move(current), currentMidiPortId};
+        auto info = buildMidiPorts(lastInputPorts, currentMidiPortId);
         webView.evaluateJavaScript("window.demoSetMidiPorts("
-                                   + Miro::toJSONString(state) + ");");
+                                   + Miro::toJSONString(info) + ");");
     }
 
     AudioState audio;

@@ -65,4 +65,9 @@ private:
 
 using MidiInputCallback = std::function<void(const MidiMessage&)>;
 
+// Render a MIDI message as a human-readable line: decoded status (Note On,
+// CC, Pitch Bend, ...), channel (1-based) and data bytes, followed by a
+// hex dump of the raw payload. Intended for logs, debug UIs and demos.
+std::string formatMessage(const MidiMessage& message);
+
 } // namespace MakeASound

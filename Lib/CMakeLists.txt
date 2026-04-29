@@ -2,6 +2,7 @@ add_library(MakeASound STATIC
         MakeASound/DeviceManager/DeviceManager.cpp
         MakeASound/RTAudio/RTAudio-Backend.cpp
         MakeASound/RTAudio/RTAudioDeviceManager.cpp
+        MakeASound/MidiInfo/MidiInfo.cpp
         MakeASound/MidiManager/MidiManager.cpp
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp)
