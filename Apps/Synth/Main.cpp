@@ -160,18 +160,15 @@ struct SynthApp
         if (kind == "ready")
             sendState();
         else if (kind == "gain")
-            audio.gain.store(
-                static_cast<float>(Miro::Json::find(obj, "value")->asNumber()));
+            audio.gain.store(obj["value"]);
         else if (kind == "sampleRate")
-            applySampleRate(
-                static_cast<int>(Miro::Json::find(obj, "value")->asNumber()));
+            applySampleRate(obj["value"]);
         else if (kind == "blockSize")
-            applyBlockSize(
-                static_cast<int>(Miro::Json::find(obj, "value")->asNumber()));
+            applyBlockSize(obj["value"]);
         else if (kind == "device")
-            applyDevice(static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
+            applyDevice(obj["id"]);
         else if (kind == "midiPort")
-            applyMidiPort(static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
+            applyMidiPort(obj["id"]);
         else if (kind == "allNotesOff")
             releaseAllNotes();
     }

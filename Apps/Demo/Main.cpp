@@ -94,20 +94,17 @@ struct DemoApp
         if (kind == "ready")
             sendState();
         else if (kind == "playing")
-            audio.playing.store(Miro::Json::find(obj, "value")->asBool());
+            audio.playing.store(obj["value"]);
         else if (kind == "gain")
-            audio.gain.store(
-                static_cast<float>(Miro::Json::find(obj, "value")->asNumber()));
+            audio.gain.store(obj["value"]);
         else if (kind == "sampleRate")
-            applySampleRate(
-                static_cast<int>(Miro::Json::find(obj, "value")->asNumber()));
+            applySampleRate(obj["value"]);
         else if (kind == "blockSize")
-            applyBlockSize(
-                static_cast<int>(Miro::Json::find(obj, "value")->asNumber()));
+            applyBlockSize(obj["value"]);
         else if (kind == "device")
-            applyDevice(static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
+            applyDevice(obj["id"]);
         else if (kind == "midiPort")
-            applyMidiPort(static_cast<int>(Miro::Json::find(obj, "id")->asNumber()));
+            applyMidiPort(obj["id"]);
     }
 
     void applySampleRate(int rate)
@@ -167,8 +164,8 @@ struct DemoApp
     void publishMidiToJS(const MakeASound::MidiMessage& msg)
     {
         auto text = MakeASound::formatMessage(msg);
-        webView.evaluateJavaScript("window.demoMidiEvent("
-                                   + Miro::toJSONString(text) + ");");
+        webView.evaluateJavaScript("window.demoMidiEvent(" + Miro::toJSONString(text)
+                                   + ");");
 
         auto controls = AudioControls {audio.playing.load(),
                                        static_cast<double>(audio.gain.load())};
@@ -204,8 +201,8 @@ struct DemoApp
         state.blockSize = config.maxBlockSize;
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
-        state.devices = MakeASound::UI::makeOutputDeviceDropdown(manager.getDevices(),
-                                                                 currentDeviceId);
+        state.devices = MakeASound::UI::makeOutputDeviceDropdown(
+            manager.getDevices(), currentDeviceId);
 
         if (config.output)
             state.sampleRates = MakeASound::UI::makeSampleRateDropdown(
@@ -228,8 +225,8 @@ struct DemoApp
 
         lastInputPorts = std::move(current);
 
-        auto info = MakeASound::UI::makeMidiPortDropdown(lastInputPorts,
-                                                         currentMidiPortId);
+        auto info =
+            MakeASound::UI::makeMidiPortDropdown(lastInputPorts, currentMidiPortId);
         webView.evaluateJavaScript("window.demoSetMidiPorts("
                                    + Miro::toJSONString(info) + ");");
     }
