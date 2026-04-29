@@ -19,7 +19,7 @@ CPMAddPackage(
 )
 
 add_library(rtmidi STATIC ${RTMidi_SOURCE_DIR}/RtMidi.cpp)
-target_include_directories(rtmidi PUBLIC ${RTMidi_SOURCE_DIR})
+target_include_directories(rtmidi SYSTEM PUBLIC ${RTMidi_SOURCE_DIR})
 
 if (APPLE)
     target_compile_definitions(rtmidi PRIVATE __MACOSX_CORE__)

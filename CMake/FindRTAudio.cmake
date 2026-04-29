@@ -19,7 +19,7 @@ CPMAddPackage(
 )
 
 add_library(rtaudio STATIC ${RTAudio_SOURCE_DIR}/RtAudio.cpp)
-target_include_directories(rtaudio PUBLIC ${RTAudio_SOURCE_DIR})
+target_include_directories(rtaudio SYSTEM PUBLIC ${RTAudio_SOURCE_DIR})
 
 
 target_compile_definitions(rtaudio PRIVATE HAVE_GETTIMEOFDAY)

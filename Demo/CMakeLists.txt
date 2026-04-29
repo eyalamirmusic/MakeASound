@@ -1,6 +1,8 @@
 add_executable(Demo Main.cpp)
 target_link_libraries(Demo PRIVATE MakeASound eacp-webview)
 
+set_makeasound_warnings(Demo)
+
 res_embed_add(Demo
         DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/web
         NAMESPACE WebResources

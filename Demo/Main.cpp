@@ -196,7 +196,8 @@ struct DemoApp
         webView.evaluateJavaScript("window.demoMidiEvent("
                                    + Miro::toJSONString(msg) + ");");
 
-        auto controls = AudioControls {audio.playing.load(), audio.gain.load()};
+        auto controls = AudioControls {audio.playing.load(),
+                                       static_cast<double>(audio.gain.load())};
         webView.evaluateJavaScript("window.demoUpdateAudio("
                                    + Miro::toJSONString(controls) + ");");
     }
@@ -225,7 +226,7 @@ struct DemoApp
     {
         auto state = UIState {};
         state.playing = audio.playing.load();
-        state.gain = audio.gain.load();
+        state.gain = static_cast<double>(audio.gain.load());
         state.sampleRate = config.sampleRate;
         state.blockSize = config.maxBlockSize;
         state.currentDeviceId = config.output ? config.output->device.id : 0;

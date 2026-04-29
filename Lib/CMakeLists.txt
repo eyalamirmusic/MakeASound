@@ -8,3 +8,5 @@ add_library(MakeASound STATIC
 
 target_link_libraries(MakeASound PUBLIC Miro ea_data_structures PRIVATE rtaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+
+set_makeasound_warnings(MakeASound)
