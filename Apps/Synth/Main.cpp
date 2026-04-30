@@ -115,7 +115,7 @@ struct UIState
     int blockSize {};
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo sampleRates;
-    MakeASound::UI::DropdownInfo midiPorts;
+    MakeASound::UI::ToggleListInfo midiPorts;
 };
 
 AudioControls makeControls(const AudioState& audio)
@@ -139,6 +139,7 @@ struct SynthApp
     SynthApp()
     {
         config = manager.getDefaultConfig();
+        config.input.reset();
         manager.start(config, [this](auto& info) { audioCallback(info); });
 
         webView.addScriptMessageHandler(
@@ -228,8 +229,8 @@ struct SynthApp
             applyBlockSize(obj["value"]);
         else if (kind == "device")
             applyDevice(obj["id"]);
-        else if (kind == "midiPort")
-            applyMidiPort(obj["id"]);
+        else if (kind == "midiPortToggle")
+            applyMidiPortToggle(obj["id"], obj["on"]);
         else if (kind == "allNotesOff")
             releaseAllNotes();
     }
@@ -246,19 +247,17 @@ struct SynthApp
         manager.setConfig(config);
     }
 
-    void applyMidiPort(int portId)
+    void applyMidiPortToggle(int portId, bool on)
     {
-        midi.closeAllInputs();
-        releaseAllNotes();
-
-        if (portId < 0)
+        if (on)
         {
-            currentMidiPortId = -1;
-            return;
+            midi.openInput(portId);
         }
-
-        midi.openInput(portId);
-        currentMidiPortId = portId;
+        else
+        {
+            midi.closeInput(portId);
+            releaseAllNotes();
+        }
     }
 
     void noteOn(int note, float velocity)
@@ -353,16 +352,14 @@ struct SynthApp
         state.blockSize = config.maxBlockSize;
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
-        state.devices = MakeASound::UI::makeOutputDeviceDropdown(manager.getDevices(),
-                                                                 currentDeviceId);
+        state.devices = uiDevices.makeOutputDeviceDropdown(currentDeviceId);
 
         if (config.output)
-            state.sampleRates = MakeASound::UI::makeSampleRateDropdown(
-                config.output->device, config.sampleRate);
+            state.sampleRates =
+                uiDevices.makeSampleRateDropdown(currentDeviceId, config.sampleRate);
 
         lastInputPorts = midi.getInputPorts();
-        state.midiPorts =
-            MakeASound::UI::makeMidiPortDropdown(lastInputPorts, currentMidiPortId);
+        state.midiPorts = uiMidi.makeInputPortToggleList();
 
         webView.evaluateJavaScript("window.synthSetState(" + Miro::toJSONString(state)
                                    + ");");
@@ -377,8 +374,7 @@ struct SynthApp
 
         lastInputPorts = std::move(current);
 
-        auto info = MakeASound::UI::makeMidiPortDropdown(lastInputPorts,
-                                                         currentMidiPortId);
+        auto info = uiMidi.makeInputPortToggleList();
         webView.evaluateJavaScript("window.synthSetMidiPorts("
                                    + Miro::toJSONString(info) + ");");
     }
@@ -388,9 +384,10 @@ struct SynthApp
     std::vector<int> heldNotes;
     MakeASound::DeviceManager manager;
     MakeASound::MidiManager midi;
+    MakeASound::UIDeviceManager uiDevices {manager};
+    MakeASound::UIMidiManager uiMidi {midi};
     MakeASound::MidiBlockSync midiSync;
     MakeASound::StreamConfig config;
-    int currentMidiPortId {-1};
     MakeASound::Vector<MakeASound::MidiPortInfo> lastInputPorts;
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("SynthWeb")};
     eacp::Graphics::Window window;

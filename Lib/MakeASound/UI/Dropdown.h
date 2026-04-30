@@ -28,6 +28,22 @@ struct DropdownInfo
     int currentId {};
 };
 
+struct ToggleListItem
+{
+    MIRO_REFLECT(id, label, selected)
+
+    int id {};
+    std::string label;
+    bool selected {};
+};
+
+struct ToggleListInfo
+{
+    MIRO_REFLECT(items)
+
+    Vector<ToggleListItem> items;
+};
+
 DropdownInfo makeOutputDeviceDropdown(const Vector<DeviceInfo>& devices,
                                       int currentId);
 
@@ -36,8 +52,7 @@ DropdownInfo makeInputDeviceDropdown(const Vector<DeviceInfo>& devices,
 
 DropdownInfo makeSampleRateDropdown(const DeviceInfo& device, int currentRate);
 
-DropdownInfo makeMidiPortDropdown(const Vector<MidiPortInfo>& ports,
-                                  int currentId,
-                                  bool addNoneSentinel = true);
+ToggleListInfo makeMidiPortToggleList(const Vector<MidiPortInfo>& ports,
+                                      const Vector<int>& openPortIds);
 
 } // namespace MakeASound::UI

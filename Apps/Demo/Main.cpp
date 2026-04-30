@@ -59,7 +59,7 @@ struct UIState
     int blockSize {};
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo sampleRates;
-    MakeASound::UI::DropdownInfo midiPorts;
+    MakeASound::UI::ToggleListInfo midiPorts;
 };
 } // namespace
 
@@ -103,8 +103,8 @@ struct DemoApp
             applyBlockSize(obj["value"]);
         else if (kind == "device")
             applyDevice(obj["id"]);
-        else if (kind == "midiPort")
-            applyMidiPort(obj["id"]);
+        else if (kind == "midiPortToggle")
+            applyMidiPortToggle(obj["id"], obj["on"]);
     }
 
     void applySampleRate(int rate)
@@ -119,20 +119,14 @@ struct DemoApp
         manager.setConfig(config);
     }
 
-    void applyMidiPort(int portId)
+    void applyMidiPortToggle(int portId, bool on)
     {
-        midi.closeAllInputs();
-
-        if (portId < 0)
-        {
-            currentMidiPortId = -1;
-            return;
-        }
-
-        midi.openInput(portId,
-                       [this](const MakeASound::MidiMessage& msg)
-                       { handleIncomingMidi(msg); });
-        currentMidiPortId = portId;
+        if (on)
+            midi.openInput(portId,
+                           [this](const MakeASound::MidiMessage& msg)
+                           { handleIncomingMidi(msg); });
+        else
+            midi.closeInput(portId);
     }
 
     void handleIncomingMidi(const MakeASound::MidiMessage& msg)
@@ -201,16 +195,14 @@ struct DemoApp
         state.blockSize = config.maxBlockSize;
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
-        state.devices = MakeASound::UI::makeOutputDeviceDropdown(
-            manager.getDevices(), currentDeviceId);
+        state.devices = uiDevices.makeOutputDeviceDropdown(currentDeviceId);
 
         if (config.output)
-            state.sampleRates = MakeASound::UI::makeSampleRateDropdown(
-                config.output->device, config.sampleRate);
+            state.sampleRates =
+                uiDevices.makeSampleRateDropdown(currentDeviceId, config.sampleRate);
 
         lastInputPorts = midi.getInputPorts();
-        state.midiPorts =
-            MakeASound::UI::makeMidiPortDropdown(lastInputPorts, currentMidiPortId);
+        state.midiPorts = uiMidi.makeInputPortToggleList();
 
         webView.evaluateJavaScript("window.demoSetState(" + Miro::toJSONString(state)
                                    + ");");
@@ -225,8 +217,7 @@ struct DemoApp
 
         lastInputPorts = std::move(current);
 
-        auto info =
-            MakeASound::UI::makeMidiPortDropdown(lastInputPorts, currentMidiPortId);
+        auto info = uiMidi.makeInputPortToggleList();
         webView.evaluateJavaScript("window.demoSetMidiPorts("
                                    + Miro::toJSONString(info) + ");");
     }
@@ -234,8 +225,9 @@ struct DemoApp
     AudioState audio;
     MakeASound::DeviceManager manager;
     MakeASound::MidiManager midi;
+    MakeASound::UIDeviceManager uiDevices {manager};
+    MakeASound::UIMidiManager uiMidi {midi};
     MakeASound::StreamConfig config;
-    int currentMidiPortId {-1};
     MakeASound::Vector<MakeASound::MidiPortInfo> lastInputPorts;
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("DemoWeb")};
     eacp::Graphics::Window window;

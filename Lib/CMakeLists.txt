@@ -8,7 +8,9 @@ add_library(MakeASound STATIC
         MakeASound/MidiBlockSync/MidiBlockSync.cpp
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp
-        MakeASound/UI/Dropdown.cpp)
+        MakeASound/UI/Dropdown.cpp
+        MakeASound/UI/UIDeviceManager.cpp
+        MakeASound/UI/UIMidiManager.cpp)
 
 target_link_libraries(MakeASound PUBLIC Miro ea_data_structures PRIVATE rtaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})

@@ -58,3 +58,27 @@ h2 { font-size: 14px; margin: 24px 0 8px; opacity: 0.75; }
 }
 
 #midiLog div { white-space: pre; padding: 1px 0; }
+
+.row.toggle-list { align-items: flex-start; }
+
+.toggle-list-items {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.toggle-item {
+    flex: none;
+    font-size: 13px;
+    opacity: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.toggle-list-items .empty {
+    opacity: 0.5;
+    font-style: italic;
+    font-size: 13px;
+}

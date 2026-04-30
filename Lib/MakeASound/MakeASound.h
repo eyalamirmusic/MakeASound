@@ -6,3 +6,5 @@
 #include "MidiManager/MidiManager.h"
 #include "MidiBlockSync/MidiBlockSync.h"
 #include "UI/Dropdown.h"
+#include "UI/UIDeviceManager.h"
+#include "UI/UIMidiManager.h"

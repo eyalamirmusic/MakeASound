@@ -1,5 +1,7 @@
 #include "Dropdown.h"
 
+#include <algorithm>
+
 namespace MakeASound::UI
 {
 namespace
@@ -48,18 +50,16 @@ DropdownInfo makeSampleRateDropdown(const DeviceInfo& device, int currentRate)
     return info;
 }
 
-DropdownInfo makeMidiPortDropdown(const Vector<MidiPortInfo>& ports,
-                                  int currentId,
-                                  bool addNoneSentinel)
+ToggleListInfo makeMidiPortToggleList(const Vector<MidiPortInfo>& ports,
+                                      const Vector<int>& openPortIds)
 {
-    auto info = DropdownInfo {};
-    info.currentId = currentId;
-
-    if (addNoneSentinel)
-        info.items.create(-1, std::string {"(none)"});
+    auto info = ToggleListInfo {};
 
     for (auto& port: ports)
-        info.items.create(port.id, port.name);
+    {
+        auto selected = std::ranges::find(openPortIds, port.id) != openPortIds.end();
+        info.items.create(port.id, port.name, selected);
+    }
 
     return info;
 }

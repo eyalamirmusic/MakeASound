@@ -21,10 +21,49 @@ function applyDropdown(selectId, info) {
     sel.value = String(info.currentId);
 }
 
+function applyToggleList(containerId, info, onToggle) {
+    const root = $(containerId);
+    const sig = info.items.map((i) => i.id + '|' + i.label).join(',,');
+
+    if (root.dataset.signature !== sig) {
+        root.innerHTML = '';
+
+        if (info.items.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty';
+            empty.textContent = '(no MIDI inputs)';
+            root.appendChild(empty);
+        } else {
+            for (const item of info.items) {
+                const label = document.createElement('label');
+                label.className = 'toggle-item';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.dataset.id = String(item.id);
+                cb.addEventListener('change', (e) =>
+                    onToggle(item.id, e.target.checked));
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(' ' + item.label));
+                root.appendChild(label);
+            }
+        }
+
+        root.dataset.signature = sig;
+    }
+
+    for (const item of info.items) {
+        const cb = root.querySelector(`input[data-id="${item.id}"]`);
+        if (cb) cb.checked = !!item.selected;
+    }
+}
+
+const sendMidiToggle = (id, on) =>
+    send({ type: 'midiPortToggle', id, on });
+
 window.demoSetState = function(state) {
     applyDropdown('device', state.devices);
     applyDropdown('sampleRate', state.sampleRates);
-    applyDropdown('midiPort', state.midiPorts);
+    applyToggleList('midiPorts', state.midiPorts, sendMidiToggle);
     $('blockSize').value = String(state.blockSize);
     $('playing').checked = state.playing;
     $('gain').value = state.gain;
@@ -32,7 +71,7 @@ window.demoSetState = function(state) {
 };
 
 window.demoSetMidiPorts = function(info) {
-    applyDropdown('midiPort', info);
+    applyToggleList('midiPorts', info, sendMidiToggle);
 };
 
 window.demoUpdateAudio = function(controls) {
@@ -69,9 +108,6 @@ $('sampleRate').addEventListener('change', (e) =>
 
 $('blockSize').addEventListener('change', (e) =>
     send({ type: 'blockSize', value: parseInt(e.target.value, 10) }));
-
-$('midiPort').addEventListener('change', (e) =>
-    send({ type: 'midiPort', id: parseInt(e.target.value, 10) }));
 
 $('midiLog').innerHTML = '<div class="empty">no MIDI events yet</div>';
 
