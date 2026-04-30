@@ -7,8 +7,7 @@
 
 struct AudioProcessor
 {
-    using MidiAppliedCallback =
-        std::function<void(const MakeASound::MidiInputEvent&)>;
+    using MidiAppliedCallback = std::function<void(const MakeASound::MIDI::Event&)>;
 
     AudioProcessor()
     {
@@ -39,7 +38,6 @@ struct AudioProcessor
         manager.setConfig(config);
     }
 
-    // Returns true if the device was found and applied.
     bool applyDevice(int deviceId)
     {
         for (auto& device: manager.getDevices())
@@ -82,7 +80,6 @@ struct AudioProcessor
             midiSync.reset();
         }
 
-        auto blockStart = std::chrono::steady_clock::now();
         midiSync.drainForBlock(midi, info.numSamples, info.sampleRate);
 
         auto cursor = 0;
@@ -90,49 +87,23 @@ struct AudioProcessor
         for (auto& evt: midiSync.events())
         {
             synth.render(info, cursor, evt.sampleOffset);
-            applyMidiOnAudioThread(evt, blockStart, info.sampleRate);
+
+            if (auto midiEvent =
+                    MakeASound::MIDI::convertMidi(evt.message, evt.sampleOffset))
+            {
+                applyMidiOnAudioThread(*midiEvent);
+            }
+
             cursor = evt.sampleOffset;
         }
 
         synth.render(info, cursor, info.numSamples);
     }
 
-    void applyMidiOnAudioThread(const MakeASound::MidiInputEvent& evt,
-                                MakeASound::MidiTimePoint blockStart,
-                                int sampleRate)
+    void applyMidiOnAudioThread(const MakeASound::MIDI::Event& midiEvent)
     {
-        synth.applyMidiMessage(evt.message);
-        logEventDiagnostic(evt, blockStart, sampleRate);
-
-        if (midiAppliedCb)
-            eacp::Threads::callAsync(
-                [this, evt]()
-                {
-                    if (midiAppliedCb)
-                        midiAppliedCb(evt);
-                });
-    }
-
-    static void logEventDiagnostic(const MakeASound::MidiInputEvent& evt,
-                                   MakeASound::MidiTimePoint blockStart,
-                                   int sampleRate)
-    {
-        using namespace std::chrono;
-
-        auto arrivalUs =
-            duration_cast<microseconds>(evt.arrival - blockStart).count();
-        auto applicationUs = static_cast<long long>(
-            (1'000'000.0 * evt.sampleOffset) / static_cast<double>(sampleRate));
-        auto latencyUs = applicationUs - arrivalUs;
-
-        std::printf("[synth] sampleOffset=%4d  arrival=%+7lldus  applied=%+7lldus  "
-                    "latency=%+7lldus  bytes=%zu\n",
-                    evt.sampleOffset,
-                    static_cast<long long>(arrivalUs),
-                    applicationUs,
-                    latencyUs,
-                    evt.message.bytes.size());
-        std::fflush(stdout);
+        synth.applyMidiEvent(midiEvent);
+        eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb] { cb(midiEvent); });
     }
 
     Synth synth;

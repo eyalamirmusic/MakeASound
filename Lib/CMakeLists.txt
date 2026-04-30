@@ -6,6 +6,7 @@ add_library(MakeASound STATIC
         MakeASound/MidiInfo/MidiInfo.cpp
         MakeASound/MidiManager/MidiManager.cpp
         MakeASound/MidiBlockSync/MidiBlockSync.cpp
+        MakeASound/MIDI/MIDI.cpp
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp
         MakeASound/UI/Dropdown.cpp

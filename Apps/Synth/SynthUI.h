@@ -41,8 +41,8 @@ struct SynthUI
         window.setContentView(webView);
 
         processor.setMidiAppliedCallback(
-            [this](const MakeASound::MidiInputEvent& evt)
-            { publishMidiToJS(evt.message); });
+            [this](const MakeASound::MIDI::Event& event)
+            { publishMidiToJS(event); });
     }
 
     void handleMessage(const std::string& jsonStr)
@@ -106,9 +106,9 @@ struct SynthUI
                                    + Miro::toJSONString(state) + ");");
     }
 
-    void publishMidiToJS(const MakeASound::MidiMessage& msg)
+    void publishMidiToJS(const MakeASound::MIDI::Event& event)
     {
-        auto text = MakeASound::formatMessage(msg);
+        auto text = MakeASound::MIDI::toString(event);
         webView.evaluateJavaScript("window.synthMidiEvent("
                                    + Miro::toJSONString(text) + ");");
 

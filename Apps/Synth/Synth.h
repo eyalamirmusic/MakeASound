@@ -80,24 +80,21 @@ struct Synth
         }
     }
 
-    // Audio-thread: interpret a MIDI message and update synth state.
-    void applyMidiMessage(const MakeASound::MidiMessage& msg)
+    // Audio-thread: apply a typed MIDI event and update synth state.
+    void applyMidiEvent(const MakeASound::MIDI::Event& event)
     {
-        if (msg.bytes.size() < 3)
-            return;
-
-        auto status = msg.bytes[0] & 0xF0;
-        auto data1 = static_cast<int>(msg.bytes[1]);
-        auto data2 = static_cast<int>(msg.bytes[2]);
-
-        if (status == 0x90 && data2 > 0)
-            noteOn(data1, static_cast<float>(data2) / 127.0f);
-        else if (status == 0x80 || (status == 0x90 && data2 == 0))
-            noteOff(data1);
-        else if (status == 0xB0 && data1 == 123)
-            releaseAllNotes();
-        else if (status == 0xB0 && data1 == 7)
-            gain.store(static_cast<float>(data2) / 127.0f);
+        event.visit(MakeASound::MIDI::overloaded {
+            [&](const MakeASound::MIDI::NoteOn& n) { noteOn(n.pitch, n.velocity); },
+            [&](const MakeASound::MIDI::NoteOff& n) { noteOff(n.pitch); },
+            [&](const MakeASound::MIDI::ControlChange& cc)
+            {
+                if (cc.controller == 123) // all notes off
+                    releaseAllNotes();
+                else if (cc.controller == 7) // channel volume
+                    gain.store(cc.value);
+            },
+            [&](const auto&) {}, // ignore everything else for this demo
+        });
     }
 
     void noteOn(int noteToPlay, float velocityToUse)
