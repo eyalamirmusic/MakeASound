@@ -3,6 +3,9 @@
 #include <MakeASound/MakeASound.h>
 #include <numbers>
 
+namespace MS = MakeASound;
+namespace MIDI = MS::MIDI;
+
 struct AudioControls
 {
     MIRO_REFLECT(playing, gain, note, frequency, velocity)
@@ -42,7 +45,7 @@ struct Synth
 
     void reset() { voice.phase = 0.0f; }
 
-    void render(MakeASound::AudioCallbackInfo& info, int startSample, int endSample)
+    void render(MS::AudioCallbackInfo& info, int startSample, int endSample)
     {
         if (startSample >= endSample || info.numOutputs <= 0)
             return;
@@ -81,12 +84,12 @@ struct Synth
     }
 
     // Audio-thread: apply a typed MIDI event and update synth state.
-    void applyMidiEvent(const MakeASound::MIDI::Event& event)
+    void applyMidiEvent(const MIDI::Event& event)
     {
-        event.visit(MakeASound::MIDI::overloaded {
-            [&](const MakeASound::MIDI::NoteOn& n) { noteOn(n.pitch, n.velocity); },
-            [&](const MakeASound::MIDI::NoteOff& n) { noteOff(n.pitch); },
-            [&](const MakeASound::MIDI::ControlChange& cc)
+        event.visit(MIDI::overloaded {
+            [&](const MIDI::NoteOn& n) { noteOn(n.pitch, n.velocity); },
+            [&](const MIDI::NoteOff& n) { noteOff(n.pitch); },
+            [&](const MIDI::ControlChange& cc)
             {
                 if (cc.controller == 123) // all notes off
                     releaseAllNotes();

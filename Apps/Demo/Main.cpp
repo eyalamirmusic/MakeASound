@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace MS = MakeASound;
+
 namespace
 {
 float getRandomFloat()
@@ -22,7 +24,7 @@ struct AudioState
     std::atomic<float> gain {0.1f};
 };
 
-void renderWhiteNoise(MakeASound::AudioCallbackInfo& info, AudioState& state)
+void renderWhiteNoise(MS::AudioCallbackInfo& info, AudioState& state)
 {
     auto playing = state.playing.load(std::memory_order_relaxed);
     auto gain = state.gain.load(std::memory_order_relaxed);
@@ -57,9 +59,9 @@ struct UIState
     bool playing {};
     double gain {};
     int blockSize {};
-    MakeASound::UI::DropdownInfo devices;
-    MakeASound::UI::DropdownInfo sampleRates;
-    MakeASound::UI::ToggleListInfo midiPorts;
+    MS::UI::DropdownInfo devices;
+    MS::UI::DropdownInfo sampleRates;
+    MS::UI::ToggleListInfo midiPorts;
 };
 } // namespace
 
@@ -123,13 +125,13 @@ struct DemoApp
     {
         if (on)
             midi.openInput(portId,
-                           [this](const MakeASound::MidiMessage& msg)
+                           [this](const MS::MidiMessage& msg)
                            { handleIncomingMidi(msg); });
         else
             midi.closeInput(portId);
     }
 
-    void handleIncomingMidi(const MakeASound::MidiMessage& msg)
+    void handleIncomingMidi(const MS::MidiMessage& msg)
     {
         if (msg.bytes.size() >= 3)
         {
@@ -155,9 +157,9 @@ struct DemoApp
         eacp::Threads::callAsync([this, msg]() { publishMidiToJS(msg); });
     }
 
-    void publishMidiToJS(const MakeASound::MidiMessage& msg)
+    void publishMidiToJS(const MS::MidiMessage& msg)
     {
-        auto text = MakeASound::formatMessage(msg);
+        auto text = MS::formatMessage(msg);
         webView.evaluateJavaScript("window.demoMidiEvent(" + Miro::toJSONString(text)
                                    + ");");
 
@@ -174,7 +176,7 @@ struct DemoApp
             if (device.id != deviceId || device.outputChannels == 0)
                 continue;
 
-            config.output = MakeASound::StreamParameters {device, false};
+            config.output = MS::StreamParameters {device, false};
 
             if (!device.sampleRates.empty()
                 && std::ranges::find(device.sampleRates, config.sampleRate)
@@ -223,12 +225,12 @@ struct DemoApp
     }
 
     AudioState audio;
-    MakeASound::DeviceManager manager;
-    MakeASound::MidiManager midi;
-    MakeASound::UIDeviceManager uiDevices {manager};
-    MakeASound::UIMidiManager uiMidi {midi};
-    MakeASound::StreamConfig config;
-    MakeASound::Vector<MakeASound::MidiPortInfo> lastInputPorts;
+    MS::DeviceManager manager;
+    MS::MidiManager midi;
+    MS::UIDeviceManager uiDevices {manager};
+    MS::UIMidiManager uiMidi {midi};
+    MS::StreamConfig config;
+    MS::Vector<MS::MidiPortInfo> lastInputPorts;
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("DemoWeb")};
     eacp::Graphics::Window window;
     eacp::Threads::Timer midiPollTimer {[this] { pollMidiPorts(); }, 2};

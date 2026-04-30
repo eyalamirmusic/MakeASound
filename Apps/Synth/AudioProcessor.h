@@ -7,7 +7,7 @@
 
 struct AudioProcessor
 {
-    using MidiAppliedCallback = std::function<void(const MakeASound::MIDI::Event&)>;
+    using MidiAppliedCallback = std::function<void(const MIDI::Event&)>;
 
     AudioProcessor()
     {
@@ -19,7 +19,7 @@ struct AudioProcessor
     Synth& getSynth() { return synth; }
     const Synth& getSynth() const { return synth; }
 
-    const MakeASound::StreamConfig& getStreamConfig() const { return config; }
+    const MS::StreamConfig& getStreamConfig() const { return config; }
 
     // Fired on the UI thread (auto-bounced from the audio thread) after a
     // MIDI message has been applied to the synth state.
@@ -45,7 +45,7 @@ struct AudioProcessor
             if (device.id != deviceId || device.outputChannels == 0)
                 continue;
 
-            config.output = MakeASound::StreamParameters {device, false};
+            config.output = MS::StreamParameters {device, false};
 
             if (!device.sampleRates.empty()
                 && std::ranges::find(device.sampleRates, config.sampleRate)
@@ -72,7 +72,7 @@ struct AudioProcessor
         }
     }
 
-    void audioCallback(MakeASound::AudioCallbackInfo& info)
+    void audioCallback(MS::AudioCallbackInfo& info)
     {
         if (info.dirty)
         {
@@ -88,8 +88,7 @@ struct AudioProcessor
         {
             synth.render(info, cursor, evt.sampleOffset);
 
-            if (auto midiEvent =
-                    MakeASound::MIDI::convertMidi(evt.message, evt.sampleOffset))
+            if (auto midiEvent = MIDI::convertMidi(evt.message, evt.sampleOffset))
             {
                 applyMidiOnAudioThread(*midiEvent);
             }
@@ -100,16 +99,16 @@ struct AudioProcessor
         synth.render(info, cursor, info.numSamples);
     }
 
-    void applyMidiOnAudioThread(const MakeASound::MIDI::Event& midiEvent)
+    void applyMidiOnAudioThread(const MIDI::Event& midiEvent)
     {
         synth.applyMidiEvent(midiEvent);
         eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb] { cb(midiEvent); });
     }
 
     Synth synth;
-    MakeASound::DeviceManager manager;
-    MakeASound::MidiManager midi;
-    MakeASound::MidiBlockSync midiSync;
-    MakeASound::StreamConfig config;
+    MS::DeviceManager manager;
+    MS::MidiManager midi;
+    MS::MidiBlockSync midiSync;
+    MS::StreamConfig config;
     MidiAppliedCallback midiAppliedCb;
 };

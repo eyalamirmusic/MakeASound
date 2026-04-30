@@ -2,6 +2,8 @@
 #include <thread>
 #include <random>
 
+namespace MS = MakeASound;
+
 float getRandomFloat()
 {
     static std::default_random_engine e;
@@ -9,7 +11,7 @@ float getRandomFloat()
     return dis(e);
 }
 
-void processBlock(MakeASound::AudioCallbackInfo& info)
+void processBlock(MS::AudioCallbackInfo& info)
 {
     if (info.dirty)
     {
@@ -28,7 +30,7 @@ void processBlock(MakeASound::AudioCallbackInfo& info)
 
 int main()
 {
-    MakeASound::DeviceManager manager;
+    MS::DeviceManager manager;
     Miro::logJSON(manager.getDefaultConfig());
 
     return 0;

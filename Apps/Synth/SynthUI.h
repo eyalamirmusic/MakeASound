@@ -25,9 +25,9 @@ struct SynthUIState
     double frequency {};
     double velocity {};
     int blockSize {};
-    MakeASound::UI::DropdownInfo devices;
-    MakeASound::UI::DropdownInfo sampleRates;
-    MakeASound::UI::ToggleListInfo midiPorts;
+    MS::UI::DropdownInfo devices;
+    MS::UI::DropdownInfo sampleRates;
+    MS::UI::ToggleListInfo midiPorts;
 };
 
 struct SynthUI
@@ -41,7 +41,7 @@ struct SynthUI
         window.setContentView(webView);
 
         processor.setMidiAppliedCallback(
-            [this](const MakeASound::MIDI::Event& event)
+            [this](const MIDI::Event& event)
             { publishMidiToJS(event); });
     }
 
@@ -106,9 +106,9 @@ struct SynthUI
                                    + Miro::toJSONString(state) + ");");
     }
 
-    void publishMidiToJS(const MakeASound::MIDI::Event& event)
+    void publishMidiToJS(const MIDI::Event& event)
     {
-        auto text = MakeASound::MIDI::toString(event);
+        auto text = MIDI::toString(event);
         webView.evaluateJavaScript("window.synthMidiEvent("
                                    + Miro::toJSONString(text) + ");");
 
@@ -132,9 +132,9 @@ struct SynthUI
     }
 
     AudioProcessor& processor;
-    MakeASound::UIDeviceManager uiDevices {processor.manager};
-    MakeASound::UIMidiManager uiMidi {processor.midi};
-    MakeASound::Vector<MakeASound::MidiPortInfo> lastInputPorts;
+    MS::UIDeviceManager uiDevices {processor.manager};
+    MS::UIMidiManager uiMidi {processor.midi};
+    MS::Vector<MS::MidiPortInfo> lastInputPorts;
     eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("SynthWeb")};
     eacp::Graphics::Window window;
     eacp::Threads::Timer midiPollTimer {[this] { pollMidiPorts(); }, 2};
