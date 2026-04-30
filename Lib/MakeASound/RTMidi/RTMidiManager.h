@@ -18,7 +18,7 @@ struct InputPort
     MidiInputCallback callback;
 
     EA::Locks::PrimitiveSpinLock lock;
-    Vector<MidiMessage> queue;
+    Vector<MidiInputEvent> queue;
 };
 
 struct MidiManager

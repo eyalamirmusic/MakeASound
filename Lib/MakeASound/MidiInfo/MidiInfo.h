@@ -3,6 +3,7 @@
 #include "../Common/Common.h"
 #include <Miro/Miro.h>
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -10,6 +11,9 @@
 
 namespace MakeASound
 {
+
+// Wall-clock timestamp used to align MIDI arrival with audio block timing.
+using MidiTimePoint = std::chrono::steady_clock::time_point;
 
 struct MidiPortInfo
 {
@@ -34,6 +38,14 @@ struct MidiInputEvent
 
     int portId {};
     MidiMessage message;
+
+    // Set by the input backend at the moment RtMidi delivered the message.
+    // Read by MidiBlockSync to translate to a sample offset.
+    MidiTimePoint arrival {};
+
+    // Filled by MidiBlockSync after wall-clock-to-sample translation; 0 for
+    // events obtained directly via MidiManager::drainMessages.
+    int sampleOffset = 0;
 };
 
 class MidiEvents

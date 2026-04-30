@@ -72,8 +72,8 @@ void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
         if (!port->lock.tryLock())
             continue;
 
-        for (auto& msg: port->queue)
-            out.add(MidiInputEvent {port->portId, std::move(msg)});
+        for (auto& evt: port->queue)
+            out.add(std::move(evt));
 
         port->queue.clear();
         port->lock.unlock();
@@ -106,6 +106,8 @@ void midiInputTrampoline(double timestamp,
                          std::vector<unsigned char>* message,
                          void* userData)
 {
+    auto arrival = std::chrono::steady_clock::now();
+
     if (message == nullptr || userData == nullptr)
         return;
 
@@ -118,8 +120,13 @@ void midiInputTrampoline(double timestamp,
         return;
     }
 
+    auto event = MidiInputEvent {};
+    event.portId = port.portId;
+    event.message = std::move(msg);
+    event.arrival = arrival;
+
     auto guard = EA::Locks::ScopedSpinLock {port.lock};
-    port.queue.add(std::move(msg));
+    port.queue.add(std::move(event));
 }
 
 } // namespace MakeASound::RTMidi

@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <numbers>
 #include <string>
 #include <vector>
@@ -42,39 +44,43 @@ struct SineVoice
     float phase {0.0f};
 };
 
-void renderSine(MakeASound::AudioCallbackInfo& info,
-                AudioState& state,
-                SineVoice& voice)
+void renderSegment(MakeASound::AudioCallbackInfo& info,
+                   const AudioState& state,
+                   SineVoice& voice,
+                   int startSample,
+                   int endSample)
 {
+    if (startSample >= endSample || info.numOutputs <= 0)
+        return;
+
     auto note = state.note.load(std::memory_order_relaxed);
     auto velocity = state.velocity.load(std::memory_order_relaxed);
     auto gain = state.gain.load(std::memory_order_relaxed);
 
-    if (info.dirty)
-        voice.phase = 0.0f;
-
-    if (note < 0 || info.numOutputs <= 0)
-    {
-        for (auto channel = 0; channel < info.numOutputs; ++channel)
-        {
-            auto out = info.getOutput(channel);
-            std::ranges::fill(out, 0.0f);
-        }
-        return;
-    }
-
-    auto frequency = midiNoteToFrequency(note);
-    auto increment = twoPi * frequency / static_cast<float>(info.sampleRate);
-    auto amplitude = gain * velocity;
-
     auto first = info.getOutput(0);
-    for (auto& sample: first)
-        sample = voice.renderSample(increment) * amplitude;
+
+    if (note < 0)
+    {
+        std::fill(first.begin() + startSample, first.begin() + endSample, 0.0f);
+    }
+    else
+    {
+        auto frequency = midiNoteToFrequency(note);
+        auto increment = twoPi * frequency / static_cast<float>(info.sampleRate);
+        auto amplitude = gain * velocity;
+
+        for (auto i = static_cast<std::size_t>(startSample);
+             i < static_cast<std::size_t>(endSample);
+             ++i)
+            first[i] = voice.renderSample(increment) * amplitude;
+    }
 
     for (auto channel = 1; channel < info.numOutputs; ++channel)
     {
         auto out = info.getOutput(channel);
-        std::ranges::copy(first, out.begin());
+        std::copy(first.begin() + startSample,
+                  first.begin() + endSample,
+                  out.begin() + startSample);
     }
 }
 
@@ -133,13 +139,68 @@ struct SynthApp
     SynthApp()
     {
         config = manager.getDefaultConfig();
-        manager.start(config,
-                      [this](auto& info) { renderSine(info, audio, voice); });
+        manager.start(config, [this](auto& info) { audioCallback(info); });
 
         webView.addScriptMessageHandler(
             "synth", [this](const std::string& msg) { handleMessage(msg); });
 
         window.setContentView(webView);
+    }
+
+    void audioCallback(MakeASound::AudioCallbackInfo& info)
+    {
+        if (info.dirty)
+        {
+            voice.phase = 0.0f;
+            midiSync.reset();
+        }
+
+        auto blockStart = std::chrono::steady_clock::now();
+        midiSync.drainForBlock(midi, info.numSamples, info.sampleRate);
+
+        auto cursor = 0;
+
+        for (auto& evt: midiSync.events())
+        {
+            renderSegment(info, audio, voice, cursor, evt.sampleOffset);
+            applyMidiOnAudioThread(evt, blockStart, info.sampleRate);
+            cursor = evt.sampleOffset;
+        }
+
+        renderSegment(info, audio, voice, cursor, info.numSamples);
+    }
+
+    void applyMidiOnAudioThread(const MakeASound::MidiInputEvent& evt,
+                                MakeASound::MidiTimePoint blockStart,
+                                int sampleRate)
+    {
+        applyMidiState(evt.message);
+        logEventDiagnostic(evt, blockStart, sampleRate);
+
+        auto msg = evt.message;
+        eacp::Threads::callAsync([this, msg]() { publishMidiToJS(msg); });
+    }
+
+    void logEventDiagnostic(const MakeASound::MidiInputEvent& evt,
+                            MakeASound::MidiTimePoint blockStart,
+                            int sampleRate) const
+    {
+        using namespace std::chrono;
+
+        auto arrivalUs =
+            duration_cast<microseconds>(evt.arrival - blockStart).count();
+        auto applicationUs = static_cast<long long>(
+            (1'000'000.0 * evt.sampleOffset) / static_cast<double>(sampleRate));
+        auto latencyUs = applicationUs - arrivalUs;
+
+        std::printf("[synth] sampleOffset=%4d  arrival=%+7lldus  applied=%+7lldus  "
+                    "latency=%+7lldus  bytes=%zu\n",
+                    evt.sampleOffset,
+                    static_cast<long long>(arrivalUs),
+                    applicationUs,
+                    latencyUs,
+                    evt.message.bytes.size());
+        std::fflush(stdout);
     }
 
     void handleMessage(const std::string& jsonStr)
@@ -196,9 +257,7 @@ struct SynthApp
             return;
         }
 
-        midi.openInput(portId,
-                       [this](const MakeASound::MidiMessage& msg)
-                       { handleIncomingMidi(msg); });
+        midi.openInput(portId);
         currentMidiPortId = portId;
     }
 
@@ -232,25 +291,23 @@ struct SynthApp
         audio.velocity.store(0.0f);
     }
 
-    void handleIncomingMidi(const MakeASound::MidiMessage& msg)
+    void applyMidiState(const MakeASound::MidiMessage& msg)
     {
-        if (msg.bytes.size() >= 3)
-        {
-            auto status = msg.bytes[0] & 0xF0;
-            auto data1 = static_cast<int>(msg.bytes[1]);
-            auto data2 = static_cast<int>(msg.bytes[2]);
+        if (msg.bytes.size() < 3)
+            return;
 
-            if (status == 0x90 && data2 > 0)
-                noteOn(data1, static_cast<float>(data2) / 127.0f);
-            else if (status == 0x80 || (status == 0x90 && data2 == 0))
-                noteOff(data1);
-            else if (status == 0xB0 && data1 == 123)
-                releaseAllNotes();
-            else if (status == 0xB0 && data1 == 7)
-                audio.gain.store(static_cast<float>(data2) / 127.0f);
-        }
+        auto status = msg.bytes[0] & 0xF0;
+        auto data1 = static_cast<int>(msg.bytes[1]);
+        auto data2 = static_cast<int>(msg.bytes[2]);
 
-        eacp::Threads::callAsync([this, msg]() { publishMidiToJS(msg); });
+        if (status == 0x90 && data2 > 0)
+            noteOn(data1, static_cast<float>(data2) / 127.0f);
+        else if (status == 0x80 || (status == 0x90 && data2 == 0))
+            noteOff(data1);
+        else if (status == 0xB0 && data1 == 123)
+            releaseAllNotes();
+        else if (status == 0xB0 && data1 == 7)
+            audio.gain.store(static_cast<float>(data2) / 127.0f);
     }
 
     void publishMidiToJS(const MakeASound::MidiMessage& msg)
@@ -331,6 +388,7 @@ struct SynthApp
     std::vector<int> heldNotes;
     MakeASound::DeviceManager manager;
     MakeASound::MidiManager midi;
+    MakeASound::MidiBlockSync midiSync;
     MakeASound::StreamConfig config;
     int currentMidiPortId {-1};
     MakeASound::Vector<MakeASound::MidiPortInfo> lastInputPorts;
