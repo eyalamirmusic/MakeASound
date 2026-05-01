@@ -1,5 +1,7 @@
 #include "UIDeviceManager.h"
 
+#include "../BlockSizes/BlockSizes.h"
+
 namespace MakeASound
 {
 
@@ -28,6 +30,13 @@ UI::DropdownInfo UIDeviceManager::makeSampleRateDropdown(int currentDeviceId,
     auto info = UI::DropdownInfo {};
     info.currentId = currentRate;
     return info;
+}
+
+UI::DropdownInfo UIDeviceManager::makeBlockSizeDropdown(int currentDeviceId,
+                                                        int currentSize) const
+{
+    return UI::makeBlockSizeDropdown(getSupportedBlockSizes(currentDeviceId),
+                                     currentSize);
 }
 
 } // namespace MakeASound

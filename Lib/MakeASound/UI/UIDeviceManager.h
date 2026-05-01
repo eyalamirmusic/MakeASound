@@ -16,6 +16,9 @@ public:
     UI::DropdownInfo makeSampleRateDropdown(int currentDeviceId,
                                             int currentRate) const;
 
+    UI::DropdownInfo makeBlockSizeDropdown(int currentDeviceId,
+                                           int currentSize) const;
+
 private:
     DeviceManager* manager;
 };

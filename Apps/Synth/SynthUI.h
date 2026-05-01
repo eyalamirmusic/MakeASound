@@ -14,9 +14,9 @@ struct SynthUIState
                  note,
                  frequency,
                  velocity,
-                 blockSize,
                  devices,
                  sampleRates,
+                 blockSizes,
                  midiPorts)
 
     bool playing {};
@@ -24,9 +24,9 @@ struct SynthUIState
     int note {-1};
     double frequency {};
     double velocity {};
-    int blockSize {};
     MS::UI::DropdownInfo devices;
     MS::UI::DropdownInfo sampleRates;
+    MS::UI::DropdownInfo blockSizes;
     MS::UI::ToggleListInfo midiPorts;
 };
 
@@ -90,14 +90,17 @@ struct SynthUI
         state.note = controls.note;
         state.frequency = controls.frequency;
         state.velocity = controls.velocity;
-        state.blockSize = config.maxBlockSize;
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
         state.devices = uiDevices.makeOutputDeviceDropdown(currentDeviceId);
 
         if (config.output)
+        {
             state.sampleRates =
                 uiDevices.makeSampleRateDropdown(currentDeviceId, config.sampleRate);
+            state.blockSizes =
+                uiDevices.makeBlockSizeDropdown(currentDeviceId, config.maxBlockSize);
+        }
 
         lastInputPorts = processor.midi.getInputPorts();
         state.midiPorts = uiMidi.makeInputPortToggleList();

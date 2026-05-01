@@ -52,6 +52,8 @@ DropdownInfo makeInputDeviceDropdown(const Vector<DeviceInfo>& devices,
 
 DropdownInfo makeSampleRateDropdown(const DeviceInfo& device, int currentRate);
 
+DropdownInfo makeBlockSizeDropdown(const Vector<int>& sizes, int currentSize);
+
 ToggleListInfo makeMidiPortToggleList(const Vector<MidiPortInfo>& ports,
                                       const Vector<int>& openPortIds);
 

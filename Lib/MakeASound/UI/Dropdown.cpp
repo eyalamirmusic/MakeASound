@@ -50,6 +50,17 @@ DropdownInfo makeSampleRateDropdown(const DeviceInfo& device, int currentRate)
     return info;
 }
 
+DropdownInfo makeBlockSizeDropdown(const Vector<int>& sizes, int currentSize)
+{
+    auto info = DropdownInfo {};
+    info.currentId = currentSize;
+
+    for (auto size: sizes)
+        info.items.create(size, std::to_string(size));
+
+    return info;
+}
+
 ToggleListInfo makeMidiPortToggleList(const Vector<MidiPortInfo>& ports,
                                       const Vector<int>& openPortIds)
 {

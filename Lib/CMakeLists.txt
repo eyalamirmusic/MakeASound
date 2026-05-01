@@ -13,6 +13,13 @@ add_library(MakeASound STATIC
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)
 
+if(APPLE)
+    target_sources(MakeASound PRIVATE MakeASound/BlockSizes/BlockSizes.mm)
+    target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
+else()
+    target_sources(MakeASound PRIVATE MakeASound/BlockSizes/BlockSizes.cpp)
+endif()
+
 target_link_libraries(MakeASound PUBLIC Miro ea_data_structures PRIVATE rtaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 

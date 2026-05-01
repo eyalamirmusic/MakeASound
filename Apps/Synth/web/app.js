@@ -90,8 +90,8 @@ window.synthSetState = function(state) {
     stateLoaded = true;
     applyDropdown('device', state.devices);
     applyDropdown('sampleRate', state.sampleRates);
+    applyDropdown('blockSize', state.blockSizes);
     applyToggleList('midiPorts', state.midiPorts, sendMidiToggle);
-    $('blockSize').value = String(state.blockSize);
     $('gain').value = state.gain;
     $('gainValue').textContent = Number(state.gain).toFixed(2);
     renderVoice(state);
