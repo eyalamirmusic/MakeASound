@@ -9,13 +9,13 @@
 
 include(CPM)
 
+message(STATUS "Fetching RtAudio (first configure only)...")
 CPMAddPackage(
         NAME RTAudio
         URL https://github.com/thestk/rtaudio/archive/refs/tags/6.0.1.zip
         DOWNLOAD_ONLY YES
         DOWNLOAD_NO_PROGRESS YES
-        LOG_DOWNLOAD YES
-        LOG_EXTRACT YES
+        QUIET
 )
 
 add_library(rtaudio STATIC ${RTAudio_SOURCE_DIR}/RtAudio.cpp)

@@ -9,13 +9,13 @@
 
 include(CPM)
 
+message(STATUS "Fetching RtMidi (first configure only)...")
 CPMAddPackage(
         NAME RTMidi
         URL https://github.com/thestk/rtmidi/archive/refs/tags/6.0.0.zip
         DOWNLOAD_ONLY YES
         DOWNLOAD_NO_PROGRESS YES
-        LOG_DOWNLOAD YES
-        LOG_EXTRACT YES
+        QUIET
 )
 
 add_library(rtmidi STATIC ${RTMidi_SOURCE_DIR}/RtMidi.cpp)
