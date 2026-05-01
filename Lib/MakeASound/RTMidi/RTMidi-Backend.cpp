@@ -16,12 +16,4 @@ Vector<MidiPortInfo> getPorts(::RtMidi& backend)
     return result;
 }
 
-MidiMessage getMessage(double timestamp, const std::vector<unsigned char>& bytes)
-{
-    auto message = MidiMessage {};
-    message.timestamp = timestamp;
-    message.bytes.assign(bytes.begin(), bytes.end());
-    return message;
-}
-
 } // namespace MakeASound::RTMidi

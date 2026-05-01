@@ -8,6 +8,5 @@ namespace MakeASound::RTMidi
 {
 
 Vector<MidiPortInfo> getPorts(::RtMidi& backend);
-MidiMessage getMessage(double timestamp, const std::vector<unsigned char>& bytes);
 
 } // namespace MakeASound::RTMidi

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../Common/Common.h"
-#include "../MidiInfo/MidiInfo.h"
 
 #include <array>
 #include <cstdint>
@@ -195,11 +194,12 @@ struct Buffer : Vector<Event>
     void sortByOffset() noexcept;
 };
 
-// Translates a raw MakeASound MIDI message into a typed event. Returns
-// nullopt for messages that don't map (SysEx, MTC, song-position,
-// undersized payloads, etc.). Pure / lock-free / allocation-free —
-// callable from the audio thread.
-std::optional<Event> convertMidi(const MidiMessage& msg,
+// Translates raw MIDI bytes into a typed event. Returns nullopt for
+// messages that don't map (SysEx, MTC, song-position, undersized
+// payloads, etc.). Pure / lock-free / allocation-free — callable from
+// any real-time thread.
+std::optional<Event> convertMidi(const std::uint8_t* bytes,
+                                 int size,
                                  int sampleOffset = 0) noexcept;
 
 // Human-readable rendering for logging / debug.

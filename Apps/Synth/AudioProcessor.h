@@ -86,14 +86,9 @@ struct AudioProcessor
 
         for (auto& evt: midiSync.events())
         {
-            synth.render(info, cursor, evt.sampleOffset);
-
-            if (auto midiEvent = MIDI::convertMidi(evt.message, evt.sampleOffset))
-            {
-                applyMidiOnAudioThread(*midiEvent);
-            }
-
-            cursor = evt.sampleOffset;
+            synth.render(info, cursor, evt.event.sampleOffset);
+            applyMidiOnAudioThread(evt.event);
+            cursor = evt.event.sampleOffset;
         }
 
         synth.render(info, cursor, info.numSamples);
@@ -102,7 +97,7 @@ struct AudioProcessor
     void applyMidiOnAudioThread(const MIDI::Event& midiEvent)
     {
         synth.applyMidiEvent(midiEvent);
-        eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb] { cb(midiEvent); });
+        // eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb] { cb(midiEvent); });
     }
 
     Synth synth;

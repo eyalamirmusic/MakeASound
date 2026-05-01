@@ -1,4 +1,5 @@
 #include "RTMidiManager.h"
+#include "../MIDI/MIDI.h"
 
 namespace MakeASound::RTMidi
 {
@@ -73,7 +74,7 @@ void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
             continue;
 
         for (auto& evt: port->queue)
-            out.add(std::move(evt));
+            out.add(evt);
 
         port->queue.clear();
         port->lock.unlock();
@@ -112,21 +113,28 @@ void midiInputTrampoline(double timestamp,
         return;
 
     auto& port = *static_cast<InputPort*>(userData);
-    auto msg = getMessage(timestamp, *message);
 
     if (port.callback)
     {
+        auto msg = MidiMessage {};
+        msg.timestamp = timestamp;
+        msg.bytes.assign(message->begin(), message->end());
         port.callback(msg);
         return;
     }
 
+    auto typed =
+        MIDI::convertMidi(message->data(), static_cast<int>(message->size()));
+    if (!typed)
+        return;
+
     auto event = MidiInputEvent {};
     event.portId = port.portId;
-    event.message = std::move(msg);
+    event.event = *typed;
     event.arrival = arrival;
 
     auto guard = EA::Locks::ScopedSpinLock {port.lock};
-    port.queue.add(std::move(event));
+    port.queue.add(event);
 }
 
 } // namespace MakeASound::RTMidi

@@ -1,8 +1,11 @@
+include(FetchContent)
+
 add_executable(Synth
         Main.cpp
         Synth.h
         AudioProcessor.h
         SynthUI.h)
+
 target_link_libraries(Synth PRIVATE MakeASound eacp-webview)
 
 set_makeasound_warnings(Synth)

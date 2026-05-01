@@ -21,6 +21,8 @@ struct Synth
 {
     static constexpr float twoPi = 2.0f * std::numbers::pi_v<float>;
 
+    Synth() { heldNotes.reserve(120); }
+
     static float midiNoteToFrequency(int noteToConvert)
     {
         return 440.0f
@@ -58,9 +60,7 @@ struct Synth
 
         if (noteValue < 0)
         {
-            std::fill(first.begin() + startSample,
-                      first.begin() + endSample,
-                      0.0f);
+            std::fill(first.begin() + startSample, first.begin() + endSample, 0.0f);
         }
         else
         {

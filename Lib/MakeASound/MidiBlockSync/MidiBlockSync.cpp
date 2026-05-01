@@ -23,7 +23,7 @@ void MidiBlockSync::drainForBlock(MidiManager& midi, int numSamples, int sampleR
         hasPrevBlock = true;
 
         for (auto& evt: buffer)
-            evt.sampleOffset = 0;
+            evt.event.sampleOffset = 0;
 
         return;
     }
@@ -36,7 +36,7 @@ void MidiBlockSync::drainForBlock(MidiManager& midi, int numSamples, int sampleR
         auto delta =
             std::chrono::duration<double>(evt.arrival - prevBlockStart).count();
         auto offset = static_cast<int>(delta * rate);
-        evt.sampleOffset = std::clamp(offset, 0, maxOffset);
+        evt.event.sampleOffset = std::clamp(offset, 0, maxOffset);
     }
 
     prevBlockStart = now;

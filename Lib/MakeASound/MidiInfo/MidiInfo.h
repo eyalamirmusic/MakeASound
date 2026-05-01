@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Common/Common.h"
+#include "../MIDI/MIDI.h"
 #include <Miro/Miro.h>
 
 #include <chrono>
@@ -32,20 +33,18 @@ struct MidiMessage
     std::vector<std::uint8_t> bytes;
 };
 
+// Queue entry used by the audio-thread MIDI path. Carries a typed
+// MIDI::Event (no heap) plus the bookkeeping needed to assign a sample
+// offset on drain. The event itself owns its sampleOffset, which
+// MidiBlockSync writes after wall-clock-to-sample translation.
 struct MidiInputEvent
 {
-    MIRO_REFLECT(portId, message)
-
     int portId {};
-    MidiMessage message;
+    MIDI::Event event;
 
     // Set by the input backend at the moment RtMidi delivered the message.
     // Read by MidiBlockSync to translate to a sample offset.
     MidiTimePoint arrival {};
-
-    // Filled by MidiBlockSync after wall-clock-to-sample translation; 0 for
-    // events obtained directly via MidiManager::drainMessages.
-    int sampleOffset = 0;
 };
 
 class MidiEvents

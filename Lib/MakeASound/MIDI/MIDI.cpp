@@ -198,18 +198,19 @@ const SysEx* Event::asSysEx() const noexcept
 
 // --- Conversion --------------------------------------------------------
 
-std::optional<Event> convertMidi(const MidiMessage& msg, int sampleOffset) noexcept
+std::optional<Event>
+    convertMidi(const std::uint8_t* bytes, int size, int sampleOffset) noexcept
 {
-    if (msg.bytes.empty())
+    if (bytes == nullptr || size <= 0)
         return std::nullopt;
 
-    auto status = static_cast<int>(msg.bytes[0] & 0xF0);
-    auto channel = static_cast<int>(msg.bytes[0] & 0x0F);
+    auto status = static_cast<int>(bytes[0] & 0xF0);
+    auto channel = static_cast<int>(bytes[0] & 0x0F);
 
-    auto byteAt = [&](size_t i) -> int
-    { return i < msg.bytes.size() ? static_cast<int>(msg.bytes[i]) : 0; };
+    auto byteAt = [&](int i) -> int
+    { return i < size ? static_cast<int>(bytes[i]) : 0; };
 
-    if (status == 0x90 && msg.bytes.size() >= 3)
+    if (status == 0x90 && size >= 3)
     {
         auto vel = byteAt(2);
         if (vel == 0)
@@ -217,25 +218,25 @@ std::optional<Event> convertMidi(const MidiMessage& msg, int sampleOffset) noexc
         return Event::noteOn(
             channel, byteAt(1), static_cast<float>(vel) / 127.f, sampleOffset);
     }
-    if (status == 0x80 && msg.bytes.size() >= 3)
+    if (status == 0x80 && size >= 3)
         return Event::noteOff(
             channel, byteAt(1), static_cast<float>(byteAt(2)) / 127.f, sampleOffset);
-    if (status == 0xB0 && msg.bytes.size() >= 3)
+    if (status == 0xB0 && size >= 3)
         return Event::controlChange(
             channel, byteAt(1), static_cast<float>(byteAt(2)) / 127.f, sampleOffset);
-    if (status == 0xE0 && msg.bytes.size() >= 3)
+    if (status == 0xE0 && size >= 3)
     {
         auto raw = (byteAt(2) << 7) | byteAt(1);
         auto bend = (static_cast<float>(raw) - 8192.f) / 8192.f;
         return Event::pitchBend(channel, bend, sampleOffset);
     }
-    if (status == 0xD0 && msg.bytes.size() >= 2)
+    if (status == 0xD0 && size >= 2)
         return Event::channelAftertouch(
             channel, static_cast<float>(byteAt(1)) / 127.f, sampleOffset);
-    if (status == 0xA0 && msg.bytes.size() >= 3)
+    if (status == 0xA0 && size >= 3)
         return Event::polyAftertouch(
             channel, byteAt(1), static_cast<float>(byteAt(2)) / 127.f, sampleOffset);
-    if (status == 0xC0 && msg.bytes.size() >= 2)
+    if (status == 0xC0 && size >= 2)
         return Event::programChange(channel, byteAt(1), sampleOffset);
 
     return std::nullopt;
