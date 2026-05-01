@@ -83,7 +83,7 @@ struct Flags
                  jackDontConnect)
 
     bool nonInterleaved = true;
-    bool minimizeLatency = true;
+    bool minimizeLatency = false;
     bool hogDevice = false;
     bool scheduleRealTime = false;
     bool alsaUseDefault = false;
