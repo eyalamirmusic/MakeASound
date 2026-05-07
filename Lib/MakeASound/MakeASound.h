@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Common/Common.h"
-#include "MiroEA/MiroEA.h"
 #include "DeviceManager/DeviceManager.h"
 #include "BlockSizes/BlockSizes.h"
 #include "MidiManager/MidiManager.h"

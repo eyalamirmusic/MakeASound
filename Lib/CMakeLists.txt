@@ -20,7 +20,7 @@ else()
     target_sources(MakeASound PRIVATE MakeASound/BlockSizes/BlockSizes.cpp)
 endif()
 
-target_link_libraries(MakeASound PUBLIC Miro ea_data_structures PRIVATE rtaudio rtmidi)
+target_link_libraries(MakeASound PUBLIC Miro PRIVATE rtaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 set_makeasound_warnings(MakeASound)

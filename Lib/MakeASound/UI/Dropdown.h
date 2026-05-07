@@ -3,7 +3,6 @@
 #include "../Common/Common.h"
 #include "../DeviceInfo/DeviceInfo.h"
 #include "../MidiInfo/MidiInfo.h"
-#include "../MiroEA/MiroEA.h"
 
 #include <Miro/Miro.h>
 

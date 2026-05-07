@@ -27,7 +27,6 @@ endfunction()
 find_package(RTAudio REQUIRED)
 find_package(RTMidi REQUIRED)
 find_package(Miro REQUIRED)
-find_package(ea_data_structures REQUIRED)
 
 add_subdirectory(Lib)
 
