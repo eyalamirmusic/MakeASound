@@ -1,20 +1,22 @@
 #include <MakeASound/MakeASound.h>
+#include <eacp/Core/Core.h>
 #include <eacp/WebView/WebView.h>
 #include <WebResources.h>
 
 #include <atomic>
 #include <random>
 #include <string>
-#include <vector>
+#include <utility>
 
 namespace MS = MakeASound;
+namespace eg = eacp::Graphics;
 
 namespace
 {
-float getRandomFloat()
+float nextNoiseSample()
 {
-    static std::default_random_engine engine {std::random_device {}()};
-    static std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    static auto engine = std::default_random_engine {std::random_device {}()};
+    static auto dist = std::uniform_real_distribution<float> {-1.0f, 1.0f};
     return dist(engine);
 }
 
@@ -40,7 +42,7 @@ void renderWhiteNoise(MS::AudioCallbackInfo& info, AudioState& state)
         }
 
         for (auto& sample: channelData)
-            sample = getRandomFloat() * gain;
+            sample = nextNoiseSample() * gain;
     }
 }
 
@@ -63,62 +65,99 @@ struct UIState
     MS::UI::DropdownInfo sampleRates;
     MS::UI::ToggleListInfo midiPorts;
 };
+
+struct MidiPortToggleRequest
+{
+    MIRO_REFLECT(id, on)
+
+    int id {};
+    bool on {};
+};
 } // namespace
 
 struct DemoApp
 {
     DemoApp()
     {
+        eg::setApplicationMenuBar(eg::buildDefaultWebViewMenuBar());
+
         config = manager.getDefaultConfig();
         manager.start(config, [this](auto& info) { renderWhiteNoise(info, audio); });
 
-        webView.addScriptMessageHandler(
-            "demo", [this](const std::string& msg) { handleMessage(msg); });
-
+        registerCommands();
         window.setContentView(webView);
     }
 
-    void handleMessage(const std::string& jsonStr)
+    void registerCommands()
     {
-        auto json = Miro::Json::parse(jsonStr);
+        auto& bridge = transport.getBridge();
 
-        if (!json.isObject())
-            return;
+        bridge.on<Miro::EmptyValue, UIState>(
+            "getState",
+            std::function<UIState(const Miro::EmptyValue&)>(
+                [this](const auto&) { return makeState(); }));
 
-        auto& obj = json.asObject();
-        auto* type = Miro::Json::find(obj, "type");
+        bindVoid<bool>(
+            "setPlaying", [this](bool value) { audio.playing.store(value); });
 
-        if (type == nullptr || !type->isString())
-            return;
+        bindVoid<double>("setGain",
+                         [this](double value)
+                         { audio.gain.store(static_cast<float>(value)); });
 
-        auto kind = type->asString();
+        bindVoid<int>("setSampleRate",
+                      [this](int value)
+                      {
+                          config.sampleRate = value;
+                          manager.setConfig(config);
+                      });
 
-        if (kind == "ready")
-            sendState();
-        else if (kind == "playing")
-            audio.playing.store(obj["value"]);
-        else if (kind == "gain")
-            audio.gain.store(obj["value"]);
-        else if (kind == "sampleRate")
-            applySampleRate(obj["value"]);
-        else if (kind == "blockSize")
-            applyBlockSize(obj["value"]);
-        else if (kind == "device")
-            applyDevice(obj["id"]);
-        else if (kind == "midiPortToggle")
-            applyMidiPortToggle(obj["id"], obj["on"]);
+        bindVoid<int>("setBlockSize",
+                      [this](int value)
+                      {
+                          config.maxBlockSize = value;
+                          manager.setConfig(config);
+                      });
+
+        bindVoid<int>("setDevice", [this](int id) { applyDevice(id); });
+
+        bindVoid<MidiPortToggleRequest>(
+            "midiPortToggle",
+            [this](const MidiPortToggleRequest& req)
+            { applyMidiPortToggle(req.id, req.on); });
     }
 
-    void applySampleRate(int rate)
+    template <typename Req>
+    void bindVoid(const std::string& name, auto handler)
     {
-        config.sampleRate = rate;
-        manager.setConfig(config);
+        using Res = Miro::EmptyValue;
+        transport.getBridge().on<Req, Res>(
+            name,
+            std::function<Res(const Req&)>(
+                [handler = std::move(handler)](const Req& req) -> Res
+                {
+                    handler(req);
+                    return {};
+                }));
     }
 
-    void applyBlockSize(int size)
+    void applyDevice(int deviceId)
     {
-        config.maxBlockSize = size;
-        manager.setConfig(config);
+        for (auto& device: manager.getDevices())
+        {
+            if (device.id != deviceId || device.outputChannels == 0)
+                continue;
+
+            config.output = MS::StreamParameters {device, false};
+
+            if (!device.sampleRates.empty()
+                && std::ranges::find(device.sampleRates, config.sampleRate)
+                       == device.sampleRates.end())
+                config.sampleRate = device.sampleRates.front();
+
+            manager.setConfig(config);
+            broadcastState();
+            return;
+        }
     }
 
     void applyMidiPortToggle(int portId, bool on)
@@ -154,42 +193,23 @@ struct DemoApp
             }
         }
 
-        eacp::Threads::callAsync([this, msg]() { publishMidiToJS(msg); });
+        eacp::Threads::callAsync([this, msg] { publishMidi(msg); });
     }
 
-    void publishMidiToJS(const MS::MidiMessage& msg)
+    void publishMidi(const MS::MidiMessage& msg)
     {
-        auto text = MS::formatMessage(msg);
-        webView.evaluateJavaScript("window.demoMidiEvent(" + Miro::toJSONString(text)
-                                   + ");");
-
-        auto controls = AudioControls {audio.playing.load(),
-                                       static_cast<double>(audio.gain.load())};
-        webView.evaluateJavaScript("window.demoUpdateAudio("
-                                   + Miro::toJSONString(controls) + ");");
+        auto& bridge = transport.getBridge();
+        bridge.emit("midi", MS::formatMessage(msg));
+        bridge.emit("audio", makeControls());
     }
 
-    void applyDevice(int deviceId)
+    AudioControls makeControls() const
     {
-        for (auto& device: manager.getDevices())
-        {
-            if (device.id != deviceId || device.outputChannels == 0)
-                continue;
-
-            config.output = MS::StreamParameters {device, false};
-
-            if (!device.sampleRates.empty()
-                && std::ranges::find(device.sampleRates, config.sampleRate)
-                       == device.sampleRates.end())
-                config.sampleRate = device.sampleRates.front();
-
-            manager.setConfig(config);
-            sendState();
-            return;
-        }
+        return {.playing = audio.playing.load(),
+                .gain = static_cast<double>(audio.gain.load())};
     }
 
-    void sendState()
+    UIState makeState()
     {
         auto state = UIState {};
         state.playing = audio.playing.load();
@@ -205,10 +225,10 @@ struct DemoApp
 
         lastInputPorts = midi.getInputPorts();
         state.midiPorts = uiMidi.makeInputPortToggleList();
-
-        webView.evaluateJavaScript("window.demoSetState(" + Miro::toJSONString(state)
-                                   + ");");
+        return state;
     }
+
+    void broadcastState() { transport.getBridge().emit("state", makeState()); }
 
     void pollMidiPorts()
     {
@@ -218,10 +238,7 @@ struct DemoApp
             return;
 
         lastInputPorts = std::move(current);
-
-        auto info = uiMidi.makeInputPortToggleList();
-        webView.evaluateJavaScript("window.demoSetMidiPorts("
-                                   + Miro::toJSONString(info) + ");");
+        transport.getBridge().emit("midiPorts", uiMidi.makeInputPortToggleList());
     }
 
     AudioState audio;
@@ -231,8 +248,9 @@ struct DemoApp
     MS::UIMidiManager uiMidi {midi};
     MS::StreamConfig config;
     MS::Vector<MS::MidiPortInfo> lastInputPorts;
-    eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("DemoWeb")};
-    eacp::Graphics::Window window;
+    eg::WebView webView {eg::embeddedOptions("DemoWeb")};
+    eg::WebViewBridge transport {webView};
+    eg::Window window;
     eacp::Threads::Timer midiPollTimer {[this] { pollMidiPorts(); }, 2};
 };
 

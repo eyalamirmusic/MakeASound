@@ -5,6 +5,9 @@
 #include <MakeASound/MakeASound.h>
 #include <eacp/Core/Core.h>
 
+#include <functional>
+#include <utility>
+
 struct AudioProcessor
 {
     using MidiAppliedCallback = std::function<void(const MIDI::Event&)>;
@@ -18,13 +21,12 @@ struct AudioProcessor
 
     Synth& getSynth() { return synth; }
     const Synth& getSynth() const { return synth; }
-
     const MS::StreamConfig& getStreamConfig() const { return config; }
 
-    // Fired on the UI thread (auto-bounced from the audio thread) after a
-    // MIDI message has been applied to the synth state.
     void setMidiAppliedCallback(MidiAppliedCallback cb)
-    { midiAppliedCb = std::move(cb); }
+    {
+        midiAppliedCb = std::move(cb);
+    }
 
     void applySampleRate(int rate)
     {
@@ -97,7 +99,9 @@ struct AudioProcessor
     void applyMidiOnAudioThread(const MIDI::Event& midiEvent)
     {
         synth.applyMidiEvent(midiEvent);
-        // eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb] { cb(midiEvent); });
+
+        if (midiAppliedCb)
+            eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb] { cb(midiEvent); });
     }
 
     Synth synth;

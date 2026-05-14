@@ -7,6 +7,11 @@
 #include <eacp/WebView/WebView.h>
 #include <WebResources.h>
 
+#include <string>
+#include <utility>
+
+namespace eg = eacp::Graphics;
+
 struct SynthUIState
 {
     MIRO_REFLECT(playing,
@@ -30,56 +35,100 @@ struct SynthUIState
     MS::UI::ToggleListInfo midiPorts;
 };
 
+struct MidiPortToggleRequest
+{
+    MIRO_REFLECT(id, on)
+
+    int id {};
+    bool on {};
+};
+
 struct SynthUI
 {
     explicit SynthUI(AudioProcessor& processorToUse)
         : processor(processorToUse)
     {
-        webView.addScriptMessageHandler(
-            "synth", [this](const std::string& msg) { handleMessage(msg); });
+        eg::setApplicationMenuBar(eg::buildDefaultWebViewMenuBar());
 
+        registerCommands();
         window.setContentView(webView);
 
         processor.setMidiAppliedCallback(
-            [this](const MIDI::Event& event)
-            { publishMidiToJS(event); });
+            [this](const MIDI::Event& event) { publishMidi(event); });
     }
 
-    void handleMessage(const std::string& jsonStr)
+    void registerCommands()
     {
-        auto json = Miro::Json::parse(jsonStr);
+        auto& bridge = transport.getBridge();
 
-        if (!json.isObject())
-            return;
+        bridge.on<Miro::EmptyValue, SynthUIState>(
+            "getState",
+            std::function<SynthUIState(const Miro::EmptyValue&)>(
+                [this](const auto&) { return makeState(); }));
 
-        auto& obj = json.asObject();
-        auto* type = Miro::Json::find(obj, "type");
+        bindVoid<double>("setGain",
+                         [this](double value)
+                         {
+                             processor.getSynth().setGain(
+                                 static_cast<float>(value));
+                         });
 
-        if (type == nullptr || !type->isString())
-            return;
+        bindVoid<int>("setSampleRate",
+                      [this](int value) { processor.applySampleRate(value); });
 
-        auto kind = type->asString();
+        bindVoid<int>("setBlockSize",
+                      [this](int value) { processor.applyBlockSize(value); });
 
-        if (kind == "ready")
-            sendState();
-        else if (kind == "gain")
-            processor.getSynth().setGain(obj["value"]);
-        else if (kind == "sampleRate")
-            processor.applySampleRate(obj["value"]);
-        else if (kind == "blockSize")
-            processor.applyBlockSize(obj["value"]);
-        else if (kind == "device")
-        {
-            if (processor.applyDevice(obj["id"]))
-                sendState();
-        }
-        else if (kind == "midiPortToggle")
-            processor.applyMidiPortToggle(obj["id"], obj["on"]);
-        else if (kind == "allNotesOff")
-            processor.getSynth().releaseAllNotes();
+        bindVoid<int>("setDevice",
+                      [this](int id)
+                      {
+                          if (processor.applyDevice(id))
+                              broadcastState();
+                      });
+
+        bindVoid<MidiPortToggleRequest>(
+            "midiPortToggle",
+            [this](const MidiPortToggleRequest& req)
+            { processor.applyMidiPortToggle(req.id, req.on); });
+
+        bindVoid<Miro::EmptyValue>(
+            "allNotesOff",
+            [this](const auto&) { processor.getSynth().releaseAllNotes(); });
     }
 
-    void sendState()
+    template <typename Req>
+    void bindVoid(const std::string& name, auto handler)
+    {
+        using Res = Miro::EmptyValue;
+        transport.getBridge().on<Req, Res>(
+            name,
+            std::function<Res(const Req&)>(
+                [handler = std::move(handler)](const Req& req) -> Res
+                {
+                    handler(req);
+                    return {};
+                }));
+    }
+
+    void publishMidi(const MIDI::Event& event)
+    {
+        auto& bridge = transport.getBridge();
+        bridge.emit("midi", MIDI::toString(event));
+        bridge.emit("audio", processor.getSynth().makeControls());
+    }
+
+    void pollMidiPorts()
+    {
+        auto current = processor.midi.getInputPorts();
+
+        if (current == lastInputPorts)
+            return;
+
+        lastInputPorts = std::move(current);
+        transport.getBridge().emit("midiPorts", uiMidi.makeInputPortToggleList());
+    }
+
+    SynthUIState makeState()
     {
         auto controls = processor.getSynth().makeControls();
         auto& config = processor.getStreamConfig();
@@ -104,41 +153,17 @@ struct SynthUI
 
         lastInputPorts = processor.midi.getInputPorts();
         state.midiPorts = uiMidi.makeInputPortToggleList();
-
-        webView.evaluateJavaScript("window.synthSetState("
-                                   + Miro::toJSONString(state) + ");");
+        return state;
     }
 
-    void publishMidiToJS(const MIDI::Event& event)
-    {
-        auto text = MIDI::toString(event);
-        webView.evaluateJavaScript("window.synthMidiEvent("
-                                   + Miro::toJSONString(text) + ");");
-
-        webView.evaluateJavaScript(
-            "window.synthUpdateAudio("
-            + Miro::toJSONString(processor.getSynth().makeControls()) + ");");
-    }
-
-    void pollMidiPorts()
-    {
-        auto current = processor.midi.getInputPorts();
-
-        if (current == lastInputPorts)
-            return;
-
-        lastInputPorts = std::move(current);
-
-        auto info = uiMidi.makeInputPortToggleList();
-        webView.evaluateJavaScript("window.synthSetMidiPorts("
-                                   + Miro::toJSONString(info) + ");");
-    }
+    void broadcastState() { transport.getBridge().emit("state", makeState()); }
 
     AudioProcessor& processor;
     MS::UIDeviceManager uiDevices {processor.manager};
     MS::UIMidiManager uiMidi {processor.midi};
     MS::Vector<MS::MidiPortInfo> lastInputPorts;
-    eacp::Graphics::WebView webView {eacp::Graphics::embeddedOptions("SynthWeb")};
-    eacp::Graphics::Window window;
+    eg::WebView webView {eg::embeddedOptions("SynthWeb")};
+    eg::WebViewBridge transport {webView};
+    eg::Window window;
     eacp::Threads::Timer midiPollTimer {[this] { pollMidiPorts(); }, 2};
 };

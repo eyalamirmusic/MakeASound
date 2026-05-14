@@ -1,37 +1,37 @@
 #include <MakeASound/MakeASound.h>
-#include <thread>
+
+#include <chrono>
 #include <random>
+#include <thread>
 
 namespace MS = MakeASound;
 
-float getRandomFloat()
+namespace
 {
-    static std::default_random_engine e;
-    static std::uniform_real_distribution dis(-0.1f, 0.1f);
-    return dis(e);
+float nextNoiseSample()
+{
+    static auto engine = std::default_random_engine {std::random_device {}()};
+    static auto dist = std::uniform_real_distribution<float> {-0.1f, 0.1f};
+    return dist(engine);
 }
 
-void processBlock(MS::AudioCallbackInfo& info)
+void renderNoise(MS::AudioCallbackInfo& info)
 {
-    if (info.dirty)
-    {
-        //Allocate memory, etc
-    }
-
     for (auto channel = 0; channel < info.numOutputs; ++channel)
-    {
-        auto channelData = info.getOutput(channel);
-
-        for (auto& sample: channelData)
-            sample = getRandomFloat();
-    }
+        for (auto& sample: info.getOutput(channel))
+            sample = nextNoiseSample();
 }
-
+} // namespace
 
 int main()
 {
-    MS::DeviceManager manager;
-    Miro::logJSON(manager.getDefaultConfig());
+    auto manager = MS::DeviceManager {};
+    auto config = manager.getDefaultConfig();
+
+    Miro::logJSON(config);
+
+    manager.start(config, renderNoise);
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 
     return 0;
 }
