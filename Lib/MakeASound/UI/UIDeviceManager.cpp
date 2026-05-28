@@ -35,8 +35,14 @@ UI::DropdownInfo UIDeviceManager::makeSampleRateDropdown(int currentDeviceId,
 UI::DropdownInfo UIDeviceManager::makeBlockSizeDropdown(int currentDeviceId,
                                                         int currentSize) const
 {
-    return UI::makeBlockSizeDropdown(getSupportedBlockSizes(currentDeviceId),
-                                     currentSize);
+    for (auto& device: manager->getDevices())
+        if (device.id == currentDeviceId)
+            return UI::makeBlockSizeDropdown(getSupportedBlockSizes(device),
+                                             currentSize);
+
+    auto info = UI::DropdownInfo {};
+    info.currentId = currentSize;
+    return info;
 }
 
 } // namespace MakeASound

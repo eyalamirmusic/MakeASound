@@ -3,7 +3,7 @@
 namespace MakeASound
 {
 
-Vector<int> getSupportedBlockSizes(int /*deviceId*/)
+Vector<int> getSupportedBlockSizes(const DeviceInfo& /*device*/)
 {
     auto sizes = Vector<int>();
 
