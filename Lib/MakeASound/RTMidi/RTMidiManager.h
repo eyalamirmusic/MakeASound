@@ -29,6 +29,8 @@ struct MidiManager
     Vector<MidiPortInfo> getOutputPorts();
 
     void openInput(int portId, const MidiInputCallback& cb);
+    int openVirtualInput(const std::string& name,
+                         const MidiInputCallback& cb);
     void closeInput(int portId);
     void closeAllInputs();
     bool isInputOpen(int portId) const;
@@ -36,6 +38,7 @@ struct MidiManager
     void drainMessages(Vector<MidiInputEvent>& out);
 
     void openOutput(int portId);
+    void openVirtualOutput(const std::string& name);
     void closeOutput();
     bool isOutputOpen() const;
 
@@ -46,6 +49,11 @@ private:
     OwningPointer<::RtMidiOut> outputEnumerator;
     OwningPointer<::RtMidiOut> output;
     EA::OwnedVector<InputPort> inputs;
+
+    // Virtual input ports have no system index, so we hand out
+    // synthetic negative ids that coexist with the unsigned indices
+    // returned by getInputPorts().
+    int nextVirtualPortId {-1};
 };
 
 } // namespace MakeASound::RTMidi

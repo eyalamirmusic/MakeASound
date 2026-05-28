@@ -33,6 +33,21 @@ void MidiManager::openInput(int portId, const MidiInputCallback& cb)
     port.rtIn->openPort(static_cast<unsigned int>(portId));
 }
 
+int MidiManager::openVirtualInput(const std::string& name,
+                                  const MidiInputCallback& cb)
+{
+    auto portId = nextVirtualPortId--;
+
+    auto& port = inputs.createNew();
+    port.portId = portId;
+    port.callback = cb;
+    port.rtIn = EA::makeOwned<::RtMidiIn>();
+    port.rtIn->setCallback(midiInputTrampoline, &port);
+    port.rtIn->openVirtualPort(name);
+
+    return portId;
+}
+
 void MidiManager::closeInput(int portId)
 {
     inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
@@ -85,6 +100,12 @@ void MidiManager::openOutput(int portId)
 {
     closeOutput();
     output->openPort(static_cast<unsigned int>(portId));
+}
+
+void MidiManager::openVirtualOutput(const std::string& name)
+{
+    closeOutput();
+    output->openVirtualPort(name);
 }
 
 void MidiManager::closeOutput()

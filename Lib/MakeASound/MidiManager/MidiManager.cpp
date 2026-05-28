@@ -35,6 +35,17 @@ void MidiManager::openInput(int portId, const MidiInputCallback& cb)
     pimpl->openInput(portId, cb);
 }
 
+int MidiManager::openVirtualInput(const std::string& name)
+{
+    return pimpl->openVirtualInput(name, nullptr);
+}
+
+int MidiManager::openVirtualInput(const std::string& name,
+                                  const MidiInputCallback& cb)
+{
+    return pimpl->openVirtualInput(name, cb);
+}
+
 void MidiManager::closeInput(int portId)
 {
     pimpl->closeInput(portId);
@@ -63,6 +74,11 @@ void MidiManager::drainMessages(MidiEvents& out)
 void MidiManager::openOutput(int portId)
 {
     pimpl->openOutput(portId);
+}
+
+void MidiManager::openVirtualOutput(const std::string& name)
+{
+    pimpl->openVirtualOutput(name);
 }
 
 void MidiManager::closeOutput()

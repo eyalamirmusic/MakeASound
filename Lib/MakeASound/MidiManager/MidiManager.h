@@ -27,6 +27,15 @@ public:
     // thread; events are not queued.
     void openInput(int portId, const MidiInputCallback& cb);
 
+    // Open a virtual input port visible to other apps under `name`.
+    // Returns the synthetic (negative) portId assigned by the backend;
+    // pass it to closeInput / isInputOpen exactly like a real portId.
+    // RtMidi only supports virtual ports on CoreMIDI / ALSA / JACK —
+    // this throws on Windows.
+    int openVirtualInput(const std::string& name);
+    int openVirtualInput(const std::string& name,
+                         const MidiInputCallback& cb);
+
     void closeInput(int portId);
     void closeAllInputs();
     bool isInputOpen(int portId) const;
@@ -40,6 +49,11 @@ public:
     void drainMessages(MidiEvents& out);
 
     void openOutput(int portId);
+
+    // Open the output as a virtual port visible to other apps under
+    // `name`. Replaces any currently open output. Throws on Windows.
+    void openVirtualOutput(const std::string& name);
+
     void closeOutput();
     bool isOutputOpen() const;
 
