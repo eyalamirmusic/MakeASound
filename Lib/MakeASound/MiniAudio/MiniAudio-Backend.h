@@ -5,8 +5,6 @@
 #include "../Common/Common.h"
 #include "../DeviceInfo/DeviceInfo.h"
 
-#include <vector>
-
 namespace MakeASound::MiniAudio
 {
 
@@ -17,10 +15,10 @@ AudioCallbackStatus getStatus(ma_result result);
 // sample rates the device exposes. A native-format entry with
 // sampleRate==0 means "any rate supported"; in that case the full set
 // of ma_standard_sample_rate values is returned.
-std::vector<int> collectSampleRates(const ma_device_info& info);
+Vector<int> collectSampleRates(const ma_device_info& info);
 
 // nativeDataFormats has no explicit "preferred" entry. Picks 48000 if
 // supported, else 44100, else the first rate in the list.
-int pickPreferredSampleRate(const std::vector<int>& rates);
+int pickPreferredSampleRate(const Vector<int>& rates);
 
 } // namespace MakeASound::MiniAudio

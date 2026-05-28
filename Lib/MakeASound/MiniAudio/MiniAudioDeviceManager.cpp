@@ -173,7 +173,7 @@ void DeviceManager::refreshDeviceCache()
         entry.hasPlayback = true;
         entry.info =
             buildDeviceInfo(playbackInfos[i], ma_device_type_playback, entry.id);
-        deviceCache.push_back(std::move(entry));
+        deviceCache.add(std::move(entry));
     }
 
     for (auto i = 0u; i < captureCount; ++i)
@@ -199,11 +199,9 @@ void DeviceManager::refreshDeviceCache()
                                                      cached.info.inputChannels);
 
                 for (auto rate: captureInfo.sampleRates)
-                    if (std::ranges::find(cached.info.sampleRates, rate)
-                        == cached.info.sampleRates.end())
-                        cached.info.sampleRates.push_back(rate);
+                    cached.info.sampleRates.addIfNotThere(rate);
 
-                std::ranges::sort(cached.info.sampleRates);
+                cached.info.sampleRates.sort();
                 matched = true;
                 break;
             }
@@ -217,7 +215,7 @@ void DeviceManager::refreshDeviceCache()
             entry.hasCapture = true;
             entry.info =
                 buildDeviceInfo(captureInfos[i], ma_device_type_capture, entry.id);
-            deviceCache.push_back(std::move(entry));
+            deviceCache.add(std::move(entry));
         }
     }
 }
@@ -227,7 +225,7 @@ Vector<DeviceInfo> DeviceManager::getDevices()
     refreshDeviceCache();
 
     auto result = Vector<DeviceInfo> {};
-    result.reserve(static_cast<int>(deviceCache.size()));
+    result.reserve(deviceCache.size());
 
     for (const auto& cached: deviceCache)
         result.add(cached.info);
@@ -355,30 +353,26 @@ int DeviceManager::openStream(const StreamConfig& configToUse)
     auto inChannels = config.getInputChannels();
     auto outChannels = config.getOutputChannels();
 
-    inputScratch.assign(
-        static_cast<size_t>(inChannels) * static_cast<size_t>(config.maxBlockSize),
-        0.0f);
-    outputScratch.assign(
-        static_cast<size_t>(outChannels) * static_cast<size_t>(config.maxBlockSize),
-        0.0f);
+    inputScratch.assign(inChannels * config.maxBlockSize, 0.0f);
+    outputScratch.assign(outChannels * config.maxBlockSize, 0.0f);
 
     return config.maxBlockSize;
 }
 
-long DeviceManager::getStreamLatency()
+long DeviceManager::getStreamLatency() const
 {
     if (!deviceInitialised)
         return 0;
 
-    auto playbackLatency = static_cast<long>(device.playback.internalPeriodSizeInFrames
-                                             * device.playback.internalPeriods);
-    auto captureLatency = static_cast<long>(device.capture.internalPeriodSizeInFrames
-                                            * device.capture.internalPeriods);
+    auto playbackLatency = static_cast<long>(device.playback.internalPeriodSizeInFrames)
+                           * static_cast<long>(device.playback.internalPeriods);
+    auto captureLatency = static_cast<long>(device.capture.internalPeriodSizeInFrames)
+                          * static_cast<long>(device.capture.internalPeriods);
 
     return std::max(playbackLatency, captureLatency);
 }
 
-int DeviceManager::getStreamSampleRate()
+int DeviceManager::getStreamSampleRate() const
 {
     if (!deviceInitialised)
         return 0;
@@ -395,10 +389,8 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     auto inChannels = config.getInputChannels();
     auto outChannels = config.getOutputChannels();
 
-    auto neededInput =
-        static_cast<size_t>(inChannels) * static_cast<size_t>(frames);
-    auto neededOutput =
-        static_cast<size_t>(outChannels) * static_cast<size_t>(frames);
+    auto neededInput = inChannels * frames;
+    auto neededOutput = outChannels * frames;
 
     if (inputScratch.size() < neededInput)
         inputScratch.assign(neededInput, 0.0f);
@@ -414,7 +406,7 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
 
     if (outChannels > 0)
         std::fill(outputScratch.begin(),
-                  outputScratch.begin() + static_cast<std::ptrdiff_t>(neededOutput),
+                  outputScratch.begin() + neededOutput,
                   0.0f);
 
     auto info = AudioCallbackInfo {};

@@ -2,7 +2,8 @@
 
 #include <Miro/Miro.h>
 
-#include <vector>
+#include "../Common/Common.h"
+
 #include <optional>
 #include <span>
 #include <string>
@@ -31,7 +32,7 @@ struct DeviceInfo
     int duplexChannels {};
     bool isDefaultOutput {false};
     bool isDefaultInput {false};
-    std::vector<int> sampleRates;
+    Vector<int> sampleRates;
     int currentSampleRate {};
     int preferredSampleRate {};
 };

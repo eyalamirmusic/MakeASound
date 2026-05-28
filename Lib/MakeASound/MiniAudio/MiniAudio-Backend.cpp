@@ -1,7 +1,5 @@
 #include "MiniAudio-Backend.h"
 
-#include <algorithm>
-
 namespace MakeASound::MiniAudio
 {
 
@@ -48,45 +46,35 @@ AudioCallbackStatus getStatus(ma_result result)
     return AudioCallbackStatus::OutputUnderflow;
 }
 
-std::vector<int> collectSampleRates(const ma_device_info& info)
+Vector<int> collectSampleRates(const ma_device_info& info)
 {
     static constexpr int standardRates[] = {
         8000, 11025, 16000, 22050, 24000, 32000,
         44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
-    auto rates = std::vector<int> {};
-
-    auto addUnique = [&](int rate)
-    {
-        if (std::ranges::find(rates, rate) == rates.end())
-            rates.push_back(rate);
-    };
+    auto rates = Vector<int> {};
 
     for (auto i = 0u; i < info.nativeDataFormatCount; ++i)
     {
         auto rate = static_cast<int>(info.nativeDataFormats[i].sampleRate);
 
         if (rate == 0)
-        {
             for (auto standard: standardRates)
-                addUnique(standard);
-        }
+                rates.addIfNotThere(standard);
         else
-        {
-            addUnique(rate);
-        }
+            rates.addIfNotThere(rate);
     }
 
-    std::ranges::sort(rates);
+    rates.sort();
     return rates;
 }
 
-int pickPreferredSampleRate(const std::vector<int>& rates)
+int pickPreferredSampleRate(const Vector<int>& rates)
 {
-    if (std::ranges::find(rates, 48000) != rates.end())
+    if (rates.contains(48000))
         return 48000;
 
-    if (std::ranges::find(rates, 44100) != rates.end())
+    if (rates.contains(44100))
         return 44100;
 
     if (!rates.empty())

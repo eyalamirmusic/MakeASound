@@ -2,8 +2,6 @@
 
 #include "MiniAudio-Backend.h"
 
-#include <vector>
-
 namespace MakeASound::MiniAudio
 {
 
@@ -25,8 +23,8 @@ struct DeviceManager
     void stop();
     int openStream(const StreamConfig& configToUse);
 
-    long getStreamLatency();
-    int getStreamSampleRate();
+    long getStreamLatency() const;
+    int getStreamSampleRate() const;
 
     void onCallback(void* output, const void* input, ma_uint32 frameCount);
 
@@ -56,10 +54,10 @@ private:
         DeviceInfo info {};
     };
 
-    std::vector<CachedDevice> deviceCache;
+    Vector<CachedDevice> deviceCache;
 
-    std::vector<float> inputScratch;
-    std::vector<float> outputScratch;
+    Vector<float> inputScratch;
+    Vector<float> outputScratch;
 
     ma_uint64 framesElapsed = 0;
 };
