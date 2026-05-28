@@ -2,7 +2,7 @@
 *.cbp
 .cache
 Makefile
-/build
+/build*
 /out
 .vs
 CMakeSettings.json
@@ -16,7 +16,8 @@ CMakeCache.txt
 cmake_install.cmake
 CMakeScripts
 
-.idea
+/.idea
+/.cache
 
 IDEWorkspaceChecks.plist
 UserInterfaceState.xcuserstate
