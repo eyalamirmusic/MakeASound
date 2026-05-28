@@ -1,51 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { invoke, useBridgeEvent } from './bridge';
-
-interface DropdownItem
-{
-    id: number;
-    label: string;
-}
-
-interface DropdownInfo
-{
-    items: DropdownItem[];
-    currentId: number;
-}
-
-interface ToggleListItem
-{
-    id: number;
-    label: string;
-    selected: boolean;
-}
-
-interface ToggleListInfo
-{
-    items: ToggleListItem[];
-}
-
-interface SynthState
-{
-    playing: boolean;
-    gain: number;
-    note: number;
-    frequency: number;
-    velocity: number;
-    devices: DropdownInfo;
-    sampleRates: DropdownInfo;
-    blockSizes: DropdownInfo;
-    midiPorts: ToggleListInfo;
-}
-
-interface AudioControls
-{
-    playing: boolean;
-    gain: number;
-    note: number;
-    frequency: number;
-    velocity: number;
-}
+import { useEffect, useState } from 'react';
+import { backend } from './generated/backend';
+import { useAudio, useUi } from './generated/hooks';
+import type { AudioControls, DropdownInfo, ToggleListInfo } from './generated/schema';
 
 const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const maxMidiLog = 100;
@@ -59,110 +15,53 @@ function noteName(midi: number): string
     return noteNames[midi % 12] + octave;
 }
 
-function withCurrentId(info: DropdownInfo, id: number): DropdownInfo
-{
-    return { ...info, currentId: id };
-}
-
-function withSelected(info: ToggleListInfo, id: number, on: boolean): ToggleListInfo
-{
-    return {
-        items: info.items.map((item) =>
-            item.id === id ? { ...item, selected: on } : item),
-    };
-}
-
 export default function App()
 {
-    const [state, setState] = useState<SynthState | null>(null);
+    const ui = useUi();
+    const audio = useAudio();
     const [midiLog, setMidiLog] = useState<string[]>([]);
 
-    const patch = useCallback((next: Partial<SynthState>) =>
-        setState((prev) => prev ? { ...prev, ...next } : prev), []);
-
-    const sendAndPatch = useCallback((next: Partial<SynthState>,
-                                      command: string,
-                                      payload: unknown) =>
-    {
-        patch(next);
-        invoke(command, payload);
-    }, [patch]);
-
-    useEffect(() =>
-    {
-        invoke<SynthState>('getState').then(setState);
-    }, []);
-
-    useBridgeEvent<SynthState>('state', setState);
-
-    useBridgeEvent<ToggleListInfo>('midiPorts', useCallback((info: ToggleListInfo) =>
-    {
-        setState((prev) => prev ? { ...prev, midiPorts: info } : prev);
-    }, []));
-
-    useBridgeEvent<AudioControls>('audio', useCallback((controls: AudioControls) =>
-    {
-        setState((prev) => prev ? { ...prev, ...controls } : prev);
-    }, []));
-
-    useBridgeEvent<string>('midi', useCallback((text: string) =>
-    {
-        setMidiLog((prev) => [text, ...prev].slice(0, maxMidiLog));
-    }, []));
-
-    if (!state)
-        return <div className="loading">Loading…</div>;
+    useEffect(() => backend.on?.('midi', (entry) =>
+        setMidiLog((prev) => [entry.text, ...prev].slice(0, maxMidiLog))), []);
 
     return (
         <main>
             <h1>MakeASound Synth</h1>
 
             <Row label="Voice">
-                <Voice state={state} />
+                <Voice audio={audio} />
             </Row>
 
             <Row label="Gain">
                 <input type="range" min={0} max={1} step={0.01}
-                       value={state.gain}
-                       onChange={(e) =>
-                       {
-                           const value = Number(e.target.value);
-                           sendAndPatch({ gain: value }, 'setGain', value);
-                       }} />
-                <span className="value">{state.gain.toFixed(2)}</span>
+                       value={audio.gain}
+                       onChange={(e) => void backend.setGain(Number(e.target.value))} />
+                <span className="value">{audio.gain.toFixed(2)}</span>
             </Row>
 
             <Row label="Output device">
-                <Dropdown info={state.devices}
-                          onChange={(id) =>
-                              sendAndPatch({ devices: withCurrentId(state.devices, id) },
-                                           'setDevice', id)} />
+                <Dropdown info={ui.devices}
+                          onChange={(id) => void backend.setDevice(id)} />
             </Row>
 
             <Row label="Sample rate">
-                <Dropdown info={state.sampleRates}
-                          onChange={(id) =>
-                              sendAndPatch({ sampleRates: withCurrentId(state.sampleRates, id) },
-                                           'setSampleRate', id)} />
+                <Dropdown info={ui.sampleRates}
+                          onChange={(rate) => void backend.setSampleRate(rate)} />
             </Row>
 
             <Row label="Block size">
-                <Dropdown info={state.blockSizes}
-                          onChange={(id) =>
-                              sendAndPatch({ blockSizes: withCurrentId(state.blockSizes, id) },
-                                           'setBlockSize', id)} />
+                <Dropdown info={ui.blockSizes}
+                          onChange={(size) => void backend.setBlockSize(size)} />
             </Row>
 
             <Row label="MIDI inputs" align="start">
-                <ToggleList info={state.midiPorts}
+                <ToggleList info={ui.midiPorts}
                             onToggle={(id, on) =>
-                                sendAndPatch(
-                                    { midiPorts: withSelected(state.midiPorts, id, on) },
-                                    'midiPortToggle', { id, on })} />
+                                void backend.midiPortToggle({ id, on })} />
             </Row>
 
             <Row label="">
-                <button type="button" onClick={() => invoke('allNotesOff')}>
+                <button type="button" onClick={() => void backend.allNotesOff()}>
                     All notes off
                 </button>
             </Row>
@@ -173,17 +72,17 @@ export default function App()
     );
 }
 
-function Voice({ state }: { state: SynthState })
+function Voice({ audio }: { audio: AudioControls })
 {
-    if (!state.playing || state.note < 0)
+    if (!audio.playing || audio.note < 0)
         return <span className="value-large">silent</span>;
 
-    const vel = Math.round(state.velocity * 127);
-    const freq = state.frequency.toFixed(2);
+    const vel = Math.round(audio.velocity * 127);
+    const freq = audio.frequency.toFixed(2);
 
     return (
         <span className="value-large active">
-            {noteName(state.note)} ({state.note}) — {freq} Hz · vel {vel}
+            {noteName(audio.note)} ({audio.note}) — {freq} Hz · vel {vel}
         </span>
     );
 }
