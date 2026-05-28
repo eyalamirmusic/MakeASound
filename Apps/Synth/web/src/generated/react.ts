@@ -10,7 +10,7 @@
 //         const [params, setParams] = useParameters();
 //
 // All helpers are generic over the bridge's event map E (typically the
-// `ServerEvents` interface from the matching .events module). E is
+// `Events` interface from the matching .events module). E is
 // inferred from the `backend` argument and the event name is
 // constrained to `keyof E`, so typos and stale event references fail
 // at compile time. The constraint is `extends object` so plain
@@ -22,7 +22,7 @@ import type { TransportOn } from './schema.bridge';
 
 // `on` is typed as the same `TransportOn<E>` the bridge module exports
 // — not a structurally equivalent local copy. TS only unifies the E
-// parameter of `Bridge<X, ServerEvents>` against `EventCapableBackend<E>`
+// parameter of `Bridge<X, Events>` against `EventCapableBackend<E>`
 // when both sides reference the *same* TransportOn symbol; two
 // identical-looking local aliases would each carry an independent E
 // and inference would silently fall back to the `object` default

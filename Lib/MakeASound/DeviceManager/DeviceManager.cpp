@@ -1,5 +1,5 @@
 #include "DeviceManager.h"
-#include "../RTAudio/RTAudioDeviceManager.h"
+#include "../MiniAudio/MiniAudioDeviceManager.h"
 
 #include <stdexcept>
 
@@ -7,7 +7,7 @@ namespace MakeASound
 {
 
 DeviceManager::DeviceManager()
-    : pimpl(EA::makeOwned<RTAudio::DeviceManager>())
+    : pimpl(EA::makeOwned<MiniAudio::DeviceManager>())
 {
 }
 

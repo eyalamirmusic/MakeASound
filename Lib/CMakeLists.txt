@@ -1,8 +1,8 @@
 add_library(MakeASound STATIC
         MakeASound/DeviceInfo/DeviceInfo.cpp
         MakeASound/DeviceManager/DeviceManager.cpp
-        MakeASound/RTAudio/RTAudio-Backend.cpp
-        MakeASound/RTAudio/RTAudioDeviceManager.cpp
+        MakeASound/MiniAudio/MiniAudio-Backend.cpp
+        MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
         MakeASound/MidiInfo/MidiInfo.cpp
         MakeASound/MidiManager/MidiManager.cpp
         MakeASound/MidiBlockSync/MidiBlockSync.cpp
@@ -20,7 +20,7 @@ else()
     target_sources(MakeASound PRIVATE MakeASound/BlockSizes/BlockSizes.cpp)
 endif()
 
-target_link_libraries(MakeASound PUBLIC Miro PRIVATE rtaudio rtmidi)
+target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 set_makeasound_warnings(MakeASound)

@@ -22,10 +22,11 @@ Vector<int> defaultBlockSizes()
 }
 
 // CoreAudio device IDs (AudioObjectID values) are not the same as the
-// sequential indices MakeASound exposes via DeviceInfo::id (those come
-// from RtAudio's internal `currentDeviceId_++`). We bridge the two by
-// enumerating CoreAudio devices ourselves and matching against the name
-// RtAudio already reported.
+// sequential indices MakeASound exposes via DeviceInfo::id (those are
+// assigned by the MiniAudio backend). We bridge the two by enumerating
+// CoreAudio devices ourselves and matching against the device name
+// MiniAudio reports, which itself reads
+// kAudioDevicePropertyDeviceNameCFString — so the match is exact.
 
 std::vector<AudioObjectID> coreAudioDeviceIds()
 {
@@ -82,25 +83,13 @@ std::optional<std::string> coreAudioStringProperty(AudioObjectID id,
     return std::string {buffer.data()};
 }
 
-// Mirrors RtAudio's macOS naming: "<Manufacturer>: <Name>".
-std::optional<std::string> coreAudioCompositeName(AudioObjectID id)
-{
-    auto manufacturer =
-        coreAudioStringProperty(id, kAudioObjectPropertyManufacturer);
-    auto name = coreAudioStringProperty(id, kAudioObjectPropertyName);
-
-    if (!manufacturer || !name)
-        return std::nullopt;
-
-    return *manufacturer + ": " + *name;
-}
-
 std::optional<AudioObjectID> findCoreAudioDevice(const std::string& name)
 {
     for (auto id: coreAudioDeviceIds())
     {
-        auto composite = coreAudioCompositeName(id);
-        if (composite && *composite == name)
+        auto deviceName =
+            coreAudioStringProperty(id, kAudioDevicePropertyDeviceNameCFString);
+        if (deviceName && *deviceName == name)
             return id;
     }
 

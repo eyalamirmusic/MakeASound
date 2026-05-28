@@ -1,6 +1,6 @@
 import { makeBackend } from './schema.backend';
 import { makeBridge, type Transport } from './schema.bridge';
-import type { ServerEvents } from './schema.events';
+import type { Events } from './schema.events';
 
 interface EacpBridge
 {
@@ -29,7 +29,7 @@ export function isBackendAvailable(): boolean
     return typeof window !== 'undefined' && window.eacp != null;
 }
 
-const webViewTransport: Transport<ServerEvents> = {
+const webViewTransport: Transport<Events> = {
     invoke: async (command, payload) =>
     {
         if (! isBackendAvailable())

@@ -5,7 +5,7 @@
 
 namespace MakeASound
 {
-namespace RTAudio
+namespace MiniAudio
 {
 struct DeviceManager;
 }
@@ -35,7 +35,7 @@ private:
     Callback callback;
     StreamConfig config;
 
-    OwningPointer<RTAudio::DeviceManager> pimpl;
+    OwningPointer<MiniAudio::DeviceManager> pimpl;
 };
 
 } // namespace MakeASound

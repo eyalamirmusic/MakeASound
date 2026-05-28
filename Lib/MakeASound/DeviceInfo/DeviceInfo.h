@@ -75,19 +75,11 @@ struct StreamParameters
 
 struct Flags
 {
-    MIRO_REFLECT(nonInterleaved,
-                 minimizeLatency,
-                 hogDevice,
-                 scheduleRealTime,
-                 alsaUseDefault,
-                 jackDontConnect)
+    MIRO_REFLECT(nonInterleaved, minimizeLatency, hogDevice)
 
     bool nonInterleaved = true;
     bool minimizeLatency = false;
     bool hogDevice = false;
-    bool scheduleRealTime = false;
-    bool alsaUseDefault = false;
-    bool jackDontConnect = false;
 };
 
 struct StreamOptions

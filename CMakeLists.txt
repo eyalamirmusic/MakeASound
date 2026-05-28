@@ -24,7 +24,7 @@ function(set_makeasound_warnings target)
     endif ()
 endfunction()
 
-find_package(RTAudio REQUIRED)
+find_package(Miniaudio REQUIRED)
 find_package(RTMidi REQUIRED)
 find_package(Miro REQUIRED)
 
