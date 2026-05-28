@@ -2,7 +2,9 @@
 
 #include "../Common/Algorithms.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -240,6 +242,87 @@ std::optional<Event>
         return Event::programChange(channel, byteAt(1), sampleOffset);
 
     return std::nullopt;
+}
+
+// --- Serialization -----------------------------------------------------
+
+namespace
+{
+std::uint8_t to7bit(float normalized) noexcept
+{
+    auto scaled = static_cast<int>(std::lround(normalized * 127.f));
+    return static_cast<std::uint8_t>(std::clamp(scaled, 0, 127));
+}
+
+std::uint8_t statusByte(int status, int channel) noexcept
+{
+    return static_cast<std::uint8_t>(status | (channel & 0x0F));
+}
+} // namespace
+
+RawBytes toBytes(const Event& event) noexcept
+{
+    auto out = RawBytes {};
+
+    auto push = [&](std::uint8_t byte) noexcept
+    {
+        if (out.size < RawBytes::maxBytes)
+            out.data[static_cast<std::size_t>(out.size++)] = byte;
+    };
+
+    event.visit(overloaded {
+        [&](const NoteOn& n)
+        {
+            push(statusByte(0x90, event.channel));
+            push(static_cast<std::uint8_t>(n.pitch & 0x7F));
+            push(to7bit(n.velocity));
+        },
+        [&](const NoteOff& n)
+        {
+            push(statusByte(0x80, event.channel));
+            push(static_cast<std::uint8_t>(n.pitch & 0x7F));
+            push(to7bit(n.velocity));
+        },
+        [&](const ControlChange& cc)
+        {
+            push(statusByte(0xB0, event.channel));
+            push(static_cast<std::uint8_t>(cc.controller & 0x7F));
+            push(to7bit(cc.value));
+        },
+        [&](const PitchBend& pb)
+        {
+            auto raw = std::clamp(
+                static_cast<int>(std::lround(pb.value * 8192.f)) + 8192,
+                0,
+                16383);
+            push(statusByte(0xE0, event.channel));
+            push(static_cast<std::uint8_t>(raw & 0x7F));
+            push(static_cast<std::uint8_t>((raw >> 7) & 0x7F));
+        },
+        [&](const ChannelAftertouch& at)
+        {
+            push(statusByte(0xD0, event.channel));
+            push(to7bit(at.pressure));
+        },
+        [&](const PolyAftertouch& pa)
+        {
+            push(statusByte(0xA0, event.channel));
+            push(static_cast<std::uint8_t>(pa.pitch & 0x7F));
+            push(to7bit(pa.pressure));
+        },
+        [&](const ProgramChange& pc)
+        {
+            push(statusByte(0xC0, event.channel));
+            push(static_cast<std::uint8_t>(pc.program & 0x7F));
+        },
+        [&](const SysEx& sx)
+        {
+            for (auto i = 0; i < sx.size; ++i)
+                push(sx.data[static_cast<std::size_t>(i)]);
+        },
+    });
+
+    return out;
 }
 
 // --- Rendering ---------------------------------------------------------

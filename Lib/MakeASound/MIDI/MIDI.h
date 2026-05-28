@@ -202,6 +202,24 @@ std::optional<Event> convertMidi(const std::uint8_t* bytes,
                                  int size,
                                  int sampleOffset = 0) noexcept;
 
+// Fixed-capacity wire encoding of an Event. Channel messages are 1..3
+// bytes; SysEx is emitted verbatim, so the cap matches SysEx::maxBytes.
+struct RawBytes
+{
+    static constexpr int maxBytes = SysEx::maxBytes;
+
+    std::array<std::uint8_t, maxBytes> data {};
+    int size = 0;
+
+    const std::uint8_t* begin() const noexcept { return data.data(); }
+    const std::uint8_t* end() const noexcept { return data.data() + size; }
+};
+
+// Serializes a typed event back to MIDI 1.0 bytes — the inverse of
+// convertMidi (normalized floats are quantized to 7-bit / 14-bit and
+// clamped to range). Pure / lock-free / allocation-free.
+RawBytes toBytes(const Event& event) noexcept;
+
 // Human-readable rendering for logging / debug.
 std::string toString(const Event& event);
 

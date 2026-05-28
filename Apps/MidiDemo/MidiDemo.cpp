@@ -3,11 +3,11 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <cstdint>
 #include <iostream>
 #include <thread>
 
 namespace MS = MakeASound;
+namespace MIDI = MakeASound::MIDI;
 
 namespace
 {
@@ -18,24 +18,6 @@ std::atomic<bool> running {true};
 void onSignal(int)
 {
     running = false;
-}
-
-MS::MidiMessage noteOn(int channel, int pitch, int velocity)
-{
-    auto msg = MS::MidiMessage {};
-    msg.bytes = {static_cast<std::uint8_t>(0x90 | (channel & 0x0F)),
-                 static_cast<std::uint8_t>(pitch & 0x7F),
-                 static_cast<std::uint8_t>(velocity & 0x7F)};
-    return msg;
-}
-
-MS::MidiMessage noteOff(int channel, int pitch)
-{
-    auto msg = MS::MidiMessage {};
-    msg.bytes = {static_cast<std::uint8_t>(0x80 | (channel & 0x0F)),
-                 static_cast<std::uint8_t>(pitch & 0x7F),
-                 std::uint8_t {0}};
-    return msg;
 }
 } // namespace
 
@@ -50,10 +32,18 @@ int main()
     // router to watch the notes below loop straight back into the logger.
     midi.openVirtualOutput("MakeASound Demo Out");
 
-    midi.openVirtualInput("MakeASound Demo In",
-                          [](const MS::MidiMessage& message)
-                          { std::cout << "  in  < " << MS::formatMessage(message)
-                                      << '\n'; });
+    midi.openVirtualInput(
+        "MakeASound Demo In",
+        [](const MS::MidiMessage& message)
+        {
+            // Decode the raw bytes into a typed MIDI::Event for logging.
+            auto event = MIDI::convertMidi(message.bytes.data(),
+                                           static_cast<int>(message.bytes.size()));
+            std::cout << "  in  < "
+                      << (event ? MIDI::toString(*event)
+                                : MS::formatMessage(message))
+                      << '\n';
+        });
 
     std::cout << "Virtual MIDI ports open:\n"
               << "  out : MakeASound Demo Out\n"
@@ -62,23 +52,20 @@ int main()
               << "Press Ctrl-C to quit.\n\n";
 
     constexpr auto channel = 0;
-    constexpr auto velocity = 100;
+    constexpr auto velocity = 100.f / 127.f; // normalized 0..1
     auto pitch = 60; // middle C, walking up a C major scale
 
     while (running)
     {
-        auto on = noteOn(channel, pitch, velocity);
+        auto on = MIDI::Event::noteOn(channel, pitch, velocity);
         midi.sendMessage(on);
-        std::cout << "  out > " << MS::formatMessage(on) << '\n';
+        std::cout << "  out > " << MIDI::toString(on) << '\n';
 
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        if (!running)
-        {
-            midi.sendMessage(noteOff(channel, pitch));
-            break;
-        }
 
-        midi.sendMessage(noteOff(channel, pitch));
+        midi.sendMessage(MIDI::Event::noteOff(channel, pitch, 0.f));
+        if (!running)
+            break;
 
         pitch += 2;
         if (pitch > 72)

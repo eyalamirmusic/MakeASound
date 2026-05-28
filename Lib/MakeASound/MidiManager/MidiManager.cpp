@@ -102,4 +102,11 @@ void MidiManager::sendMessage(const std::uint8_t* bytes, std::size_t size)
     pimpl->sendMessage(bytes, size);
 }
 
+void MidiManager::sendMessage(const MIDI::Event& event)
+{
+    auto raw = MIDI::toBytes(event);
+    if (raw.size > 0)
+        pimpl->sendMessage(raw.data.data(), static_cast<std::size_t>(raw.size));
+}
+
 } // namespace MakeASound

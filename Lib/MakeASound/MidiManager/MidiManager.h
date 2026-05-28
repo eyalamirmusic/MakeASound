@@ -60,6 +60,10 @@ public:
     void sendMessage(const MidiMessage& message);
     void sendMessage(const std::uint8_t* bytes, std::size_t size);
 
+    // Serialize a typed event (via MIDI::toBytes) and send it. The
+    // high-level way to emit notes, CCs, pitch bend, etc.
+    void sendMessage(const MIDI::Event& event);
+
 private:
     OwningPointer<RTMidi::MidiManager> pimpl;
 };
