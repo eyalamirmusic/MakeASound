@@ -23,4 +23,8 @@ endif()
 target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
+if (MAKEASOUND_UNITY_BUILD)
+    set_target_properties(MakeASound PROPERTIES UNITY_BUILD ON)
+endif ()
+
 set_makeasound_warnings(MakeASound)
