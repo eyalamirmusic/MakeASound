@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+# Share CPM's fetched dependency sources across runs (rtmidi/miniaudio zips,
+# Miro git clone). Only the downloads are cached, not build artifacts.
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm_cache
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Universal (arm64 + x86_64, min 11.0)
+            os: macos-latest
+            osx_archs: "arm64;x86_64"
+            deployment_target: "11.0"
+
+          - name: Windows MSVC
+            os: windows-latest
+            cc: cl
+            cxx: cl
+            msvc: true
+
+          - name: Windows Clang
+            os: windows-latest
+            cc: clang-cl
+            cxx: clang-cl
+            msvc: true
+
+          - name: Linux GCC
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+
+          - name: Linux Clang
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache CPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CPM_SOURCE_CACHE }}
+          key: cpm-${{ runner.os }}-${{ hashFiles('CMake/Find*.cmake', 'CMake/CPM.cmake') }}
+          restore-keys: cpm-${{ runner.os }}-
+
+      # rtmidi's ALSA backend needs the ALSA dev headers on Linux.
+      # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
+      - name: Install Linux audio dev packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+
+      # Puts cl.exe / clang-cl.exe and the Windows SDK on PATH/INCLUDE/LIB.
+      - name: Set up MSVC environment
+        if: matrix.msvc
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # Provides a recent CMake (the project requires >= 3.31) and Ninja
+      # uniformly across all three OSes.
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Build (Debug & Release, unity ON)
+        shell: bash
+        env:
+          CC_COMPILER: ${{ matrix.cc }}
+          CXX_COMPILER: ${{ matrix.cxx }}
+          OSX_ARCHS: ${{ matrix.osx_archs }}
+          DEPLOY: ${{ matrix.deployment_target }}
+        run: |
+          set -euo pipefail
+          for bt in Debug Release; do
+            args=( -S . -B "build-$bt" -G Ninja
+                   -DCMAKE_BUILD_TYPE="$bt"
+                   -DMAKEASOUND_UNITY_BUILD=ON
+                   -DMAKEASOUND_BUILD_APPS=OFF )
+
+            # Compiler selection (empty for macOS -> default AppleClang).
+            if [ -n "$CC_COMPILER" ]; then
+              args+=( -DCMAKE_C_COMPILER="$CC_COMPILER"
+                      -DCMAKE_CXX_COMPILER="$CXX_COMPILER" )
+            fi
+
+            # macOS universal slices + deployment target. Passing the arch list
+            # as a single array element keeps the embedded ';' intact.
+            if [ -n "$OSX_ARCHS" ]; then
+              args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
+                      -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
+            fi
+
+            echo "::group::Configure $bt"
+            cmake "${args[@]}"
+            echo "::endgroup::"
+
+            echo "::group::Build $bt"
+            cmake --build "build-$bt" --target MakeASound
+            echo "::endgroup::"
+          done
+
+      # Prove requirement #1: the archive is a real fat binary and every slice
+      # is built against the macOS 11.0 minimum.
+      - name: Verify macOS universal + minimum OS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib=build-Release/Lib/libMakeASound.a
+          echo "Architectures:"
+          lipo -info "$lib"
+          lipo -info "$lib" | grep -q "x86_64" && lipo -info "$lib" | grep -q "arm64"
+          echo "Minimum macOS version per build object:"
+          otool -l "$lib" | grep -A3 LC_BUILD_VERSION | grep -E 'minos' | sort -u
+          # Fail if any object declares a minos other than 11.0
+          if otool -l "$lib" | grep -A3 LC_BUILD_VERSION | grep 'minos' | grep -vq '11.0'; then
+            echo "ERROR: found objects with a minos != 11.0"; exit 1
+          fi

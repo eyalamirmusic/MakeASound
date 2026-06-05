@@ -5,6 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 
 option(MAKEASOUND_UNITY_BUILD "Enable unity (jumbo) build for the MakeASound library" OFF)
+option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only)" ON)
 
 if (APPLE)
     enable_language(OBJCXX)
@@ -32,6 +33,6 @@ find_package(Miro REQUIRED)
 
 add_subdirectory(Lib)
 
-if (PROJECT_IS_TOP_LEVEL)
+if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)
     add_subdirectory(Apps)
 endif ()
