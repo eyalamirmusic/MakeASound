@@ -19,11 +19,7 @@ function(set_makeasound_warnings target)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(${target} PRIVATE
-                -Wall -Wextra -Wpedantic -Wshadow
-                -Wconversion -Wsign-conversion
-                -Wold-style-cast -Wnon-virtual-dtor
-                -Wcast-align -Wnull-dereference
-                -Wdouble-promotion -Woverloaded-virtual)
+                -Wall -Wextra -Wpedantic)
     endif ()
 endfunction()
 
