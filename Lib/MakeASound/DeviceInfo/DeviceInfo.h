@@ -3,9 +3,9 @@
 #include <Miro/Miro.h>
 
 #include "../Common/Common.h"
+#include "../Buffer/Buffer.h"
 
 #include <optional>
-#include <span>
 #include <string>
 #include <functional>
 
@@ -119,11 +119,11 @@ struct StreamConfig
 
 struct AudioCallbackInfo
 {
-    std::span<const float> getInput(int channel) const;
-    std::span<float> getOutput(int channel);
-
-    std::span<const float> getInterleavedInputs() const;
-    std::span<float> getInterleavedOutputs();
+    // Planar (non-interleaved) views over this block's channels. The backend
+    // owns the interleaved<->planar conversion, so callers only ever see planar
+    // data through these.
+    Buffer getInput() const;
+    Buffer getOutput();
 
     bool operator==(const AudioCallbackInfo& other) const;
     bool operator!=(const AudioCallbackInfo& other) const;

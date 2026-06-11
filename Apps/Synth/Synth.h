@@ -49,14 +49,16 @@ struct Synth
 
     void render(MS::AudioCallbackInfo& info, int startSample, int endSample)
     {
-        if (startSample >= endSample || info.numOutputs <= 0)
+        auto output = info.getOutput();
+
+        if (startSample >= endSample || output.getNumChannels() <= 0)
             return;
 
         auto noteValue = note.load();
         auto velocityValue = velocity.load();
         auto gainValue = gain.load();
 
-        auto first = info.getOutput(0);
+        auto first = output.getChannel(0);
 
         if (noteValue < 0)
         {
@@ -74,9 +76,9 @@ struct Synth
                 first[i] = voice.renderSample(increment) * amplitude;
         }
 
-        for (auto channel = 1; channel < info.numOutputs; ++channel)
+        for (auto channel = 1; channel < output.getNumChannels(); ++channel)
         {
-            auto out = info.getOutput(channel);
+            auto out = output.getChannel(channel);
             std::copy(first.begin() + startSample,
                       first.begin() + endSample,
                       out.begin() + startSample);

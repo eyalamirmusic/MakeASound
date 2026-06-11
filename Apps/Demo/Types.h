@@ -147,17 +147,15 @@ private:
         auto on = playing.load(std::memory_order_relaxed);
         auto g = gainValue.load(std::memory_order_relaxed);
 
-        for (auto channel = 0; channel < info.numOutputs; ++channel)
+        for (auto channel: info.getOutput().channels())
         {
-            auto data = info.getOutput(channel);
-
             if (!on)
             {
-                std::ranges::fill(data, 0.0f);
+                std::ranges::fill(channel, 0.0f);
                 continue;
             }
 
-            for (auto& sample: data)
+            for (auto& sample: channel)
                 sample = nextNoiseSample() * g;
         }
     }

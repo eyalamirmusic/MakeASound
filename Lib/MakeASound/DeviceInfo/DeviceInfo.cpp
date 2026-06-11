@@ -73,24 +73,20 @@ int getNumChannels(const std::optional<StreamParameters>& params)
 int StreamConfig::getInputChannels() const { return getNumChannels(input); }
 int StreamConfig::getOutputChannels() const { return getNumChannels(output); }
 
-std::span<const float> AudioCallbackInfo::getInput(int channel) const
+Buffer AudioCallbackInfo::getInput() const
 {
-    return {&inputBuffer[channel * numSamples], static_cast<size_t>(numSamples)};
+    auto data =
+        std::span<float> {inputBuffer, static_cast<size_t>(numInputs * numSamples)};
+
+    return {data, numInputs};
 }
 
-std::span<float> AudioCallbackInfo::getOutput(int channel)
+Buffer AudioCallbackInfo::getOutput()
 {
-    return {&outputBuffer[channel * numSamples], static_cast<size_t>(numSamples)};
-}
+    auto data =
+        std::span<float> {outputBuffer, static_cast<size_t>(numOutputs * numSamples)};
 
-std::span<const float> AudioCallbackInfo::getInterleavedInputs() const
-{
-    return {inputBuffer, static_cast<size_t>(numInputs * numSamples)};
-}
-
-std::span<float> AudioCallbackInfo::getInterleavedOutputs()
-{
-    return {outputBuffer, static_cast<size_t>(numOutputs * numSamples)};
+    return {data, numOutputs};
 }
 
 bool AudioCallbackInfo::operator==(const AudioCallbackInfo& other) const
