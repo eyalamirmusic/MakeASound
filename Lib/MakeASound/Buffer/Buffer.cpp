@@ -7,9 +7,7 @@ namespace
 {
 // Slices the planar block into a single channel. Shared by Buffer::getChannel
 // and ChannelIterator so the offset maths lives in exactly one place.
-std::span<float> sliceChannel(std::span<float> data,
-                              int numChannels,
-                              int channel) noexcept
+Channel sliceChannel(std::span<float> data, int numChannels, int channel) noexcept
 {
     if (numChannels <= 0)
         return {};
@@ -17,7 +15,7 @@ std::span<float> sliceChannel(std::span<float> data,
     auto numSamples = data.size() / static_cast<size_t>(numChannels);
     auto offset = static_cast<size_t>(channel) * numSamples;
 
-    return data.subspan(offset, numSamples);
+    return Channel {data.subspan(offset, numSamples)};
 }
 } // namespace
 
@@ -45,7 +43,7 @@ bool Buffer::isEmpty() const noexcept
     return numChannels <= 0 || data.empty();
 }
 
-std::span<float> Buffer::getChannel(int channel) const noexcept
+Channel Buffer::getChannel(int channel) const noexcept
 {
     return sliceChannel(data, numChannels, channel);
 }
@@ -55,14 +53,9 @@ float* Buffer::getChannelPointer(int channel) const noexcept
     return getChannel(channel).data();
 }
 
-std::span<float> Buffer::operator[](int channel) const noexcept
+Channel Buffer::operator[](int channel) const noexcept
 {
     return getChannel(channel);
-}
-
-std::span<float> Buffer::getRawData() const noexcept
-{
-    return data;
 }
 
 Buffer::ChannelRange Buffer::channels() const noexcept
@@ -100,7 +93,7 @@ Buffer::ChannelIterator::ChannelIterator(std::span<float> dataToUse,
 {
 }
 
-std::span<float> Buffer::ChannelIterator::operator*() const noexcept
+Channel Buffer::ChannelIterator::operator*() const noexcept
 {
     return sliceChannel(data, numChannels, channel);
 }

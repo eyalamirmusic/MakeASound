@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Channel/Channel.h"
+
 #include <span>
 #include <cstddef>
 
@@ -10,8 +12,8 @@ namespace MakeASound
 //
 // The underlying memory is laid out channel-major: all samples of channel 0,
 // followed by all samples of channel 1, and so on. Buffer holds the flat span
-// plus the channel count and slices it into per-channel spans with the correct
-// offsets, so callers never compute `channel * numSamples` by hand.
+// plus the channel count and slices it into per-channel Channels with the
+// correct offsets, so callers never compute `channel * numSamples` by hand.
 class Buffer
 {
 public:
@@ -25,17 +27,14 @@ public:
 
     bool isEmpty() const noexcept;
 
-    std::span<float> getChannel(int channel) const noexcept;
+    Channel getChannel(int channel) const noexcept;
     float* getChannelPointer(int channel) const noexcept;
-    std::span<float> operator[](int channel) const noexcept;
+    Channel operator[](int channel) const noexcept;
 
-    // The whole planar block as a single flat span.
-    std::span<float> getRawData() const noexcept;
-
-    // Yields one std::span<float> per channel. Holds the (span, channel count)
-    // by value rather than a pointer back to the Buffer, so it stays valid even
-    // when iterating a temporary (e.g. `info.getOutput().channels()` — in C++20
-    // that Buffer temporary dies before the loop body runs).
+    // Yields one Channel per channel. Holds the (span, channel count) by value
+    // rather than a pointer back to the Buffer, so it stays valid even when
+    // iterating a temporary (e.g. `info.getOutput().channels()` — in C++20 that
+    // Buffer temporary dies before the loop body runs).
     class ChannelIterator
     {
     public:
@@ -43,7 +42,7 @@ public:
                         int numChannelsToUse,
                         int channelToUse) noexcept;
 
-        std::span<float> operator*() const noexcept;
+        Channel operator*() const noexcept;
         ChannelIterator& operator++() noexcept;
         bool operator!=(const ChannelIterator& other) const noexcept;
 
