@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Channel/Channel.h"
+#include "Channel.h"
 
 #include <span>
 #include <cstddef>

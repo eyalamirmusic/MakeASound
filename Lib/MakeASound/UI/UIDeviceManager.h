@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../DeviceManager/DeviceManager.h"
+#include "../Devices/DeviceManager.h"
 #include "Dropdown.h"
 
 namespace MakeASound

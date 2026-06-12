@@ -3,7 +3,7 @@
 #include <Miro/Miro.h>
 
 #include "../Common/Common.h"
-#include "../Buffer/Buffer.h"
+#include "../Audio/Buffer.h"
 
 #include <optional>
 #include <string>

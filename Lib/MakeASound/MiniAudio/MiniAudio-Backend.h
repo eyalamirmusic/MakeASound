@@ -3,7 +3,7 @@
 #include <miniaudio.h>
 
 #include "../Common/Common.h"
-#include "../DeviceInfo/DeviceInfo.h"
+#include "../Devices/DeviceInfo.h"
 
 namespace MakeASound::MiniAudio
 {

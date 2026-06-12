@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Common/Common.h"
-#include "DeviceManager/DeviceManager.h"
-#include "BlockSizes/BlockSizes.h"
-#include "MidiManager/MidiManager.h"
-#include "MidiBlockSync/MidiBlockSync.h"
+#include "Devices/DeviceManager.h"
+#include "Devices/BlockSizes.h"
+#include "MIDI/MidiManager.h"
+#include "MIDI/MidiBlockSync.h"
 #include "MIDI/MIDI.h"
 #include "UI/Dropdown.h"
 #include "UI/UIDeviceManager.h"

@@ -1,5 +1,5 @@
 #include "MidiBlockSync.h"
-#include "../MidiManager/MidiManager.h"
+#include "MidiManager.h"
 
 #include <algorithm>
 #include <chrono>

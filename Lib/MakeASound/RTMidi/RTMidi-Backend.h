@@ -2,7 +2,7 @@
 
 #include <RtMidi.h>
 #include "../Common/Common.h"
-#include "../MidiInfo/MidiInfo.h"
+#include "../MIDI/MidiInfo.h"
 
 namespace MakeASound::RTMidi
 {

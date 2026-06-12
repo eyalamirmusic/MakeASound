@@ -1,13 +1,13 @@
 add_library(MakeASound STATIC
-        MakeASound/Channel/Channel.cpp
-        MakeASound/Buffer/Buffer.cpp
-        MakeASound/DeviceInfo/DeviceInfo.cpp
-        MakeASound/DeviceManager/DeviceManager.cpp
+        MakeASound/Audio/Channel.cpp
+        MakeASound/Audio/Buffer.cpp
+        MakeASound/Devices/DeviceInfo.cpp
+        MakeASound/Devices/DeviceManager.cpp
         MakeASound/MiniAudio/MiniAudio-Backend.cpp
         MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
-        MakeASound/MidiInfo/MidiInfo.cpp
-        MakeASound/MidiManager/MidiManager.cpp
-        MakeASound/MidiBlockSync/MidiBlockSync.cpp
+        MakeASound/MIDI/MidiInfo.cpp
+        MakeASound/MIDI/MidiManager.cpp
+        MakeASound/MIDI/MidiBlockSync.cpp
         MakeASound/MIDI/MIDI.cpp
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp
@@ -16,10 +16,10 @@ add_library(MakeASound STATIC
         MakeASound/UI/UIMidiManager.cpp)
 
 if(APPLE)
-    target_sources(MakeASound PRIVATE MakeASound/BlockSizes/BlockSizes.mm)
+    target_sources(MakeASound PRIVATE MakeASound/Devices/BlockSizes.mm)
     target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
 else()
-    target_sources(MakeASound PRIVATE MakeASound/BlockSizes/BlockSizes.cpp)
+    target_sources(MakeASound PRIVATE MakeASound/Devices/BlockSizes.cpp)
 endif()
 
 target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)

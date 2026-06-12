@@ -1,6 +1,6 @@
 #include "UIDeviceManager.h"
 
-#include "../BlockSizes/BlockSizes.h"
+#include "../Devices/BlockSizes.h"
 
 namespace MakeASound
 {

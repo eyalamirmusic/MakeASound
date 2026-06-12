@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../Common/Common.h"
-#include "../MidiInfo/MidiInfo.h"
+#include "MidiInfo.h"
 
 namespace MakeASound
 {

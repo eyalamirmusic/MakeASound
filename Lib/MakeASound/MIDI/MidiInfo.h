@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../Common/Common.h"
-#include "../MIDI/MIDI.h"
+#include "MIDI.h"
 #include <Miro/Miro.h>
 
 #include <chrono>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../MidiInfo/MidiInfo.h"
+#include "MidiInfo.h"
 
 namespace MakeASound
 {

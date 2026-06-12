@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../MidiManager/MidiManager.h"
+#include "../MIDI/MidiManager.h"
 #include "Dropdown.h"
 
 namespace MakeASound

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../Common/Common.h"
-#include "../DeviceInfo/DeviceInfo.h"
-#include "../MidiInfo/MidiInfo.h"
+#include "../Devices/DeviceInfo.h"
+#include "../MIDI/MidiInfo.h"
 
 #include <Miro/Miro.h>
 
