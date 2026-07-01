@@ -4,6 +4,7 @@ export interface Events
 {
     'ui': T.UIState;
     'audio': T.AudioControls;
+    'meter': T.MeterState;
     'midi': T.MidiLogEntry;
 }
 

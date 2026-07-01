@@ -13,7 +13,7 @@ export const useUi = makeBridgeStore({
     event: 'ui',
     fetch: backend.getUi,
     shouldFetch: isBackendAvailable,
-    initial: {"blockSize":0,"devices":{"currentId":0,"items":[]},"midiPorts":{"items":[]},"sampleRates":{"currentId":0,"items":[]}},
+    initial: {"blockSize":0,"devices":{"currentId":0,"items":[]},"inputDevices":{"currentId":0,"items":[]},"midiPorts":{"items":[]},"sampleRates":{"currentId":0,"items":[]}},
 });
 
 export const useAudio = makeBridgeStore({
@@ -22,6 +22,12 @@ export const useAudio = makeBridgeStore({
     fetch: backend.getAudio,
     shouldFetch: isBackendAvailable,
     initial: {"gain":0,"playing":false},
+});
+
+export const useMeter = makeNativeEvent({
+    backend,
+    event: 'meter',
+    initial: {"inputLevel":0},
 });
 
 export const useMidi = makeNativeEvent({

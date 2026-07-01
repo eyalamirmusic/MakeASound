@@ -21,6 +21,7 @@ struct DemoApp
     WebViewBridge transport {webView};
     Window window;
     Threads::Timer midiPollTimer {[this] { api.pollMidiPorts(); }, 2};
+    Threads::Timer meterPollTimer {[this] { api.pollMeter(); }, 20};
 };
 
 int main()

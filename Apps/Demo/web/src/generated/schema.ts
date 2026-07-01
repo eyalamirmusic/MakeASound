@@ -21,6 +21,7 @@ export interface ToggleListInfo {
 export interface UIState {
     blockSize: number;
     devices: DropdownInfo;
+    inputDevices: DropdownInfo;
     sampleRates: DropdownInfo;
     midiPorts: ToggleListInfo;
 }
@@ -33,6 +34,10 @@ export interface AudioControls {
 export interface MidiPortToggleRequest {
     id: number;
     on: boolean;
+}
+
+export interface MeterState {
+    inputLevel: number;
 }
 
 export interface MidiLogEntry {

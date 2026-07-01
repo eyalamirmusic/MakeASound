@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <random>
 #include <string>
 #include <utility>
@@ -18,12 +19,20 @@ struct AudioControls
     double gain {};
 };
 
+struct MeterState
+{
+    MIRO_REFLECT(inputLevel)
+
+    double inputLevel {};
+};
+
 struct UIState
 {
-    MIRO_REFLECT(blockSize, devices, sampleRates, midiPorts)
+    MIRO_REFLECT(blockSize, devices, inputDevices, sampleRates, midiPorts)
 
     int blockSize {};
     MakeASound::UI::DropdownInfo devices;
+    MakeASound::UI::DropdownInfo inputDevices;
     MakeASound::UI::DropdownInfo sampleRates;
     MakeASound::UI::ToggleListInfo midiPorts;
 };
@@ -67,9 +76,10 @@ public:
                    &T::setSampleRate,
                    &T::setBlockSize,
                    &T::setDevice,
+                   &T::setInputDevice,
                    &T::midiPortToggle>();
 
-        r.events<&T::ui, &T::audio, &T::midi>();
+        r.events<&T::ui, &T::audio, &T::meter, &T::midi>();
     }
 
     UIState getUi() { return makeUi(); }
@@ -103,7 +113,13 @@ public:
 
     void setDevice(const int& id)
     {
-        if (applyDevice(id))
+        if (applyOutputDevice(id))
+            ui.publish(makeUi());
+    }
+
+    void setInputDevice(const int& id)
+    {
+        if (applyInputDevice(id))
             ui.publish(makeUi());
     }
 
@@ -130,8 +146,11 @@ public:
         ui.publish(makeUi());
     }
 
+    void pollMeter() { meter.publish(makeMeter()); }
+
     Miro::Event<UIState> ui;
     Miro::Event<AudioControls> audio;
+    Miro::Event<MeterState> meter;
     Miro::Event<MidiLogEntry> midi;
 
 private:
@@ -144,6 +163,15 @@ private:
 
     void renderWhiteNoise(MS::AudioCallbackInfo& info)
     {
+        // Metering only — the input is never written to the output.
+        auto peak = 0.0f;
+
+        for (auto channel: info.getInput().channels())
+            for (auto sample: channel)
+                peak = std::max(peak, std::abs(sample));
+
+        inputLevelValue.store(peak, std::memory_order_relaxed);
+
         auto on = playing.load(std::memory_order_relaxed);
         auto g = gainValue.load(std::memory_order_relaxed);
 
@@ -160,7 +188,7 @@ private:
         }
     }
 
-    bool applyDevice(int deviceId)
+    bool applyOutputDevice(int deviceId)
     {
         for (auto& device: manager.getDevices())
         {
@@ -168,17 +196,47 @@ private:
                 continue;
 
             config.output = MS::StreamParameters {device, false};
-
-            if (!device.sampleRates.empty()
-                && std::ranges::find(device.sampleRates, config.sampleRate)
-                       == device.sampleRates.end())
-                config.sampleRate = device.sampleRates.front();
-
+            reconcileSampleRate();
             manager.setConfig(config);
             return true;
         }
 
         return false;
+    }
+
+    bool applyInputDevice(int deviceId)
+    {
+        for (auto& device: manager.getDevices())
+        {
+            if (device.id != deviceId || device.inputChannels == 0)
+                continue;
+
+            config.input = MS::StreamParameters {device, true};
+            reconcileSampleRate();
+            manager.setConfig(config);
+            return true;
+        }
+
+        return false;
+    }
+
+    // A duplex stream needs a rate both devices can drive; fall back to the
+    // configured device's own list when only one side is set.
+    void reconcileSampleRate()
+    {
+        if (config.output && config.input)
+        {
+            config.sampleRate = MS::pickCompatibleSampleRate(config.output->device,
+                                                             config.input->device);
+            return;
+        }
+
+        auto& device = config.output ? config.output->device : config.input->device;
+
+        if (!device.sampleRates.empty()
+            && std::ranges::find(device.sampleRates, config.sampleRate)
+                   == device.sampleRates.end())
+            config.sampleRate = device.sampleRates.front();
     }
 
     void handleIncomingMidi(const MS::MidiMessage& msg)
@@ -218,6 +276,9 @@ private:
                 .gain = static_cast<double>(gainValue.load())};
     }
 
+    MeterState makeMeter() const
+    { return {.inputLevel = static_cast<double>(inputLevelValue.load())}; }
+
     UIState makeUi()
     {
         auto state = UIState {};
@@ -225,6 +286,9 @@ private:
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
         state.devices = uiDevices.makeOutputDeviceDropdown(currentDeviceId);
+
+        auto currentInputId = config.input ? config.input->device.id : 0;
+        state.inputDevices = uiDevices.makeInputDeviceDropdown(currentInputId);
 
         if (config.output)
             state.sampleRates =
@@ -237,6 +301,7 @@ private:
 
     std::atomic<bool> playing {false};
     std::atomic<float> gainValue {0.1f};
+    std::atomic<float> inputLevelValue {0.0f};
     MS::DeviceManager manager;
     MS::MidiManager midiManager;
     MS::UIDeviceManager uiDevices {manager};

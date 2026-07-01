@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { backend } from './generated/backend';
-import { useAudio, useUi } from './generated/hooks';
+import { useAudio, useMeter, useUi } from './generated/hooks';
 import type { DropdownInfo, ToggleListInfo } from './generated/schema';
 
 const blockSizes = [64, 128, 256, 512, 1024, 2048];
@@ -10,6 +10,7 @@ export default function App()
 {
     const ui = useUi();
     const audio = useAudio();
+    const meter = useMeter();
     const [midiLog, setMidiLog] = useState<string[]>([]);
 
     useEffect(() => backend.on?.('midi', (entry) =>
@@ -35,6 +36,16 @@ export default function App()
             <Row label="Output device">
                 <Dropdown info={ui.devices}
                           onChange={(id) => void backend.setDevice(id)} />
+            </Row>
+
+            <Row label="Input device">
+                <Dropdown info={ui.inputDevices}
+                          onChange={(id) => void backend.setInputDevice(id)} />
+            </Row>
+
+            <Row label="Input level">
+                <Meter level={meter.inputLevel} />
+                <span className="value">{meter.inputLevel.toFixed(2)}</span>
             </Row>
 
             <Row label="Sample rate">
@@ -94,6 +105,17 @@ function Dropdown({ info, onChange }: DropdownProps)
             {info.items.map((item) =>
                 <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>
+    );
+}
+
+function Meter({ level }: { level: number })
+{
+    const pct = Math.min(100, Math.max(0, level * 100));
+
+    return (
+        <div className="meter">
+            <div className="meter-fill" style={{ width: `${pct}%` }} />
+        </div>
     );
 }
 
