@@ -53,8 +53,10 @@ int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input)
 
 StreamParameters::StreamParameters(const DeviceInfo& deviceToUse,
                                    bool input,
-                                   int numChannels)
+                                   int numChannels,
+                                   int firstCh)
     : device(deviceToUse)
+    , firstChannel(firstCh)
 {
     if (numChannels >= 0)
         nChannels = numChannels;

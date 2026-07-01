@@ -22,6 +22,8 @@ export interface UIState {
     blockSize: number;
     devices: DropdownInfo;
     inputDevices: DropdownInfo;
+    outputChannels: DropdownInfo;
+    inputChannels: DropdownInfo;
     sampleRates: DropdownInfo;
     midiPorts: ToggleListInfo;
 }

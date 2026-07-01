@@ -64,12 +64,19 @@ int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input);
 struct StreamParameters
 {
     StreamParameters() = default;
-    StreamParameters(const DeviceInfo& deviceToUse, bool input, int numChannels = -1);
+    StreamParameters(const DeviceInfo& deviceToUse,
+                     bool input,
+                     int numChannels = -1,
+                     int firstCh = 0);
 
     MIRO_REFLECT(device, nChannels, firstChannel)
 
     DeviceInfo device;
 
+    // A stream uses the contiguous span of a device's channels starting at
+    // firstChannel: [firstChannel, firstChannel + nChannels). This is how a
+    // specific input/output (e.g. a stereo pair or a single channel) is picked
+    // out of a multi-channel device such as an audio interface.
     int nChannels {};
     int firstChannel {};
 };

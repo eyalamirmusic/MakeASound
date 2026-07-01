@@ -28,11 +28,19 @@ struct MeterState
 
 struct UIState
 {
-    MIRO_REFLECT(blockSize, devices, inputDevices, sampleRates, midiPorts)
+    MIRO_REFLECT(blockSize,
+                 devices,
+                 inputDevices,
+                 outputChannels,
+                 inputChannels,
+                 sampleRates,
+                 midiPorts)
 
     int blockSize {};
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo inputDevices;
+    MakeASound::UI::DropdownInfo outputChannels;
+    MakeASound::UI::DropdownInfo inputChannels;
     MakeASound::UI::DropdownInfo sampleRates;
     MakeASound::UI::ToggleListInfo midiPorts;
 };
@@ -77,6 +85,8 @@ public:
                    &T::setBlockSize,
                    &T::setDevice,
                    &T::setInputDevice,
+                   &T::setOutputChannels,
+                   &T::setInputChannels,
                    &T::midiPortToggle>();
 
         r.events<&T::ui, &T::audio, &T::meter, &T::midi>();
@@ -121,6 +131,32 @@ public:
     {
         if (applyInputDevice(id))
             ui.publish(makeUi());
+    }
+
+    // The dropdown id packs (firstChannel, count); decode it onto the current
+    // device's stream parameters and re-open the stream on the chosen slice.
+    void setOutputChannels(const int& encoded)
+    {
+        if (!config.output)
+            return;
+
+        auto sel = MS::UI::decodeChannelSelection(encoded);
+        config.output->firstChannel = sel.firstChannel;
+        config.output->nChannels = sel.count;
+        manager.setConfig(config);
+        ui.publish(makeUi());
+    }
+
+    void setInputChannels(const int& encoded)
+    {
+        if (!config.input)
+            return;
+
+        auto sel = MS::UI::decodeChannelSelection(encoded);
+        config.input->firstChannel = sel.firstChannel;
+        config.input->nChannels = sel.count;
+        manager.setConfig(config);
+        ui.publish(makeUi());
     }
 
     void midiPortToggle(const MidiPortToggleRequest& req)
@@ -289,6 +325,18 @@ private:
 
         auto currentInputId = config.input ? config.input->device.id : 0;
         state.inputDevices = uiDevices.makeInputDeviceDropdown(currentInputId);
+
+        if (config.output)
+            state.outputChannels =
+                MS::UI::makeOutputChannelDropdown(config.output->device,
+                                                  config.output->firstChannel,
+                                                  config.output->nChannels);
+
+        if (config.input)
+            state.inputChannels =
+                MS::UI::makeInputChannelDropdown(config.input->device,
+                                                 config.input->firstChannel,
+                                                 config.input->nChannels);
 
         if (config.output)
             state.sampleRates =

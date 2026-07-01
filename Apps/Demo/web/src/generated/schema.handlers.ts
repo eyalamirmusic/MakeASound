@@ -9,6 +9,8 @@ export type Handlers = {
     setBlockSize(req: T.int): void | Promise<void>;
     setDevice(req: T.int): void | Promise<void>;
     setInputDevice(req: T.int): void | Promise<void>;
+    setOutputChannels(req: T.int): void | Promise<void>;
+    setInputChannels(req: T.int): void | Promise<void>;
     midiPortToggle(req: T.MidiPortToggleRequest): void | Promise<void>;
 };
 
@@ -33,6 +35,8 @@ export async function dispatch(handlers: Handlers, command: string, payload: unk
         case 'setBlockSize': return await handlers.setBlockSize(payload as T.int);
         case 'setDevice': return await handlers.setDevice(payload as T.int);
         case 'setInputDevice': return await handlers.setInputDevice(payload as T.int);
+        case 'setOutputChannels': return await handlers.setOutputChannels(payload as T.int);
+        case 'setInputChannels': return await handlers.setInputChannels(payload as T.int);
         case 'midiPortToggle': return await handlers.midiPortToggle(payload as T.MidiPortToggleRequest);
         default: throw new UnknownCommandError(command);
     }

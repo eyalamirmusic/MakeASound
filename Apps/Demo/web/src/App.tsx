@@ -38,9 +38,19 @@ export default function App()
                           onChange={(id) => void backend.setDevice(id)} />
             </Row>
 
+            <Row label="Output channels">
+                <Dropdown info={ui.outputChannels}
+                          onChange={(id) => void backend.setOutputChannels(id)} />
+            </Row>
+
             <Row label="Input device">
                 <Dropdown info={ui.inputDevices}
                           onChange={(id) => void backend.setInputDevice(id)} />
+            </Row>
+
+            <Row label="Input channels">
+                <Dropdown info={ui.inputChannels}
+                          onChange={(id) => void backend.setInputChannels(id)} />
             </Row>
 
             <Row label="Input level">

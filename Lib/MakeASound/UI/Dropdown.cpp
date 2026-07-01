@@ -61,6 +61,57 @@ DropdownInfo makeBlockSizeDropdown(const Vector<int>& sizes, int currentSize)
     return info;
 }
 
+namespace
+{
+constexpr auto channelIdShift = 256;
+
+DropdownInfo makeChannelDropdown(int channels, int firstChannel, int count)
+{
+    auto info = DropdownInfo {};
+    info.currentId = encodeChannelSelection(firstChannel, count);
+
+    auto label = [](int ch) { return std::to_string(ch + 1); };
+
+    for (auto c = 0; c + 1 < channels; c += 2)
+    {
+        info.items.create(encodeChannelSelection(c, 1), label(c));
+        info.items.create(encodeChannelSelection(c + 1, 1), label(c + 1));
+        info.items.create(encodeChannelSelection(c, 2),
+                          label(c) + "/" + label(c + 1));
+    }
+
+    if (channels % 2 == 1)
+        info.items.create(encodeChannelSelection(channels - 1, 1),
+                          label(channels - 1));
+
+    return info;
+}
+} // namespace
+
+int encodeChannelSelection(int firstChannel, int count)
+{
+    return firstChannel * channelIdShift + count;
+}
+
+ChannelSelection decodeChannelSelection(int encoded)
+{
+    return {encoded / channelIdShift, encoded % channelIdShift};
+}
+
+DropdownInfo makeInputChannelDropdown(const DeviceInfo& device,
+                                      int firstChannel,
+                                      int count)
+{
+    return makeChannelDropdown(device.inputChannels, firstChannel, count);
+}
+
+DropdownInfo makeOutputChannelDropdown(const DeviceInfo& device,
+                                       int firstChannel,
+                                       int count)
+{
+    return makeChannelDropdown(device.outputChannels, firstChannel, count);
+}
+
 ToggleListInfo makeMidiPortToggleList(const Vector<MidiPortInfo>& ports,
                                       const Vector<int>& openPortIds)
 {

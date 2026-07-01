@@ -21,6 +21,10 @@ export function makeBackend(invoke: Invoke)
             invoke('setDevice', req) as Promise<void>,
         setInputDevice: (req: T.int): Promise<void> =>
             invoke('setInputDevice', req) as Promise<void>,
+        setOutputChannels: (req: T.int): Promise<void> =>
+            invoke('setOutputChannels', req) as Promise<void>,
+        setInputChannels: (req: T.int): Promise<void> =>
+            invoke('setInputChannels', req) as Promise<void>,
         midiPortToggle: (req: T.MidiPortToggleRequest): Promise<void> =>
             invoke('midiPortToggle', req) as Promise<void>,
     };

@@ -1,5 +1,6 @@
 #include "MiniAudioDeviceManager.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -10,7 +11,9 @@ namespace
 {
 ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
                                   const ma_device_id* playbackId,
-                                  const ma_device_id* captureId)
+                                  const ma_device_id* captureId,
+                                  int nativePlaybackChannels,
+                                  int nativeCaptureChannels)
 {
     auto wantsPlayback = streamConfig.output.has_value();
     auto wantsCapture = streamConfig.input.has_value();
@@ -27,20 +30,22 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     config.sampleRate = static_cast<ma_uint32>(streamConfig.sampleRate);
     config.periodSizeInFrames = static_cast<ma_uint32>(streamConfig.maxBlockSize);
 
+    // Open the device with its full native channel count (not just the selected
+    // slice) so miniaudio hands us the raw physical channels with no channel
+    // conversion / down-mixing. The callback picks out the selected channels.
     if (wantsPlayback)
     {
         config.playback.pDeviceID = playbackId;
         config.playback.format = ma_format_f32;
         config.playback.channels =
-            static_cast<ma_uint32>(streamConfig.output->nChannels);
+            static_cast<ma_uint32>(nativePlaybackChannels);
     }
 
     if (wantsCapture)
     {
         config.capture.pDeviceID = captureId;
         config.capture.format = ma_format_f32;
-        config.capture.channels =
-            static_cast<ma_uint32>(streamConfig.input->nChannels);
+        config.capture.channels = static_cast<ma_uint32>(nativeCaptureChannels);
     }
 
     if (streamConfig.options.has_value())
@@ -66,18 +71,36 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     return config;
 }
 
-void deinterleave(const float* src, float* dst, int channels, int frames)
+// De-interleave a contiguous slice of channels out of a wider interleaved
+// buffer. src has srcChannels per frame; we take [firstChannel, firstChannel +
+// count) and lay them out planar in dst.
+void deinterleaveSlice(const float* src,
+                       float* dst,
+                       int srcChannels,
+                       int firstChannel,
+                       int count,
+                       int frames)
 {
     for (auto frame = 0; frame < frames; ++frame)
-        for (auto ch = 0; ch < channels; ++ch)
-            dst[ch * frames + frame] = src[frame * channels + ch];
+        for (auto ch = 0; ch < count; ++ch)
+            dst[ch * frames + frame] =
+                src[frame * srcChannels + (firstChannel + ch)];
 }
 
-void interleave(const float* src, float* dst, int channels, int frames)
+// Interleave planar channels into a slice of a wider interleaved buffer. dst
+// has dstChannels per frame; the planar src is written to [firstChannel,
+// firstChannel + count). Channels outside the slice are left untouched.
+void interleaveSlice(const float* src,
+                     float* dst,
+                     int dstChannels,
+                     int firstChannel,
+                     int count,
+                     int frames)
 {
     for (auto frame = 0; frame < frames; ++frame)
-        for (auto ch = 0; ch < channels; ++ch)
-            dst[frame * channels + ch] = src[ch * frames + frame];
+        for (auto ch = 0; ch < count; ++ch)
+            dst[frame * dstChannels + (firstChannel + ch)] =
+                src[ch * frames + frame];
 }
 } // namespace
 
@@ -330,7 +353,16 @@ int DeviceManager::openStream(const StreamConfig& configToUse)
         }
     }
 
-    auto deviceConfig = makeDeviceConfig(config, playbackId, captureId);
+    auto nativePlayback =
+        config.output.has_value() ? config.output->device.outputChannels : 0;
+    auto nativeCapture =
+        config.input.has_value() ? config.input->device.inputChannels : 0;
+
+    auto deviceConfig = makeDeviceConfig(config,
+                                         playbackId,
+                                         captureId,
+                                         nativePlayback,
+                                         nativeCapture);
     deviceConfig.dataCallback = audioCallback;
     deviceConfig.pUserData = this;
 
@@ -350,11 +382,31 @@ int DeviceManager::openStream(const StreamConfig& configToUse)
     if (config.maxBlockSize == 0)
         config.maxBlockSize = static_cast<int>(deviceConfig.periodSizeInFrames);
 
-    auto inChannels = config.getInputChannels();
-    auto outChannels = config.getOutputChannels();
+    // The channel counts miniaudio actually negotiated are what the callback's
+    // interleaved buffers carry; clamp the requested slice to what's available.
+    captureChannels = static_cast<int>(device.capture.channels);
+    playbackChannels = static_cast<int>(device.playback.channels);
 
-    inputScratch.assign(inChannels * config.maxBlockSize, 0.0f);
-    outputScratch.assign(outChannels * config.maxBlockSize, 0.0f);
+    auto clampSlice = [](int available, int first, int count, int& outFirst, int& outCount)
+    {
+        outCount = std::clamp(count, 0, available);
+        outFirst = std::clamp(first, 0, std::max(0, available - outCount));
+    };
+
+    clampSlice(captureChannels,
+               config.input.has_value() ? config.input->firstChannel : 0,
+               config.getInputChannels(),
+               inputFirstChannel,
+               inputChannelCount);
+
+    clampSlice(playbackChannels,
+               config.output.has_value() ? config.output->firstChannel : 0,
+               config.getOutputChannels(),
+               outputFirstChannel,
+               outputChannelCount);
+
+    inputScratch.assign(inputChannelCount * config.maxBlockSize, 0.0f);
+    outputScratch.assign(outputChannelCount * config.maxBlockSize, 0.0f);
 
     return config.maxBlockSize;
 }
@@ -386,23 +438,25 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         return;
 
     auto frames = static_cast<int>(frameCount);
-    auto inChannels = config.getInputChannels();
-    auto outChannels = config.getOutputChannels();
+    auto inChannels = inputChannelCount;
+    auto outChannels = outputChannelCount;
 
     auto neededInput = inChannels * frames;
     auto neededOutput = outChannels * frames;
 
-    if (inputScratch.size() < neededInput)
+    if (static_cast<int>(inputScratch.size()) < neededInput)
         inputScratch.assign(neededInput, 0.0f);
 
-    if (outputScratch.size() < neededOutput)
+    if (static_cast<int>(outputScratch.size()) < neededOutput)
         outputScratch.assign(neededOutput, 0.0f);
 
     if (inChannels > 0 && input != nullptr)
-        deinterleave(static_cast<const float*>(input),
-                     inputScratch.data(),
-                     inChannels,
-                     frames);
+        deinterleaveSlice(static_cast<const float*>(input),
+                          inputScratch.data(),
+                          captureChannels,
+                          inputFirstChannel,
+                          inChannels,
+                          frames);
 
     if (outChannels > 0)
         std::fill(outputScratch.begin(),
@@ -424,11 +478,22 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
 
     callback(info);
 
-    if (outChannels > 0 && output != nullptr)
-        interleave(outputScratch.data(),
-                   static_cast<float*>(output),
-                   outChannels,
-                   frames);
+    // The device owns every native output channel, but we only fill the
+    // selected slice — clear the whole buffer so unselected channels stay
+    // silent, then write our slice into place.
+    if (playbackChannels > 0 && output != nullptr)
+    {
+        auto* out = static_cast<float*>(output);
+        std::fill(out, out + playbackChannels * frames, 0.0f);
+
+        if (outChannels > 0)
+            interleaveSlice(outputScratch.data(),
+                            out,
+                            playbackChannels,
+                            outputFirstChannel,
+                            outChannels,
+                            frames);
+    }
 
     framesElapsed += frameCount;
 }

@@ -59,6 +59,18 @@ private:
     Vector<float> inputScratch;
     Vector<float> outputScratch;
 
+    // The device is opened at its full native channel count so CoreAudio hands
+    // us every physical channel untouched; the callback then copies only the
+    // selected slice [first, first + count) to/from the user. These are the
+    // native strides of the interleaved buffers miniaudio passes the callback.
+    int captureChannels = 0;
+    int playbackChannels = 0;
+
+    int inputFirstChannel = 0;
+    int inputChannelCount = 0;
+    int outputFirstChannel = 0;
+    int outputChannelCount = 0;
+
     ma_uint64 framesElapsed = 0;
 };
 
