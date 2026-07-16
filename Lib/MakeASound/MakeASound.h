@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common/Common.h"
+#include "Realtime/SPSCQueue.h"
 #include "Devices/DeviceManager.h"
 #include "Devices/BlockSizes.h"
 #include "MIDI/MidiManager.h"
