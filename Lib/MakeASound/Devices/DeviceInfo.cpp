@@ -77,18 +77,12 @@ int StreamConfig::getOutputChannels() const { return getNumChannels(output); }
 
 Buffer AudioCallbackInfo::getInput() const
 {
-    auto data =
-        std::span<float> {inputBuffer, static_cast<size_t>(numInputs * numSamples)};
-
-    return {data, numInputs};
+    return {inputBuffer, numInputs, numSamples};
 }
 
 Buffer AudioCallbackInfo::getOutput()
 {
-    auto data =
-        std::span<float> {outputBuffer, static_cast<size_t>(numOutputs * numSamples)};
-
-    return {data, numOutputs};
+    return {outputBuffer, numOutputs, numSamples};
 }
 
 bool AudioCallbackInfo::operator==(const AudioCallbackInfo& other) const

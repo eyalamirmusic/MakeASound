@@ -2,76 +2,63 @@
 
 #include "Channel.h"
 
-#include <span>
-#include <cstddef>
-
 namespace MakeASound
 {
 
 // A non-owning view over a planar (non-interleaved) multi-channel audio block.
 //
 // The underlying memory is laid out channel-major: all samples of channel 0,
-// followed by all samples of channel 1, and so on. Buffer holds the flat span
-// plus the channel count and slices it into per-channel Channels with the
-// correct offsets, so callers never compute `channel * numSamples` by hand.
+// followed by all samples of channel 1, and so on. Buffer is a naming layer
+// over EA::PlanarView<float>: it slices the block into per-channel Channels
+// with the correct offsets, so callers never compute `channel * numSamples`
+// by hand.
 class Buffer
 {
 public:
     Buffer() noexcept = default;
-    Buffer(std::span<float> dataToUse, int numChannelsToUse) noexcept;
 
-    int getNumChannels() const noexcept;
+    // Splits one flat planar block evenly between the channels.
+    Buffer(Span<float> dataToUse, int numChannelsToUse) noexcept
+        : view(dataToUse, numChannelsToUse)
+    {
+    }
+
+    Buffer(float* dataToUse, int numChannelsToUse, int numSamplesToUse) noexcept
+        : view(dataToUse, numChannelsToUse, numSamplesToUse)
+    {
+    }
+
+    int getNumChannels() const noexcept { return view.getNumChannels(); }
 
     // Samples per channel.
-    int getNumSamples() const noexcept;
+    int getNumSamples() const noexcept { return view.getNumSamples(); }
 
-    bool isEmpty() const noexcept;
+    bool isEmpty() const noexcept { return view.empty(); }
 
-    Channel getChannel(int channel) const noexcept;
-    float* getChannelPointer(int channel) const noexcept;
-    Channel operator[](int channel) const noexcept;
-
-    // Yields one Channel per channel. Holds the (span, channel count) by value
-    // rather than a pointer back to the Buffer, so it stays valid even when
-    // iterating a temporary (e.g. `info.getOutput().channels()` — in C++20 that
-    // Buffer temporary dies before the loop body runs).
-    class ChannelIterator
+    Channel getChannel(int channel) const noexcept
     {
-    public:
-        ChannelIterator(std::span<float> dataToUse,
-                        int numChannelsToUse,
-                        int channelToUse) noexcept;
+        return view.getChannel(channel);
+    }
 
-        Channel operator*() const noexcept;
-        ChannelIterator& operator++() noexcept;
-        bool operator!=(const ChannelIterator& other) const noexcept;
-
-    private:
-        std::span<float> data;
-        int numChannels;
-        int channel;
-    };
-
-    // A non-owning, non-allocating range over the channels, so callers can
-    // write `for (auto channel : buffer.channels())`.
-    class ChannelRange
+    float* getChannelPointer(int channel) const noexcept
     {
-    public:
-        ChannelRange(std::span<float> dataToUse, int numChannelsToUse) noexcept;
+        return view.getChannelPointer(channel);
+    }
 
-        ChannelIterator begin() const noexcept;
-        ChannelIterator end() const noexcept;
+    Channel operator[](int channel) const noexcept { return view[channel]; }
 
-    private:
-        std::span<float> data;
-        int numChannels;
-    };
+    // Yields one Channel per channel. The returned view carries the block's
+    // shape by value rather than a pointer back to the Buffer, so it stays
+    // valid even when iterating a temporary (e.g. `info.getOutput().channels()`
+    // — in C++20 that Buffer temporary dies before the loop body runs).
+    PlanarView<float> channels() const noexcept { return view; }
 
-    ChannelRange channels() const noexcept;
+    // A Buffer is itself a range over its channels.
+    PlanarView<float>::Iterator begin() const noexcept { return view.begin(); }
+    PlanarView<float>::Iterator end() const noexcept { return view.end(); }
 
 private:
-    std::span<float> data;
-    int numChannels = 0;
+    PlanarView<float> view;
 };
 
 } // namespace MakeASound

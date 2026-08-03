@@ -38,7 +38,7 @@ Public surface: `Lib/MakeASound/MakeASound.h` is the sole umbrella public header
 
 Code under `Lib/MakeASound/` is grouped into domain folders, each compiled as separate TUs:
 
-- **`Audio/`** — `Buffer` and `Channel`, non-owning views over a callback's audio block. The block is **planar** (channel-major): `Buffer` holds the flat `std::span<float>` plus the channel count and slices it into per-channel `Channel`s; `Buffer::channels()` is a non-allocating range for `for (auto channel : buffer.channels())`. `Channel` is the single-channel currency used everywhere in place of a bare `std::span<float>` — it is a contiguous range, so range-for and the standard algorithms work on it directly. Both are header + `.cpp`, all methods `noexcept`.
+- **`Audio/`** — `Buffer` and `Channel`, non-owning views over a callback's audio block, both header-only and layered on `ea_data_structures`. The block is **planar** (channel-major): `Buffer` wraps an `EA::PlanarView<float>` (pointer + channel count + samples per channel) and slices it into per-channel `Channel`s; `Buffer::channels()` returns that view for `for (auto channel : buffer.channels())`, and `Buffer` is itself iterable over its channels. `Channel` is an alias for `EA::Span<float>` and is the single-channel currency used everywhere in place of a bare span — it is a contiguous range, so range-for and the standard algorithms work on it directly, plus EA's own helpers (`fill`, `copyFrom`, `mixFrom`, ...). Sizes and indices are `int` throughout, so there are no `size_t` conversions at call sites. All methods `noexcept`.
 
 - **`Devices/`** — plain-data types and the audio façade.
   - `DeviceInfo.{h,cpp}` holds backend-independent structs/enums (`DeviceInfo`, `StreamConfig`, `StreamParameters`, `StreamOptions`, `Flags`, `AudioCallbackInfo`, `Error`, `AudioCallbackStatus`, `Callback`). No backend types leak in. `AudioCallbackInfo` exposes the block via `getOutput()` / `getInput()` (returning `Buffer`) and carries a `dirty` flag, raised when the stream shape (channels, sample rate, block size) changes since the previous callback — the signal for consumers to (re)allocate working buffers. Data structs opt into Miro JSON reflection in-place via `MIRO_REFLECT(...)`.
@@ -49,7 +49,7 @@ Code under `Lib/MakeASound/` is grouped into domain folders, each compiled as se
 
 - **`UI/`** — optional helpers (`Dropdown`, `UIDeviceManager`, `UIMidiManager`) that wire device/MIDI state to Miro UI widgets used by the demo apps.
 
-- **`Common/`** — `Common.h` re-exports `EA::Vector`/`Array`/`OwningPointer` into the `MakeASound` namespace; `Algorithms.h` has small audio-thread-safe helpers.
+- **`Common/`** — `Common.h` re-exports `EA::Vector`/`Array`/`OwningPointer`/`Span`/`PlanarView` into the `MakeASound` namespace; `Algorithms.h` has small audio-thread-safe helpers.
 
 - **`MiniAudio/`** and **`RTMidi/`** — the external-library backends (namespaces `MakeASound::MiniAudio` and `MakeASound::RTMidi`). Each has a `*-Backend.{h,cpp}` of pure conversion functions and a `*Manager.{h,cpp}` that owns the library handle. `MiniAudio::DeviceManager` owns the `ma_device` and the `audioCallback` trampoline that miniaudio invokes; it **de-interleaves** the incoming/outgoing interleaved buffers into the planar scratch the callback sees and re-interleaves on the way out (so callers only ever see planar data). `RTMidi::MidiManager` owns the `RtMidiIn`/`RtMidiOut` ports.
 

@@ -6,5 +6,7 @@ namespace MakeASound
 {
 using EA::Array;
 using EA::OwningPointer;
+using EA::PlanarView;
+using EA::Span;
 using EA::Vector;
 } // namespace MakeASound
