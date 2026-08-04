@@ -46,6 +46,26 @@ AudioCallbackStatus getStatus(ma_result result)
     return AudioCallbackStatus::OutputUnderflow;
 }
 
+DeviceNotification getNotification(ma_device_notification_type type)
+{
+    switch (type)
+    {
+        case ma_device_notification_type_started:
+            return DeviceNotification::Started;
+        case ma_device_notification_type_rerouted:
+            return DeviceNotification::Rerouted;
+        case ma_device_notification_type_interruption_began:
+            return DeviceNotification::InterruptionBegan;
+        case ma_device_notification_type_interruption_ended:
+            return DeviceNotification::InterruptionEnded;
+        case ma_device_notification_type_unlocked:
+            return DeviceNotification::Unlocked;
+        case ma_device_notification_type_stopped:
+        default:
+            return DeviceNotification::Stopped;
+    }
+}
+
 Vector<int> collectSampleRates(const ma_device_info& info)
 {
     static constexpr int standardRates[] = {

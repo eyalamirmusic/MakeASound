@@ -66,6 +66,18 @@ void DeviceManager::stop() const
     pimpl->stop();
 }
 
+void DeviceManager::setNotificationCallback(const NotificationCallback& cb) const
+{
+    // Straight onto the backend rather than kept here and forwarded at openStream, so
+    // it survives every re-open the host makes and is in place before the first one.
+    pimpl->notificationCallback = cb;
+}
+
+void DeviceManager::setAutoRecover(bool shouldRecover) const
+{
+    pimpl->autoRecover = shouldRecover;
+}
+
 long DeviceManager::getStreamLatency() const
 {
     return pimpl->getStreamLatency();

@@ -13,12 +13,12 @@ add_library(MakeASound STATIC
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)
 
-# BlockSizes.mm queries the CoreAudio HAL, which is macOS-only.
+# DeviceQueries.mm reads the CoreAudio HAL directly, which is macOS-only.
 if(APPLE AND NOT IOS)
-    target_sources(MakeASound PRIVATE MakeASound/Devices/BlockSizes.mm)
+    target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueries.mm)
     target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
 else()
-    target_sources(MakeASound PRIVATE MakeASound/Devices/BlockSizes.cpp)
+    target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueries.cpp)
 endif()
 
 target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)

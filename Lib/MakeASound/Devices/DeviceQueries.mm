@@ -1,4 +1,4 @@
-#include "BlockSizes.h"
+#include "DeviceQueries.h"
 
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -134,6 +134,23 @@ Vector<int> queryFrameSizes(AudioObjectID id)
 
     return sizes;
 }
+
+int queryNominalSampleRate(AudioObjectID id)
+{
+    auto address = AudioObjectPropertyAddress {
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain};
+
+    auto rate = Float64 {};
+    auto byteSize = static_cast<UInt32>(sizeof(rate));
+    auto err = AudioObjectGetPropertyData(id, &address, 0, nullptr, &byteSize, &rate);
+
+    if (err != noErr || rate <= 0.0)
+        return 0;
+
+    return static_cast<int>(rate);
+}
 } // namespace
 
 Vector<int> getSupportedBlockSizes(const DeviceInfo& device)
@@ -149,6 +166,16 @@ Vector<int> getSupportedBlockSizes(const DeviceInfo& device)
         return defaultBlockSizes();
 
     return sizes;
+}
+
+int getCurrentSampleRate(const DeviceInfo& device)
+{
+    auto coreAudioId = findCoreAudioDevice(device.name);
+
+    if (!coreAudioId)
+        return 0;
+
+    return queryNominalSampleRate(*coreAudioId);
 }
 
 } // namespace MakeASound

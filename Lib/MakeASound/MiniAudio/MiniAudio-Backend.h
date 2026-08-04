@@ -10,6 +10,7 @@ namespace MakeASound::MiniAudio
 
 Error getError(ma_result result);
 AudioCallbackStatus getStatus(ma_result result);
+DeviceNotification getNotification(ma_device_notification_type type);
 
 // Walks an ma_device_info's nativeDataFormats and returns the unique
 // sample rates the device exposes. A native-format entry with

@@ -33,6 +33,12 @@ struct DeviceInfo
     bool isDefaultOutput {false};
     bool isDefaultInput {false};
     Vector<int> sampleRates;
+
+    // What the device is running at now, as opposed to what it *can* run
+    // (sampleRates) or what we would open it at (preferredSampleRate). A shared
+    // device moves whenever another app moves it, so this is a snapshot from the
+    // moment it was enumerated, not a property of the device. Falls back to
+    // preferredSampleRate where the platform can't be asked.
     int currentSampleRate {};
     int preferredSampleRate {};
 };
@@ -107,6 +113,30 @@ enum class AudioCallbackStatus
     OutputUnderflow
 };
 
+// Something the device did on its own, outside any call the host made — the OS
+// stopped it, moved it to different hardware, or interrupted it. Deliberate stops
+// made through this library are NOT reported: this means the device, not the host.
+//
+// Purely informational. A Stopped device is re-opened automatically (see
+// DeviceManager::setAutoRecover), so a host that never looks at these keeps getting
+// audio across a sample-rate change made by another app, an unplug, or the OS
+// reclaiming the device. Listen only if you want to know it happened.
+//
+// Nothing else reveals a Stopped device: no further audio callbacks arrive AND it
+// still reports itself as started, so polling says everything is fine.
+//
+// Not every backend posts every type; some reroute silently. See
+// DeviceManager::setNotificationCallback.
+enum class DeviceNotification
+{
+    Started,
+    Stopped,
+    Rerouted,
+    InterruptionBegan,
+    InterruptionEnded,
+    Unlocked
+};
+
 int getNumChannels(const std::optional<StreamParameters>& params);
 
 struct StreamConfig
@@ -147,9 +177,17 @@ struct AudioCallbackInfo
     int maxBlockSize = 0;
     int latency = 0;
 
+    // "Re-derive whatever you cached about this stream." Raised when the shape
+    // (channels, sample rate, block size) differs from the previous callback, and on
+    // the first callback after the device notified us of a change — a reroute or a
+    // resumed interruption can hand back audio from different hardware without the
+    // shape moving. That second case is reported here whether or not the host
+    // registered a notification callback, so a host that only implements the audio
+    // callback still learns the stream is no longer the one it was.
     bool dirty = false;
     int errorCode = 0;
 };
 
 using Callback = std::function<void(AudioCallbackInfo&)>;
+using NotificationCallback = std::function<void(DeviceNotification)>;
 } // namespace MakeASound

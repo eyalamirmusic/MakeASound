@@ -1,6 +1,8 @@
 #include "MiniAudioDeviceManager.h"
+#include "../Devices/DeviceQueries.h"
 
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <string>
 
@@ -9,6 +11,11 @@ namespace MakeASound::MiniAudio
 
 namespace
 {
+// How long recovery waits between attempts at re-opening a device that isn't back yet.
+// Short enough that a sample-rate change is a glitch rather than a dropout, long enough
+// that a device which is gone for good costs almost nothing to keep waiting for.
+constexpr auto kRecoveryRetryInterval = std::chrono::milliseconds(250);
+
 ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
                                   const ma_device_id* playbackId,
                                   const ma_device_id* captureId,
@@ -117,11 +124,19 @@ DeviceManager::DeviceManager()
 
 DeviceManager::~DeviceManager()
 {
-    if (deviceInitialised)
+    // Worker first: it re-opens the very device and context torn down below, so it has
+    // to be off the field before either goes.
     {
-        ma_device_uninit(&device);
-        deviceInitialised = false;
+        auto lock = std::lock_guard(recoveryMutex);
+        recoveryQuit = true;
     }
+
+    recoveryCv.notify_all();
+
+    if (recoveryThread.joinable())
+        recoveryThread.join();
+
+    stop();
 
     if (contextInitialised)
     {
@@ -156,7 +171,12 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
 
     info.sampleRates = collectSampleRates(source);
     info.preferredSampleRate = pickPreferredSampleRate(info.sampleRates);
-    info.currentSampleRate = info.preferredSampleRate;
+
+    // What the device is actually on, asked of the platform — miniaudio's device info
+    // only lists what is *supported*. The preferred rate is the fallback, not the
+    // answer: the two differ the moment any app moves a shared device.
+    auto current = getCurrentSampleRate(info);
+    info.currentSampleRate = current > 0 ? current : info.preferredSampleRate;
 
     if (type == ma_device_type_playback)
         info.isDefaultOutput = enumInfo.isDefault != 0;
@@ -245,6 +265,8 @@ void DeviceManager::refreshDeviceCache()
 
 Vector<DeviceInfo> DeviceManager::getDevices()
 {
+    // Enumerating rebuilds the cache, which recovery reads while re-opening.
+    auto lock = std::lock_guard(deviceMutex);
     refreshDeviceCache();
 
     auto result = Vector<DeviceInfo> {};
@@ -258,6 +280,7 @@ Vector<DeviceInfo> DeviceManager::getDevices()
 
 DeviceInfo DeviceManager::getDefaultInputDevice()
 {
+    auto lock = std::lock_guard(deviceMutex);
     refreshDeviceCache();
 
     for (const auto& cached: deviceCache)
@@ -273,6 +296,7 @@ DeviceInfo DeviceManager::getDefaultInputDevice()
 
 DeviceInfo DeviceManager::getDefaultOutputDevice()
 {
+    auto lock = std::lock_guard(deviceMutex);
     refreshDeviceCache();
 
     for (const auto& cached: deviceCache)
@@ -297,6 +321,13 @@ const ma_device_id* DeviceManager::findDeviceId(int makeASoundId) const
 
 void DeviceManager::start()
 {
+    auto lock = std::lock_guard(deviceMutex);
+    startLocked();
+    shouldRun = deviceInitialised;
+}
+
+void DeviceManager::startLocked()
+{
     if (!deviceInitialised)
         return;
 
@@ -309,20 +340,41 @@ void DeviceManager::start()
 
 void DeviceManager::stop()
 {
+    auto lock = std::lock_guard(deviceMutex);
+
+    // Before the teardown, so a stopped notification racing us finds recovery already
+    // switched off rather than re-opening the stream the host just closed.
+    shouldRun = false;
+    stopLocked();
+}
+
+void DeviceManager::stopLocked()
+{
     if (!deviceInitialised)
         return;
+
+    // Both calls below make the OS report the device as stopped, and that report
+    // arrives through the same path the OS uses when it stops the device on its own.
+    // Swallow ours so `Stopped` only ever means the device went away.
+    stopping = true;
 
     if (ma_device_is_started(&device))
         ma_device_stop(&device);
 
     ma_device_uninit(&device);
     deviceInitialised = false;
+    stopping = false;
 }
 
 int DeviceManager::openStream(const StreamConfig& configToUse)
 {
+    auto lock = std::lock_guard(deviceMutex);
     config = configToUse;
+    return openStreamLocked();
+}
 
+int DeviceManager::openStreamLocked()
+{
     if (deviceCache.empty())
         refreshDeviceCache();
 
@@ -364,6 +416,7 @@ int DeviceManager::openStream(const StreamConfig& configToUse)
                                          nativePlayback,
                                          nativeCapture);
     deviceConfig.dataCallback = audioCallback;
+    deviceConfig.notificationCallback = deviceNotificationCallback;
     deviceConfig.pUserData = this;
 
     auto result = ma_device_init(&context, &deviceConfig, &device);
@@ -407,6 +460,8 @@ int DeviceManager::openStream(const StreamConfig& configToUse)
 
     inputScratch.assign(inputChannelCount * config.maxBlockSize, 0.0f);
     outputScratch.assign(outputChannelCount * config.maxBlockSize, 0.0f);
+
+    ensureRecoveryThread();
 
     return config.maxBlockSize;
 }
@@ -476,6 +531,12 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         static_cast<double>(framesElapsed) / static_cast<double>(device.sampleRate);
     info.status = AudioCallbackStatus::OK;
 
+    // Audio is flowing again after the device changed under us — tell this callback
+    // even if nobody registered for notifications. The façade only ever raises dirty,
+    // so its own shape check still applies on top of this.
+    if (notificationPending.exchange(false))
+        info.dirty = true;
+
     callback(info);
 
     // The device owns every native output channel, but we only fill the
@@ -498,6 +559,134 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     framesElapsed += frameCount;
 }
 
+void DeviceManager::onNotification(ma_device_notification_type type)
+{
+    if (stopping)
+        return;
+
+    // Set even with no callback registered: the next audio callback reads it and
+    // raises `dirty`, which is all a host that only implements the audio callback
+    // needs to know its cached view of the stream is stale.
+    notificationPending = true;
+
+    if (notificationCallback)
+        notificationCallback(getNotification(type));
+
+    // Only a stop needs recovering from. Handing `started` to the worker would have it
+    // tear down the stream it was just told came up.
+    if (type == ma_device_notification_type_stopped && autoRecover)
+        requestRecovery();
+}
+
+void DeviceManager::ensureRecoveryThread()
+{
+    if (recoveryThread.joinable())
+        return;
+
+    recoveryThread = std::thread([this] { runRecovery(); });
+}
+
+void DeviceManager::requestRecovery()
+{
+    {
+        auto lock = std::lock_guard(recoveryMutex);
+        recoveryRequested = true;
+    }
+
+    recoveryCv.notify_one();
+}
+
+void DeviceManager::runRecovery()
+{
+    auto lock = std::unique_lock(recoveryMutex);
+
+    while (true)
+    {
+        recoveryCv.wait(lock, [this] { return recoveryRequested || recoveryQuit; });
+
+        if (recoveryQuit)
+            return;
+
+        recoveryRequested = false;
+
+        // Keep trying rather than giving up after one go: the device is often not ready
+        // to be re-opened the instant it dies (the sample rate change that killed it is
+        // still settling), and one that was unplugged comes back when it comes back.
+        while (!recoveryQuit)
+        {
+            lock.unlock();
+            auto recovered = tryReopen();
+            lock.lock();
+
+            if (recovered)
+                break;
+
+            // Interruptible, so a device that is genuinely gone costs one wake-up per
+            // interval and teardown never waits on it.
+            recoveryCv.wait_for(lock,
+                                kRecoveryRetryInterval,
+                                [this] { return recoveryQuit; });
+        }
+    }
+}
+
+bool DeviceManager::tryReopen()
+{
+    auto lock = std::lock_guard(deviceMutex);
+
+    // The host stopped the stream while we were getting here — that decision wins.
+    if (!shouldRun)
+        return true;
+
+    try
+    {
+        stopLocked();
+        repointConfigToCache();
+        openStreamLocked();
+        startLocked();
+    }
+    catch (const std::exception&)
+    {
+        // Anything the backend refuses (device absent, rate not yet settled) is worth
+        // another attempt; the caller paces them.
+        return false;
+    }
+
+    return true;
+}
+
+void DeviceManager::repointConfigToCache()
+{
+    refreshDeviceCache();
+
+    auto repoint = [this](std::optional<StreamParameters>& params, bool input)
+    {
+        if (!params.has_value())
+            return;
+
+        for (const auto& cached: deviceCache)
+        {
+            if (cached.info.name != params->device.name)
+                continue;
+
+            if (input ? cached.hasCapture : cached.hasPlayback)
+            {
+                // Whole info, not just the id: channel counts and rates are what the
+                // re-open negotiates against, and the device may come back different.
+                params->device = cached.info;
+                return;
+            }
+        }
+
+        // Nothing carries that name any more. Left as it is, openStream finds no
+        // matching cache entry, passes a null device id, and miniaudio opens the
+        // system default — audio keeps flowing from whatever the machine has.
+    };
+
+    repoint(config.input, true);
+    repoint(config.output, false);
+}
+
 void audioCallback(ma_device* dev,
                    void* output,
                    const void* input,
@@ -507,6 +696,17 @@ void audioCallback(ma_device* dev,
 
     if (manager != nullptr)
         manager->onCallback(output, input, frameCount);
+}
+
+void deviceNotificationCallback(const ma_device_notification* notification)
+{
+    if (notification == nullptr || notification->pDevice == nullptr)
+        return;
+
+    auto* manager = static_cast<DeviceManager*>(notification->pDevice->pUserData);
+
+    if (manager != nullptr)
+        manager->onNotification(notification->type);
 }
 
 } // namespace MakeASound::MiniAudio
