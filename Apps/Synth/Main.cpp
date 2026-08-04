@@ -12,7 +12,7 @@ struct SynthApp
     {
         transport.getBridge().use(api);
 
-        setApplicationMenuBar(buildDefaultWebViewMenuBar());
+        setApplicationMenuBar(buildDefaultWebViewMenuBar(), window);
         window.setContentView(webView);
     }
 
