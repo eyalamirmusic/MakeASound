@@ -6,11 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Share CPM's fetched dependency sources across runs (rtmidi/miniaudio zips,
-# Miro git clone). Only the downloads are cached, not build artifacts.
-env:
-  CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm_cache
-
 jobs:
   build:
     name: ${{ matrix.name }}
@@ -62,13 +57,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache CPM dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.CPM_SOURCE_CACHE }}
-          key: cpm-${{ runner.os }}-${{ hashFiles('CMake/Find*.cmake', 'CMake/CPM.cmake') }}
-          restore-keys: cpm-${{ runner.os }}-
 
       # rtmidi's ALSA backend needs the ALSA dev headers on Linux.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
