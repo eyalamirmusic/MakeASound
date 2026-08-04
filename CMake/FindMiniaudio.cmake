@@ -1,7 +1,7 @@
-# Fetch miniaudio's single header via CPM and build it as a STATIC library
-# from a one-line implementation TU. miniaudio handles backend selection
-# internally via #ifdefs, so we only need to link the per-platform system
-# frameworks/libraries it depends on.
+# Fetch miniaudio's single header via CPM and build it as a STATIC library from
+# the implementation TU that sits next to this file. miniaudio handles backend
+# selection internally via #ifdefs, so we only need to link the per-platform
+# system frameworks/libraries it depends on.
 #
 # To point at a local checkout instead of fetching, configure with
 # -DCPM_miniaudio_SOURCE="Path_To_miniaudio".
@@ -17,12 +17,11 @@ CPMAddPackage(
         QUIET
 )
 
-set(MINIAUDIO_IMPL_DIR ${CMAKE_CURRENT_BINARY_DIR}/miniaudio_impl)
-file(MAKE_DIRECTORY ${MINIAUDIO_IMPL_DIR})
-
-set(MINIAUDIO_IMPL_FILE ${MINIAUDIO_IMPL_DIR}/miniaudio.c)
-file(WRITE ${MINIAUDIO_IMPL_FILE}
-        "#define MINIAUDIO_IMPLEMENTATION\n#include \"miniaudio.h\"\n")
+if (IOS)
+    set(MINIAUDIO_IMPL_FILE ${CMAKE_CURRENT_LIST_DIR}/MiniAudioImpl.mm)
+else ()
+    set(MINIAUDIO_IMPL_FILE ${CMAKE_CURRENT_LIST_DIR}/MiniAudioImpl.c)
+endif ()
 
 add_library(miniaudio STATIC ${MINIAUDIO_IMPL_FILE})
 target_include_directories(miniaudio SYSTEM PUBLIC ${miniaudio_SOURCE_DIR})
@@ -32,6 +31,10 @@ if (APPLE)
             "-framework CoreAudio"
             "-framework CoreFoundation"
             "-framework AudioToolbox")
+
+    if (IOS)
+        target_link_libraries(miniaudio PRIVATE "-framework AVFoundation")
+    endif ()
 elseif (WIN32)
     target_link_libraries(miniaudio PRIVATE ole32)
 elseif (UNIX)

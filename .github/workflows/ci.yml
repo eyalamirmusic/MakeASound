@@ -142,3 +142,117 @@ jobs:
           if otool -l "$lib" | grep -A3 LC_BUILD_VERSION | grep 'minos' | grep -vq '11.0'; then
             echo "ERROR: found objects with a minos != 11.0"; exit 1
           fi
+
+  # iOS is cross-compiled, so it gets its own job rather than another matrix
+  # entry: the configure needs a sysroot/architecture pair, and the suite can
+  # only be executed through a booted simulator.
+  ios:
+    name: iOS (device arm64 + simulator)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      # Device slices can't be executed in CI, so this half is build-only. It is
+      # still the half that catches iOS-specific compile breakage: miniaudio's
+      # Objective-C implementation TU and the macOS-only CoreAudio HAL that
+      # BlockSizes.mm uses.
+      - name: Build for iOS device (Debug & Release, unity ON)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bt in Debug Release; do
+            echo "::group::Configure $bt (device)"
+            cmake -S . -B "build-ios-$bt" -G Ninja \
+                  -DCMAKE_BUILD_TYPE="$bt" \
+                  -DCMAKE_SYSTEM_NAME=iOS \
+                  -DCMAKE_OSX_SYSROOT=iphoneos \
+                  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                  -DMAKEASOUND_UNITY_BUILD=ON \
+                  -DMAKEASOUND_BUILD_APPS=OFF \
+                  -DMAKEASOUND_BUILD_TESTS=OFF
+            echo "::endgroup::"
+
+            echo "::group::Build $bt (device)"
+            cmake --build "build-ios-$bt"
+            echo "::endgroup::"
+          done
+
+      - name: Verify the device slice really is iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib=build-ios-Release/Lib/libMakeASound.a
+          echo "Architectures:"
+          lipo -info "$lib"
+          echo "Platform / minimum OS per build object:"
+          otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -E 'platform|minos' | sort -u
+          # LC_BUILD_VERSION platform 2 is iOS. Catches a build that silently
+          # fell back to the host (macOS) toolchain and would then "pass"
+          # without ever having compiled the iOS code paths.
+          if otool -l "$lib" | grep -A4 LC_BUILD_VERSION \
+             | grep 'platform' | grep -vqE 'platform 2$'; then
+            echo "ERROR: found objects not built for iOS (platform != 2)"; exit 1
+          fi
+
+      - name: Boot an iOS simulator
+        id: sim
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pick whatever iPhone the runner image ships rather than hardcoding a
+          # model/runtime that image updates would eventually retire.
+          udid=$(xcrun simctl list devices available --json | python3 -c "
+          import json, sys
+          devices = json.load(sys.stdin)['devices']
+          candidates = [d for rt in sorted(devices) for d in devices[rt]
+                        if d.get('isAvailable') and 'iPhone' in d['name']]
+          print(candidates[0]['udid'] if candidates else '')
+          ")
+
+          if [ -z "$udid" ]; then
+            echo "ERROR: no iPhone simulator available on this runner"; exit 1
+          fi
+
+          echo "Booting simulator $udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          # `boot` errors out if the device is already booted, which is a
+          # perfectly fine state to be in; bootstatus below is the real gate.
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+
+      # The simulator is the only place the suite can actually execute for iOS.
+      # Left non-unity on purpose: between this and the device build above, both
+      # the unity and per-TU compile paths get exercised on iOS.
+      - name: Build & test on the iOS simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::Configure (simulator)"
+          # The simulator slice has to match the runner's own architecture,
+          # otherwise the built binary can't be spawned on it.
+          cmake -S . -B build-ios-sim -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_SYSTEM_NAME=iOS \
+                -DCMAKE_OSX_SYSROOT=iphonesimulator \
+                -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_BUILD_APPS=OFF \
+                -DMAKEASOUND_BUILD_TESTS=ON \
+                -DCMAKE_CROSSCOMPILING_EMULATOR="xcrun;simctl;spawn;${{ steps.sim.outputs.udid }}"
+          echo "::endgroup::"
+
+          echo "::group::Build (simulator)"
+          cmake --build build-ios-sim
+          echo "::endgroup::"
+
+          # NanoTest can't enumerate cases while cross-compiling, so this is a
+          # single ctest entry that runs the whole binary through the simulator.
+          # A failing case still propagates out as a non-zero exit.
+          echo "::group::Test (simulator)"
+          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error
+          echo "::endgroup::"

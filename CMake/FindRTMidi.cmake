@@ -22,11 +22,16 @@ add_library(rtmidi STATIC ${RTMidi_SOURCE_DIR}/RtMidi.cpp)
 target_include_directories(rtmidi SYSTEM PUBLIC ${RTMidi_SOURCE_DIR})
 
 if (APPLE)
+    # __MACOSX_CORE__ is RtMidi's CoreMIDI backend, which iOS uses too.
     target_compile_definitions(rtmidi PRIVATE __MACOSX_CORE__)
     target_link_libraries(rtmidi PRIVATE
             "-framework CoreMIDI"
-            "-framework CoreAudio"
             "-framework CoreFoundation")
+
+    # iOS reads the clock via mach_time rather than CoreAudio's host time.
+    if (NOT IOS)
+        target_link_libraries(rtmidi PRIVATE "-framework CoreAudio")
+    endif ()
 elseif (WIN32)
     target_compile_definitions(rtmidi PRIVATE __WINDOWS_MM__)
     target_link_libraries(rtmidi PRIVATE winmm)

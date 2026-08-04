@@ -10,4 +10,6 @@ find_package(NanoTest REQUIRED)
 nano_add_executable(MakeASoundTests
         SOURCES
         SPSCQueueTests.cpp
+        BufferTests.cpp
+        DeviceInfoTests.cpp
         TARGETS MakeASound)
