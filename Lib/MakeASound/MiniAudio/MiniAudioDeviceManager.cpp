@@ -16,6 +16,19 @@ namespace
 // that a device which is gone for good costs almost nothing to keep waiting for.
 constexpr auto kRecoveryRetryInterval = std::chrono::milliseconds(250);
 
+// How often the watchdog looks, and how long a stream that is supposed to be running may
+// go without a data callback before it counts as dead. A block is a few milliseconds, so
+// a whole second of nothing is not a scheduling hiccup — but it is short enough that the
+// gap reads as a glitch rather than an outage.
+constexpr auto kWatchdogInterval = std::chrono::milliseconds(250);
+constexpr auto kStarvationTimeoutMs = std::int64_t {1000};
+
+std::int64_t nowMs()
+{
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+}
+
 ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
                                   const ma_device_id* playbackId,
                                   const ma_device_id* captureId,
@@ -331,6 +344,10 @@ void DeviceManager::startLocked()
     if (!deviceInitialised)
         return;
 
+    // Cleared before the device can call back, so the watchdog measures this stream's
+    // silence and not the gap left by the one it replaced.
+    lastCallbackMs = 0;
+
     auto result = ma_device_start(&device);
 
     if (result != MA_SUCCESS)
@@ -489,6 +506,10 @@ int DeviceManager::getStreamSampleRate() const
 
 void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameCount)
 {
+    // Before the early-out: this is the watchdog's proof of life, and a stream whose
+    // host has no callback set is still a live stream.
+    lastCallbackMs = nowMs();
+
     if (!callback)
         return;
 
@@ -559,23 +580,41 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     framesElapsed += frameCount;
 }
 
-void DeviceManager::onNotification(ma_device_notification_type type)
+void DeviceManager::notifyHost(DeviceNotification notification)
 {
-    if (stopping)
-        return;
-
     // Set even with no callback registered: the next audio callback reads it and
     // raises `dirty`, which is all a host that only implements the audio callback
     // needs to know its cached view of the stream is stale.
     notificationPending = true;
 
     if (notificationCallback)
-        notificationCallback(getNotification(type));
+        notificationCallback(notification);
+}
+
+void DeviceManager::onNotification(ma_device_notification_type type)
+{
+    if (stopping)
+        return;
+
+    notifyHost(getNotification(type));
 
     // Only a stop needs recovering from. Handing `started` to the worker would have it
     // tear down the stream it was just told came up.
     if (type == ma_device_notification_type_stopped && autoRecover)
         requestRecovery();
+}
+
+bool DeviceManager::isStarved() const
+{
+    if (!shouldRun || !autoRecover)
+        return false;
+
+    auto last = lastCallbackMs.load();
+
+    // 0 means no callback has run since the stream opened. Waiting for the first one
+    // rather than treating it as starvation keeps a device that is still spinning up
+    // from being torn down underneath itself.
+    return last > 0 && nowMs() - last > kStarvationTimeoutMs;
 }
 
 void DeviceManager::ensureRecoveryThread()
@@ -602,12 +641,33 @@ void DeviceManager::runRecovery()
 
     while (true)
     {
-        recoveryCv.wait(lock, [this] { return recoveryRequested || recoveryQuit; });
+        // Timed rather than indefinite. A notification is the fast path, but it is not a
+        // guarantee: a driver can stop delivering audio while the OS goes on reporting
+        // the device as running, and waiting only to be told would sit here forever with
+        // a stream that is already dead.
+        recoveryCv.wait_for(lock,
+                            kWatchdogInterval,
+                            [this] { return recoveryRequested || recoveryQuit; });
 
         if (recoveryQuit)
             return;
 
+        auto starved = !recoveryRequested && isStarved();
+
+        if (!recoveryRequested && !starved)
+            continue;
+
         recoveryRequested = false;
+
+        if (starved)
+        {
+            // Nobody told the host the device died, because nobody told us either. Say
+            // it now, so a host watching notifications sees the same event it would
+            // have seen had the OS been forthcoming.
+            lock.unlock();
+            notifyHost(DeviceNotification::Stopped);
+            lock.lock();
+        }
 
         // Keep trying rather than giving up after one go: the device is often not ready
         // to be re-opened the instant it dies (the sample rate change that killed it is

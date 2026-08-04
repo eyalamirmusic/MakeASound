@@ -3,6 +3,7 @@
 #include "MiniAudio-Backend.h"
 
 #include <atomic>
+#include <cstdint>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -65,6 +66,13 @@ private:
     void requestRecovery();
     void runRecovery();
     bool tryReopen();
+    void notifyHost(DeviceNotification notification);
+
+    // Whether the stream is meant to be running but has gone quiet. Not every way a
+    // device dies reaches us as a notification — a driver can simply stop calling back
+    // while the OS still believes the unit is running — so the callback itself is the
+    // only thing that can be trusted to say audio is alive.
+    bool isStarved() const;
 
     // Re-point the config at devices in the freshly enumerated cache. Cache ids are
     // enumeration order, so they shift whenever a device appears or disappears; the
@@ -122,8 +130,13 @@ private:
     std::mutex deviceMutex;
 
     // Whether a stream is meant to be running. Recovery re-opens only while this is
-    // true, so a stop() racing a dying device wins and stays stopped.
-    bool shouldRun = false;
+    // true, so a stop() racing a dying device wins and stays stopped. Atomic because the
+    // watchdog reads it without taking deviceMutex, which the re-open holds.
+    std::atomic<bool> shouldRun {false};
+
+    // Steady-clock milliseconds at the most recent data callback, and at the most recent
+    // open. The watchdog compares against them to tell a live stream from a dead one.
+    std::atomic<std::int64_t> lastCallbackMs {0};
 
     std::thread recoveryThread;
     std::mutex recoveryMutex;
