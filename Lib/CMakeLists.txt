@@ -13,7 +13,8 @@ add_library(MakeASound STATIC
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)
 
-if(APPLE)
+# BlockSizes.mm queries the CoreAudio HAL, which is macOS-only.
+if(APPLE AND NOT IOS)
     target_sources(MakeASound PRIVATE MakeASound/Devices/BlockSizes.mm)
     target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
 else()
