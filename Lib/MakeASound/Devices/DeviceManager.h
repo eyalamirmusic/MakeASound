@@ -19,11 +19,27 @@ public:
     Vector<DeviceInfo> getDevices() const;
     DeviceInfo getDefaultInputDevice() const;
     DeviceInfo getDefaultOutputDevice() const;
+
+    // The stream this machine would open on its own. Only the sides that exist are
+    // filled in: a desktop with no microphone gives an output-only config, and a
+    // machine with no audio hardware at all gives one with neither side set, which
+    // start() reports as NO_DEVICES_FOUND rather than opening.
     StreamConfig getDefaultConfig() const;
 
-    void setConfig(const StreamConfig& configToUse);
-    void start(const StreamConfig& configToUse, const Callback& cb);
+    // Both report why they didn't work instead of throwing — see Error. A failure
+    // leaves no stream running and the manager usable; the host decides whether to
+    // show it, pick another device, or wait. When the config names a device that is
+    // merely busy, the stream also comes back on its own once it frees up.
+    Error setConfig(const StreamConfig& configToUse);
+    Error start(const StreamConfig& configToUse, const Callback& cb);
     void stop() const;
+
+    // Whether audio is flowing right now. The one thing worth asking after a start
+    // that returned an error, and after a device has come or gone.
+    bool isRunning() const;
+
+    // Why the last start/setConfig didn't work. NoError once one has succeeded.
+    Error getLastError() const;
 
     // Called when the device changes state on its own — see DeviceNotification. Purely
     // informational: recovery from a stop happens with or without it. Set it before
@@ -44,7 +60,7 @@ public:
     int getStreamSampleRate() const;
 
 private:
-    int openStream();
+    Error openStream();
 
     AudioCallbackInfo prevInfo;
     Callback callback;

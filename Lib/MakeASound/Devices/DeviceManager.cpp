@@ -1,8 +1,6 @@
 #include "DeviceManager.h"
 #include "../MiniAudio/MiniAudioDeviceManager.h"
 
-#include <stdexcept>
-
 namespace MakeASound
 {
 
@@ -38,8 +36,14 @@ StreamConfig DeviceManager::getDefaultConfig() const
     auto input = getDefaultInputDevice();
     auto output = getDefaultOutputDevice();
 
-    defaultConfig.input = StreamParameters(input, true);
-    defaultConfig.output = StreamParameters(output, false);
+    // A side the machine doesn't have stays unset rather than carrying a blank
+    // DeviceInfo. Asking for a duplex stream on a desktop with no microphone fails the
+    // whole open, taking the outputs down with the input that was never there.
+    if (output.hasChannels(false))
+        defaultConfig.output = StreamParameters(output, false);
+
+    if (input.hasChannels(true))
+        defaultConfig.input = StreamParameters(input, true);
 
     defaultConfig.sampleRate = pickCompatibleSampleRate(output, input);
     defaultConfig.maxBlockSize = 512;
@@ -48,17 +52,17 @@ StreamConfig DeviceManager::getDefaultConfig() const
     return defaultConfig;
 }
 
-void DeviceManager::setConfig(const StreamConfig& configToUse)
+Error DeviceManager::setConfig(const StreamConfig& configToUse)
 {
     stop();
     config = configToUse;
-    openStream();
+    return openStream();
 }
 
-void DeviceManager::start(const StreamConfig& configToUse, const Callback& cb)
+Error DeviceManager::start(const StreamConfig& configToUse, const Callback& cb)
 {
     callback = cb;
-    setConfig(configToUse);
+    return setConfig(configToUse);
 }
 
 void DeviceManager::stop() const
@@ -78,6 +82,16 @@ void DeviceManager::setAutoRecover(bool shouldRecover) const
     pimpl->autoRecover = shouldRecover;
 }
 
+bool DeviceManager::isRunning() const
+{
+    return pimpl->isRunning();
+}
+
+Error DeviceManager::getLastError() const
+{
+    return pimpl->getLastError();
+}
+
 long DeviceManager::getStreamLatency() const
 {
     return pimpl->getStreamLatency();
@@ -88,10 +102,10 @@ int DeviceManager::getStreamSampleRate() const
     return pimpl->getStreamSampleRate();
 }
 
-int DeviceManager::openStream()
+Error DeviceManager::openStream()
 {
     if (!callback)
-        throw std::runtime_error("MakeASound: openStream called without a callback");
+        return Error::INVALID_USE;
 
     auto actualCallback = [this](AudioCallbackInfo& info)
     {
@@ -105,10 +119,8 @@ int DeviceManager::openStream()
     };
 
     pimpl->callback = actualCallback;
-    auto res = pimpl->openStream(config);
-    pimpl->start();
 
-    return res;
+    return pimpl->start(config);
 }
 
 } // namespace MakeASound

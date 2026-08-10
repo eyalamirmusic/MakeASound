@@ -20,6 +20,8 @@ export default function App()
         <main>
             <h1>MakeASound Demo</h1>
 
+            {ui.status && <div className="status">{ui.status}</div>}
+
             <Row label="White noise">
                 <input type="checkbox"
                        checked={audio.playing}

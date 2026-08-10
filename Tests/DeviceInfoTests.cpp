@@ -55,6 +55,37 @@ auto tDefaultMono = test("DeviceInfo/defaultChannelCountFollowsAMonoDevice") = [
 };
 
 // ---------------------------------------------------------------------------
+// Devices that aren't there
+// ---------------------------------------------------------------------------
+
+auto tBlankIsInvalid = test("DeviceInfo/aBlankDeviceIsNotAValidOne") = []
+{
+    // What enumeration hands back when the machine has nothing of that kind.
+    check(!DeviceInfo {}.isValid());
+    check(!DeviceInfo {}.hasChannels(true));
+    check(!DeviceInfo {}.hasChannels(false));
+};
+
+auto tChannelsPerDirection = test("DeviceInfo/knowsWhichDirectionsItCanRun") = []
+{
+    // A desktop with speakers and no microphone: valid to play out of, nothing to
+    // record from.
+    auto device = DeviceInfo {};
+    device.outputChannels = 2;
+
+    check(device.isValid());
+    check(device.hasChannels(false));
+    check(!device.hasChannels(true));
+};
+
+auto tErrorMessages = test("DeviceInfo/hasAMessageForEveryFailure") = []
+{
+    check(MakeASound::getErrorMessage(MakeASound::Error::NoError).empty());
+    check(!MakeASound::getErrorMessage(MakeASound::Error::NO_DEVICES_FOUND).empty());
+    check(!MakeASound::getErrorMessage(MakeASound::Error::UNKNOWN_ERROR).empty());
+};
+
+// ---------------------------------------------------------------------------
 // Sample rate support / negotiation
 // ---------------------------------------------------------------------------
 
@@ -120,6 +151,16 @@ auto tNothingKnown = test("DeviceInfo/sampleRateFallsBackTo44100WhenNothingIsKno
     auto input = DeviceInfo {};
 
     check(MakeASound::pickCompatibleSampleRate(output, input) == 44100);
+};
+
+auto tInputOnly = test("DeviceInfo/sampleRateFollowsTheInputWhenThereIsNoOutput") = []
+{
+    // An input-only machine: with no output to negotiate against, the input's own
+    // preference is the only informed answer left.
+    auto output = DeviceInfo {};
+    auto input = makeDevice({44100, 48000}, 48000, 2);
+
+    check(MakeASound::pickCompatibleSampleRate(output, input) == 48000);
 };
 
 // ---------------------------------------------------------------------------

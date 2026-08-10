@@ -3,8 +3,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <stdexcept>
-#include <string>
 
 namespace MakeASound::MiniAudio
 {
@@ -128,9 +126,15 @@ DeviceManager::DeviceManager()
 {
     auto result = ma_context_init(nullptr, 0, nullptr, &context);
 
+    // A backend that won't initialise leaves the manager alive but empty: it enumerates
+    // nothing and refuses to open a stream, both of which the host can report. Failing
+    // the constructor instead would take down an application over a machine that simply
+    // has no working audio backend.
     if (result != MA_SUCCESS)
-        throw std::runtime_error(std::string("miniaudio: ma_context_init failed: ")
-                                 + ma_result_description(result));
+    {
+        setError(getError(result));
+        return;
+    }
 
     contextInitialised = true;
 }
@@ -199,9 +203,20 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
     return info;
 }
 
-void DeviceManager::refreshDeviceCache()
+Error DeviceManager::setError(Error error)
+{
+    lastError = error;
+    return error;
+}
+
+Error DeviceManager::refreshDeviceCache()
 {
     deviceCache.clear();
+
+    // An empty cache is the honest answer when there is nothing to enumerate with —
+    // callers read it as "no devices", which is exactly the situation.
+    if (!contextInitialised)
+        return setError(Error::SYSTEM_ERROR);
 
     ma_device_info* playbackInfos = nullptr;
     auto playbackCount = ma_uint32 {0};
@@ -215,9 +230,7 @@ void DeviceManager::refreshDeviceCache()
                                          &captureCount);
 
     if (result != MA_SUCCESS)
-        throw std::runtime_error(
-            std::string("miniaudio: ma_context_get_devices failed: ")
-            + ma_result_description(result));
+        return setError(getError(result));
 
     auto nextId = 0;
 
@@ -274,6 +287,8 @@ void DeviceManager::refreshDeviceCache()
             deviceCache.add(std::move(entry));
         }
     }
+
+    return Error::NoError;
 }
 
 Vector<DeviceInfo> DeviceManager::getDevices()
@@ -332,17 +347,38 @@ const ma_device_id* DeviceManager::findDeviceId(int makeASoundId) const
     return nullptr;
 }
 
-void DeviceManager::start()
+Error DeviceManager::start(const StreamConfig& configToUse)
 {
     auto lock = std::lock_guard(deviceMutex);
-    startLocked();
-    shouldRun = deviceInitialised;
+
+    config = configToUse;
+
+    // Set from the host's intent, not from whether the open worked. A stream that
+    // couldn't find its device is still one that is meant to be running, and this is
+    // what tells the recovery worker to keep trying.
+    shouldRun = true;
+    ensureRecoveryThread();
+
+    auto error = openStreamLocked();
+
+    if (error == Error::NoError)
+        error = startLocked();
+
+    // Worth another go only if there is a device named to go back to. A config with
+    // neither side set describes nothing, so retrying it would burn an enumeration
+    // every quarter second to arrive at the same answer.
+    auto namesADevice = config.input.has_value() || config.output.has_value();
+
+    if (error != Error::NoError && autoRecover && namesADevice)
+        requestRecovery();
+
+    return error;
 }
 
-void DeviceManager::startLocked()
+Error DeviceManager::startLocked()
 {
     if (!deviceInitialised)
-        return;
+        return setError(Error::INVALID_DEVICE);
 
     // Cleared before the device can call back, so the watchdog measures this stream's
     // silence and not the gap left by the one it replaced.
@@ -351,8 +387,20 @@ void DeviceManager::startLocked()
     auto result = ma_device_start(&device);
 
     if (result != MA_SUCCESS)
-        throw std::runtime_error(std::string("miniaudio: ma_device_start failed: ")
-                                 + ma_result_description(result));
+        return setError(getError(result));
+
+    streamRunning = true;
+    return setError(Error::NoError);
+}
+
+bool DeviceManager::isRunning() const
+{
+    return streamRunning.load();
+}
+
+Error DeviceManager::getLastError() const
+{
+    return lastError.load();
 }
 
 void DeviceManager::stop()
@@ -367,6 +415,8 @@ void DeviceManager::stop()
 
 void DeviceManager::stopLocked()
 {
+    streamRunning = false;
+
     if (!deviceInitialised)
         return;
 
@@ -383,17 +433,19 @@ void DeviceManager::stopLocked()
     stopping = false;
 }
 
-int DeviceManager::openStream(const StreamConfig& configToUse)
+Error DeviceManager::openStreamLocked()
 {
-    auto lock = std::lock_guard(deviceMutex);
-    config = configToUse;
-    return openStreamLocked();
-}
+    if (!contextInitialised)
+        return setError(Error::SYSTEM_ERROR);
 
-int DeviceManager::openStreamLocked()
-{
     if (deviceCache.empty())
         refreshDeviceCache();
+
+    // Nothing to open. Answered here rather than left to ma_device_init so a host that
+    // asks what went wrong is told there are no devices, instead of whatever the
+    // backend makes of a stream with no sides to it.
+    if (!config.input.has_value() && !config.output.has_value())
+        return setError(Error::NO_DEVICES_FOUND);
 
     const ma_device_id* playbackId = nullptr;
     const ma_device_id* captureId = nullptr;
@@ -439,8 +491,7 @@ int DeviceManager::openStreamLocked()
     auto result = ma_device_init(&context, &deviceConfig, &device);
 
     if (result != MA_SUCCESS)
-        throw std::runtime_error(std::string("miniaudio: ma_device_init failed: ")
-                                 + ma_result_description(result));
+        return setError(getError(result));
 
     deviceInitialised = true;
     framesElapsed = 0;
@@ -478,9 +529,7 @@ int DeviceManager::openStreamLocked()
     inputScratch.assign(inputChannelCount * config.maxBlockSize, 0.0f);
     outputScratch.assign(outputChannelCount * config.maxBlockSize, 0.0f);
 
-    ensureRecoveryThread();
-
-    return config.maxBlockSize;
+    return setError(Error::NoError);
 }
 
 long DeviceManager::getStreamLatency() const
@@ -698,21 +747,15 @@ bool DeviceManager::tryReopen()
     if (!shouldRun)
         return true;
 
-    try
-    {
-        stopLocked();
-        repointConfigToCache();
-        openStreamLocked();
-        startLocked();
-    }
-    catch (const std::exception&)
-    {
-        // Anything the backend refuses (device absent, rate not yet settled) is worth
-        // another attempt; the caller paces them.
-        return false;
-    }
+    stopLocked();
+    repointConfigToCache();
 
-    return true;
+    // Anything the backend refuses (device absent, rate not yet settled) is worth
+    // another attempt; the caller paces them.
+    if (openStreamLocked() != Error::NoError)
+        return false;
+
+    return startLocked() == Error::NoError;
 }
 
 void DeviceManager::repointConfigToCache()

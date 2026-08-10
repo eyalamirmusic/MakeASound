@@ -5,6 +5,47 @@
 namespace MakeASound
 {
 
+bool DeviceInfo::isValid() const
+{
+    return outputChannels > 0 || inputChannels > 0;
+}
+
+bool DeviceInfo::hasChannels(bool input) const
+{
+    return (input ? inputChannels : outputChannels) > 0;
+}
+
+std::string getErrorMessage(Error error)
+{
+    switch (error)
+    {
+        case Error::NoError:
+            return {};
+        case Error::NO_DEVICES_FOUND:
+            return "No audio device is available";
+        case Error::INVALID_DEVICE:
+            return "The audio device is no longer usable";
+        case Error::DEVICE_DISCONNECT:
+            return "The audio device was disconnected";
+        case Error::INVALID_PARAMETER:
+            return "The audio device does not support these settings";
+        case Error::INVALID_USE:
+            return "The audio stream was not set up correctly";
+        case Error::MEMORY_ERROR:
+            return "Ran out of memory opening the audio device";
+        case Error::DRIVER_ERROR:
+            return "The audio driver does not support this stream";
+        case Error::SYSTEM_ERROR:
+            return "The system audio service is unavailable";
+        case Error::THREAD_ERROR:
+            return "The audio device could not be started";
+        case Error::WARNING:
+        case Error::UNKNOWN_ERROR:
+        default:
+            return "The audio device could not be opened";
+    }
+}
+
 int getDefaultNumChannels(const DeviceInfo& info, bool input)
 {
     auto channels = info.outputChannels;
@@ -47,6 +88,14 @@ int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input)
 
     if (!output.sampleRates.empty())
         return output.sampleRates.front();
+
+    // No output to speak of — an input-only machine, or one where the output side was
+    // never filled in. The input's own rates are the only ones left worth asking for.
+    if (input.preferredSampleRate > 0)
+        return input.preferredSampleRate;
+
+    if (!input.sampleRates.empty())
+        return input.sampleRates.front();
 
     return 44100;
 }

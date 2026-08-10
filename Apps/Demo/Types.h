@@ -28,7 +28,8 @@ struct MeterState
 
 struct UIState
 {
-    MIRO_REFLECT(blockSize,
+    MIRO_REFLECT(status,
+                 blockSize,
                  devices,
                  inputDevices,
                  outputChannels,
@@ -36,6 +37,10 @@ struct UIState
                  sampleRates,
                  midiPorts)
 
+    // Why there is no audio, empty when there is. A machine with no output device at
+    // all leaves every dropdown below empty, and without this the UI gives no hint as
+    // to whether that is a bug or the machine.
+    std::string status;
     int blockSize {};
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo inputDevices;
@@ -69,8 +74,19 @@ class DemoApi
 public:
     DemoApi()
     {
-        config = manager.getDefaultConfig();
-        manager.start(config, [this](auto& info) { renderWhiteNoise(info); });
+        // Before the first open, as the manager asks: the device can come back on its
+        // own — the library re-opens a stream whose device was reclaimed or unplugged
+        // — and the UI has to follow it.
+        manager.setNotificationCallback(
+            [this](MS::DeviceNotification)
+            {
+                // Called on an audio thread, where touching the manager can deadlock.
+                eacp::Threads::callAsync([this] { ui.publish(makeUi()); });
+            });
+
+        // Whatever the machine has, including nothing. A start that finds no device
+        // is a state to display, not a reason to bring the app down.
+        openDefaultDevices();
     }
 
     void reflect(Miro::ApiReflector& r)
@@ -110,14 +126,14 @@ public:
     void setSampleRate(const int& value)
     {
         config.sampleRate = value;
-        manager.setConfig(config);
+        applyConfig();
         ui.publish(makeUi());
     }
 
     void setBlockSize(const int& value)
     {
         config.maxBlockSize = value;
-        manager.setConfig(config);
+        applyConfig();
         ui.publish(makeUi());
     }
 
@@ -143,7 +159,7 @@ public:
         auto sel = MS::UI::decodeChannelSelection(encoded);
         config.output->firstChannel = sel.firstChannel;
         config.output->nChannels = sel.count;
-        manager.setConfig(config);
+        applyConfig();
         ui.publish(makeUi());
     }
 
@@ -155,7 +171,7 @@ public:
         auto sel = MS::UI::decodeChannelSelection(encoded);
         config.input->firstChannel = sel.firstChannel;
         config.input->nChannels = sel.count;
-        manager.setConfig(config);
+        applyConfig();
         ui.publish(makeUi());
     }
 
@@ -168,6 +184,23 @@ public:
         else
             midiManager.closeInput(req.id);
 
+        ui.publish(makeUi());
+    }
+
+    // A machine can go from having no audio device to having one: a USB interface
+    // plugged in, a headset connecting, the audio service coming back. The library
+    // re-opens streams it already had, so hardware that was never there at all is the
+    // host's to pick up — and only while the demo has no stream to speak of, since
+    // stepping in later would override the device the user chose.
+    void pollDevices()
+    {
+        if (config.input || config.output || manager.isRunning())
+            return;
+
+        if (manager.getDevices().empty())
+            return;
+
+        openDefaultDevices();
         ui.publish(makeUi());
     }
 
@@ -190,6 +223,25 @@ public:
     Miro::Event<MidiLogEntry> midi;
 
 private:
+    void openDefaultDevices()
+    {
+        config = manager.getDefaultConfig();
+        lastError =
+            manager.start(config, [this](auto& info) { renderWhiteNoise(info); });
+    }
+
+    void applyConfig() { lastError = manager.setConfig(config); }
+
+    std::string makeStatus() const
+    {
+        if (manager.isRunning())
+            return {};
+
+        auto message = MS::getErrorMessage(lastError);
+
+        return message.empty() ? "Audio is not running" : message;
+    }
+
     static float nextNoiseSample()
     {
         static auto engine = std::default_random_engine {std::random_device {}()};
@@ -233,7 +285,7 @@ private:
 
             config.output = MS::StreamParameters {device, false};
             reconcileSampleRate();
-            manager.setConfig(config);
+            applyConfig();
             return true;
         }
 
@@ -249,7 +301,7 @@ private:
 
             config.input = MS::StreamParameters {device, true};
             reconcileSampleRate();
-            manager.setConfig(config);
+            applyConfig();
             return true;
         }
 
@@ -266,6 +318,11 @@ private:
                                                              config.input->device);
             return;
         }
+
+        // Neither side: a machine with no audio devices. Nothing to negotiate against,
+        // and the rate is meaningless until one turns up.
+        if (!config.output && !config.input)
+            return;
 
         auto& device = config.output ? config.output->device : config.input->device;
 
@@ -318,6 +375,7 @@ private:
     UIState makeUi()
     {
         auto state = UIState {};
+        state.status = makeStatus();
         state.blockSize = config.maxBlockSize;
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
@@ -355,6 +413,7 @@ private:
     MS::UIDeviceManager uiDevices {manager};
     MS::UIMidiManager uiMidi {midiManager};
     MS::StreamConfig config;
+    MS::Error lastError {MS::Error::NoError};
     MS::Vector<MS::MidiPortInfo> lastInputPorts;
 };
 

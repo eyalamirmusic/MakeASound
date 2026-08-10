@@ -27,9 +27,15 @@ struct DeviceManager
     DeviceInfo getDefaultInputDevice();
     DeviceInfo getDefaultOutputDevice();
 
-    void start();
+    // Open the stream and start it, reporting rather than throwing on failure. When
+    // the config names a device that can't be opened right now, the recovery worker
+    // keeps trying in the background, so a device that is merely busy comes back on
+    // its own. A config that names nothing is not retried: nothing would change.
+    Error start(const StreamConfig& configToUse);
     void stop();
-    int openStream(const StreamConfig& configToUse);
+
+    bool isRunning() const;
+    Error getLastError() const;
 
     long getStreamLatency() const;
     int getStreamSampleRate() const;
@@ -47,15 +53,19 @@ private:
     DeviceInfo buildDeviceInfo(const ma_device_info& enumInfo,
                                ma_device_type type,
                                int assignedId);
-    void refreshDeviceCache();
+    Error refreshDeviceCache();
     const ma_device_id* findDeviceId(int makeASoundId) const;
+
+    // Records an outcome in lastError and hands it back, so the failing line stays a
+    // single `return setError(...)`.
+    Error setError(Error error);
 
     // The *Locked variants assume deviceMutex is already held. The public entry points
     // take it; so does the recovery worker, which is the reason it exists at all — the
     // device is now opened and closed from two threads.
-    void startLocked();
+    Error startLocked();
     void stopLocked();
-    int openStreamLocked();
+    Error openStreamLocked();
 
     // Recovery worker: waits for a stopped notification, then re-opens the stream until
     // it comes back. Runs on its own thread because re-opening from the notification
@@ -124,6 +134,15 @@ private:
     // callback to raise AudioCallbackInfo::dirty, so a host that registered no
     // notification callback still learns the stream changed under it.
     std::atomic<bool> notificationPending {false};
+
+    // Whether a stream is open and started. Distinct from shouldRun, which is what the
+    // host asked for: a machine with no device has shouldRun set and this clear. Atomic
+    // because a host polls it to render "no audio device" while recovery is re-opening
+    // under deviceMutex, and waiting on that lock to answer would stall the UI.
+    std::atomic<bool> streamRunning {false};
+
+    // Why the last open or start didn't work, kept for a host that wants to say so.
+    std::atomic<Error> lastError {Error::NoError};
 
     // Guards the device itself and the cache the re-open reads, both of which the
     // recovery worker touches concurrently with the host.

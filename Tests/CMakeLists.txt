@@ -12,4 +12,5 @@ nano_add_executable(MakeASoundTests
         SPSCQueueTests.cpp
         BufferTests.cpp
         DeviceInfoTests.cpp
+        DeviceManagerTests.cpp
         TARGETS MakeASound)

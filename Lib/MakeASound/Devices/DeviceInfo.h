@@ -14,6 +14,16 @@ namespace MakeASound
 
 struct DeviceInfo
 {
+    // Whether this names a device that exists. Enumeration hands back a blank
+    // DeviceInfo when the machine has nothing to offer, so anything that builds a
+    // config out of a default device has to ask before using one.
+    bool isValid() const;
+
+    // The same question for one direction. A desktop with speakers and no microphone
+    // is the common case, and asking such a machine for a duplex stream opens
+    // neither side — the whole open fails on the half that isn't there.
+    bool hasChannels(bool input) const;
+
     MIRO_REFLECT(id,
                  name,
                  outputChannels,
@@ -43,6 +53,9 @@ struct DeviceInfo
     int preferredSampleRate {};
 };
 
+// Why an operation didn't work. Returned rather than thrown: a machine with no audio
+// device, or one whose device is busy, is an ordinary state on the desktop and not
+// something a host should have to catch to survive.
 enum class Error
 {
     NoError,
@@ -58,6 +71,10 @@ enum class Error
     SYSTEM_ERROR,
     THREAD_ERROR
 };
+
+// A message fit to put in front of a user. Empty for NoError — every host that can
+// fail to open a device needs something to show, and the enumerator names are not it.
+std::string getErrorMessage(Error error);
 
 int getDefaultNumChannels(const DeviceInfo& info, bool input);
 bool deviceSupportsSampleRate(const DeviceInfo& device, int rate);

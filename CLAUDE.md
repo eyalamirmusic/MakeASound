@@ -57,6 +57,8 @@ Code under `Lib/MakeASound/` is grouped into domain folders, each compiled as se
 
 **Dirty-flag flow:** `DeviceManager::openStream` wraps the user callback in a lambda that compares the incoming `AudioCallbackInfo` against `prevInfo` (via the struct's `operator==` on channels/sampleRate/maxBlockSize) and sets `info.dirty = true` on change. Preserve this wrapping when editing `openStream` — the raw backend callback does not set `dirty`.
 
+**Failure handling:** the audio path does not throw. `DeviceManager::start`/`setConfig` return an `Error`, and `isRunning()`/`getLastError()` say what happened; `getErrorMessage(Error)` turns one into something a user can read. A machine with no device, or with one that is busy, is an ordinary desktop state — `getDefaultConfig()` leaves a side unset when the machine has nothing of that kind (asking for duplex on a mic-less box fails the whole open), and the miniaudio backend maps every `ma_result` through `getError` instead of raising. Keep new backend code on that path: the recovery worker drives opens from its own thread, where an exception has nowhere to go.
+
 **Serialization:** Miro provides reflection natively for primitives, integrals, `std::vector`/`std::array`/`std::map`/`std::optional`, and enums (string-named via `Miro::enumToString`). The data structs use `MIRO_REFLECT(...)` directly, so anything that includes the public header transitively pulls in Miro.
 
 ## Conventions

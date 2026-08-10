@@ -1,6 +1,7 @@
 #include <MakeASound/MakeASound.h>
 
 #include <chrono>
+#include <iostream>
 #include <random>
 #include <thread>
 
@@ -30,7 +31,14 @@ int main()
 
     Miro::logJSON(config);
 
-    manager.start(config, renderNoise);
+    // A machine with no audio device is a normal thing to run into, so say so and
+    // leave rather than sitting through two seconds of silence.
+    if (auto error = manager.start(config, renderNoise); error != MS::Error::NoError)
+    {
+        std::cout << MS::getErrorMessage(error) << '\n';
+        return 1;
+    }
+
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     return 0;
