@@ -11,13 +11,6 @@
 namespace MakeASound::MIDI
 {
 
-// --- Message types -----------------------------------------------------
-//
-// Each struct is one MIDI 1.0 voice/channel message or a short SysEx.
-// Fields are named, typed, and ranged in plugin-friendly units — float
-// values are normalized (0..1 unless noted), pitch / controller /
-// program are 0..127 ints.
-
 struct NoteOn
 {
     int pitch = 0; // 0..127
@@ -57,10 +50,8 @@ struct ProgramChange
     int program = 0; // 0..127
 };
 
-// Fixed-capacity SysEx payload. The on-thread event stream is only meant
-// to carry short control messages (GM/GS/XG reset, MTC, master volume,
-// device identity, manufacturer parameter changes — all ≤ ~15 bytes).
-// Anything longer should use a non-realtime mechanism instead.
+// Capped because the realtime stream only carries short control messages
+// (GM/GS/XG reset, MTC, master volume); longer dumps need a non-realtime path.
 struct SysEx
 {
     static constexpr int maxBytes = 16;
@@ -69,7 +60,6 @@ struct SysEx
     int size = 0;
 };
 
-// Visitor helper for `event.visit(MIDI::overloaded { ... })`.
 template <class... Ts>
 struct overloaded : Ts...
 {
@@ -78,22 +68,14 @@ struct overloaded : Ts...
 template <class... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
 
-// --- Event -------------------------------------------------------------
-//
-// Tagged-union event. Construct via the named factories (`Event::noteOn`
-// et al.), query via `isX()`, read typed data via `asX()` (returns a
-// const pointer, null if the event is a different kind), or pattern-match
-// with `visit(MIDI::overloaded { ... })`.
 class Event
 {
 public:
     int sampleOffset = 0;
 
-    // Channel in [0, 15] for voice/channel messages. `-1` for SysEx or
-    // any event where a MIDI channel is not meaningful.
+    // 0..15 for voice/channel messages; -1 for SysEx and anything else
+    // where a MIDI channel is not meaningful.
     int channel = 0;
-
-    // --- Named constructors -------------------------------------------
 
     static Event noteOn(int channel,
                         int pitch,
@@ -124,13 +106,10 @@ public:
     static Event
         programChange(int channel, int program, int sampleOffset = 0) noexcept;
 
-    // Copies up to `SysEx::maxBytes` from `bytes`. If `size` is greater
-    // than the capacity (or `bytes` is null / size is negative), asserts
-    // in debug and returns an empty SysEx event (size = 0).
+    // Asserts in debug and yields an empty SysEx if `bytes` is null or
+    // `size` is out of [0, SysEx::maxBytes].
     static Event
         sysEx(const uint8_t* bytes, int size, int sampleOffset = 0) noexcept;
-
-    // --- Queries ------------------------------------------------------
 
     bool isNoteOn() const noexcept;
     bool isNoteOff() const noexcept;
@@ -141,11 +120,7 @@ public:
     bool isProgramChange() const noexcept;
     bool isSysEx() const noexcept;
 
-    // --- Typed accessors ----------------------------------------------
-    //
-    // Each returns a pointer into the event's payload if the event is of
-    // that kind, or nullptr otherwise — matching std::get_if semantics.
-
+    // Null unless the event is of that kind (std::get_if semantics).
     const NoteOn* asNoteOn() const noexcept;
     const NoteOff* asNoteOff() const noexcept;
     const ControlChange* asControlChange() const noexcept;
@@ -155,17 +130,12 @@ public:
     const ProgramChange* asProgramChange() const noexcept;
     const SysEx* asSysEx() const noexcept;
 
-    // --- Visit --------------------------------------------------------
-
     template <class Visitor>
     decltype(auto) visit(Visitor&& vis) const
     {
         return std::visit(std::forward<Visitor>(vis), payload);
     }
 
-    // Sorts events by time; stable insertion sort preserves insertion
-    // order for ties, which keeps musical intent (e.g. note-off before
-    // note-on at the same offset).
     bool operator<(const Event& other) const noexcept
     {
         return sampleOffset < other.sampleOffset;
@@ -188,22 +158,17 @@ struct Buffer : Vector<Event>
 {
     void addFrom(const Buffer& other) noexcept;
 
-    // Stable in-place sort by sampleOffset. Allocation-free (insertion
-    // sort) so it's safe to call from the audio thread; MIDI buffers are
-    // small per block, so the O(N^2) worst case is a non-issue.
+    // Stable (ties keep insertion order, so a note-off still precedes a
+    // note-on at the same offset) and allocation-free: audio-thread safe.
     void sortByOffset() noexcept;
 };
 
-// Translates raw MIDI bytes into a typed event. Returns nullopt for
-// messages that don't map (SysEx, MTC, song-position, undersized
-// payloads, etc.). Pure / lock-free / allocation-free — callable from
-// any real-time thread.
+// nullopt for messages that don't map (SysEx, MTC, song-position, undersized
+// payloads). Allocation-free — callable from any real-time thread.
 std::optional<Event> convertMidi(const std::uint8_t* bytes,
                                  int size,
                                  int sampleOffset = 0) noexcept;
 
-// Fixed-capacity wire encoding of an Event. Channel messages are 1..3
-// bytes; SysEx is emitted verbatim, so the cap matches SysEx::maxBytes.
 struct RawBytes
 {
     static constexpr int maxBytes = SysEx::maxBytes;
@@ -215,12 +180,10 @@ struct RawBytes
     const std::uint8_t* end() const noexcept { return data.data() + size; }
 };
 
-// Serializes a typed event back to MIDI 1.0 bytes — the inverse of
-// convertMidi (normalized floats are quantized to 7-bit / 14-bit and
-// clamped to range). Pure / lock-free / allocation-free.
+// Inverse of convertMidi: normalized floats are quantized to 7-bit / 14-bit
+// and clamped to range. Allocation-free.
 RawBytes toBytes(const Event& event) noexcept;
 
-// Human-readable rendering for logging / debug.
 std::string toString(const Event& event);
 
 } // namespace MakeASound::MIDI

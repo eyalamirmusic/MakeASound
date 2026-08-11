@@ -11,8 +11,6 @@ namespace MIDI = MakeASound::MIDI;
 
 namespace
 {
-// Flipped by SIGINT (Ctrl-C) so the send loop can unwind cleanly and let
-// the MidiManager destructor close both ports.
 std::atomic<bool> running {true};
 
 void onSignal(int)
@@ -27,16 +25,14 @@ int main()
 
     auto midi = MS::MidiManager {};
 
-    // Virtual ports are visible to other apps (DAWs, MIDI Monitor, etc.).
-    // Connect "MakeASound Demo Out" to "MakeASound Demo In" in your MIDI
-    // router to watch the notes below loop straight back into the logger.
+    // The two virtual ports are not wired to each other: route Demo Out to
+    // Demo In in an external MIDI router to see the notes come back in.
     midi.openVirtualOutput("MakeASound Demo Out");
 
     midi.openVirtualInput(
         "MakeASound Demo In",
         [](const MS::MidiMessage& message)
         {
-            // Decode the raw bytes into a typed MIDI::Event for logging.
             auto event = MIDI::convertMidi(message.bytes.data(),
                                            static_cast<int>(message.bytes.size()));
             std::cout << "  in  < "
@@ -53,7 +49,7 @@ int main()
 
     constexpr auto channel = 0;
     constexpr auto velocity = 100.f / 127.f; // normalized 0..1
-    auto pitch = 60; // middle C, walking up a C major scale
+    auto pitch = 60; // middle C
 
     while (running)
     {

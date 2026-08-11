@@ -19,19 +19,14 @@ public:
     Vector<MidiPortInfo> getInputPorts() const;
     Vector<MidiPortInfo> getOutputPorts() const;
 
-    // Open a port in queue mode. Incoming events accumulate in an internal
-    // ring and surface via drainMessages().
+    // Queue mode: events accumulate internally until drainMessages().
     void openInput(int portId);
 
-    // Open a port in callback mode. The callback fires on RtMidi's input
-    // thread; events are not queued.
+    // Callback mode: `cb` fires on RtMidi's input thread, nothing is queued.
     void openInput(int portId, const MidiInputCallback& cb);
 
-    // Open a virtual input port visible to other apps under `name`.
-    // Returns the synthetic (negative) portId assigned by the backend;
-    // pass it to closeInput / isInputOpen exactly like a real portId.
-    // RtMidi only supports virtual ports on CoreMIDI / ALSA / JACK —
-    // this throws on Windows.
+    // Returns a synthetic (negative) portId, usable like a real one.
+    // Virtual ports exist only on CoreMIDI / ALSA / JACK — throws on Windows.
     int openVirtualInput(const std::string& name);
     int openVirtualInput(const std::string& name,
                          const MidiInputCallback& cb);
@@ -41,17 +36,13 @@ public:
     bool isInputOpen(int portId) const;
     Vector<int> getOpenInputPorts() const;
 
-    // Drain all queued events from queue-mode ports. Designed to be called
-    // from an audio callback: each port is guarded by a spinlock that we
-    // try-lock; contended ports are skipped and drained next call. The
-    // MidiEvents wrapper pre-reserves capacity so audio-thread pushes
-    // don't allocate.
+    // Audio-callback safe: `out` is pre-reserved so no allocation happens,
+    // and ports whose spinlock is contended are skipped until the next call.
     void drainMessages(MidiEvents& out);
 
     void openOutput(int portId);
 
-    // Open the output as a virtual port visible to other apps under
-    // `name`. Replaces any currently open output. Throws on Windows.
+    // Replaces any currently open output. Throws on Windows.
     void openVirtualOutput(const std::string& name);
 
     void closeOutput();
@@ -60,8 +51,6 @@ public:
     void sendMessage(const MidiMessage& message);
     void sendMessage(const std::uint8_t* bytes, std::size_t size);
 
-    // Serialize a typed event (via MIDI::toBytes) and send it. The
-    // high-level way to emit notes, CCs, pitch bend, etc.
     void sendMessage(const MIDI::Event& event);
 
 private:

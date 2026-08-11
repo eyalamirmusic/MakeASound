@@ -14,8 +14,7 @@ struct BackendName
     const char* label;
 };
 
-// The display spelling of every API. Order is only cosmetic — what a manager can
-// actually reach is DeviceManager::getAvailableBackends.
+// Order is cosmetic; availability is DeviceManager::getAvailableBackends.
 constexpr auto backendNames =
     std::array {BackendName {Backend::WASAPI, "WASAPI"},
                 BackendName {Backend::DirectSound, "DirectSound"},
@@ -32,8 +31,6 @@ constexpr auto backendNames =
                 BackendName {Backend::WebAudio, "Web Audio"},
                 BackendName {Backend::Null, "Null"}};
 
-// Everything a user might type between the words of a driver name, dropped so the
-// comparison is against the letters alone.
 std::string squash(std::string_view text)
 {
     auto result = std::string {};
@@ -64,8 +61,6 @@ std::optional<Backend> getBackendFromName(std::string_view name)
 
     for (const auto& entry: backendNames)
     {
-        // Both spellings: the display one above and the enumerator's, so a name
-        // written down from a log or a JSON dump comes back too.
         if (squash(entry.label) == wanted
             || squash(Miro::enumToString(entry.backend)) == wanted)
             return entry.backend;
@@ -158,8 +153,7 @@ int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input)
     if (!output.sampleRates.empty())
         return output.sampleRates.front();
 
-    // No output to speak of — an input-only machine, or one where the output side was
-    // never filled in. The input's own rates are the only ones left worth asking for.
+    // Input-only machine, or an output side that was never filled in.
     if (input.preferredSampleRate > 0)
         return input.preferredSampleRate;
 

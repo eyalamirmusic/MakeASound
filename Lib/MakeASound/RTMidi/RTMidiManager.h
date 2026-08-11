@@ -50,9 +50,8 @@ private:
     OwningPointer<::RtMidiOut> output;
     EA::OwnedVector<InputPort> inputs;
 
-    // Virtual input ports have no system index, so we hand out
-    // synthetic negative ids that coexist with the unsigned indices
-    // returned by getInputPorts().
+    // Virtual inputs have no system index, so they get negative ids that
+    // cannot collide with the indices getInputPorts() returns.
     int nextVirtualPortId {-1};
 };
 

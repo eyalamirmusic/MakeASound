@@ -85,7 +85,7 @@ struct Synth
         }
     }
 
-    // Audio-thread: apply a typed MIDI event and update synth state.
+    // Called on the audio thread.
     void applyMidiEvent(const MIDI::Event& event)
     {
         event.visit(MIDI::overloaded {
@@ -98,7 +98,7 @@ struct Synth
                 else if (cc.controller == 7) // channel volume
                     gain.store(cc.value);
             },
-            [&](const auto&) {}, // ignore everything else for this demo
+            [&](const auto&) {},
         });
     }
 

@@ -3,11 +3,9 @@
 namespace MakeASound::Algorithms
 {
 
-// Stable insertion sort over a container with random-access `begin()` /
-// `end()`. Allocation-free and noexcept provided the element type's copy
-// and the comparator are themselves noexcept — suitable for audio-thread
-// use on small or mostly-ordered ranges. O(N) for already-sorted input,
-// O(N^2) worst case.
+// Allocation-free, so it is safe on the audio thread; the unconditional
+// noexcept assumes the element copy and the comparator never throw.
+// O(N) for already-sorted input, O(N^2) worst case.
 template <class Container, class Compare>
 void stableInsertionSort(Container& c, Compare less) noexcept
 {
@@ -27,8 +25,6 @@ void stableInsertionSort(Container& c, Compare less) noexcept
     }
 }
 
-// Overload that defers to the element type's `operator<`, mirroring
-// std::sort's no-comparator form.
 template <class Container>
 void stableInsertionSort(Container& c) noexcept
 {

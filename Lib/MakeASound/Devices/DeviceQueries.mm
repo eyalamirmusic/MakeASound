@@ -21,13 +21,6 @@ Vector<int> defaultBlockSizes()
     return sizes;
 }
 
-// CoreAudio device IDs (AudioObjectID values) are not the same as the
-// sequential indices MakeASound exposes via DeviceInfo::id (those are
-// assigned by the MiniAudio backend). We bridge the two by enumerating
-// CoreAudio devices ourselves and matching against the device name
-// MiniAudio reports, which itself reads
-// kAudioDevicePropertyDeviceNameCFString — so the match is exact.
-
 std::vector<AudioObjectID> coreAudioDeviceIds()
 {
     auto address = AudioObjectPropertyAddress {
@@ -83,6 +76,9 @@ std::optional<std::string> coreAudioStringProperty(AudioObjectID id,
     return std::string {buffer.data()};
 }
 
+// AudioObjectIDs are not DeviceInfo::id (a MiniAudio-assigned index), so we match on
+// the device name — which MiniAudio also reads from
+// kAudioDevicePropertyDeviceNameCFString, so the match is exact.
 std::optional<AudioObjectID> findCoreAudioDevice(const std::string& name)
 {
     for (auto id: coreAudioDeviceIds())

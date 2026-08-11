@@ -11,8 +11,6 @@
 namespace MakeASound::MIDI
 {
 
-// --- Buffer ------------------------------------------------------------
-
 void Buffer::addFrom(const Buffer& other) noexcept
 {
     reserveAtLeast(other.size());
@@ -25,8 +23,6 @@ void Buffer::sortByOffset() noexcept
 {
     Algorithms::stableInsertionSort(*this);
 }
-
-// --- Event factories ---------------------------------------------------
 
 Event Event::noteOn(int channel,
                     int pitch,
@@ -113,8 +109,8 @@ Event Event::sysEx(const uint8_t* bytes, int size, int sampleOffset) noexcept
 
     auto sysEx = SysEx {};
 
-    // Oversize / malformed input yields an empty SysEx so audio-thread
-    // callers can still push the (empty) event without branching.
+    // Malformed input still yields an event, so audio-thread callers can
+    // push it without branching.
     assert(bytes != nullptr && size >= 0 && size <= SysEx::maxBytes
            && "SysEx payload exceeds MIDI::SysEx::maxBytes");
 
@@ -127,8 +123,6 @@ Event Event::sysEx(const uint8_t* bytes, int size, int sampleOffset) noexcept
     event.payload = sysEx;
     return event;
 }
-
-// --- Queries -----------------------------------------------------------
 
 bool Event::isNoteOn() const noexcept
 {
@@ -163,8 +157,6 @@ bool Event::isSysEx() const noexcept
     return std::holds_alternative<SysEx>(payload);
 }
 
-// --- Typed accessors ---------------------------------------------------
-
 const NoteOn* Event::asNoteOn() const noexcept
 {
     return std::get_if<NoteOn>(&payload);
@@ -197,8 +189,6 @@ const SysEx* Event::asSysEx() const noexcept
 {
     return std::get_if<SysEx>(&payload);
 }
-
-// --- Conversion --------------------------------------------------------
 
 std::optional<Event>
     convertMidi(const std::uint8_t* bytes, int size, int sampleOffset) noexcept
@@ -243,8 +233,6 @@ std::optional<Event>
 
     return std::nullopt;
 }
-
-// --- Serialization -----------------------------------------------------
 
 namespace
 {
@@ -324,8 +312,6 @@ RawBytes toBytes(const Event& event) noexcept
 
     return out;
 }
-
-// --- Rendering ---------------------------------------------------------
 
 std::string toString(const Event& event)
 {

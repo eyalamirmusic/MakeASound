@@ -9,15 +9,12 @@ namespace MakeASound::MiniAudio
 
 namespace
 {
-// How long recovery waits between attempts at re-opening a device that isn't back yet.
-// Short enough that a sample-rate change is a glitch rather than a dropout, long enough
-// that a device which is gone for good costs almost nothing to keep waiting for.
+// Short enough that a sample-rate change reads as a glitch not a dropout, long enough
+// that a device gone for good costs almost nothing to keep waiting for.
 constexpr auto kRecoveryRetryInterval = std::chrono::milliseconds(250);
 
-// How often the watchdog looks, and how long a stream that is supposed to be running may
-// go without a data callback before it counts as dead. A block is a few milliseconds, so
-// a whole second of nothing is not a scheduling hiccup — but it is short enough that the
-// gap reads as a glitch rather than an outage.
+// A block is a few milliseconds, so a whole second without a data callback is not a
+// scheduling hiccup.
 constexpr auto kWatchdogInterval = std::chrono::milliseconds(250);
 constexpr auto kStarvationTimeoutMs = std::int64_t {1000};
 
@@ -48,9 +45,8 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     config.sampleRate = static_cast<ma_uint32>(streamConfig.sampleRate);
     config.periodSizeInFrames = static_cast<ma_uint32>(streamConfig.maxBlockSize);
 
-    // Open the device with its full native channel count (not just the selected
-    // slice) so miniaudio hands us the raw physical channels with no channel
-    // conversion / down-mixing. The callback picks out the selected channels.
+    // Full native channel count, not the selected slice, so miniaudio does no
+    // channel conversion or down-mixing; the callback picks the selected ones out.
     if (wantsPlayback)
     {
         config.playback.pDeviceID = playbackId;
@@ -89,9 +85,6 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     return config;
 }
 
-// De-interleave a contiguous slice of channels out of a wider interleaved
-// buffer. src has srcChannels per frame; we take [firstChannel, firstChannel +
-// count) and lay them out planar in dst.
 void deinterleaveSlice(const float* src,
                        float* dst,
                        int srcChannels,
@@ -105,9 +98,6 @@ void deinterleaveSlice(const float* src,
                 src[frame * srcChannels + (firstChannel + ch)];
 }
 
-// Interleave planar channels into a slice of a wider interleaved buffer. dst
-// has dstChannels per frame; the planar src is written to [firstChannel,
-// firstChannel + count). Channels outside the slice are left untouched.
 void interleaveSlice(const float* src,
                      float* dst,
                      int dstChannels,
@@ -132,18 +122,15 @@ Error DeviceManager::initContext(Backend backendToUse)
     auto requested = getMaBackend(backendToUse);
     auto named = backendToUse != Backend::Unknown;
 
-    // Unknown means "whatever this machine has" — miniaudio walks its own priority
-    // order. Anything else is a list of exactly one, so a failure is reported rather
-    // than quietly answered by the next backend down.
+    // A null list means miniaudio's own priority order; a list of exactly one fails
+    // rather than being quietly answered by the next backend down.
     auto result = ma_context_init(named ? &requested : nullptr,
                                   named ? 1 : 0,
                                   nullptr,
                                   &context);
 
-    // A backend that won't initialise leaves the manager alive but empty: it enumerates
-    // nothing and refuses to open a stream, both of which the host can report. Failing
-    // the constructor instead would take down an application over a machine that simply
-    // has no working audio backend.
+    // A backend that won't initialise leaves the manager alive but empty rather than
+    // taking down an application over a machine with no working audio.
     if (result != MA_SUCCESS)
     {
         currentBackend = Backend::Unknown;
@@ -152,8 +139,7 @@ Error DeviceManager::initContext(Backend backendToUse)
 
     contextInitialised = true;
 
-    // What answered, not what was asked for: the default order picks the backend on
-    // its own, and that is the one a host wants to show as current.
+    // What answered, not what was asked for — the default order picks on its own.
     currentBackend = MiniAudio::getBackend(context.backend);
 
     return setError(Error::NoError);
@@ -179,15 +165,13 @@ Error DeviceManager::setBackend(Backend backendToUse)
 {
     auto lock = std::lock_guard(deviceMutex);
 
-    // Before the teardown, so the recovery worker — which may already be on its way to
-    // re-opening the device — finds the stream disowned and leaves the old context
-    // alone instead of resurrecting a device that is about to be uninitialised.
+    // Before the teardown, so a recovery worker already on its way finds the stream
+    // disowned instead of resurrecting a device that is about to be uninitialised.
     shouldRun = false;
     stopLocked();
 
-    // Ids are handed out per enumeration, and this enumeration is going away. Leaving
-    // the old config in place would have the next open point at a device number that
-    // now means something else on the new API.
+    // Ids are handed out per enumeration, and this one is going away: the next open
+    // would point at a device number that means something else on the new API.
     deviceCache.clear();
     config = {};
 
@@ -202,8 +186,7 @@ Error DeviceManager::setBackend(Backend backendToUse)
 
 DeviceManager::~DeviceManager()
 {
-    // Worker first: it re-opens the very device and context torn down below, so it has
-    // to be off the field before either goes.
+    // Worker first: it re-opens the very device and context torn down below.
     {
         auto lock = std::lock_guard(recoveryMutex);
         recoveryQuit = true;
@@ -251,9 +234,8 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
     info.sampleRates = collectSampleRates(source);
     info.preferredSampleRate = pickPreferredSampleRate(info.sampleRates);
 
-    // What the device is actually on, asked of the platform — miniaudio's device info
-    // only lists what is *supported*. The preferred rate is the fallback, not the
-    // answer: the two differ the moment any app moves a shared device.
+    // miniaudio's device info only lists supported rates; only the platform knows
+    // which one is current, and the two differ the moment an app moves the device.
     auto current = getCurrentSampleRate(info);
     info.currentSampleRate = current > 0 ? current : info.preferredSampleRate;
 
@@ -275,8 +257,6 @@ Error DeviceManager::refreshDeviceCache()
 {
     deviceCache.clear();
 
-    // An empty cache is the honest answer when there is nothing to enumerate with —
-    // callers read it as "no devices", which is exactly the situation.
     if (!contextInitialised)
         return setError(Error::SYSTEM_ERROR);
 
@@ -415,9 +395,8 @@ Error DeviceManager::start(const StreamConfig& configToUse)
 
     config = configToUse;
 
-    // Set from the host's intent, not from whether the open worked. A stream that
-    // couldn't find its device is still one that is meant to be running, and this is
-    // what tells the recovery worker to keep trying.
+    // The host's intent, not whether the open worked: a stream that couldn't find
+    // its device is still meant to be running, which is what keeps recovery trying.
     shouldRun = true;
     ensureRecoveryThread();
 
@@ -426,9 +405,8 @@ Error DeviceManager::start(const StreamConfig& configToUse)
     if (error == Error::NoError)
         error = startLocked();
 
-    // Worth another go only if there is a device named to go back to. A config with
-    // neither side set describes nothing, so retrying it would burn an enumeration
-    // every quarter second to arrive at the same answer.
+    // Retrying a config that names nothing would burn an enumeration every interval
+    // to arrive at the same answer.
     auto namesADevice = config.input.has_value() || config.output.has_value();
 
     if (error != Error::NoError && autoRecover && namesADevice)
@@ -470,7 +448,7 @@ void DeviceManager::stop()
     auto lock = std::lock_guard(deviceMutex);
 
     // Before the teardown, so a stopped notification racing us finds recovery already
-    // switched off rather than re-opening the stream the host just closed.
+    // off rather than re-opening the stream the host just closed.
     shouldRun = false;
     stopLocked();
 }
@@ -482,9 +460,7 @@ void DeviceManager::stopLocked()
     if (!deviceInitialised)
         return;
 
-    // Both calls below make the OS report the device as stopped, and that report
-    // arrives through the same path the OS uses when it stops the device on its own.
-    // Swallow ours so `Stopped` only ever means the device went away.
+    // Swallow the stop notification our own teardown provokes.
     stopping = true;
 
     if (ma_device_is_started(&device))
@@ -503,9 +479,8 @@ Error DeviceManager::openStreamLocked()
     if (deviceCache.empty())
         refreshDeviceCache();
 
-    // Nothing to open. Answered here rather than left to ma_device_init so a host that
-    // asks what went wrong is told there are no devices, instead of whatever the
-    // backend makes of a stream with no sides to it.
+    // Answered here so the host is told there are no devices, rather than whatever
+    // the backend makes of a stream with no sides to it.
     if (!config.input.has_value() && !config.output.has_value())
         return setError(Error::NO_DEVICES_FOUND);
 
@@ -565,8 +540,7 @@ Error DeviceManager::openStreamLocked()
     if (config.maxBlockSize == 0)
         config.maxBlockSize = static_cast<int>(deviceConfig.periodSizeInFrames);
 
-    // The channel counts miniaudio actually negotiated are what the callback's
-    // interleaved buffers carry; clamp the requested slice to what's available.
+    // What miniaudio negotiated is what the callback's interleaved buffers carry.
     captureChannels = static_cast<int>(device.capture.channels);
     playbackChannels = static_cast<int>(device.playback.channels);
 
@@ -617,8 +591,8 @@ int DeviceManager::getStreamSampleRate() const
 
 void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameCount)
 {
-    // Before the early-out: this is the watchdog's proof of life, and a stream whose
-    // host has no callback set is still a live stream.
+    // Before the early-out: a stream whose host set no callback is still alive, and
+    // this is the watchdog's only proof of it.
     lastCallbackMs = nowMs();
 
     if (!callback)
@@ -663,17 +637,13 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         static_cast<double>(framesElapsed) / static_cast<double>(device.sampleRate);
     info.status = AudioCallbackStatus::OK;
 
-    // Audio is flowing again after the device changed under us — tell this callback
-    // even if nobody registered for notifications. The façade only ever raises dirty,
-    // so its own shape check still applies on top of this.
     if (notificationPending.exchange(false))
         info.dirty = true;
 
     callback(info);
 
-    // The device owns every native output channel, but we only fill the
-    // selected slice — clear the whole buffer so unselected channels stay
-    // silent, then write our slice into place.
+    // The device owns every native output channel but we fill only the selected
+    // slice, so clear the whole buffer first to keep the rest silent.
     if (playbackChannels > 0 && output != nullptr)
     {
         auto* out = static_cast<float*>(output);
@@ -693,9 +663,7 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
 
 void DeviceManager::notifyHost(DeviceNotification notification)
 {
-    // Set even with no callback registered: the next audio callback reads it and
-    // raises `dirty`, which is all a host that only implements the audio callback
-    // needs to know its cached view of the stream is stale.
+    // Set even with no callback registered — the next audio callback consumes it.
     notificationPending = true;
 
     if (notificationCallback)
@@ -709,8 +677,7 @@ void DeviceManager::onNotification(ma_device_notification_type type)
 
     notifyHost(getNotification(type));
 
-    // Only a stop needs recovering from. Handing `started` to the worker would have it
-    // tear down the stream it was just told came up.
+    // Handing `started` to the worker would tear down the stream that just came up.
     if (type == ma_device_notification_type_stopped && autoRecover)
         requestRecovery();
 }
@@ -722,9 +689,8 @@ bool DeviceManager::isStarved() const
 
     auto last = lastCallbackMs.load();
 
-    // 0 means no callback has run since the stream opened. Waiting for the first one
-    // rather than treating it as starvation keeps a device that is still spinning up
-    // from being torn down underneath itself.
+    // 0 means no callback has run since the open: wait for the first one rather than
+    // tearing down a device that is still spinning up.
     return last > 0 && nowMs() - last > kStarvationTimeoutMs;
 }
 
@@ -752,10 +718,8 @@ void DeviceManager::runRecovery()
 
     while (true)
     {
-        // Timed rather than indefinite. A notification is the fast path, but it is not a
-        // guarantee: a driver can stop delivering audio while the OS goes on reporting
-        // the device as running, and waiting only to be told would sit here forever with
-        // a stream that is already dead.
+        // Timed rather than indefinite: a notification is the fast path but not a
+        // guarantee — a driver can go quiet while the OS reports it as running.
         recoveryCv.wait_for(lock,
                             kWatchdogInterval,
                             [this] { return recoveryRequested || recoveryQuit; });
@@ -772,17 +736,14 @@ void DeviceManager::runRecovery()
 
         if (starved)
         {
-            // Nobody told the host the device died, because nobody told us either. Say
-            // it now, so a host watching notifications sees the same event it would
-            // have seen had the OS been forthcoming.
+            // Nobody told us the device died, so nobody told the host — say it now.
             lock.unlock();
             notifyHost(DeviceNotification::Stopped);
             lock.lock();
         }
 
-        // Keep trying rather than giving up after one go: the device is often not ready
-        // to be re-opened the instant it dies (the sample rate change that killed it is
-        // still settling), and one that was unplugged comes back when it comes back.
+        // The device is often not ready the instant it dies (the sample rate change
+        // that killed it is still settling), and an unplugged one returns whenever.
         while (!recoveryQuit)
         {
             lock.unlock();
@@ -792,8 +753,7 @@ void DeviceManager::runRecovery()
             if (recovered)
                 break;
 
-            // Interruptible, so a device that is genuinely gone costs one wake-up per
-            // interval and teardown never waits on it.
+            // Interruptible so teardown never waits on a device that is truly gone.
             recoveryCv.wait_for(lock,
                                 kRecoveryRetryInterval,
                                 [this] { return recoveryQuit; });
@@ -812,8 +772,6 @@ bool DeviceManager::tryReopen()
     stopLocked();
     repointConfigToCache();
 
-    // Anything the backend refuses (device absent, rate not yet settled) is worth
-    // another attempt; the caller paces them.
     if (openStreamLocked() != Error::NoError)
         return false;
 
@@ -836,16 +794,15 @@ void DeviceManager::repointConfigToCache()
 
             if (input ? cached.hasCapture : cached.hasPlayback)
             {
-                // Whole info, not just the id: channel counts and rates are what the
-                // re-open negotiates against, and the device may come back different.
+                // Whole info, not just the id: the device may come back with other
+                // channel counts or rates, which the re-open negotiates against.
                 params->device = cached.info;
                 return;
             }
         }
 
-        // Nothing carries that name any more. Left as it is, openStream finds no
-        // matching cache entry, passes a null device id, and miniaudio opens the
-        // system default — audio keeps flowing from whatever the machine has.
+        // Nothing carries that name any more: openStream finds no cache entry, and
+        // passes a null device id, so miniaudio opens the system default.
     };
 
     repoint(config.input, true);

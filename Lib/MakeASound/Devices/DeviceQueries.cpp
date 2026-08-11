@@ -15,8 +15,7 @@ Vector<int> getSupportedBlockSizes(const DeviceInfo& /*device*/)
 
 int getCurrentSampleRate(const DeviceInfo& /*device*/)
 {
-    // Nothing portable to ask. 0 sends the caller to its fallback rather than having it
-    // trust a guess that would be wrong the moment another app moved the device.
+    // Nothing portable to ask; 0 sends the caller to its fallback.
     return 0;
 }
 

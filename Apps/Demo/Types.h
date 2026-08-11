@@ -38,15 +38,10 @@ struct UIState
                  sampleRates,
                  midiPorts)
 
-    // Why there is no audio, empty when there is. A machine with no output device at
-    // all leaves every dropdown below empty, and without this the UI gives no hint as
-    // to whether that is a bug or the machine.
+    // Why there is no audio; empty while it is running.
     std::string status;
     int blockSize {};
 
-    // The system audio API everything below is enumerated through. Picking another one
-    // re-populates every dropdown under it — the same speakers can appear under two
-    // drivers with different channel counts and rates.
     MakeASound::UI::DropdownInfo drivers;
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo inputDevices;
@@ -80,18 +75,14 @@ class DemoApi
 public:
     DemoApi()
     {
-        // Before the first open, as the manager asks: the device can come back on its
-        // own — the library re-opens a stream whose device was reclaimed or unplugged
-        // — and the UI has to follow it.
+        // Must be set before the first open, so UI follows library re-opens.
         manager.setNotificationCallback(
             [this](MS::DeviceNotification)
             {
-                // Called on an audio thread, where touching the manager can deadlock.
+                // Audio thread: touching the manager here can deadlock.
                 eacp::Threads::callAsync([this] { ui.publish(makeUi()); });
             });
 
-        // Whatever the machine has, including nothing. A start that finds no device
-        // is a state to display, not a reason to bring the app down.
         openDefaultDevices();
     }
 
@@ -144,10 +135,8 @@ public:
         ui.publish(makeUi());
     }
 
-    // The driver ids are Backend enumerator values — see UI::makeBackendDropdown. A
-    // switch drops the config the manager was holding (device ids belong to the API
-    // that handed them out), so the only sensible thing on the far side of it is to
-    // start again from whatever the new API calls the default.
+    // The ids are Backend enumerator values. Device ids belong to the API that
+    // handed them out, so a switch has to start over from the new default.
     void setDriver(const int& id)
     {
         auto backend = static_cast<MS::Backend>(id);
@@ -175,8 +164,6 @@ public:
             ui.publish(makeUi());
     }
 
-    // The dropdown id packs (firstChannel, count); decode it onto the current
-    // device's stream parameters and re-open the stream on the chosen slice.
     void setOutputChannels(const int& encoded)
     {
         if (!config.output)
@@ -213,11 +200,8 @@ public:
         ui.publish(makeUi());
     }
 
-    // A machine can go from having no audio device to having one: a USB interface
-    // plugged in, a headset connecting, the audio service coming back. The library
-    // re-opens streams it already had, so hardware that was never there at all is the
-    // host's to pick up — and only while the demo has no stream to speak of, since
-    // stepping in later would override the device the user chose.
+    // The library only re-opens streams it already had, so first-ever hardware is
+    // the host's to pick up — only while idle, or it overrides the user's choice.
     void pollDevices()
     {
         if (config.input || config.output || manager.isRunning())
@@ -277,7 +261,6 @@ private:
 
     void renderWhiteNoise(MS::AudioCallbackInfo& info)
     {
-        // Metering only — the input is never written to the output.
         auto peak = 0.0f;
 
         for (auto channel: info.getInput().channels())
@@ -334,8 +317,7 @@ private:
         return false;
     }
 
-    // A duplex stream needs a rate both devices can drive; fall back to the
-    // configured device's own list when only one side is set.
+    // A duplex stream needs a rate both devices can drive.
     void reconcileSampleRate()
     {
         if (config.output && config.input)
@@ -345,8 +327,6 @@ private:
             return;
         }
 
-        // Neither side: a machine with no audio devices. Nothing to negotiate against,
-        // and the rate is meaningless until one turns up.
         if (!config.output && !config.input)
             return;
 

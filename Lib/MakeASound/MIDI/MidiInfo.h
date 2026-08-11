@@ -13,7 +13,6 @@
 namespace MakeASound
 {
 
-// Wall-clock timestamp used to align MIDI arrival with audio block timing.
 using MidiTimePoint = std::chrono::steady_clock::time_point;
 
 struct MidiPortInfo
@@ -33,17 +32,13 @@ struct MidiMessage
     std::vector<std::uint8_t> bytes;
 };
 
-// Queue entry used by the audio-thread MIDI path. Carries a typed
-// MIDI::Event (no heap) plus the bookkeeping needed to assign a sample
-// offset on drain. The event itself owns its sampleOffset, which
-// MidiBlockSync writes after wall-clock-to-sample translation.
 struct MidiInputEvent
 {
     int portId {};
     MIDI::Event event;
 
-    // Set by the input backend at the moment RtMidi delivered the message.
-    // Read by MidiBlockSync to translate to a sample offset.
+    // Stamped when RtMidi delivered the message; MidiBlockSync translates
+    // it into event.sampleOffset.
     MidiTimePoint arrival {};
 };
 
@@ -76,9 +71,7 @@ private:
 
 using MidiInputCallback = std::function<void(const MidiMessage&)>;
 
-// Render a MIDI message as a human-readable line: decoded status (Note On,
-// CC, Pitch Bend, ...), channel (1-based) and data bytes, followed by a
-// hex dump of the raw payload. Intended for logs, debug UIs and demos.
+// Decoded status, data bytes and a hex dump; channel is rendered 1-based.
 std::string formatMessage(const MidiMessage& message);
 
 } // namespace MakeASound

@@ -43,9 +43,9 @@ Error DeviceManager::setBackend(Backend backendToUse)
 {
     auto error = pimpl->setBackend(backendToUse);
 
-    // The backend dropped the config it was holding; drop ours with it, and the
-    // remembered callback shape too, so the first callback of the next stream reads as
-    // dirty rather than being compared against one from a different API.
+    // The backend dropped its config; drop ours with it, and the remembered callback
+    // shape, so the next stream's first callback reads as dirty rather than being
+    // compared against one from a different API.
     config = {};
     prevInfo = {};
 
@@ -59,9 +59,9 @@ StreamConfig DeviceManager::getDefaultConfig() const
     auto input = getDefaultInputDevice();
     auto output = getDefaultOutputDevice();
 
-    // A side the machine doesn't have stays unset rather than carrying a blank
-    // DeviceInfo. Asking for a duplex stream on a desktop with no microphone fails the
-    // whole open, taking the outputs down with the input that was never there.
+    // A side the machine doesn't have stays unset: asking for a duplex stream on a
+    // desktop with no microphone fails the whole open, taking the outputs down with
+    // the input that was never there.
     if (output.hasChannels(false))
         defaultConfig.output = StreamParameters(output, false);
 
@@ -95,8 +95,8 @@ void DeviceManager::stop() const
 
 void DeviceManager::setNotificationCallback(const NotificationCallback& cb) const
 {
-    // Straight onto the backend rather than kept here and forwarded at openStream, so
-    // it survives every re-open the host makes and is in place before the first one.
+    // Straight onto the backend rather than forwarded at openStream, so it survives
+    // every re-open and is in place before the first one.
     pimpl->notificationCallback = cb;
 }
 

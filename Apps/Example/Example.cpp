@@ -35,9 +35,6 @@ void listDrivers(const MS::DeviceManager& manager)
     }
 }
 
-// Switch the manager onto the driver named on the command line. Anything the machine
-// doesn't answer to is worth saying out loud rather than silently running on the
-// default — the point of passing a name is to hear that one specifically.
 bool selectDriver(MS::DeviceManager& manager, std::string_view name)
 {
     auto backend = MS::getBackendFromName(name);
@@ -66,8 +63,6 @@ int main(int argc, char** argv)
 
     listDrivers(manager);
 
-    // One optional argument: the driver to stream through, by name. Without it the
-    // machine's own default is used, which is what most callers want.
     if (argc > 1 && !selectDriver(manager, argv[1]))
         return 1;
 
@@ -77,8 +72,6 @@ int main(int argc, char** argv)
 
     Miro::logJSON(config);
 
-    // A machine with no audio device is a normal thing to run into, so say so and
-    // leave rather than sitting through two seconds of silence.
     if (auto error = manager.start(config, renderNoise); error != MS::Error::NoError)
     {
         std::cout << MS::getErrorMessage(error) << '\n';

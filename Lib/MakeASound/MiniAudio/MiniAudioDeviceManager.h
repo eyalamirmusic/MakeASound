@@ -27,20 +27,18 @@ struct DeviceManager
     DeviceInfo getDefaultInputDevice();
     DeviceInfo getDefaultOutputDevice();
 
-    // Probed once and remembered: opening every candidate API costs a connection
-    // attempt each (a PulseAudio socket, a JACK server handshake), and the set of
-    // APIs a machine has does not move the way its devices do.
+    // Probed once and remembered: each candidate costs a real connection attempt (a
+    // PulseAudio socket, a JACK handshake), and the set is far more stable than the
+    // device list.
     const Vector<Backend>& getAvailableBackends();
     Backend getBackend() const;
 
-    // Tear the context down and bring it back up on another API. Whatever was running
-    // stops, because the device belongs to the old context, and the cache goes with it.
+    // Whatever was running stops: the device and the device cache belong to the old
+    // context.
     Error setBackend(Backend backendToUse);
 
-    // Open the stream and start it, reporting rather than throwing on failure. When
-    // the config names a device that can't be opened right now, the recovery worker
-    // keeps trying in the background, so a device that is merely busy comes back on
-    // its own. A config that names nothing is not retried: nothing would change.
+    // On failure the recovery worker keeps retrying in the background, unless the
+    // config names no device at all — retrying that would change nothing.
     Error start(const StreamConfig& configToUse);
     void stop();
 
@@ -66,48 +64,37 @@ private:
     Error refreshDeviceCache();
     const ma_device_id* findDeviceId(int makeASoundId) const;
 
-    // Bring the context up on one API, or on miniaudio's default order for
-    // Backend::Unknown. Records which one answered in currentBackend.
+    // Backend::Unknown brings the context up on miniaudio's default order;
+    // currentBackend records which API answered.
     Error initContext(Backend backendToUse);
 
-    // Records an outcome in lastError and hands it back, so the failing line stays a
-    // single `return setError(...)`.
     Error setError(Error error);
 
-    // The *Locked variants assume deviceMutex is already held. The public entry points
-    // take it; so does the recovery worker, which is the reason it exists at all — the
-    // device is now opened and closed from two threads.
+    // The *Locked variants assume deviceMutex is already held.
     Error startLocked();
     void stopLocked();
     Error openStreamLocked();
 
-    // Recovery worker: waits for a stopped notification, then re-opens the stream until
-    // it comes back. Runs on its own thread because re-opening from the notification
-    // callback deadlocks — on macOS that callback arrives inside a Core Audio property
-    // listener, and tearing the device down from there waits on the lock the listener
-    // itself holds.
+    // Own thread: re-opening from the notification callback deadlocks — on macOS it
+    // arrives inside a Core Audio property listener, and tearing the device down
+    // there waits on the lock the listener itself holds.
     void ensureRecoveryThread();
     void requestRecovery();
     void runRecovery();
     bool tryReopen();
     void notifyHost(DeviceNotification notification);
 
-    // Whether the stream is meant to be running but has gone quiet. Not every way a
-    // device dies reaches us as a notification — a driver can simply stop calling back
-    // while the OS still believes the unit is running — so the callback itself is the
-    // only thing that can be trusted to say audio is alive.
+    // Not every way a device dies reaches us as a notification — a driver can stop
+    // calling back while the OS still believes the unit is running.
     bool isStarved() const;
 
-    // Re-point the config at devices in the freshly enumerated cache. Cache ids are
-    // enumeration order, so they shift whenever a device appears or disappears; the
-    // name is what survives.
+    // Cache ids are enumeration order, so they shift whenever a device appears or
+    // disappears; the name is what survives.
     void repointConfigToCache();
 
     ma_context context {};
     bool contextInitialised = false;
 
-    // Which API the live context came up on, and the probed list behind
-    // getAvailableBackends — empty until the first call asks for it.
     Backend currentBackend = Backend::Unknown;
     Vector<Backend> availableBackends;
     bool backendsProbed = false;
@@ -130,10 +117,8 @@ private:
     Vector<float> inputScratch;
     Vector<float> outputScratch;
 
-    // The device is opened at its full native channel count so CoreAudio hands
-    // us every physical channel untouched; the callback then copies only the
-    // selected slice [first, first + count) to/from the user. These are the
-    // native strides of the interleaved buffers miniaudio passes the callback.
+    // Native strides of the interleaved buffers miniaudio passes the callback: the
+    // device is opened at full native width and only a slice reaches the user.
     int captureChannels = 0;
     int playbackChannels = 0;
 
@@ -144,37 +129,28 @@ private:
 
     ma_uint64 framesElapsed = 0;
 
-    // Tearing a device down makes the OS report it as stopped, which is indistinguishable
-    // at the callback from the OS stopping it on its own. Raised for the length of our own
-    // teardown so those self-inflicted notifications are dropped and `Stopped` keeps
-    // meaning "the device went away".
+    // Our own teardown makes the OS report a stop, indistinguishable at the callback
+    // from the device going away. Raised across teardown so those are dropped.
     std::atomic<bool> stopping {false};
 
-    // A notification landed and no audio callback has run since. Consumed by the next
-    // callback to raise AudioCallbackInfo::dirty, so a host that registered no
-    // notification callback still learns the stream changed under it.
+    // Consumed by the next audio callback to raise AudioCallbackInfo::dirty, so a
+    // host with no notification callback still learns the stream changed under it.
     std::atomic<bool> notificationPending {false};
 
-    // Whether a stream is open and started. Distinct from shouldRun, which is what the
-    // host asked for: a machine with no device has shouldRun set and this clear. Atomic
-    // because a host polls it to render "no audio device" while recovery is re-opening
-    // under deviceMutex, and waiting on that lock to answer would stall the UI.
+    // A stream is open and started, as opposed to shouldRun, which is what the host
+    // asked for: a machine with no device has shouldRun set and this clear.
     std::atomic<bool> streamRunning {false};
 
-    // Why the last open or start didn't work, kept for a host that wants to say so.
     std::atomic<Error> lastError {Error::NoError};
 
-    // Guards the device itself and the cache the re-open reads, both of which the
-    // recovery worker touches concurrently with the host.
+    // Guards the device and the device cache, both touched by the recovery worker.
     std::mutex deviceMutex;
 
-    // Whether a stream is meant to be running. Recovery re-opens only while this is
-    // true, so a stop() racing a dying device wins and stays stopped. Atomic because the
-    // watchdog reads it without taking deviceMutex, which the re-open holds.
+    // What the host asked for. Recovery re-opens only while true, so a stop() racing
+    // a dying device wins and stays stopped.
     std::atomic<bool> shouldRun {false};
 
-    // Steady-clock milliseconds at the most recent data callback, and at the most recent
-    // open. The watchdog compares against them to tell a live stream from a dead one.
+    // Steady-clock ms at the last data callback — the watchdog's proof of life.
     std::atomic<std::int64_t> lastCallbackMs {0};
 
     std::thread recoveryThread;

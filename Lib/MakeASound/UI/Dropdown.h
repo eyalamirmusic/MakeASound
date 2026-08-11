@@ -43,8 +43,7 @@ struct ToggleListInfo
     Vector<ToggleListItem> items;
 };
 
-// The driver picker: one item per system audio API the machine offers. Ids are the
-// Backend enumerator's own value, so a selected id casts straight back to a Backend.
+// Item ids are the Backend enumerator's value, so a selected id casts back.
 DropdownInfo makeBackendDropdown(const Vector<Backend>& backends, Backend current);
 
 DropdownInfo makeOutputDeviceDropdown(const Vector<DeviceInfo>& devices,
@@ -57,9 +56,8 @@ DropdownInfo makeSampleRateDropdown(const DeviceInfo& device, int currentRate);
 
 DropdownInfo makeBlockSizeDropdown(const Vector<int>& sizes, int currentSize);
 
-// A channel-selection dropdown packs (firstChannel, count) into a single int id
-// so it rides the existing DropdownInfo. Use these to encode the item ids and
-// to decode a selected id back into a slice.
+// Channel dropdowns pack (firstChannel, count) into a single int id so they
+// ride the existing DropdownInfo.
 struct ChannelSelection
 {
     int firstChannel {};
@@ -69,9 +67,7 @@ struct ChannelSelection
 int encodeChannelSelection(int firstChannel, int count);
 ChannelSelection decodeChannelSelection(int encoded);
 
-// Lists the selectable inputs/outputs of a device as single channels and stereo
-// pairs (1, 2, 1/2, 3, 4, 3/4, ...), so a specific input/output can be picked
-// out of a multi-channel device. currentId is the encoded current slice.
+// Lists single channels and stereo pairs: 1, 2, 1/2, 3, 4, 3/4, ...
 DropdownInfo makeInputChannelDropdown(const DeviceInfo& device,
                                       int firstChannel,
                                       int count);

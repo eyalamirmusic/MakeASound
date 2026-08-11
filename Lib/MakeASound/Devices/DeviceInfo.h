@@ -13,13 +13,9 @@
 namespace MakeASound
 {
 
-// The system audio API a device is reached through. A machine usually offers several
-// — WASAPI, DirectSound and WinMM on Windows; ALSA, PulseAudio and JACK on Linux —
-// and the same hardware shows up under each of them with different latency, channel
-// counts and exclusivity, so which one is in use is a user-facing choice.
-//
-// Unknown means "let the backend pick", which is what a manager does until it is told
-// otherwise: DeviceManager::setBackend takes any of the values below.
+// The system audio API a device is reached through. The same hardware appears
+// under each API the machine offers, with different latency and channel counts;
+// Unknown means "let the backend pick".
 enum class Backend
 {
     Unknown,
@@ -39,25 +35,20 @@ enum class Backend
     Null
 };
 
-// A name fit to put in front of a user — "Core Audio", not "CoreAudio". Empty for
-// Backend::Unknown, which names no particular API.
+// Display spelling — "Core Audio", not "CoreAudio". Empty for Backend::Unknown.
 std::string getBackendName(Backend backend);
 
-// The reverse, for a driver named on a command line or read out of a settings file.
 // Matches both spellings — getBackendName's and the enumerator's — ignoring case,
-// spaces and punctuation, so "Core Audio", "coreaudio" and "core-audio" all land on
-// the same value. Nothing for a name no backend answers to.
+// spaces and punctuation: "Core Audio", "coreaudio" and "core-audio" all match.
 std::optional<Backend> getBackendFromName(std::string_view name);
 
 struct DeviceInfo
 {
-    // Whether this names a device that exists. Enumeration hands back a blank
-    // DeviceInfo when the machine has nothing to offer, so anything that builds a
-    // config out of a default device has to ask before using one.
+    // Enumeration hands back a blank DeviceInfo when the machine has nothing to
+    // offer, so anything building a config out of a default device has to ask first.
     bool isValid() const;
 
-    // The same question for one direction. A desktop with speakers and no microphone
-    // is the common case, and asking such a machine for a duplex stream opens
+    // Asking a machine with speakers but no microphone for a duplex stream opens
     // neither side — the whole open fails on the half that isn't there.
     bool hasChannels(bool input) const;
 
@@ -76,8 +67,8 @@ struct DeviceInfo
     int id {};
     std::string name;
 
-    // Which API enumerated this device. Ids are handed out per-API, so a DeviceInfo
-    // only means anything to the manager that produced it — see DeviceManager::setBackend.
+    // Ids are handed out per-API, so a DeviceInfo only means anything to the manager
+    // that enumerated it — see DeviceManager::setBackend.
     Backend backend {Backend::Unknown};
 
     int outputChannels {};
@@ -87,18 +78,15 @@ struct DeviceInfo
     bool isDefaultInput {false};
     Vector<int> sampleRates;
 
-    // What the device is running at now, as opposed to what it *can* run
-    // (sampleRates) or what we would open it at (preferredSampleRate). A shared
-    // device moves whenever another app moves it, so this is a snapshot from the
-    // moment it was enumerated, not a property of the device. Falls back to
-    // preferredSampleRate where the platform can't be asked.
+    // What the device runs at now, not what it can run (sampleRates) or what we
+    // would open it at (preferredSampleRate). A shared device moves whenever another
+    // app moves it, so this is a snapshot from enumeration; falls back to preferred.
     int currentSampleRate {};
     int preferredSampleRate {};
 };
 
-// Why an operation didn't work. Returned rather than thrown: a machine with no audio
-// device, or one whose device is busy, is an ordinary state on the desktop and not
-// something a host should have to catch to survive.
+// Returned rather than thrown: a machine with no audio device, or one whose device
+// is busy, is an ordinary desktop state, not something a host should have to catch.
 enum class Error
 {
     NoError,
@@ -115,16 +103,14 @@ enum class Error
     THREAD_ERROR
 };
 
-// A message fit to put in front of a user. Empty for NoError — every host that can
-// fail to open a device needs something to show, and the enumerator names are not it.
+// A message fit to put in front of a user. Empty for NoError.
 std::string getErrorMessage(Error error);
 
 int getDefaultNumChannels(const DeviceInfo& info, bool input);
 bool deviceSupportsSampleRate(const DeviceInfo& device, int rate);
 
-// Pick a sample rate both devices can drive. Prefers the output's preferred
-// rate, then the input's preferred rate, then the highest rate present in
-// both lists, with output-only fallbacks if no common rate exists.
+// Prefers the output's preferred rate, then the input's, then the highest common
+// rate, then output-only and input-only fallbacks.
 int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input);
 
 struct StreamParameters
@@ -139,10 +125,8 @@ struct StreamParameters
 
     DeviceInfo device;
 
-    // A stream uses the contiguous span of a device's channels starting at
-    // firstChannel: [firstChannel, firstChannel + nChannels). This is how a
-    // specific input/output (e.g. a stereo pair or a single channel) is picked
-    // out of a multi-channel device such as an audio interface.
+    // Uses the device's channels [firstChannel, firstChannel + nChannels), which is
+    // how a stereo pair is picked out of a multi-channel interface.
     int nChannels {};
     int firstChannel {};
 };
@@ -173,20 +157,9 @@ enum class AudioCallbackStatus
     OutputUnderflow
 };
 
-// Something the device did on its own, outside any call the host made — the OS
-// stopped it, moved it to different hardware, or interrupted it. Deliberate stops
-// made through this library are NOT reported: this means the device, not the host.
-//
-// Purely informational. A Stopped device is re-opened automatically (see
-// DeviceManager::setAutoRecover), so a host that never looks at these keeps getting
-// audio across a sample-rate change made by another app, an unplug, or the OS
-// reclaiming the device. Listen only if you want to know it happened.
-//
-// Nothing else reveals a Stopped device: no further audio callbacks arrive AND it
-// still reports itself as started, so polling says everything is fine.
-//
-// Not every backend posts every type; some reroute silently. See
-// DeviceManager::setNotificationCallback.
+// Something the device did on its own; stops made through this library are not
+// reported. Informational only — a Stopped device is re-opened automatically (see
+// setAutoRecover), and nothing else reveals one: it still reports itself started.
 enum class DeviceNotification
 {
     Started,
@@ -216,9 +189,8 @@ struct StreamConfig
 
 struct AudioCallbackInfo
 {
-    // Planar (non-interleaved) views over this block's channels. The backend
-    // owns the interleaved<->planar conversion, so callers only ever see planar
-    // data through these.
+    // Planar views; the backend owns the interleaved<->planar conversion, so
+    // callers only ever see planar data.
     Buffer getInput() const;
     Buffer getOutput();
 
@@ -239,11 +211,7 @@ struct AudioCallbackInfo
 
     // "Re-derive whatever you cached about this stream." Raised when the shape
     // (channels, sample rate, block size) differs from the previous callback, and on
-    // the first callback after the device notified us of a change — a reroute or a
-    // resumed interruption can hand back audio from different hardware without the
-    // shape moving. That second case is reported here whether or not the host
-    // registered a notification callback, so a host that only implements the audio
-    // callback still learns the stream is no longer the one it was.
+    // the first callback after a reroute or interruption, which leave it unchanged.
     bool dirty = false;
     int errorCode = 0;
 };
