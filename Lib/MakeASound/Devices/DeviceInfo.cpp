@@ -1,9 +1,78 @@
 #include "DeviceInfo.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 
 namespace MakeASound
 {
+namespace
+{
+struct BackendName
+{
+    Backend backend;
+    const char* label;
+};
+
+// The display spelling of every API. Order is only cosmetic — what a manager can
+// actually reach is DeviceManager::getAvailableBackends.
+constexpr auto backendNames =
+    std::array {BackendName {Backend::WASAPI, "WASAPI"},
+                BackendName {Backend::DirectSound, "DirectSound"},
+                BackendName {Backend::WinMM, "WinMM"},
+                BackendName {Backend::CoreAudio, "Core Audio"},
+                BackendName {Backend::SndIO, "sndio"},
+                BackendName {Backend::Audio4, "audio(4)"},
+                BackendName {Backend::OSS, "OSS"},
+                BackendName {Backend::PulseAudio, "PulseAudio"},
+                BackendName {Backend::ALSA, "ALSA"},
+                BackendName {Backend::JACK, "JACK"},
+                BackendName {Backend::AAudio, "AAudio"},
+                BackendName {Backend::OpenSL, "OpenSL|ES"},
+                BackendName {Backend::WebAudio, "Web Audio"},
+                BackendName {Backend::Null, "Null"}};
+
+// Everything a user might type between the words of a driver name, dropped so the
+// comparison is against the letters alone.
+std::string squash(std::string_view text)
+{
+    auto result = std::string {};
+
+    for (auto c: text)
+        if (std::isalnum(static_cast<unsigned char>(c)) != 0)
+            result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    return result;
+}
+} // namespace
+
+std::string getBackendName(Backend backend)
+{
+    for (const auto& entry: backendNames)
+        if (entry.backend == backend)
+            return entry.label;
+
+    return {};
+}
+
+std::optional<Backend> getBackendFromName(std::string_view name)
+{
+    auto wanted = squash(name);
+
+    if (wanted.empty())
+        return std::nullopt;
+
+    for (const auto& entry: backendNames)
+    {
+        // Both spellings: the display one above and the enumerator's, so a name
+        // written down from a log or a JSON dump comes back too.
+        if (squash(entry.label) == wanted
+            || squash(Miro::enumToString(entry.backend)) == wanted)
+            return entry.backend;
+    }
+
+    return std::nullopt;
+}
 
 bool DeviceInfo::isValid() const
 {

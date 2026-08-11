@@ -26,6 +26,7 @@ Error getError(ma_result result)
             return Error::MEMORY_ERROR;
         case MA_DEVICE_TYPE_NOT_SUPPORTED:
         case MA_BACKEND_NOT_ENABLED:
+        case MA_NO_BACKEND:
             return Error::DRIVER_ERROR;
         case MA_FAILED_TO_OPEN_BACKEND_DEVICE:
         case MA_FAILED_TO_INIT_BACKEND:
@@ -64,6 +65,107 @@ DeviceNotification getNotification(ma_device_notification_type type)
         default:
             return DeviceNotification::Stopped;
     }
+}
+
+Backend getBackend(ma_backend backend)
+{
+    switch (backend)
+    {
+        case ma_backend_wasapi:
+            return Backend::WASAPI;
+        case ma_backend_dsound:
+            return Backend::DirectSound;
+        case ma_backend_winmm:
+            return Backend::WinMM;
+        case ma_backend_coreaudio:
+            return Backend::CoreAudio;
+        case ma_backend_sndio:
+            return Backend::SndIO;
+        case ma_backend_audio4:
+            return Backend::Audio4;
+        case ma_backend_oss:
+            return Backend::OSS;
+        case ma_backend_pulseaudio:
+            return Backend::PulseAudio;
+        case ma_backend_alsa:
+            return Backend::ALSA;
+        case ma_backend_jack:
+            return Backend::JACK;
+        case ma_backend_aaudio:
+            return Backend::AAudio;
+        case ma_backend_opensl:
+            return Backend::OpenSL;
+        case ma_backend_webaudio:
+            return Backend::WebAudio;
+        case ma_backend_null:
+            return Backend::Null;
+        case ma_backend_custom:
+        default:
+            return Backend::Unknown;
+    }
+}
+
+ma_backend getMaBackend(Backend backend)
+{
+    switch (backend)
+    {
+        case Backend::WASAPI:
+            return ma_backend_wasapi;
+        case Backend::DirectSound:
+            return ma_backend_dsound;
+        case Backend::WinMM:
+            return ma_backend_winmm;
+        case Backend::CoreAudio:
+            return ma_backend_coreaudio;
+        case Backend::SndIO:
+            return ma_backend_sndio;
+        case Backend::Audio4:
+            return ma_backend_audio4;
+        case Backend::OSS:
+            return ma_backend_oss;
+        case Backend::PulseAudio:
+            return ma_backend_pulseaudio;
+        case Backend::ALSA:
+            return ma_backend_alsa;
+        case Backend::JACK:
+            return ma_backend_jack;
+        case Backend::AAudio:
+            return ma_backend_aaudio;
+        case Backend::OpenSL:
+            return ma_backend_opensl;
+        case Backend::WebAudio:
+            return ma_backend_webaudio;
+        case Backend::Null:
+        case Backend::Unknown:
+        default:
+            return ma_backend_null;
+    }
+}
+
+Vector<Backend> probeAvailableBackends()
+{
+    auto backends = Vector<Backend> {};
+
+    for (auto i = 0; i < MA_BACKEND_COUNT; ++i)
+    {
+        auto candidate = static_cast<ma_backend>(i);
+
+        if (candidate == ma_backend_null || candidate == ma_backend_custom)
+            continue;
+
+        if (!ma_is_backend_enabled(candidate))
+            continue;
+
+        auto probe = ma_context {};
+
+        if (ma_context_init(&candidate, 1, nullptr, &probe) != MA_SUCCESS)
+            continue;
+
+        ma_context_uninit(&probe);
+        backends.add(getBackend(candidate));
+    }
+
+    return backends;
 }
 
 Vector<int> collectSampleRates(const ma_device_info& info)

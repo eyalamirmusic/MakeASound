@@ -29,6 +29,29 @@ DeviceInfo DeviceManager::getDefaultOutputDevice() const
     return pimpl->getDefaultOutputDevice();
 }
 
+Vector<Backend> DeviceManager::getAvailableBackends() const
+{
+    return pimpl->getAvailableBackends();
+}
+
+Backend DeviceManager::getBackend() const
+{
+    return pimpl->getBackend();
+}
+
+Error DeviceManager::setBackend(Backend backendToUse)
+{
+    auto error = pimpl->setBackend(backendToUse);
+
+    // The backend dropped the config it was holding; drop ours with it, and the
+    // remembered callback shape too, so the first callback of the next stream reads as
+    // dirty rather than being compared against one from a different API.
+    config = {};
+    prevInfo = {};
+
+    return error;
+}
+
 StreamConfig DeviceManager::getDefaultConfig() const
 {
     auto defaultConfig = StreamConfig();

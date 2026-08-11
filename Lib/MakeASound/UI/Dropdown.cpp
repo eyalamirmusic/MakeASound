@@ -27,6 +27,17 @@ DropdownInfo makeDeviceDropdown(const Vector<DeviceInfo>& devices,
 }
 } // namespace
 
+DropdownInfo makeBackendDropdown(const Vector<Backend>& backends, Backend current)
+{
+    auto info = DropdownInfo {};
+    info.currentId = static_cast<int>(current);
+
+    for (auto backend: backends)
+        info.items.create(static_cast<int>(backend), getBackendName(backend));
+
+    return info;
+}
+
 DropdownInfo makeOutputDeviceDropdown(const Vector<DeviceInfo>& devices,
                                       int currentId)
 {

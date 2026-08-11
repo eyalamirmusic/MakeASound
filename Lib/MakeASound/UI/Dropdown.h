@@ -43,6 +43,10 @@ struct ToggleListInfo
     Vector<ToggleListItem> items;
 };
 
+// The driver picker: one item per system audio API the machine offers. Ids are the
+// Backend enumerator's own value, so a selected id casts straight back to a Backend.
+DropdownInfo makeBackendDropdown(const Vector<Backend>& backends, Backend current);
+
 DropdownInfo makeOutputDeviceDropdown(const Vector<DeviceInfo>& devices,
                                       int currentId);
 

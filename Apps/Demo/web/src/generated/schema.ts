@@ -21,6 +21,7 @@ export interface ToggleListInfo {
 export interface UIState {
     status: string;
     blockSize: number;
+    drivers: DropdownInfo;
     devices: DropdownInfo;
     inputDevices: DropdownInfo;
     outputChannels: DropdownInfo;

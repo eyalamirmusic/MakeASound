@@ -10,6 +10,12 @@ UIDeviceManager::UIDeviceManager(DeviceManager& managerToUse)
 {
 }
 
+UI::DropdownInfo UIDeviceManager::makeBackendDropdown() const
+{
+    return UI::makeBackendDropdown(manager->getAvailableBackends(),
+                                   manager->getBackend());
+}
+
 UI::DropdownInfo UIDeviceManager::makeOutputDeviceDropdown(int currentId) const
 {
     return UI::makeOutputDeviceDropdown(manager->getDevices(), currentId);

@@ -20,6 +20,25 @@ public:
     DeviceInfo getDefaultInputDevice() const;
     DeviceInfo getDefaultOutputDevice() const;
 
+    // The system audio APIs this machine can actually be driven through — see Backend.
+    // Probed once and remembered, so a JACK server started after the manager was
+    // constructed is not picked up; construct another one to look again.
+    Vector<Backend> getAvailableBackends() const;
+
+    // Which API the manager is enumerating and opening through right now. Never
+    // Unknown once construction succeeded: the machine's default is still one of them.
+    Backend getBackend() const;
+
+    // Switch to another API. Everything below this façade is per-API — device ids,
+    // channel counts, even which devices exist — so the switch stops any running
+    // stream and forgets the current config rather than trying to carry it across.
+    // Follow it with getDefaultConfig() and start() to get audio back.
+    //
+    // An API that won't come up leaves the manager with no context: it enumerates
+    // nothing and refuses to open, which getLastError() and the returned Error say.
+    // Switching back to one that works recovers it.
+    Error setBackend(Backend backendToUse);
+
     // The stream this machine would open on its own. Only the sides that exist are
     // filled in: a desktop with no microphone gives an output-only config, and a
     // machine with no audio hardware at all gives one with neither side set, which

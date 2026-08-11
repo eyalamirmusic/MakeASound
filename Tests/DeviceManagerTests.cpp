@@ -55,6 +55,43 @@ auto tDefaultConfig = test("DeviceManager/onlyFillsInSidesThatExist") = []
     check(config.sampleRate > 0);
 };
 
+auto tBackends = test("DeviceManager/offersTheDriverItIsRunningOn") = []
+{
+    // A machine that got a context at all is on one of the APIs it reports, so the
+    // driver dropdown always has a selected item. A headless runner where no backend
+    // came up reports Unknown and an empty list, which is consistent too.
+    auto manager = DeviceManager {};
+    auto backends = manager.getAvailableBackends();
+
+    if (manager.getBackend() == MakeASound::Backend::Unknown)
+        check(backends.empty());
+    else
+        check(backends.contains(manager.getBackend()));
+};
+
+auto tSwitchBackend = test("DeviceManager/dropsTheConfigWhenTheDriverChanges") = []
+{
+    // Switching APIs invalidates every device id the host is holding, so the manager
+    // comes back stopped with nothing configured rather than carrying a stale config
+    // across. Run against whatever this machine is already on: the switch has to be a
+    // clean round trip even when the destination is where we started.
+    auto manager = DeviceManager {};
+    auto backend = manager.getBackend();
+
+    if (backend == MakeASound::Backend::Unknown)
+        return;
+
+    manager.start(manager.getDefaultConfig(), [](auto&) {});
+
+    check(manager.setBackend(backend) == Error::NoError);
+    check(!manager.isRunning());
+    check(manager.getBackend() == backend);
+
+    // And it is usable afterwards - a host re-opens by asking for the new default.
+    manager.start(manager.getDefaultConfig(), [](auto&) {});
+    manager.stop();
+};
+
 auto tStopsCleanly = test("DeviceManager/stopsCleanlyAfterAFailedOpen") = []
 {
     // A failed start leaves the manager usable: stopping it, asking it questions and

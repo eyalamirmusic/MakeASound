@@ -35,6 +35,11 @@ export default function App()
                 <span className="value">{audio.gain.toFixed(2)}</span>
             </Row>
 
+            <Row label="Driver">
+                <Dropdown info={ui.drivers}
+                          onChange={(id) => void backend.setDriver(id)} />
+            </Row>
+
             <Row label="Output device">
                 <Dropdown info={ui.devices}
                           onChange={(id) => void backend.setDevice(id)} />

@@ -30,6 +30,7 @@ struct UIState
 {
     MIRO_REFLECT(status,
                  blockSize,
+                 drivers,
                  devices,
                  inputDevices,
                  outputChannels,
@@ -42,6 +43,11 @@ struct UIState
     // to whether that is a bug or the machine.
     std::string status;
     int blockSize {};
+
+    // The system audio API everything below is enumerated through. Picking another one
+    // re-populates every dropdown under it — the same speakers can appear under two
+    // drivers with different channel counts and rates.
+    MakeASound::UI::DropdownInfo drivers;
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo inputDevices;
     MakeASound::UI::DropdownInfo outputChannels;
@@ -99,6 +105,7 @@ public:
                    &T::setGain,
                    &T::setSampleRate,
                    &T::setBlockSize,
+                   &T::setDriver,
                    &T::setDevice,
                    &T::setInputDevice,
                    &T::setOutputChannels,
@@ -134,6 +141,25 @@ public:
     {
         config.maxBlockSize = value;
         applyConfig();
+        ui.publish(makeUi());
+    }
+
+    // The driver ids are Backend enumerator values — see UI::makeBackendDropdown. A
+    // switch drops the config the manager was holding (device ids belong to the API
+    // that handed them out), so the only sensible thing on the far side of it is to
+    // start again from whatever the new API calls the default.
+    void setDriver(const int& id)
+    {
+        auto backend = static_cast<MS::Backend>(id);
+
+        if (backend == manager.getBackend())
+            return;
+
+        lastError = manager.setBackend(backend);
+
+        if (lastError == MS::Error::NoError)
+            openDefaultDevices();
+
         ui.publish(makeUi());
     }
 
@@ -377,6 +403,7 @@ private:
         auto state = UIState {};
         state.status = makeStatus();
         state.blockSize = config.maxBlockSize;
+        state.drivers = uiDevices.makeBackendDropdown();
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
         state.devices = uiDevices.makeOutputDeviceDropdown(currentDeviceId);

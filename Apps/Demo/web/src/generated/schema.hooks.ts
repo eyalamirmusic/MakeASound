@@ -11,7 +11,7 @@ export const useUi = makeBridgeStore({
     event: 'ui',
     fetch: backend.getUi,
     shouldFetch: isBackendAvailable,
-    initial: {"blockSize":0,"devices":{"currentId":0,"items":[]},"inputChannels":{"currentId":0,"items":[]},"inputDevices":{"currentId":0,"items":[]},"midiPorts":{"items":[]},"outputChannels":{"currentId":0,"items":[]},"sampleRates":{"currentId":0,"items":[]},"status":""},
+    initial: {"blockSize":0,"devices":{"currentId":0,"items":[]},"drivers":{"currentId":0,"items":[]},"inputChannels":{"currentId":0,"items":[]},"inputDevices":{"currentId":0,"items":[]},"midiPorts":{"items":[]},"outputChannels":{"currentId":0,"items":[]},"sampleRates":{"currentId":0,"items":[]},"status":""},
 });
 
 export const useAudio = makeBridgeStore({

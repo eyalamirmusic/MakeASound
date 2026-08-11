@@ -27,6 +27,16 @@ struct DeviceManager
     DeviceInfo getDefaultInputDevice();
     DeviceInfo getDefaultOutputDevice();
 
+    // Probed once and remembered: opening every candidate API costs a connection
+    // attempt each (a PulseAudio socket, a JACK server handshake), and the set of
+    // APIs a machine has does not move the way its devices do.
+    const Vector<Backend>& getAvailableBackends();
+    Backend getBackend() const;
+
+    // Tear the context down and bring it back up on another API. Whatever was running
+    // stops, because the device belongs to the old context, and the cache goes with it.
+    Error setBackend(Backend backendToUse);
+
     // Open the stream and start it, reporting rather than throwing on failure. When
     // the config names a device that can't be opened right now, the recovery worker
     // keeps trying in the background, so a device that is merely busy comes back on
@@ -55,6 +65,10 @@ private:
                                int assignedId);
     Error refreshDeviceCache();
     const ma_device_id* findDeviceId(int makeASoundId) const;
+
+    // Bring the context up on one API, or on miniaudio's default order for
+    // Backend::Unknown. Records which one answered in currentBackend.
+    Error initContext(Backend backendToUse);
 
     // Records an outcome in lastError and hands it back, so the failing line stays a
     // single `return setError(...)`.
@@ -91,6 +105,12 @@ private:
 
     ma_context context {};
     bool contextInitialised = false;
+
+    // Which API the live context came up on, and the probed list behind
+    // getAvailableBackends — empty until the first call asks for it.
+    Backend currentBackend = Backend::Unknown;
+    Vector<Backend> availableBackends;
+    bool backendsProbed = false;
 
     ma_device device {};
     bool deviceInitialised = false;

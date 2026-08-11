@@ -11,6 +11,7 @@ class UIDeviceManager
 public:
     explicit UIDeviceManager(DeviceManager& managerToUse);
 
+    UI::DropdownInfo makeBackendDropdown() const;
     UI::DropdownInfo makeOutputDeviceDropdown(int currentId) const;
     UI::DropdownInfo makeInputDeviceDropdown(int currentId) const;
     UI::DropdownInfo makeSampleRateDropdown(int currentDeviceId,

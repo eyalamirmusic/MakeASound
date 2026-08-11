@@ -7,10 +7,47 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <functional>
 
 namespace MakeASound
 {
+
+// The system audio API a device is reached through. A machine usually offers several
+// — WASAPI, DirectSound and WinMM on Windows; ALSA, PulseAudio and JACK on Linux —
+// and the same hardware shows up under each of them with different latency, channel
+// counts and exclusivity, so which one is in use is a user-facing choice.
+//
+// Unknown means "let the backend pick", which is what a manager does until it is told
+// otherwise: DeviceManager::setBackend takes any of the values below.
+enum class Backend
+{
+    Unknown,
+    WASAPI,
+    DirectSound,
+    WinMM,
+    CoreAudio,
+    SndIO,
+    Audio4,
+    OSS,
+    PulseAudio,
+    ALSA,
+    JACK,
+    AAudio,
+    OpenSL,
+    WebAudio,
+    Null
+};
+
+// A name fit to put in front of a user — "Core Audio", not "CoreAudio". Empty for
+// Backend::Unknown, which names no particular API.
+std::string getBackendName(Backend backend);
+
+// The reverse, for a driver named on a command line or read out of a settings file.
+// Matches both spellings — getBackendName's and the enumerator's — ignoring case,
+// spaces and punctuation, so "Core Audio", "coreaudio" and "core-audio" all land on
+// the same value. Nothing for a name no backend answers to.
+std::optional<Backend> getBackendFromName(std::string_view name);
 
 struct DeviceInfo
 {
@@ -26,6 +63,7 @@ struct DeviceInfo
 
     MIRO_REFLECT(id,
                  name,
+                 backend,
                  outputChannels,
                  inputChannels,
                  duplexChannels,
@@ -37,6 +75,11 @@ struct DeviceInfo
 
     int id {};
     std::string name;
+
+    // Which API enumerated this device. Ids are handed out per-API, so a DeviceInfo
+    // only means anything to the manager that produced it — see DeviceManager::setBackend.
+    Backend backend {Backend::Unknown};
+
     int outputChannels {};
     int inputChannels {};
     int duplexChannels {};

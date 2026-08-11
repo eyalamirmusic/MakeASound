@@ -7,6 +7,7 @@ export type Handlers = {
     setGain(req: T.double): void | Promise<void>;
     setSampleRate(req: T.int): void | Promise<void>;
     setBlockSize(req: T.int): void | Promise<void>;
+    setDriver(req: T.int): void | Promise<void>;
     setDevice(req: T.int): void | Promise<void>;
     setInputDevice(req: T.int): void | Promise<void>;
     setOutputChannels(req: T.int): void | Promise<void>;
@@ -33,6 +34,7 @@ export async function dispatch(handlers: Handlers, command: string, payload: unk
         case 'setGain': return await handlers.setGain(payload as T.double);
         case 'setSampleRate': return await handlers.setSampleRate(payload as T.int);
         case 'setBlockSize': return await handlers.setBlockSize(payload as T.int);
+        case 'setDriver': return await handlers.setDriver(payload as T.int);
         case 'setDevice': return await handlers.setDevice(payload as T.int);
         case 'setInputDevice': return await handlers.setInputDevice(payload as T.int);
         case 'setOutputChannels': return await handlers.setOutputChannels(payload as T.int);

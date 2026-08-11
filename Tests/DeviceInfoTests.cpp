@@ -10,6 +10,7 @@
 
 using namespace nano;
 using MakeASound::AudioCallbackInfo;
+using MakeASound::Backend;
 using MakeASound::DeviceInfo;
 using MakeASound::StreamConfig;
 using MakeASound::StreamParameters;
@@ -29,6 +30,55 @@ DeviceInfo makeDevice(MakeASound::Vector<int> rates, int preferred, int channels
 
     return device;
 }
+
+// ---------------------------------------------------------------------------
+// Driver names
+// ---------------------------------------------------------------------------
+
+auto tBackendNames = test("Backend/everyDriverHasAName") = []
+{
+    // Every value but Unknown, which names no particular API. A missing entry would
+    // show up as a blank item in a driver dropdown rather than as a build error.
+    constexpr auto backends = std::array {Backend::WASAPI,
+                                          Backend::DirectSound,
+                                          Backend::WinMM,
+                                          Backend::CoreAudio,
+                                          Backend::SndIO,
+                                          Backend::Audio4,
+                                          Backend::OSS,
+                                          Backend::PulseAudio,
+                                          Backend::ALSA,
+                                          Backend::JACK,
+                                          Backend::AAudio,
+                                          Backend::OpenSL,
+                                          Backend::WebAudio,
+                                          Backend::Null};
+
+    for (auto backend: backends)
+    {
+        auto name = MakeASound::getBackendName(backend);
+
+        check(!name.empty());
+        check(MakeASound::getBackendFromName(name) == backend);
+    }
+
+    check(MakeASound::getBackendName(Backend::Unknown).empty());
+};
+
+auto tBackendFromName = test("Backend/parsesADriverNameAsAUserWouldWriteIt") = []
+{
+    // Case, spacing and punctuation are the user's business, not the parser's.
+    check(MakeASound::getBackendFromName("Core Audio") == Backend::CoreAudio);
+    check(MakeASound::getBackendFromName("coreaudio") == Backend::CoreAudio);
+    check(MakeASound::getBackendFromName("core-audio") == Backend::CoreAudio);
+    check(MakeASound::getBackendFromName("wasapi") == Backend::WASAPI);
+
+    // The enumerator's own spelling, which is what a serialized DeviceInfo carries.
+    check(MakeASound::getBackendFromName("DirectSound") == Backend::DirectSound);
+
+    check(!MakeASound::getBackendFromName("").has_value());
+    check(!MakeASound::getBackendFromName("not a driver").has_value());
+};
 
 // ---------------------------------------------------------------------------
 // Channel defaults

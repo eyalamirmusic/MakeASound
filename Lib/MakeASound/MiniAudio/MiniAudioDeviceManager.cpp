@@ -124,7 +124,21 @@ void interleaveSlice(const float* src,
 
 DeviceManager::DeviceManager()
 {
-    auto result = ma_context_init(nullptr, 0, nullptr, &context);
+    initContext(Backend::Unknown);
+}
+
+Error DeviceManager::initContext(Backend backendToUse)
+{
+    auto requested = getMaBackend(backendToUse);
+    auto named = backendToUse != Backend::Unknown;
+
+    // Unknown means "whatever this machine has" — miniaudio walks its own priority
+    // order. Anything else is a list of exactly one, so a failure is reported rather
+    // than quietly answered by the next backend down.
+    auto result = ma_context_init(named ? &requested : nullptr,
+                                  named ? 1 : 0,
+                                  nullptr,
+                                  &context);
 
     // A backend that won't initialise leaves the manager alive but empty: it enumerates
     // nothing and refuses to open a stream, both of which the host can report. Failing
@@ -132,11 +146,58 @@ DeviceManager::DeviceManager()
     // has no working audio backend.
     if (result != MA_SUCCESS)
     {
-        setError(getError(result));
-        return;
+        currentBackend = Backend::Unknown;
+        return setError(getError(result));
     }
 
     contextInitialised = true;
+
+    // What answered, not what was asked for: the default order picks the backend on
+    // its own, and that is the one a host wants to show as current.
+    currentBackend = MiniAudio::getBackend(context.backend);
+
+    return setError(Error::NoError);
+}
+
+const Vector<Backend>& DeviceManager::getAvailableBackends()
+{
+    if (!backendsProbed)
+    {
+        availableBackends = probeAvailableBackends();
+        backendsProbed = true;
+    }
+
+    return availableBackends;
+}
+
+Backend DeviceManager::getBackend() const
+{
+    return currentBackend;
+}
+
+Error DeviceManager::setBackend(Backend backendToUse)
+{
+    auto lock = std::lock_guard(deviceMutex);
+
+    // Before the teardown, so the recovery worker — which may already be on its way to
+    // re-opening the device — finds the stream disowned and leaves the old context
+    // alone instead of resurrecting a device that is about to be uninitialised.
+    shouldRun = false;
+    stopLocked();
+
+    // Ids are handed out per enumeration, and this enumeration is going away. Leaving
+    // the old config in place would have the next open point at a device number that
+    // now means something else on the new API.
+    deviceCache.clear();
+    config = {};
+
+    if (contextInitialised)
+    {
+        ma_context_uninit(&context);
+        contextInitialised = false;
+    }
+
+    return initContext(backendToUse);
 }
 
 DeviceManager::~DeviceManager()
@@ -175,6 +236,7 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
     auto info = DeviceInfo {};
     info.id = assignedId;
     info.name = source.name;
+    info.backend = currentBackend;
 
     auto channels = 0;
     for (auto i = 0u; i < source.nativeDataFormatCount; ++i)

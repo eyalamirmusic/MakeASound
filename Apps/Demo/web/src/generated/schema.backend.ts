@@ -17,6 +17,8 @@ export function makeBackend(invoke: Invoke)
             invoke('setSampleRate', req) as Promise<void>,
         setBlockSize: (req: T.int): Promise<void> =>
             invoke('setBlockSize', req) as Promise<void>,
+        setDriver: (req: T.int): Promise<void> =>
+            invoke('setDriver', req) as Promise<void>,
         setDevice: (req: T.int): Promise<void> =>
             invoke('setDevice', req) as Promise<void>,
         setInputDevice: (req: T.int): Promise<void> =>
