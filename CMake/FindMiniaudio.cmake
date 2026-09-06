@@ -32,8 +32,13 @@ if (APPLE)
             "-framework CoreFoundation"
             "-framework AudioToolbox")
 
+    # AVFoundation is where miniaudio's iOS path gets AVAudioSession; Foundation
+    # is what the same code needs for NSNotificationCenter, and AVFoundation
+    # does not re-export it.
     if (IOS)
-        target_link_libraries(miniaudio PRIVATE "-framework AVFoundation")
+        target_link_libraries(miniaudio PRIVATE
+                "-framework AVFoundation"
+                "-framework Foundation")
     endif ()
 elseif (WIN32)
     target_link_libraries(miniaudio PRIVATE ole32)

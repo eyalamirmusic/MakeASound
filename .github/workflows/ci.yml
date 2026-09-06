@@ -6,6 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Every job configures the same dependency set more than once (Debug then
+# Release, device then simulator). Pointing CPM at one cache directory means
+# each archive is fetched once per job instead of once per configure, which
+# keeps a flaky download from taking out the second half of a job that has
+# already downloaded everything it needs.
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+
 jobs:
   build:
     name: ${{ matrix.name }}
