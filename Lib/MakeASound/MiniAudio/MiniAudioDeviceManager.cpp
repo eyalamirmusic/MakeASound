@@ -210,23 +210,49 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
                                           ma_device_type type,
                                           int assignedId)
 {
+    auto isPlayback = type == ma_device_type_playback;
+
+    auto info = DeviceInfo {};
+    info.id = assignedId;
+    info.name = enumInfo.name;
+    info.backend = currentBackend;
+
+    if (isPlayback)
+        info.isDefaultOutput = enumInfo.isDefault != 0;
+    else
+        info.isDefaultInput = enumInfo.isDefault != 0;
+
+    // Where the platform describes the route itself, that answer wins: the backend's
+    // per-device query costs a RemoteIO instance on iOS, and enumeration isn't worth
+    // a call that aborts the process when the audio daemon is slow to answer.
+    if (auto native = getNativeFormat(!isPlayback))
+    {
+        if (isPlayback)
+            info.outputChannels = native->channels;
+        else
+            info.inputChannels = native->channels;
+
+        info.sampleRates = {native->sampleRate};
+        info.preferredSampleRate = native->sampleRate;
+        info.currentSampleRate = native->sampleRate;
+
+        return info;
+    }
+
     auto detailed = ma_device_info {};
     auto result =
         ma_context_get_device_info(&context, type, &enumInfo.id, &detailed);
 
     auto& source = (result == MA_SUCCESS) ? detailed : enumInfo;
 
-    auto info = DeviceInfo {};
-    info.id = assignedId;
     info.name = source.name;
-    info.backend = currentBackend;
 
     auto channels = 0;
     for (auto i = 0u; i < source.nativeDataFormatCount; ++i)
         channels = std::max(channels,
                             static_cast<int>(source.nativeDataFormats[i].channels));
 
-    if (type == ma_device_type_playback)
+    if (isPlayback)
         info.outputChannels = channels;
     else
         info.inputChannels = channels;
@@ -238,11 +264,6 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
     // which one is current, and the two differ the moment an app moves the device.
     auto current = getCurrentSampleRate(info);
     info.currentSampleRate = current > 0 ? current : info.preferredSampleRate;
-
-    if (type == ma_device_type_playback)
-        info.isDefaultOutput = enumInfo.isDefault != 0;
-    else
-        info.isDefaultInput = enumInfo.isDefault != 0;
 
     return info;
 }

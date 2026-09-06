@@ -13,8 +13,12 @@ add_library(MakeASound STATIC
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)
 
-# DeviceQueries.mm reads the CoreAudio HAL directly, which is macOS-only.
-if(APPLE AND NOT IOS)
+# One device-query implementation per platform: the CoreAudio HAL is macOS-only, and
+# iOS answers the same questions from AVAudioSession instead.
+if(IOS)
+    target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueriesIOS.mm)
+    target_link_libraries(MakeASound PRIVATE "-framework AVFoundation")
+elseif(APPLE)
     target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueries.mm)
     target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
 else()

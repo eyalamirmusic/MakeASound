@@ -174,4 +174,11 @@ int getCurrentSampleRate(const DeviceInfo& device)
     return queryNominalSampleRate(*coreAudioId);
 }
 
+std::optional<NativeFormat> getNativeFormat(bool /*input*/)
+{
+    // The HAL describes every device on its own; the backend's per-device query is
+    // the same set of property reads and costs nothing extra.
+    return std::nullopt;
+}
+
 } // namespace MakeASound

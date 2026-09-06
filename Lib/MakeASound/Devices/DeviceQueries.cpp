@@ -19,4 +19,9 @@ int getCurrentSampleRate(const DeviceInfo& /*device*/)
     return 0;
 }
 
+std::optional<NativeFormat> getNativeFormat(bool /*input*/)
+{
+    return std::nullopt;
+}
+
 } // namespace MakeASound
