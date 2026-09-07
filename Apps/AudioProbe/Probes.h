@@ -54,8 +54,10 @@ private:
 
     void refreshSession();
     void refreshDevices();
+    void refreshDefaultInput();
     void refreshStream();
     void refreshHardwareRate();
+    void refreshCallbackStatus();
     void refreshMidi();
 
     AudioEngine& engine;
@@ -64,6 +66,11 @@ private:
     MS::SessionState session;
     std::string lastNotification {"none yet"};
     bool midiProbeRun = false;
+
+    // Which delivery paths have been seen, kept because each notification arrives
+    // twice — once on the thread that raised it, once from the queue.
+    int queuedDeliveries = 0;
+    bool callbackLeftTheMainThread = false;
 };
 
 } // namespace AudioProbe

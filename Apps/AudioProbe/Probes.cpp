@@ -99,6 +99,10 @@ ProbeSet::ProbeSet(AudioEngine& engineToUse)
                          "the default output offers the rates a picker could show"));
 
     probes.add(
+        makeProbe("devices/default-input-flag",
+                  "getDefaultInputDevice() names the device the platform does"));
+
+    probes.add(
         makeProbe("devices/route-stability",
                   "a device id keeps naming the same device across a route change"));
 
@@ -125,6 +129,9 @@ ProbeSet::ProbeSet(AudioEngine& engineToUse)
 
     probes.add(makeProbe("stream/hardware-rate",
                          "the rate the stream reports is the rate the hardware runs"));
+
+    probes.add(makeProbe("callback/status-reported",
+                         "a block that missed its deadline says so in its status"));
 }
 
 Probe& ProbeSet::get(std::string_view id)
@@ -153,7 +160,9 @@ void ProbeSet::refresh()
 
     refreshSession();
     refreshDevices();
+    refreshDefaultInput();
     refreshStream();
+    refreshCallbackStatus();
     refreshMidi();
 }
 
@@ -274,6 +283,29 @@ void ProbeSet::refreshDevices()
     }
 }
 
+// miniaudio marks every capture device of a duplex unit default on Core Audio, and
+// playback is enumerated first, so a merged duplex entry used to outrank the device
+// the user actually picked in System Settings.
+void ProbeSet::refreshDefaultInput()
+{
+    auto& probe = get("devices/default-input-flag");
+    auto platform = MS::getDefaultDeviceName(true);
+
+    if (platform.empty())
+    {
+        probe.status = ProbeStatus::NotApplicable;
+        probe.actual = "this platform will not name its own default input";
+        return;
+    }
+
+    auto device = engine.getManager().getDefaultInputDevice();
+
+    probe.status = device.name == platform ? ProbeStatus::Pass : ProbeStatus::Gap;
+    probe.actual = "the platform calls '" + platform
+                   + "' its default input and getDefaultInputDevice() says '"
+                   + device.name + "'";
+}
+
 void ProbeSet::refreshStream()
 {
     auto& manager = engine.getManager();
@@ -379,6 +411,32 @@ void ProbeSet::refreshHardwareRate()
                    + (hardware == reported ? "" : "; the backend is resampling");
 }
 
+// Nothing in an ordinary run misses a deadline, so the engine holds one block past
+// its own to find out whether a dropout is visible at all.
+void ProbeSet::refreshCallbackStatus()
+{
+    auto& probe = get("callback/status-reported");
+    auto stats = engine.getStats();
+
+    if (!stats.stallDone)
+    {
+        probe.status = ProbeStatus::Pending;
+        probe.actual = "waiting for the deliberate stall";
+        return;
+    }
+
+    auto reported = stats.underflows + stats.overflows;
+
+    probe.status = reported > 0 ? ProbeStatus::Pass : ProbeStatus::Gap;
+    probe.actual =
+        "a callback was held three block durations past its deadline and "
+        + (reported > 0
+               ? std::to_string(reported) + " block(s) came back non-OK ("
+                     + std::to_string(stats.underflows) + " underflow, "
+                     + std::to_string(stats.overflows) + " overflow)"
+               : std::string {"every block since still reported OK"});
+}
+
 void ProbeSet::refreshMidi()
 {
     if (midiProbeRun)
@@ -404,29 +462,36 @@ void ProbeSet::refreshMidi()
 
 void ProbeSet::observe(const DeviceEvent& event)
 {
-    lastNotification =
-        toString(event.type)
-        + (event.fromMainThread ? " (main thread)" : " (audio thread)");
+    lastNotification = toString(event.type)
+                       + (event.viaQueue ? " (drained)"
+                          : event.onMainThread ? " (callback, main thread)"
+                                               : " (callback, audio thread)");
+
+    if (event.viaQueue && event.onMainThread)
+        ++queuedDeliveries;
+
+    if (!event.viaQueue && !event.onMainThread)
+        callbackLeftTheMainThread = true;
 
     auto& delivery = get("notify/main-thread-delivery");
 
-    // A Started that follows our own start() call is on the main thread because
-    // we were: only the ones the device raises by itself answer the question.
-    if (!event.fromMainThread)
+    if (queuedDeliveries > 0)
     {
-        delivery.status = ProbeStatus::Gap;
-        delivery.actual = toString(event.type)
-                          + " arrived on an OS audio thread, from which no "
-                            "DeviceManager method may be called; every UI has to "
-                            "write the same marshalling";
+        delivery.status = ProbeStatus::Pass;
+        delivery.actual =
+            std::to_string(queuedDeliveries)
+            + " notification(s) came back from drainNotifications() on the thread "
+              "that asked for them"
+            + (callbackLeftTheMainThread
+                   ? ", after the realtime callback had delivered on an OS audio "
+                     "thread"
+                   : "");
     }
-    else if (delivery.status != ProbeStatus::Gap)
-    {
-        delivery.status = ProbeStatus::Pending;
-        delivery.actual = toString(event.type)
-                          + " arrived on the main thread, but it followed our own "
-                            "start(); waiting for one the device raises by itself";
-    }
+
+    // Each notification arrives twice, once down each path: the type-specific
+    // checks below run on the queued copy so they answer once.
+    if (!event.viaQueue)
+        return;
 
     if (event.type == MS::DeviceNotification::Stopped)
     {

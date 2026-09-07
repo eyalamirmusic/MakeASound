@@ -127,6 +127,11 @@ void DeviceManager::setNotificationCallback(const NotificationCallback& cb) cons
     pimpl->notificationCallback = cb;
 }
 
+Vector<DeviceNotification> DeviceManager::drainNotifications() const
+{
+    return pimpl->takeNotifications();
+}
+
 void DeviceManager::setAutoRecover(bool shouldRecover) const
 {
     pimpl->autoRecover = shouldRecover;

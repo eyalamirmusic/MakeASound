@@ -13,6 +13,18 @@ Vector<int> getSupportedBlockSizes(const DeviceInfo& /*device*/)
     return sizes;
 }
 
+int getRouteLatency(const DeviceInfo& /*device*/, bool /*input*/)
+{
+    // Nothing portable to ask; the stream reports its own buffering and no more.
+    return 0;
+}
+
+std::string getDefaultDeviceName(bool /*input*/)
+{
+    // Nothing portable to ask; the backend's own isDefault flags stand.
+    return {};
+}
+
 int getCurrentSampleRate(const DeviceInfo& /*device*/)
 {
     // Nothing portable to ask; 0 sends the caller to its fallback.

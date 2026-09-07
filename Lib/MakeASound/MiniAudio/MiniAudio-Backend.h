@@ -10,7 +10,6 @@ namespace MakeASound::MiniAudio
 {
 
 Error getError(ma_result result);
-AudioCallbackStatus getStatus(ma_result result);
 DeviceNotification getNotification(ma_device_notification_type type);
 
 Backend getBackend(ma_backend backend);

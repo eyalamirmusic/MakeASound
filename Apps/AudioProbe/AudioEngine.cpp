@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 
+#include <chrono>
 #include <cmath>
 #include <numbers>
 
@@ -12,6 +13,11 @@ constexpr auto twoPi = 2.f * std::numbers::pi_v<float>;
 // Harmonics rather than a bare sine: one partial draws a single thin line, and
 // a picture with nothing in it says nothing about the picture.
 constexpr float harmonicGains[] = {1.f, 0.45f, 0.22f, 0.11f};
+
+// Early enough that a --strict run of a couple of seconds sees the answer, late
+// enough that the stream has settled into its own rhythm first.
+constexpr auto callbacksBeforeStall = 8;
+constexpr auto blocksHeld = 3;
 } // namespace
 
 AudioEngine::AudioEngine()
@@ -28,7 +34,10 @@ AudioEngine::AudioEngine()
 
     manager->setNotificationCallback(
         [this](MS::DeviceNotification notification)
-        { events.push({notification, std::this_thread::get_id() == mainThread}); });
+        {
+            events.push(
+                {notification, false, std::this_thread::get_id() == mainThread});
+        });
 }
 
 AudioEngine::~AudioEngine()
@@ -132,6 +141,7 @@ StreamStats AudioEngine::getStats() const
     stats.underflows = statUnderflows.load();
     stats.overflows = statOverflows.load();
     stats.firstBlockDirty = statFirstBlockDirty.load();
+    stats.stallDone = stalled.load();
 
     return stats;
 }
@@ -143,6 +153,13 @@ MS::Vector<DeviceEvent> AudioEngine::drainEvents()
 
     while (events.pop(event))
         drained.add(event);
+
+    // The other half of the same story: the queue MakeASound fills for whatever
+    // thread comes and asks, which here is the one drawing the UI.
+    auto onMainThread = std::this_thread::get_id() == mainThread;
+
+    for (auto notification: manager->drainNotifications())
+        drained.add({notification, true, onMainThread});
 
     return drained;
 }
@@ -207,7 +224,23 @@ void AudioEngine::audioCallback(MS::AudioCallbackInfo& info)
     statInputs.store(info.numInputs, std::memory_order_relaxed);
     statOutputs.store(info.numOutputs, std::memory_order_relaxed);
     statLatency.store(info.latency, std::memory_order_relaxed);
-    statCallbacks.fetch_add(1, std::memory_order_relaxed);
+
+    auto blocksSoFar = statCallbacks.fetch_add(1, std::memory_order_relaxed);
+
+    if (blocksSoFar == callbacksBeforeStall)
+        holdPastTheDeadline(info);
+}
+
+// A status nobody can provoke is a status nobody can trust, and nothing else in a
+// probe run misses a deadline: this one block is held past its own so the next one
+// arrives late enough to be reported as the dropout it is. Costs a single glitch.
+void AudioEngine::holdPastTheDeadline(const MS::AudioCallbackInfo& info)
+{
+    auto rate = info.sampleRate > 0 ? info.sampleRate : 48000;
+    auto held = blocksHeld * info.numSamples * 1000000LL / rate;
+
+    std::this_thread::sleep_for(std::chrono::microseconds(held));
+    stalled.store(true, std::memory_order_relaxed);
 }
 
 } // namespace AudioProbe

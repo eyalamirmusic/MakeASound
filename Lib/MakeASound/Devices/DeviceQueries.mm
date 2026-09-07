@@ -4,6 +4,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace MakeASound
@@ -131,6 +132,64 @@ Vector<int> queryFrameSizes(AudioObjectID id)
     return sizes;
 }
 
+std::optional<AudioObjectID> defaultCoreAudioDevice(bool input)
+{
+    auto address = AudioObjectPropertyAddress {
+        input ? kAudioHardwarePropertyDefaultInputDevice
+              : kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain};
+
+    auto id = AudioObjectID {kAudioObjectUnknown};
+    auto byteSize = static_cast<UInt32>(sizeof(id));
+    auto err = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, &address, 0, nullptr, &byteSize, &id);
+
+    if (err != noErr || id == kAudioObjectUnknown)
+        return std::nullopt;
+
+    return id;
+}
+
+UInt32 queryUInt32(AudioObjectID id,
+                   AudioObjectPropertySelector selector,
+                   AudioObjectPropertyScope scope)
+{
+    auto address =
+        AudioObjectPropertyAddress {selector, scope, kAudioObjectPropertyElementMain};
+
+    auto value = UInt32 {};
+    auto byteSize = static_cast<UInt32>(sizeof(value));
+    auto err = AudioObjectGetPropertyData(id, &address, 0, nullptr, &byteSize, &value);
+
+    return err == noErr ? value : 0;
+}
+
+// The stream's own latency, on top of the device's: the HAL keeps them apart and an
+// app that reports only one is short by the other.
+UInt32 queryStreamLatency(AudioObjectID id, AudioObjectPropertyScope scope)
+{
+    auto address = AudioObjectPropertyAddress {
+        kAudioDevicePropertyStreams, scope, kAudioObjectPropertyElementMain};
+
+    auto byteSize = UInt32 {};
+
+    if (AudioObjectGetPropertyDataSize(id, &address, 0, nullptr, &byteSize) != noErr
+        || byteSize < sizeof(AudioStreamID))
+        return 0;
+
+    auto streams = std::vector<AudioStreamID>(byteSize / sizeof(AudioStreamID));
+
+    if (AudioObjectGetPropertyData(
+            id, &address, 0, nullptr, &byteSize, streams.data())
+        != noErr)
+        return 0;
+
+    return queryUInt32(streams.front(),
+                       kAudioStreamPropertyLatency,
+                       kAudioObjectPropertyScopeGlobal);
+}
+
 int queryNominalSampleRate(AudioObjectID id)
 {
     auto address = AudioObjectPropertyAddress {
@@ -162,6 +221,37 @@ Vector<int> getSupportedBlockSizes(const DeviceInfo& device)
         return defaultBlockSizes();
 
     return sizes;
+}
+
+int getRouteLatency(const DeviceInfo& device, bool input)
+{
+    auto coreAudioId = findCoreAudioDevice(device.name);
+
+    if (!coreAudioId)
+        return 0;
+
+    auto scope =
+        input ? kAudioObjectPropertyScopeInput : kAudioObjectPropertyScopeOutput;
+
+    auto latency = queryUInt32(*coreAudioId, kAudioDevicePropertyLatency, scope)
+                   + queryUInt32(*coreAudioId,
+                                 kAudioDevicePropertySafetyOffset,
+                                 scope)
+                   + queryStreamLatency(*coreAudioId, scope);
+
+    return static_cast<int>(latency);
+}
+
+std::string getDefaultDeviceName(bool input)
+{
+    auto id = defaultCoreAudioDevice(input);
+
+    if (!id)
+        return {};
+
+    auto name = coreAudioStringProperty(*id, kAudioDevicePropertyDeviceNameCFString);
+
+    return name ? *name : std::string {};
 }
 
 int getCurrentSampleRate(const DeviceInfo& device)

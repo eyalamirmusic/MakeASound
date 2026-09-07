@@ -150,6 +150,10 @@ struct StreamOptions
     int priority {};
 };
 
+// What the block that just arrived cost. miniaudio's data callback carries no status
+// of its own, so this is measured: a block that arrives a whole period late means the
+// deadline was missed and the OS filled the gap — with silence on the way out, or by
+// dropping what it could not hand over on the way in.
 enum class AudioCallbackStatus
 {
     OK,
@@ -213,7 +217,6 @@ struct AudioCallbackInfo
     // (channels, sample rate, block size) differs from the previous callback, and on
     // the first callback after a reroute or interruption, which leave it unchanged.
     bool dirty = false;
-    int errorCode = 0;
 };
 
 using Callback = std::function<void(AudioCallbackInfo&)>;

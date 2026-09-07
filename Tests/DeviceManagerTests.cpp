@@ -118,6 +118,96 @@ auto tStopsCleanly = test("DeviceManager/stopsCleanlyAfterAFailedOpen") = []
     check(manager.getStreamLatency() == 0);
 };
 
+auto tOneDefaultEachWay = test("DeviceManager/flagsOneDefaultPerDirection") = []
+{
+    // miniaudio marks every capture device belonging to a duplex unit as default on
+    // Core Audio, and the first one enumerated used to win - so the default input was
+    // whichever interface happened to be listed before the microphone.
+    auto manager = DeviceManager {};
+    auto devices = manager.getDevices();
+
+    auto flagged = [&devices](bool input)
+    {
+        auto count = 0;
+
+        for (const auto& device: devices)
+            if (input ? device.isDefaultInput : device.isDefaultOutput)
+                ++count;
+
+        return count;
+    };
+
+    auto has = [&devices](bool input)
+    {
+        for (const auto& device: devices)
+            if (device.hasChannels(input))
+                return true;
+
+        return false;
+    };
+
+    // Exactly one, not at most one: a machine with an output has a default output.
+    check(flagged(false) == (has(false) ? 1 : 0));
+    check(flagged(true) == (has(true) ? 1 : 0));
+
+    if (has(true))
+    {
+        auto input = manager.getDefaultInputDevice();
+        check(input.isDefaultInput);
+        check(input.hasChannels(true));
+    }
+
+    if (has(false))
+    {
+        auto output = manager.getDefaultOutputDevice();
+        check(output.isDefaultOutput);
+        check(output.hasChannels(false));
+    }
+};
+
+auto tStableIds = test("DeviceManager/handsTheSameIdToTheSameDevice") = []
+{
+    // A host caches a DeviceInfo and opens it later. Ids used to be enumeration
+    // order, so anything appearing or disappearing renumbered the rest; they are a
+    // registry keyed on the name now, and an id is unique within one enumeration.
+    auto manager = DeviceManager {};
+    auto first = manager.getDevices();
+    auto second = manager.getDevices();
+
+    check(first.size() == second.size());
+
+    auto seen = MakeASound::Vector<int> {};
+
+    for (auto i = 0; i < first.size(); ++i)
+    {
+        check(first[i].id == second[i].id);
+        check(first[i].name == second[i].name);
+        check(!seen.contains(first[i].id));
+
+        seen.add(first[i].id);
+    }
+};
+
+auto tNotificationQueue =
+    test("DeviceManager/queuesNotificationsForTheCallingThread") = []
+{
+    // The realtime callback fires on an OS thread; this is the path a UI reads from,
+    // so it has to be drainable before anything has happened and empty itself when it
+    // is read.
+    auto manager = DeviceManager {};
+
+    check(manager.drainNotifications().empty());
+
+    manager.start(manager.getDefaultOutputConfig(), [](auto&) {});
+    manager.stop();
+
+    // Nothing can arrive once the device is torn down, so what the stream left
+    // behind is drained by the first call and the queue stays empty after it.
+    manager.drainNotifications();
+
+    check(manager.drainNotifications().empty());
+};
+
 auto tMidiDoesNotThrow = test("MidiManager/reportsFailuresWithoutThrowing") = []
 {
     // The audio side returns an Error for a device that isn't there; the MIDI side

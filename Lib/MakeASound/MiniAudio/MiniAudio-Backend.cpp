@@ -39,14 +39,6 @@ Error getError(ma_result result)
     }
 }
 
-AudioCallbackStatus getStatus(ma_result result)
-{
-    if (result == MA_SUCCESS)
-        return AudioCallbackStatus::OK;
-
-    return AudioCallbackStatus::OutputUnderflow;
-}
-
 DeviceNotification getNotification(ma_device_notification_type type)
 {
     switch (type)

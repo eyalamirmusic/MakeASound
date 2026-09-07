@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <condition_variable>
 #include <mutex>
+#include <string>
 #include <thread>
 
 namespace MakeASound::MiniAudio
@@ -52,6 +53,9 @@ struct DeviceManager
     void onCallback(void* output, const void* input, ma_uint32 frameCount);
     void onNotification(ma_device_notification_type type);
 
+    // Everything queued since the last call, in order, for whatever thread asks.
+    Vector<DeviceNotification> takeNotifications();
+
     Callback callback;
     NotificationCallback notificationCallback;
     StreamConfig config;
@@ -67,8 +71,16 @@ private:
                                ma_device_type type,
                                int assignedId);
     Error refreshDeviceCache();
-    void flagDefaultsIfUnmarked();
+    void resolveDefaults();
     const ma_device_id* findDeviceId(int makeASoundId) const;
+
+    // Ids have to outlive an enumeration: a host caches a DeviceInfo and opens it
+    // later, and a hotplug renumbers every device that came after the one that
+    // moved. The name is what a device keeps, so an id is a slot in this registry,
+    // handed back to the same name every time it is enumerated. Per-API, like the
+    // ids themselves — setBackend clears it.
+    int idForDevice(const std::string& name, const Vector<int>& usedIds);
+    Vector<std::string> idRegistry;
 
     // Backend::Unknown brings the context up on miniaudio's default order;
     // currentBackend records which API answered.
@@ -90,12 +102,19 @@ private:
     bool tryReopen();
     void notifyHost(DeviceNotification notification);
 
+    // miniaudio's data callback carries no status of its own, and the backends that
+    // know about xruns handle them internally, so the clock is what is left.
+    AudioCallbackStatus getCallbackStatus(std::int64_t previousUs,
+                                          std::int64_t nowUs,
+                                          int frames) const;
+
     // Not every way a device dies reaches us as a notification — a driver can stop
     // calling back while the OS still believes the unit is running.
     bool isStarved() const;
 
-    // Cache ids are enumeration order, so they shift whenever a device appears or
-    // disappears; the name is what survives.
+    // A device that comes back is the same id but not the same backend handle, and
+    // may come back with other channel counts or rates; the config is re-pointed at
+    // the fresh cache entry so the re-open negotiates against what is there now.
     void repointConfigToCache();
 
     ma_context context {};
@@ -135,6 +154,10 @@ private:
 
     ma_uint64 framesElapsed = 0;
 
+    // Read once per open: the property read is a HAL round-trip and the audio
+    // callback asks for the latency on every block.
+    int routeLatencyFrames = 0;
+
     // Our own teardown makes the OS report a stop, indistinguishable at the callback
     // from the device going away. Raised across teardown so those are dropped.
     std::atomic<bool> stopping {false};
@@ -156,8 +179,14 @@ private:
     // a dying device wins and stays stopped.
     std::atomic<bool> shouldRun {false};
 
-    // Steady-clock ms at the last data callback — the watchdog's proof of life.
-    std::atomic<std::int64_t> lastCallbackMs {0};
+    // Steady-clock microseconds at the last data callback: the watchdog's proof of
+    // life, and the gap a dropout shows up in.
+    std::atomic<std::int64_t> lastCallbackUs {0};
+
+    // Delivered to the notification callback on whatever OS thread raised them, and
+    // queued here for a host thread that would rather not be that thread.
+    std::mutex notificationMutex;
+    Vector<DeviceNotification> pendingNotifications;
 
     std::thread recoveryThread;
     std::mutex recoveryMutex;

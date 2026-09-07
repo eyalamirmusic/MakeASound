@@ -7,13 +7,18 @@ macOS measured on 26.6 (arm64, Core Audio) with a Fireface UFX as the default
 output, a Studio Display Microphone as the default input, and the interface
 clocked at 44100. iOS measured on the iPhone 17 Pro simulator, iOS 26.5.
 
-|  | before | now |
+|  | first run | now |
 | --- | --- | --- |
-| macOS | 2 gaps, 4 pass, 3 waiting, 3 n/a | **0 gaps**, 7 pass, 3 waiting, 3 n/a |
-| iOS | 7 gaps, 2 pass, 3 waiting, 0 n/a | **0 gaps**, 10 pass, 3 waiting, 0 n/a |
+| macOS | 2 gaps, 4 pass, 3 waiting, 3 n/a | **0 gaps**, 10 pass, 2 waiting, 3 n/a |
+| iOS | 7 gaps, 2 pass, 3 waiting, 0 n/a | **0 gaps**, 12 pass, 2 waiting, 1 n/a |
 
-The three `waiting` rows are the same on both platforms and are still open — they
-need a hardware event no simulator produces. See [Still open](#still-open).
+Thirteen probes became fifteen: `devices/default-input-flag` and
+`callback/status-reported`, both of which the last round listed as worth adding
+and both of which were red when they were written.
+
+The two `waiting` rows are the same on both platforms. They have fixes in now —
+what they are waiting for is a hardware event that proves them. See
+[Still open](#still-open).
 
 ## Fixed
 
@@ -64,6 +69,25 @@ the only device there was.
 
 Fixes `devices/default-flag`.
 
+### The default input is the device the platform picked
+
+miniaudio marks *two* capture devices `isDefault = 1` on Core Audio, and the first
+cache entry carrying the flag won. Playback is enumerated first, so a merged duplex
+entry beat the capture-only default: macOS said the default input was
+`Studio Display Microphone`, MakeASound said the Fireface.
+
+`getDefaultDeviceName(bool input)` in `Devices/DeviceQueries.h` asks the platform
+directly — `kAudioHardwarePropertyDefaultInputDevice` on macOS, nothing to ask
+elsewhere — and `resolveDefaults` now works down three sources in order of
+authority: the platform's own answer, then the backend's flags, then the first
+candidate with channels in that direction. Where the platform answers, the flag it
+names is the only one set.
+
+Found by the new `devices/default-input-flag` probe.
+`DeviceManager/flagsOneDefaultPerDirection` is the regression test, and it needs no
+particular hardware: it asserts that exactly one device is flagged in each
+direction the machine has.
+
 ### iOS offers real rate choices
 
 `getNativeFormat` now reports the rates `setPreferredSampleRate:` is worth asking
@@ -79,6 +103,19 @@ knew the negotiated value and dropped it on the way out; only `AudioCallbackInfo
 carried it. `getStreamLatency()` also returns `int` now, like everything else.
 
 Fixes `stream/negotiated-block-size`.
+
+### `getStreamLatency()` counts the route
+
+It counted miniaudio's own periods and nothing else, which is the part of the delay
+the backend can see rather than the part a caller wants to compensate for.
+`getRouteLatency()` asks the platform for the rest — `kAudioDevicePropertyLatency`
+plus the safety offset plus the stream's own latency on macOS,
+`AVAudioSession`'s `outputLatency` / `inputLatency` on iOS — and the total is what
+the manager and `AudioCallbackInfo::latency` report.
+
+It is read once per open and cached: the property read is a HAL round-trip, and the
+audio callback asks for the latency on every block. On the Fireface the route adds
+65 frames on top of 768 of buffering.
 
 ### The MIDI facade returns errors instead of throwing
 
@@ -109,6 +146,52 @@ moves it under every other app using it.
 Found by the new `stream/hardware-rate` probe, which compares
 `getStreamSampleRate()` against `getCurrentSampleRate(device)`.
 
+### Notifications reach a thread a UI can use
+
+The notification callback runs wherever the OS raised the notification — on macOS
+inside a Core Audio property listener, sometimes while recovery holds the device —
+so no `DeviceManager` method may be called from it and every host wrote the same
+marshalling to get off it.
+
+`DeviceManager::drainNotifications()` hands back everything queued since the last
+call, on the thread that asked: a UI timer, an idle callback, whatever the host
+already has. The realtime callback is still there for a host that needs the news
+sooner. Undrained notifications stop accumulating at 64.
+
+Fixes `notify/main-thread-delivery`, which now passes without waiting for a device
+to do anything: our own `start()` produces a `Started`, and the probe reads it off
+the queue on the thread it draws from.
+
+### `isRunning()` goes false when the OS stops the device
+
+`streamRunning` was cleared only in `stopLocked()`. With auto-recover off nothing
+else ever cleared it, so `isRunning()` answered `true` forever for a device that was
+gone — the exact case an app turns auto-recover off to handle itself.
+
+The `stopped` notification clears it now, and so does the watchdog when it decides
+the device has starved. Neither path had anything to do with our own teardown, which
+is still swallowed by the `stopping` flag.
+
+### A block that missed its deadline says so
+
+`AudioCallbackStatus` was hardcoded to `OK`, `getStatus()` was declared, defined and
+never called, and `InputOverflow` was produced nowhere.
+
+miniaudio's data callback carries no status of its own and the backends that know
+about xruns handle them internally, so the clock is what is left: the gap between
+one callback arriving and the next is the period plus whatever the last one overran
+by, and a block that arrives a whole period late means the deadline was missed and
+the OS filled the hole. Over 1029 blocks of 64 frames the measurement produced three
+non-`OK` blocks for three deliberate stalls and no false positives.
+
+`AudioCallbackInfo::errorCode` is gone rather than left at 0: nothing wrote it and
+nothing could say what it would have meant.
+
+`callback/status-reported` is the new probe, and it answers itself — the engine
+holds one callback three block durations past its deadline once the stream has
+settled, because a status nobody can provoke is a status nobody can trust. It costs
+one glitch per run.
+
 ### The probe can pick a pair of outputs
 
 `StreamParameters::firstChannel` / `nChannels` always confined audio to the selected
@@ -123,35 +206,23 @@ makes `firstChannel` index real device channels rather than a renumbered subset.
 
 ## Still open
 
-### The three live checks
+### The two live checks
 
-`stream/running-after-os-stop`, `devices/route-stability` and
-`notify/main-thread-delivery` need a device to be unplugged, re-clocked or
-interrupted. Unchanged and still gaps:
+`stream/running-after-os-stop` and `devices/route-stability` need a device to be
+unplugged, re-clocked or interrupted. Both have fixes in; neither has been proven,
+and the simulator produces neither event — backgrounding the app left audio running.
 
-- `streamRunning` is cleared only in `stopLocked()`, so with auto-recover off
-  `isRunning()` returns `true` forever after an OS stop.
-- Device ids are enumeration order, so a cached `DeviceInfo::id` names a different
-  device after a hotplug.
-- The notification callback runs on an OS audio thread, so every host writes the
-  same marshalling.
+- `isRunning()` is cleared by the `stopped` notification now, so with auto-recover
+  off it should report `false`. Unplugging something is what says whether the
+  notification actually arrives on every path a device can die on.
+- Device ids used to be enumeration order, so a cached `DeviceInfo::id` named a
+  different device after a hotplug. They are a registry keyed on the device name
+  now, handed back to the same name every time it is enumerated, and unique within
+  one enumeration; `DeviceManager/handsTheSameIdToTheSameDevice` covers what can be
+  covered without hardware, which is that repeated enumeration is stable and ids do
+  not collide. A real hotplug is what would prove the rest.
 
-On iOS these are routine rather than rare — an interruption is a phone call. The
-simulator does not produce one: backgrounding the app left audio running.
-
-### `getDefaultInputDevice()` still returns the wrong device on macOS
-
-miniaudio marks *two* capture devices `isDefault = 1` on Core Audio, and the first
-cache entry carrying the flag wins. Playback devices are enumerated first, so a
-merged duplex entry beats a capture-only default: macOS says the default input is
-`Studio Display Microphone`, MakeASound says the Fireface. `flagDefaultsIfUnmarked`
-only acts when *nothing* is flagged, so it does not help here. No probe covers it.
-
-### `AudioCallbackStatus` is always `OK`
-
-`MiniAudioDeviceManager.cpp` hardcodes it and `getStatus()` in
-`MiniAudio-Backend.cpp` is declared, defined and never called. `InputOverflow` is
-produced nowhere. `AudioCallbackInfo::errorCode` is never written either.
+On iOS these are routine rather than rare — an interruption is a phone call.
 
 ### `--strict` cannot exit on iOS
 
@@ -162,16 +233,29 @@ eacp's to fix, not MakeASound's. `--assert` still works.
 
 ### Unverified on hardware
 
-`latency/includes-route` passes against a simulator route whose `outputLatency` is
-near zero; `getStreamLatency()` counts only miniaudio's internal periods, so expect
-it to flip on a device. The iOS block-size ladder is now backed by
-`setPreferredIOBufferDuration:`, but only a real route says what it grants.
+The iOS block-size ladder is backed by `setPreferredIOBufferDuration:`, but only a
+real route says what it grants. `latency/includes-route` now passes against a real
+number rather than a near-zero simulator one, but the route it is checking is still
+the simulator's; a phone with headphones in is what would exercise it.
 
 ## Probes
 
-Twelve became thirteen: `stream/hardware-rate` is new. Two more worth adding:
+Fifteen, all of which pass or wait on hardware:
 
-| probe | what it would check | red today |
-| --- | --- | --- |
-| `devices/default-input-flag` | `getDefaultInputDevice()` against the platform's own default input | macOS |
-| `callback/status-reported` | that `AudioCallbackStatus` can ever be anything but `OK` | both |
+| probe | what it checks |
+| --- | --- |
+| `session/owned-by-app` | the app chooses the category and when the session activates |
+| `session/microphone-cost` | a playback-only app needs no microphone permission |
+| `config/playback-only` | a default config can be asked for one direction |
+| `devices/default-flag` | `getDefaultOutputDevice()` comes back flagged |
+| `devices/rate-choices` | the default output offers rates a picker could show |
+| `devices/default-input-flag` | `getDefaultInputDevice()` names the device the platform does |
+| `devices/route-stability` | a device id survives a route change |
+| `stream/negotiated-block-size` | the block size the device runs is readable |
+| `stream/running-after-os-stop` | `isRunning()` is false once the OS stopped the device |
+| `stream/hardware-rate` | the reported rate is the rate the hardware runs |
+| `notify/main-thread-delivery` | notifications arrive somewhere a UI can use them |
+| `latency/includes-route` | `getStreamLatency()` counts the route's own latency |
+| `midi/virtual-port-errors` | the MIDI facade reports failures like the audio one |
+| `callback/dirty-on-shape-change` | the first block of a new shape reports dirty |
+| `callback/status-reported` | a block that missed its deadline says so |

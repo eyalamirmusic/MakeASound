@@ -35,6 +35,23 @@ Vector<int> getSupportedBlockSizes(const DeviceInfo& /*device*/)
     return sizes;
 }
 
+int getRouteLatency(const DeviceInfo& /*device*/, bool input)
+{
+    @autoreleasepool
+    {
+        auto* session = [AVAudioSession sharedInstance];
+        auto seconds = input ? session.inputLatency : session.outputLatency;
+
+        return static_cast<int>(seconds * session.sampleRate);
+    }
+}
+
+std::string getDefaultDeviceName(bool /*input*/)
+{
+    // There is one route and it is the default one; enumeration flags it already.
+    return {};
+}
+
 int getCurrentSampleRate(const DeviceInfo& /*device*/)
 {
     @autoreleasepool

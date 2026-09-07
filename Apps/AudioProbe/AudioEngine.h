@@ -17,9 +17,14 @@ struct DeviceEvent
 {
     MS::DeviceNotification type {};
 
-    // Where MakeASound delivered it. A UI that trusted this thread would be
-    // touching its widgets from an OS audio thread.
-    bool fromMainThread = false;
+    // How it got here. The realtime callback fires on whatever OS thread raised the
+    // notification; drainNotifications() hands the same one over on the thread that
+    // asked, which is what a UI needs and what it used to have to arrange itself.
+    bool viaQueue = false;
+
+    // The thread it was delivered on. A UI that trusted an audio thread would be
+    // touching its widgets from one.
+    bool onMainThread = false;
 };
 
 struct StreamStats
@@ -35,6 +40,10 @@ struct StreamStats
     int underflows = 0;
     int overflows = 0;
     bool firstBlockDirty = false;
+
+    // The probe's own deliberate missed deadline has happened, so whether a dropout
+    // is visible at all is now answerable.
+    bool stallDone = false;
 };
 
 // The audio side of the probe: a tone generator wired through MakeASound, with
@@ -77,7 +86,8 @@ public:
 
     StreamStats getStats() const;
 
-    // Main thread: the notifications delivered since the last call.
+    // Both delivery paths, drained on whatever thread calls this: what the realtime
+    // callback pushed, and what MakeASound queued for a caller to come and get.
     MS::Vector<DeviceEvent> drainEvents();
 
     std::atomic<float> toneHz {220.f};
@@ -86,6 +96,7 @@ public:
 
 private:
     void audioCallback(MS::AudioCallbackInfo& info);
+    void holdPastTheDeadline(const MS::AudioCallbackInfo& info);
     MS::Error reopen();
 
     MS::SessionState before;
@@ -113,6 +124,7 @@ private:
     std::atomic<int> statUnderflows {0};
     std::atomic<int> statOverflows {0};
     std::atomic<bool> statFirstBlockDirty {false};
+    std::atomic<bool> stalled {false};
 
     float phase = 0.f;
     unsigned noiseState = 0x9e3779b9u;

@@ -317,7 +317,6 @@ auto tEqualityShape = test("AudioCallbackInfo/comparesOnlyTheStreamShape") = []
     second.streamTime = 12.5;
     second.latency = 999;
     second.dirty = true;
-    second.errorCode = 3;
     second.numSamples = 64;
 
     check(first == second);

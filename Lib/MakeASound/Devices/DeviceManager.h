@@ -58,8 +58,15 @@ public:
 
     // Runs on an OS audio thread — on macOS from a Core Audio property listener,
     // and sometimes while recovery holds the device, so calling any DeviceManager
-    // method from it can deadlock. Set it before start().
+    // method from it can deadlock. Set it before start(). Prefer
+    // drainNotifications() unless the delivery has to be immediate.
     void setNotificationCallback(const NotificationCallback& cb) const;
+
+    // The same notifications, queued instead of delivered: call this from wherever a
+    // host can act on one — a UI timer, an idle callback — and the marshalling every
+    // host would otherwise write is already done. Everything since the last call, in
+    // order; past 64 undrained the newest are dropped.
+    Vector<DeviceNotification> drainNotifications() const;
 
     // On by default: a device stopped by the OS (sample-rate change, unplug,
     // reclaim) is re-opened automatically. Turn it off to own that decision, e.g.
@@ -67,7 +74,9 @@ public:
     void setAutoRecover(bool shouldRecover) const;
 
     // What the device actually runs, which is not always what was asked for. All 0
-    // while no stream is open.
+    // while no stream is open. The latency is in frames and counts the route's own
+    // delay as well as the stream's buffering, where the platform will say what that
+    // is — see getRouteLatency in DeviceQueries.h.
     int getStreamLatency() const;
     int getStreamSampleRate() const;
     int getStreamBlockSize() const;

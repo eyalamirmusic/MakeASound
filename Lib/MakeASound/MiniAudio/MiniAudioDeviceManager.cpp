@@ -16,12 +16,20 @@ constexpr auto kRecoveryRetryInterval = std::chrono::milliseconds(250);
 // A block is a few milliseconds, so a whole second without a data callback is not a
 // scheduling hiccup.
 constexpr auto kWatchdogInterval = std::chrono::milliseconds(250);
-constexpr auto kStarvationTimeoutMs = std::int64_t {1000};
+constexpr auto kStarvationTimeoutUs = std::int64_t {1000000};
 
-std::int64_t nowMs()
+// A block that arrives this much later than its own duration missed a deadline. The
+// margin keeps ordinary jitter out of it at block sizes where a period is under a
+// millisecond.
+constexpr auto kDropoutMarginUs = std::int64_t {1000};
+
+// Past this a host is not draining them, and the oldest are the least interesting.
+constexpr auto kMaxPendingNotifications = 64;
+
+std::int64_t nowUs()
 {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    return std::chrono::duration_cast<std::chrono::microseconds>(now).count();
 }
 
 ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
@@ -180,9 +188,10 @@ Error DeviceManager::setBackend(Backend backendToUse)
     shouldRun = false;
     stopLocked();
 
-    // Ids are handed out per enumeration, and this one is going away: the next open
-    // would point at a device number that means something else on the new API.
+    // Ids are handed out per API, and this one is going away: the next open would
+    // point at a device number that means something else on the new backend.
     deviceCache.clear();
+    idRegistry.clear();
     config = {};
 
     if (contextInitialised)
@@ -286,6 +295,19 @@ Error DeviceManager::setError(Error error)
     return error;
 }
 
+int DeviceManager::idForDevice(const std::string& name, const Vector<int>& usedIds)
+{
+    for (auto i = 0; i < idRegistry.size(); ++i)
+        if (idRegistry[i] == name && !usedIds.contains(i))
+            return i;
+
+    // Either the first time this name has been seen, or a second device wearing it:
+    // both get a slot of their own, and keep it for as long as the context lives.
+    idRegistry.add(name);
+
+    return idRegistry.getLastElementIndex();
+}
+
 Error DeviceManager::refreshDeviceCache()
 {
     deviceCache.clear();
@@ -307,12 +329,13 @@ Error DeviceManager::refreshDeviceCache()
     if (result != MA_SUCCESS)
         return setError(getError(result));
 
-    auto nextId = 0;
+    auto usedIds = Vector<int> {};
 
     for (auto i = 0u; i < playbackCount; ++i)
     {
         auto entry = CachedDevice {};
-        entry.id = nextId++;
+        entry.id = idForDevice(playbackInfos[i].name, usedIds);
+        usedIds.add(entry.id);
         entry.playbackId = playbackInfos[i].id;
         entry.hasPlayback = true;
         entry.info =
@@ -354,7 +377,8 @@ Error DeviceManager::refreshDeviceCache()
         if (!matched)
         {
             auto entry = CachedDevice {};
-            entry.id = nextId++;
+            entry.id = idForDevice(captureInfos[i].name, usedIds);
+            usedIds.add(entry.id);
             entry.captureId = captureInfos[i].id;
             entry.hasCapture = true;
             entry.info =
@@ -363,20 +387,44 @@ Error DeviceManager::refreshDeviceCache()
         }
     }
 
-    flagDefaultsIfUnmarked();
+    resolveDefaults();
 
     return Error::NoError;
 }
 
-// iOS enumerates the current route and flags nothing, so isDefaultOutput would be
-// false on the only device there is. Falling back to the first candidate is what
-// getDefaultOutputDevice does anyway; this makes the DeviceInfo say so.
-void DeviceManager::flagDefaultsIfUnmarked()
+// Three sources, in order of authority. The platform's own answer wins where it has
+// one: miniaudio marks every capture device belonging to a duplex unit as default on
+// Core Audio, and since playback is enumerated first, a merged duplex entry outranks
+// the capture-only device the user actually chose. Failing that the backend's flags
+// stand. Failing those, the first candidate — iOS enumerates the current route and
+// flags nothing, which is what getDefaultOutputDevice falls back to anyway; this
+// makes the DeviceInfo say so.
+void DeviceManager::resolveDefaults()
 {
-    auto mark = [this](bool input)
+    auto flagFor = [](CachedDevice& cached, bool input) -> bool&
+    { return input ? cached.info.isDefaultInput : cached.info.isDefaultOutput; };
+
+    auto resolve = [&](bool input)
     {
-        for (const auto& cached: deviceCache)
-            if (input ? cached.info.isDefaultInput : cached.info.isDefaultOutput)
+        auto platformName = getDefaultDeviceName(input);
+
+        for (auto& cached: deviceCache)
+        {
+            if (platformName.empty() || cached.info.name != platformName)
+                continue;
+
+            if (!cached.info.hasChannels(input))
+                continue;
+
+            for (auto& other: deviceCache)
+                flagFor(other, input) = false;
+
+            flagFor(cached, input) = true;
+            return;
+        }
+
+        for (auto& cached: deviceCache)
+            if (flagFor(cached, input))
                 return;
 
         for (auto& cached: deviceCache)
@@ -384,17 +432,13 @@ void DeviceManager::flagDefaultsIfUnmarked()
             if (!cached.info.hasChannels(input))
                 continue;
 
-            if (input)
-                cached.info.isDefaultInput = true;
-            else
-                cached.info.isDefaultOutput = true;
-
+            flagFor(cached, input) = true;
             return;
         }
     };
 
-    mark(false);
-    mark(true);
+    resolve(false);
+    resolve(true);
 }
 
 Vector<DeviceInfo> DeviceManager::getDevices()
@@ -486,7 +530,7 @@ Error DeviceManager::startLocked()
 
     // Cleared before the device can call back, so the watchdog measures this stream's
     // silence and not the gap left by the one it replaced.
-    lastCallbackMs = 0;
+    lastCallbackUs = 0;
 
     auto result = ma_device_start(&device);
 
@@ -647,6 +691,15 @@ Error DeviceManager::openStreamLocked()
     inputScratch.assign(inputChannelCount * config.maxBlockSize, 0.0f);
     outputScratch.assign(outputChannelCount * config.maxBlockSize, 0.0f);
 
+    routeLatencyFrames = 0;
+
+    if (config.output.has_value())
+        routeLatencyFrames = getRouteLatency(config.output->device, false);
+
+    if (config.input.has_value())
+        routeLatencyFrames =
+            std::max(routeLatencyFrames, getRouteLatency(config.input->device, true));
+
     return setError(Error::NoError);
 }
 
@@ -660,7 +713,9 @@ int DeviceManager::getStreamLatency() const
     auto captureLatency = static_cast<int>(device.capture.internalPeriodSizeInFrames)
                           * static_cast<int>(device.capture.internalPeriods);
 
-    return std::max(playbackLatency, captureLatency);
+    // Plus what the route costs on the other side of the backend's own buffering:
+    // the periods are only the part of the delay miniaudio can see.
+    return std::max(playbackLatency, captureLatency) + routeLatencyFrames;
 }
 
 int DeviceManager::getStreamSampleRate() const
@@ -683,7 +738,8 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
 {
     // Before the early-out: a stream whose host set no callback is still alive, and
     // this is the watchdog's only proof of it.
-    lastCallbackMs = nowMs();
+    auto arrived = nowUs();
+    auto previous = lastCallbackUs.exchange(arrived);
 
     if (!callback)
         return;
@@ -725,7 +781,7 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     info.latency = getStreamLatency();
     info.streamTime =
         static_cast<double>(framesElapsed) / static_cast<double>(device.sampleRate);
-    info.status = AudioCallbackStatus::OK;
+    info.status = getCallbackStatus(previous, arrived, frames);
 
     if (notificationPending.exchange(false))
         info.dirty = true;
@@ -751,19 +807,66 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     framesElapsed += frameCount;
 }
 
+// The gap between one callback arriving and the next is the whole period plus
+// whatever the last one overran by, so a block that arrives a full period late means
+// the deadline was missed and the OS filled the hole with silence.
+AudioCallbackStatus DeviceManager::getCallbackStatus(std::int64_t previousUs,
+                                                     std::int64_t arrivedUs,
+                                                     int frames) const
+{
+    auto rate = static_cast<std::int64_t>(device.sampleRate);
+
+    // 0 is the first callback of a stream: there is no gap to measure yet.
+    if (previousUs <= 0 || rate <= 0 || frames <= 0)
+        return AudioCallbackStatus::OK;
+
+    auto period = frames * std::int64_t {1000000} / rate;
+
+    if (arrivedUs - previousUs <= period * 2 + kDropoutMarginUs)
+        return AudioCallbackStatus::OK;
+
+    // Which side lost data: a playback stream ran the device out of samples, a
+    // capture-only one let the device overrun the buffer we were late to empty.
+    return playbackChannels > 0 ? AudioCallbackStatus::OutputUnderflow
+                                : AudioCallbackStatus::InputOverflow;
+}
+
 void DeviceManager::notifyHost(DeviceNotification notification)
 {
     // Set even with no callback registered — the next audio callback consumes it.
     notificationPending = true;
 
+    {
+        auto lock = std::lock_guard(notificationMutex);
+
+        if (pendingNotifications.size() < kMaxPendingNotifications)
+            pendingNotifications.add(notification);
+    }
+
     if (notificationCallback)
         notificationCallback(notification);
+}
+
+Vector<DeviceNotification> DeviceManager::takeNotifications()
+{
+    auto lock = std::lock_guard(notificationMutex);
+
+    auto taken = std::move(pendingNotifications);
+    pendingNotifications.clear();
+
+    return taken;
 }
 
 void DeviceManager::onNotification(ma_device_notification_type type)
 {
     if (stopping)
         return;
+
+    // The stream is not running because the OS says it isn't, not because we got
+    // around to tearing it down: with auto-recover off nothing else clears this, and
+    // isRunning() would answer true forever for a device that is gone.
+    if (type == ma_device_notification_type_stopped)
+        streamRunning = false;
 
     notifyHost(getNotification(type));
 
@@ -777,11 +880,11 @@ bool DeviceManager::isStarved() const
     if (!shouldRun || !autoRecover)
         return false;
 
-    auto last = lastCallbackMs.load();
+    auto last = lastCallbackUs.load();
 
     // 0 means no callback has run since the open: wait for the first one rather than
     // tearing down a device that is still spinning up.
-    return last > 0 && nowMs() - last > kStarvationTimeoutMs;
+    return last > 0 && nowUs() - last > kStarvationTimeoutUs;
 }
 
 void DeviceManager::ensureRecoveryThread()
@@ -827,6 +930,8 @@ void DeviceManager::runRecovery()
         if (starved)
         {
             // Nobody told us the device died, so nobody told the host — say it now.
+            streamRunning = false;
+
             lock.unlock();
             notifyHost(DeviceNotification::Stopped);
             lock.lock();

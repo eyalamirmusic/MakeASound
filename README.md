@@ -148,16 +148,20 @@ manager.setConfig(config);
 
 Device ids are handed out per audio API, so a `DeviceInfo` only means something to the manager that enumerated it. `setBackend` therefore stops the stream and drops the config; follow it with a fresh `getDefaultConfig()`.
 
-`getSupportedBlockSizes(device)` and `getCurrentSampleRate(device)` answer what a device can and does run at without opening it — from Core Audio on macOS, AVAudioSession on iOS, and a conservative 64..2048 fallback elsewhere.
+`getSupportedBlockSizes(device)`, `getCurrentSampleRate(device)`, `getRouteLatency(device, input)` and `getDefaultDeviceName(input)` answer what a device can do, does, costs and is chosen as, without opening it — from Core Audio on macOS, AVAudioSession on iOS, and conservative fallbacks elsewhere. `getStreamLatency()` already includes the route's own delay, so it is the number to compensate for.
 
 ### Reacting to the device
 
 ```cpp
-manager.setNotificationCallback([](MS::DeviceNotification n) { log(n); });
+for (auto notification: manager.drainNotifications())  // from a UI timer
+    updateUI(notification);
+
 manager.setAutoRecover(false); // own the "device lost" decision yourself
 ```
 
-The notification callback runs on an OS audio thread, sometimes while recovery holds the device — set it before `start()` and don't call back into `DeviceManager` from it.
+`drainNotifications()` hands back everything queued since the last call, on the thread that asks — so a UI reads it from a timer it already has instead of marshalling off an audio thread itself. Undrained notifications stop accumulating at 64.
+
+`setNotificationCallback` is the same news delivered immediately instead, and it runs wherever the OS raised it: on an OS audio thread, sometimes while recovery holds the device. Set it before `start()` and don't call back into `DeviceManager` from it.
 
 Inside the callback, `info.dirty` is raised whenever the stream shape (channels, sample rate, block size) differs from the previous block, and on the first callback after a reroute or interruption. It is the signal to reallocate working buffers and reset any state that depends on the rate.
 
