@@ -72,6 +72,22 @@ To develop against a local checkout of a dependency instead of the fetched copy,
 ctest --test-dir build --output-on-failure
 ```
 
+Two of the suites are about allocation rather than behaviour: they link
+[ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations),
+which interposes `malloc`/`free` and `new`/`delete` for the test binary only, and
+assert that the real-time paths never reach the allocator. `AllocationTests.cpp`
+covers what can be called directly — MIDI encode/decode, the block buffers, the
+planar views, the façade calls a host makes with nothing open.
+`RealtimeThreadAllocationTests.cpp` covers the threads we do not own: it raises the
+(thread-local) ban from inside a live audio callback and from inside RtMidi's input
+thread, so a steady-state block and a delivered MIDI message are measured end to
+end. Those need a playback device and a virtual MIDI port, and measure nothing
+rather than failing where the platform has neither.
+
+Interposition needs `dlsym(RTLD_NEXT, ...)`, so both files are added to the test
+target on Apple and Linux only, rather than reporting zero allocations elsewhere
+because nothing was watching.
+
 ## Using it in your project
 
 With CPM:
@@ -315,4 +331,4 @@ Miro::logJSON(manager.getDefaultConfig());
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [RtMidi](https://github.com/thestk/rtmidi), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) and [NanoTest](https://github.com/eyalamirmusic/NanoTest) for the apps and tests. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and RtMidi are `PRIVATE`, fully hidden behind the façades.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [RtMidi](https://github.com/thestk/rtmidi), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and RtMidi are `PRIVATE`, fully hidden behind the façades.

@@ -33,7 +33,8 @@ public:
     // Queue mode: events accumulate internally until drainMessages().
     Error openInput(int portId);
 
-    // Callback mode: `cb` fires on RtMidi's input thread, nothing is queued.
+    // Callback mode: `cb` fires on RtMidi's input thread, nothing is queued. The
+    // message is a per-port buffer refilled by the next one, so copy what you keep.
     Error openInput(int portId, const MidiInputCallback& cb);
 
     // A synthetic (negative) portId, usable like a real one, or nullopt where the

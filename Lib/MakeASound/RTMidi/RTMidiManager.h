@@ -14,11 +14,20 @@ void midiInputTrampoline(double timestamp,
 
 struct InputPort
 {
-    InputPort() { queue.reserve(256); }
+    InputPort()
+    {
+        queue.reserve(2048);
+        scratch.bytes.reserve(2048);
+    }
 
     int portId {};
     OwningPointer<::RtMidiIn> rtIn;
     MidiInputCallback callback;
+
+    // Handed to the callback by reference and refilled on the next message: a
+    // MidiMessage built and destroyed per message is two heap operations on a thread
+    // that is as real-time as the audio one.
+    MidiMessage scratch;
 
     EA::Locks::PrimitiveSpinLock lock;
     Vector<MidiInputEvent> queue;

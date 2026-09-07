@@ -254,10 +254,9 @@ void midiInputTrampoline(double timestamp,
 
     if (port.callback)
     {
-        auto msg = MidiMessage {};
-        msg.timestamp = timestamp;
-        msg.bytes.assign(message->begin(), message->end());
-        port.callback(msg);
+        port.scratch.timestamp = timestamp;
+        port.scratch.bytes.assign(message->begin(), message->end());
+        port.callback(port.scratch);
         return;
     }
 

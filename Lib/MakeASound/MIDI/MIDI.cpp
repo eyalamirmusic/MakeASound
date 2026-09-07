@@ -13,7 +13,9 @@ namespace MakeASound::MIDI
 
 void Buffer::addFrom(const Buffer& other) noexcept
 {
-    reserveAtLeast(other.size());
+    // The merged size, not the source's: a destination that is already holding a
+    // block hits its capacity mid-loop otherwise, and grows a step at a time.
+    reserveAtLeast(size() + other.size());
 
     for (auto& e: other)
         add(e);
