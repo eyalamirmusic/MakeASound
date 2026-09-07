@@ -49,6 +49,7 @@ cmake --build build
 
 ./build/Apps/Example/Example      # streams white noise for 2 seconds
 ./build/Apps/MidiDemo/MidiDemo    # opens virtual MIDI ports and sends notes
+open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 ```
 
 `Example` takes an optional driver name (`./Example "Core Audio"`, `./Example jack`) and prints what is available.
@@ -207,6 +208,60 @@ Events land one block late — the only way to keep offsets non-negative when MI
 
 `openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI, ALSA and JACK, and throw on Windows.
 
+## The probe app
+
+`Apps/AudioProbe` is the example that runs everywhere the library does — macOS,
+Windows and iOS — and it is deliberately two things at once.
+
+It is a **visualizer**: a tone generator feeding MakeASound's own `SPSCQueue`, an
+FFT on the render thread, and a spectrum drawn by a shader written in
+[eacp](https://github.com/eyalamirmusic/eacp)'s GPU EDSL. The controls beneath it
+are eacp's widget tier fed by `MakeASound::UIDeviceManager` — the device, rate and
+block-size dropdowns are the library's own `UI::DropdownInfo` values.
+
+It is also a **gap report**. Twelve probes ask what a caller should be able to
+expect of this library and record what it actually does on the machine it is
+running on. Each row shows what it expected, what it got, and whether that is a
+pass, a gap, or a question nothing has answered yet.
+
+```bash
+./build/Apps/AudioProbe/AudioProbe            # the window
+./build/Apps/AudioProbe/AudioProbe --strict   # log every gap, exit with the count
+./build/Apps/AudioProbe/AudioProbe --assert   # trip an assertion on the first gap
+```
+
+For iOS, configure for the simulator and install the bundle:
+
+```bash
+cmake -S . -B build-ios -G Ninja -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+cmake --build build-ios --target AudioProbe
+
+xcrun simctl boot "iPhone 17 Pro"
+xcrun simctl install booted build-ios/Apps/AudioProbe/AudioProbe.app
+xcrun simctl launch --console booted com.eyalamir.makeasound.audioprobe --strict
+```
+
+### What it finds today
+
+Two gaps on macOS, seven on iOS. These are findings about MakeASound, not bugs in
+the probe:
+
+| probe | what it reports |
+| --- | --- |
+| `session/owned-by-app` | constructing a `DeviceManager` moves the AVAudioSession from SoloAmbient to PlayAndRecord and activates it, and nothing in the API chooses either |
+| `session/microphone-cost` | that category is why a playback-only app still needs `NSMicrophoneUsageDescription` in its bundle |
+| `config/playback-only` | `getDefaultConfig()` claims the built-in microphone; a playback app has to know to call `config.input.reset()` |
+| `devices/default-flag` | iOS enumeration never sets `isDefaultOutput`, so the manager falls back to the first device with outputs |
+| `devices/rate-choices` | the default output offers one sample rate, the session's current one, so a rate picker has nothing to show |
+| `stream/negotiated-block-size` | there is no `getStreamBlockSize()` beside `getStreamSampleRate()`: only `AudioCallbackInfo` says what the device runs |
+| `midi/virtual-port-errors` | `openVirtualOutput` throws on iOS ("error creating OS-X virtual MIDI source"), where the audio façade would return an `Error` |
+
+Three more are live checks with nothing to report until the device does something
+on its own — a reroute, an OS-initiated stop, a notification from an audio thread
+— and the rest pass.
+
 ## Layout
 
 ```
@@ -220,7 +275,8 @@ Lib/MakeASound/
   Common/           EA type re-exports and audio-thread-safe algorithms
   MiniAudio/        audio backend (hidden)
   RTMidi/           MIDI backend (hidden)
-Apps/               Example, MidiDemo (CLI), Demo, Synth (web UI)
+Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
+                    Demo, Synth (web UI)
 Tests/              NanoTest suites
 ```
 
