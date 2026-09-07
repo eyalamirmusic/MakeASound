@@ -3,47 +3,151 @@
 
 namespace MakeASound::RTMidi
 {
+namespace
+{
+Error toError(::RtMidiError::Type type)
+{
+    switch (type)
+    {
+        // RtMidi warns where it carries on — an already-open port, an ignored
+        // message — which is not a failure to report.
+        case ::RtMidiError::WARNING:
+        case ::RtMidiError::DEBUG_WARNING:
+            return Error::NoError;
+        case ::RtMidiError::NO_DEVICES_FOUND:
+            return Error::NO_DEVICES_FOUND;
+        case ::RtMidiError::INVALID_DEVICE:
+            return Error::INVALID_DEVICE;
+        case ::RtMidiError::MEMORY_ERROR:
+            return Error::MEMORY_ERROR;
+        case ::RtMidiError::INVALID_PARAMETER:
+            return Error::INVALID_PARAMETER;
+        case ::RtMidiError::INVALID_USE:
+            return Error::INVALID_USE;
+        case ::RtMidiError::DRIVER_ERROR:
+            return Error::DRIVER_ERROR;
+        case ::RtMidiError::SYSTEM_ERROR:
+            return Error::SYSTEM_ERROR;
+        case ::RtMidiError::THREAD_ERROR:
+            return Error::THREAD_ERROR;
+        case ::RtMidiError::UNSPECIFIED:
+        default:
+            return Error::UNKNOWN_ERROR;
+    }
+}
+
+// With a callback installed RtMidi reports through it and returns, instead of
+// printing to stderr and throwing. Every path out of RtMidi still bails the same
+// way, so the caller reads the recorded error rather than catching one.
+void errorTrampoline(::RtMidiError::Type type,
+                     const std::string& /*text*/,
+                     void* userData)
+{
+    if (userData != nullptr)
+        static_cast<std::atomic<Error>*>(userData)->store(toError(type));
+}
+} // namespace
 
 MidiManager::MidiManager()
-    : inputEnumerator(EA::makeOwned<::RtMidiIn>())
-    , outputEnumerator(EA::makeOwned<::RtMidiOut>())
-    , output(EA::makeOwned<::RtMidiOut>())
 {
+    // Constructing an RtMidi object is where the platform's MIDI client is created,
+    // and on iOS that fails — so it happens under the guard like everything else and
+    // leaves the manager usable but empty rather than throwing out of a constructor.
+    guard([this] { inputEnumerator = EA::makeOwned<::RtMidiIn>(); });
+    guard([this] { outputEnumerator = EA::makeOwned<::RtMidiOut>(); });
+    guard([this] { output = EA::makeOwned<::RtMidiOut>(); });
+
+    watch(inputEnumerator.get());
+    watch(outputEnumerator.get());
+    watch(output.get());
+}
+
+void MidiManager::watch(::RtMidi* midi)
+{
+    if (midi != nullptr)
+        midi->setErrorCallback(errorTrampoline, &pendingError);
+}
+
+Error MidiManager::getLastError() const
+{
+    return lastError;
+}
+
+bool MidiManager::isAvailable() const
+{
+    return inputEnumerator != nullptr && outputEnumerator != nullptr;
 }
 
 Vector<MidiPortInfo> MidiManager::getInputPorts()
 {
+    if (inputEnumerator == nullptr)
+        return {};
+
     return getPorts(*inputEnumerator);
 }
 
 Vector<MidiPortInfo> MidiManager::getOutputPorts()
 {
+    if (outputEnumerator == nullptr)
+        return {};
+
     return getPorts(*outputEnumerator);
 }
 
-void MidiManager::openInput(int portId, const MidiInputCallback& cb)
+InputPort* MidiManager::createInput(int portId, const MidiInputCallback& cb)
+{
+    auto& port = inputs.createNew();
+    port.portId = portId;
+    port.callback = cb;
+
+    guard([&port] { port.rtIn = EA::makeOwned<::RtMidiIn>(); });
+
+    if (port.rtIn == nullptr)
+    {
+        inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
+        return nullptr;
+    }
+
+    watch(port.rtIn.get());
+    port.rtIn->setCallback(midiInputTrampoline, &port);
+
+    return &port;
+}
+
+Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
 {
     closeInput(portId);
 
-    auto& port = inputs.createNew();
-    port.portId = portId;
-    port.callback = cb;
-    port.rtIn = EA::makeOwned<::RtMidiIn>();
-    port.rtIn->setCallback(midiInputTrampoline, &port);
-    port.rtIn->openPort(static_cast<unsigned int>(portId));
+    auto* port = createInput(portId, cb);
+
+    if (port == nullptr)
+        return lastError;
+
+    auto error = guard([port, portId]
+                       { port->rtIn->openPort(static_cast<unsigned int>(portId)); });
+
+    if (error != Error::NoError)
+        closeInput(portId);
+
+    return error;
 }
 
-int MidiManager::openVirtualInput(const std::string& name,
-                                  const MidiInputCallback& cb)
+std::optional<int> MidiManager::openVirtualInput(const std::string& name,
+                                                 const MidiInputCallback& cb)
 {
     auto portId = nextVirtualPortId--;
+    auto* port = createInput(portId, cb);
 
-    auto& port = inputs.createNew();
-    port.portId = portId;
-    port.callback = cb;
-    port.rtIn = EA::makeOwned<::RtMidiIn>();
-    port.rtIn->setCallback(midiInputTrampoline, &port);
-    port.rtIn->openVirtualPort(name);
+    if (port == nullptr)
+        return std::nullopt;
+
+    auto error = guard([port, &name] { port->rtIn->openVirtualPort(name); });
+
+    if (error != Error::NoError)
+    {
+        closeInput(portId);
+        return std::nullopt;
+    }
 
     return portId;
 }
@@ -96,32 +200,45 @@ void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
     }
 }
 
-void MidiManager::openOutput(int portId)
+Error MidiManager::openOutput(int portId)
 {
     closeOutput();
-    output->openPort(static_cast<unsigned int>(portId));
+
+    if (output == nullptr)
+        return Error::SYSTEM_ERROR;
+
+    return guard([this, portId]
+                 { output->openPort(static_cast<unsigned int>(portId)); });
 }
 
-void MidiManager::openVirtualOutput(const std::string& name)
+Error MidiManager::openVirtualOutput(const std::string& name)
 {
     closeOutput();
-    output->openVirtualPort(name);
+
+    if (output == nullptr)
+        return Error::SYSTEM_ERROR;
+
+    return guard([this, &name] { output->openVirtualPort(name); });
 }
 
 void MidiManager::closeOutput()
 {
-    if (output->isPortOpen())
-        output->closePort();
+    if (output != nullptr && output->isPortOpen())
+        guard([this] { output->closePort(); });
 }
 
 bool MidiManager::isOutputOpen() const
 {
-    return output->isPortOpen();
+    return output != nullptr && output->isPortOpen();
 }
 
-void MidiManager::sendMessage(const std::uint8_t* bytes, std::size_t size)
+Error MidiManager::sendMessage(const std::uint8_t* bytes, std::size_t size)
 {
-    output->sendMessage(bytes, size);
+    // Sending to nothing used to succeed silently, which reads as a dead cable.
+    if (!isOutputOpen())
+        return Error::INVALID_USE;
+
+    return guard([this, bytes, size] { output->sendMessage(bytes, size); });
 }
 
 void midiInputTrampoline(double timestamp,

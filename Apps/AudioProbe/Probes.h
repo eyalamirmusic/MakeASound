@@ -43,7 +43,7 @@ public:
     void observe(const DeviceEvent& event);
 
     const MS::Vector<Probe>& all() const { return probes; }
-    const SessionState& getSession() const { return session; }
+    const MS::SessionState& getSession() const { return session; }
     const std::string& getLastNotification() const { return lastNotification; }
 
     int count(ProbeStatus status) const;
@@ -55,12 +55,13 @@ private:
     void refreshSession();
     void refreshDevices();
     void refreshStream();
+    void refreshHardwareRate();
     void refreshMidi();
 
     AudioEngine& engine;
     MS::Vector<Probe> probes;
     MS::Vector<MS::DeviceInfo> baseline;
-    SessionState session;
+    MS::SessionState session;
     std::string lastNotification {"none yet"};
     bool midiProbeRun = false;
 };

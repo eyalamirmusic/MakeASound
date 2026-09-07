@@ -20,6 +20,16 @@ public:
     UI::DropdownInfo makeBlockSizeDropdown(int currentDeviceId,
                                            int currentSize) const;
 
+    // Which of the device's channels the stream uses. Ids encode (firstChannel,
+    // count) — see UI::decodeChannelSelection.
+    UI::DropdownInfo makeOutputChannelDropdown(int currentDeviceId,
+                                               int firstChannel,
+                                               int count) const;
+
+    UI::DropdownInfo makeInputChannelDropdown(int currentDeviceId,
+                                              int firstChannel,
+                                              int count) const;
+
 private:
     DeviceManager* manager;
 };

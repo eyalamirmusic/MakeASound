@@ -2,6 +2,7 @@
 
 #include "../Common/Common.h"
 #include "DeviceInfo.h"
+#include "AudioSession.h"
 
 namespace MakeASound
 {
@@ -32,9 +33,19 @@ public:
     // and start(). A backend that won't come up enumerates nothing.
     Error setBackend(Backend backendToUse);
 
-    // Only the sides that exist are filled in; a machine with neither gives a config
-    // that start() reports as NO_DEVICES_FOUND rather than opening.
-    StreamConfig getDefaultConfig() const;
+    // One per direction rather than one that guesses: claiming a capture side an app
+    // never asked for costs it the microphone permission on every platform that has
+    // one. A side the machine doesn't have is left unset, and a config with neither
+    // is reported by start() as NO_DEVICES_FOUND rather than opened.
+    StreamConfig getDefaultOutputConfig() const;
+    StreamConfig getDefaultInputConfig() const;
+    StreamConfig getDefaultDuplexConfig() const;
+
+    // What the platform's audio session should be while a stream is open. Applied by
+    // every open, so setting it after start() takes effect on the next one. Has no
+    // effect where hasAudioSession() is false. See AudioSession.h.
+    void setSessionConfig(const SessionConfig& sessionConfigToUse) const;
+    SessionConfig getSessionConfig() const;
 
     // A failure leaves no stream running and the manager usable. A config naming a
     // device that is merely busy comes back on its own once it frees up.
@@ -55,10 +66,14 @@ public:
     // to show "device lost" rather than silently re-opening.
     void setAutoRecover(bool shouldRecover) const;
 
-    long getStreamLatency() const;
+    // What the device actually runs, which is not always what was asked for. All 0
+    // while no stream is open.
+    int getStreamLatency() const;
     int getStreamSampleRate() const;
+    int getStreamBlockSize() const;
 
 private:
+    StreamConfig makeDefaultConfig(bool wantsOutput, bool wantsInput) const;
     Error openStream();
 
     AudioCallbackInfo prevInfo;

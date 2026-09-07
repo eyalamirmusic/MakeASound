@@ -25,23 +25,33 @@ Vector<MidiPortInfo> MidiManager::getOutputPorts() const
     return pimpl->getOutputPorts();
 }
 
-void MidiManager::openInput(int portId)
+bool MidiManager::isAvailable() const
 {
-    pimpl->openInput(portId, nullptr);
+    return pimpl->isAvailable();
 }
 
-void MidiManager::openInput(int portId, const MidiInputCallback& cb)
+Error MidiManager::getLastError() const
 {
-    pimpl->openInput(portId, cb);
+    return pimpl->getLastError();
 }
 
-int MidiManager::openVirtualInput(const std::string& name)
+Error MidiManager::openInput(int portId)
+{
+    return pimpl->openInput(portId, nullptr);
+}
+
+Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
+{
+    return pimpl->openInput(portId, cb);
+}
+
+std::optional<int> MidiManager::openVirtualInput(const std::string& name)
 {
     return pimpl->openVirtualInput(name, nullptr);
 }
 
-int MidiManager::openVirtualInput(const std::string& name,
-                                  const MidiInputCallback& cb)
+std::optional<int> MidiManager::openVirtualInput(const std::string& name,
+                                                 const MidiInputCallback& cb)
 {
     return pimpl->openVirtualInput(name, cb);
 }
@@ -71,14 +81,14 @@ void MidiManager::drainMessages(MidiEvents& out)
     pimpl->drainMessages(out.raw());
 }
 
-void MidiManager::openOutput(int portId)
+Error MidiManager::openOutput(int portId)
 {
-    pimpl->openOutput(portId);
+    return pimpl->openOutput(portId);
 }
 
-void MidiManager::openVirtualOutput(const std::string& name)
+Error MidiManager::openVirtualOutput(const std::string& name)
 {
-    pimpl->openVirtualOutput(name);
+    return pimpl->openVirtualOutput(name);
 }
 
 void MidiManager::closeOutput()
@@ -91,22 +101,27 @@ bool MidiManager::isOutputOpen() const
     return pimpl->isOutputOpen();
 }
 
-void MidiManager::sendMessage(const MidiMessage& message)
+Error MidiManager::sendMessage(const MidiMessage& message)
 {
-    if (!message.bytes.empty())
-        pimpl->sendMessage(message.bytes.data(), message.bytes.size());
+    if (message.bytes.empty())
+        return Error::INVALID_PARAMETER;
+
+    return pimpl->sendMessage(message.bytes.data(), message.bytes.size());
 }
 
-void MidiManager::sendMessage(const std::uint8_t* bytes, std::size_t size)
+Error MidiManager::sendMessage(const std::uint8_t* bytes, std::size_t size)
 {
-    pimpl->sendMessage(bytes, size);
+    return pimpl->sendMessage(bytes, size);
 }
 
-void MidiManager::sendMessage(const MIDI::Event& event)
+Error MidiManager::sendMessage(const MIDI::Event& event)
 {
     auto raw = MIDI::toBytes(event);
-    if (raw.size > 0)
-        pimpl->sendMessage(raw.data.data(), static_cast<std::size_t>(raw.size));
+
+    if (raw.size == 0)
+        return Error::INVALID_PARAMETER;
+
+    return pimpl->sendMessage(raw.data.data(), static_cast<std::size_t>(raw.size));
 }
 
 } // namespace MakeASound

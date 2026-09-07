@@ -51,4 +51,26 @@ UI::DropdownInfo UIDeviceManager::makeBlockSizeDropdown(int currentDeviceId,
     return info;
 }
 
+UI::DropdownInfo UIDeviceManager::makeOutputChannelDropdown(int currentDeviceId,
+                                                            int firstChannel,
+                                                            int count) const
+{
+    for (auto& device: manager->getDevices())
+        if (device.id == currentDeviceId)
+            return UI::makeOutputChannelDropdown(device, firstChannel, count);
+
+    return {};
+}
+
+UI::DropdownInfo UIDeviceManager::makeInputChannelDropdown(int currentDeviceId,
+                                                           int firstChannel,
+                                                           int count) const
+{
+    for (auto& device: manager->getDevices())
+        if (device.id == currentDeviceId)
+            return UI::makeInputChannelDropdown(device, firstChannel, count);
+
+    return {};
+}
+
 } // namespace MakeASound

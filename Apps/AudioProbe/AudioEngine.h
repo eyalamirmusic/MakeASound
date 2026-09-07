@@ -48,14 +48,20 @@ public:
     MS::DeviceManager& getManager() { return *manager; }
     Analyser& getAnalyser() { return analyser; }
 
-    // The audio session before and after DeviceManager's constructor ran, which
-    // is the only way to see what constructing one did to it.
-    const SessionState& getSessionBeforeConstruction() const { return before; }
-    const SessionState& getSessionAfterConstruction() const { return after; }
+    // The session at each of the three moments that answer "who owns it": before
+    // the manager existed, after its constructor ran, and once a playback-only
+    // stream is up.
+    const MS::SessionState& getSessionBeforeConstruction() const { return before; }
+    const MS::SessionState& getSessionAfterConstruction() const { return after; }
+    const MS::SessionState& getSessionAfterStart() const { return afterStart; }
 
     MS::Error start();
 
     void setOutputDevice(int deviceId);
+
+    // Which pair of the device's outputs carries the tone. Everything else on the
+    // device stays silent.
+    void setOutputChannels(int firstChannel, int count);
     void setSampleRate(int rate);
     void setBlockSize(int size);
     void setInputEnabled(bool enabled);
@@ -75,15 +81,16 @@ public:
     MS::Vector<DeviceEvent> drainEvents();
 
     std::atomic<float> toneHz {220.f};
-    std::atomic<float> levelGain {0.2f};
+    std::atomic<float> levelGain {0.03f};
     std::atomic<bool> monitorInput {false};
 
 private:
     void audioCallback(MS::AudioCallbackInfo& info);
     MS::Error reopen();
 
-    SessionState before;
-    SessionState after;
+    MS::SessionState before;
+    MS::SessionState after;
+    MS::SessionState afterStart;
 
     std::optional<MS::DeviceManager> manager;
     MS::StreamConfig config;

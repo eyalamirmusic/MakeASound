@@ -122,11 +122,21 @@ Error DeviceManager::initContext(Backend backendToUse)
     auto requested = getMaBackend(backendToUse);
     auto named = backendToUse != Backend::Unknown;
 
+    auto contextConfig = ma_context_config_init();
+
+    // miniaudio's default is to move the session to PlayAndRecord and activate it
+    // the moment a context exists, which costs a playback-only app the microphone
+    // permission. The session is the app's to configure — see AudioSession.h — so
+    // the backend is told to leave it alone.
+    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_none;
+    contextConfig.coreaudio.noAudioSessionActivate = MA_TRUE;
+    contextConfig.coreaudio.noAudioSessionDeactivate = MA_TRUE;
+
     // A null list means miniaudio's own priority order; a list of exactly one fails
     // rather than being quietly answered by the next backend down.
     auto result = ma_context_init(named ? &requested : nullptr,
                                   named ? 1 : 0,
-                                  nullptr,
+                                  &contextConfig,
                                   &context);
 
     // A backend that won't initialise leaves the manager alive but empty rather than
@@ -232,7 +242,9 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
         else
             info.inputChannels = native->channels;
 
-        info.sampleRates = {native->sampleRate};
+        info.sampleRates = native->sampleRates.empty()
+                               ? Vector<int> {native->sampleRate}
+                               : native->sampleRates;
         info.preferredSampleRate = native->sampleRate;
         info.currentSampleRate = native->sampleRate;
 
@@ -351,7 +363,38 @@ Error DeviceManager::refreshDeviceCache()
         }
     }
 
+    flagDefaultsIfUnmarked();
+
     return Error::NoError;
+}
+
+// iOS enumerates the current route and flags nothing, so isDefaultOutput would be
+// false on the only device there is. Falling back to the first candidate is what
+// getDefaultOutputDevice does anyway; this makes the DeviceInfo say so.
+void DeviceManager::flagDefaultsIfUnmarked()
+{
+    auto mark = [this](bool input)
+    {
+        for (const auto& cached: deviceCache)
+            if (input ? cached.info.isDefaultInput : cached.info.isDefaultOutput)
+                return;
+
+        for (auto& cached: deviceCache)
+        {
+            if (!cached.info.hasChannels(input))
+                continue;
+
+            if (input)
+                cached.info.isDefaultInput = true;
+            else
+                cached.info.isDefaultOutput = true;
+
+            return;
+        }
+    };
+
+    mark(false);
+    mark(true);
 }
 
 Vector<DeviceInfo> DeviceManager::getDevices()
@@ -490,6 +533,8 @@ void DeviceManager::stopLocked()
     ma_device_uninit(&device);
     deviceInitialised = false;
     stopping = false;
+
+    deactivateSession();
 }
 
 Error DeviceManager::openStreamLocked()
@@ -536,6 +581,22 @@ Error DeviceManager::openStreamLocked()
         config.output.has_value() ? config.output->device.outputChannels : 0;
     auto nativeCapture =
         config.input.has_value() ? config.input->device.inputChannels : 0;
+
+    // The session follows the stream in every dimension the app has not spoken for,
+    // so asking the manager for 44100 asks the route for it too. Before
+    // ma_device_init, and on every open rather than once: an interruption or a
+    // reroute can hand the session back deactivated, and recovery re-opens here too.
+    auto session = sessionConfig;
+
+    if (session.preferredSampleRate == 0)
+        session.preferredSampleRate = config.sampleRate;
+
+    if (session.preferredBlockSize == 0)
+        session.preferredBlockSize = config.maxBlockSize;
+
+    if (auto sessionError = applySessionConfig(session, config.input.has_value());
+        sessionError != Error::NoError)
+        return setError(sessionError);
 
     auto deviceConfig = makeDeviceConfig(config,
                                          playbackId,
@@ -589,15 +650,15 @@ Error DeviceManager::openStreamLocked()
     return setError(Error::NoError);
 }
 
-long DeviceManager::getStreamLatency() const
+int DeviceManager::getStreamLatency() const
 {
     if (!deviceInitialised)
         return 0;
 
-    auto playbackLatency = static_cast<long>(device.playback.internalPeriodSizeInFrames)
-                           * static_cast<long>(device.playback.internalPeriods);
-    auto captureLatency = static_cast<long>(device.capture.internalPeriodSizeInFrames)
-                          * static_cast<long>(device.capture.internalPeriods);
+    auto playbackLatency = static_cast<int>(device.playback.internalPeriodSizeInFrames)
+                           * static_cast<int>(device.playback.internalPeriods);
+    auto captureLatency = static_cast<int>(device.capture.internalPeriodSizeInFrames)
+                          * static_cast<int>(device.capture.internalPeriods);
 
     return std::max(playbackLatency, captureLatency);
 }
@@ -608,6 +669,14 @@ int DeviceManager::getStreamSampleRate() const
         return 0;
 
     return static_cast<int>(device.sampleRate);
+}
+
+int DeviceManager::getStreamBlockSize() const
+{
+    if (!deviceInitialised)
+        return 0;
+
+    return config.maxBlockSize;
 }
 
 void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameCount)
@@ -653,7 +722,7 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     info.numOutputs = outChannels;
     info.sampleRate = static_cast<int>(device.sampleRate);
     info.maxBlockSize = config.maxBlockSize;
-    info.latency = static_cast<int>(getStreamLatency());
+    info.latency = getStreamLatency();
     info.streamTime =
         static_cast<double>(framesElapsed) / static_cast<double>(device.sampleRate);
     info.status = AudioCallbackStatus::OK;

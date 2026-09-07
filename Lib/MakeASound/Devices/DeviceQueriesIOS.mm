@@ -4,11 +4,29 @@
 
 namespace MakeASound
 {
+namespace
+{
+// What setPreferredSampleRate: is worth asking for. iOS grants the nearest rate the
+// route supports rather than refusing, so this is a menu, not a guarantee — the
+// stream reports what actually happened.
+Vector<int> askableSampleRates(int current)
+{
+    auto rates = Vector<int> {8000, 11025, 16000, 22050, 32000, 44100, 48000};
+
+    if (current > 0)
+        rates.addIfNotThere(current);
+
+    rates.sort();
+
+    return rates;
+}
+} // namespace
 
 Vector<int> getSupportedBlockSizes(const DeviceInfo& /*device*/)
 {
-    // iOS takes a preferred IO duration rather than a frame count, and grants
-    // whatever the route allows, so there is no list to read back.
+    // iOS takes a preferred IO duration rather than a frame count and grants what the
+    // route allows, so this is what setPreferredIOBufferDuration: is worth asking
+    // for; AudioCallbackInfo::maxBlockSize says what was granted.
     auto sizes = Vector<int>();
 
     for (auto size = 64; size <= 2048; size *= 2)
@@ -33,6 +51,7 @@ std::optional<NativeFormat> getNativeFormat(bool input)
 
         auto format = NativeFormat {};
         format.sampleRate = static_cast<int>(session.sampleRate);
+        format.sampleRates = askableSampleRates(format.sampleRate);
 
         // The maximum is the route's own channel count; the current one is only as
         // wide as the session has been configured, and is 0 before it is activated.

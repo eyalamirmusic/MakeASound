@@ -68,7 +68,7 @@ int main(int argc, char** argv)
 
     std::cout << "Using " << MS::getBackendName(manager.getBackend()) << '\n';
 
-    auto config = manager.getDefaultConfig();
+    auto config = manager.getDefaultOutputConfig();
 
     Miro::logJSON(config);
 

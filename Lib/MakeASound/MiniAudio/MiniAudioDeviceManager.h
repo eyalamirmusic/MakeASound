@@ -45,8 +45,9 @@ struct DeviceManager
     bool isRunning() const;
     Error getLastError() const;
 
-    long getStreamLatency() const;
+    int getStreamLatency() const;
     int getStreamSampleRate() const;
+    int getStreamBlockSize() const;
 
     void onCallback(void* output, const void* input, ma_uint32 frameCount);
     void onNotification(ma_device_notification_type type);
@@ -55,6 +56,10 @@ struct DeviceManager
     NotificationCallback notificationCallback;
     StreamConfig config;
 
+    // Applied by every open, recovery's included, so an interruption that hands the
+    // session back deactivated cannot leave it configured for someone else.
+    SessionConfig sessionConfig;
+
     std::atomic<bool> autoRecover {true};
 
 private:
@@ -62,6 +67,7 @@ private:
                                ma_device_type type,
                                int assignedId);
     Error refreshDeviceCache();
+    void flagDefaultsIfUnmarked();
     const ma_device_id* findDeviceId(int makeASoundId) const;
 
     // Backend::Unknown brings the context up on miniaudio's default order;

@@ -148,6 +148,31 @@ auto tSupportsRate = test("DeviceInfo/reportsWhichSampleRatesItSupports") = []
     check(!MakeASound::deviceSupportsSampleRate(device, 96000));
 };
 
+auto tPrefersCurrent = test("DeviceInfo/sampleRatePrefersWhatTheDeviceIsAlreadyOn") =
+    []
+{
+    // Re-clocking a shared device moves it under every other app on it, so a rate it
+    // already runs beats the one it would have preferred.
+    auto output = makeDevice({44100, 48000}, 48000, 2);
+    output.currentSampleRate = 44100;
+
+    auto input = makeDevice({44100, 48000}, 48000, 2);
+    input.currentSampleRate = 44100;
+
+    check(MakeASound::pickCompatibleSampleRate(output, input) == 44100);
+};
+
+auto tIgnoresUnusableCurrent =
+    test("DeviceInfo/sampleRateIgnoresACurrentRateTheOtherSideCannotDo") = []
+{
+    auto output = makeDevice({44100, 48000}, 48000, 2);
+    output.currentSampleRate = 96000;
+
+    auto input = makeDevice({44100, 48000}, 48000, 2);
+
+    check(MakeASound::pickCompatibleSampleRate(output, input) == 48000);
+};
+
 auto tPrefersOutput = test("DeviceInfo/sampleRatePrefersTheOutputsPreferred") = []
 {
     auto output = makeDevice({44100, 48000}, 48000, 2);

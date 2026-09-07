@@ -55,6 +55,7 @@ ProbeRoot::ProbeRoot(AudioEngine& engineToUse, ProbeSet& probesToUse)
                        &toneCaption,
                        &levelCaption,
                        &deviceCaption,
+                       &channelCaption,
                        &rateCaption,
                        &blockCaption})
     {
@@ -68,7 +69,8 @@ ProbeRoot::ProbeRoot(AudioEngine& engineToUse, ProbeSet& probesToUse)
     wireControls();
 
     addChildren({title, summary, tone, toneCaption, level, levelCaption});
-    addChildren({monitor, recover, deviceCaption, device, rateCaption, rate});
+    addChildren({monitor, recover, deviceCaption, device});
+    addChildren({channelCaption, channels, rateCaption, rate});
     addChildren({blockCaption, block, list, detail, footer});
 }
 
@@ -110,6 +112,17 @@ void ProbeRoot::wireControls()
     {
         if (index >= 0 && index < deviceIds.size())
             engine.setOutputDevice(deviceIds[index]);
+
+        refresh(true);
+    };
+
+    channels.onChange = [this](int index)
+    {
+        if (index >= 0 && index < channelValues.size())
+        {
+            auto selection = MS::UI::decodeChannelSelection(channelValues[index]);
+            engine.setOutputChannels(selection.firstChannel, selection.count);
+        }
 
         refresh(true);
     };
@@ -161,7 +174,13 @@ void ProbeRoot::rebuildDeviceBoxes()
         box.setSelectedIndex(selected);
     };
 
+    auto firstChannel = config.output.has_value() ? config.output->firstChannel : 0;
+    auto channelCount = config.output.has_value() ? config.output->nChannels : 2;
+
     fill(device, deviceIds, helper.makeOutputDeviceDropdown(currentId));
+    fill(channels,
+         channelValues,
+         helper.makeOutputChannelDropdown(currentId, firstChannel, channelCount));
     fill(rate,
          rateValues,
          helper.makeSampleRateDropdown(currentId, config.sampleRate));
@@ -185,7 +204,14 @@ void ProbeRoot::refresh(bool rebuildDevices)
     auto stats = engine.getStats();
     auto& manager = engine.getManager();
 
-    auto line = MS::getBackendName(manager.getBackend()) + "   "
+    auto slice = std::string {};
+
+    if (const auto& out = engine.getConfig().output; out.has_value())
+        slice = "   out ch " + std::to_string(out->firstChannel + 1) + "-"
+                + std::to_string(out->firstChannel + out->nChannels) + " of "
+                + std::to_string(out->device.outputChannels);
+
+    auto line = MS::getBackendName(manager.getBackend()) + slice + "   "
                 + std::to_string(stats.sampleRate) + " Hz   blocks of "
                 + std::to_string(stats.lastNumSamples) + "   "
                 + std::to_string(stats.outputs) + " out / "
@@ -326,6 +352,12 @@ void ProbeRoot::resized()
     auto outputRow = area.removeFromTop(26.f);
     deviceCaption.setBounds(outputRow.removeFromLeft(52.f));
     device.setBounds(outputRow);
+
+    area.removeFromTop(6.f);
+
+    auto channelRow = area.removeFromTop(26.f);
+    channelCaption.setBounds(channelRow.removeFromLeft(52.f));
+    channels.setBounds(channelRow);
 
     area.removeFromTop(6.f);
 

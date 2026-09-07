@@ -16,15 +16,14 @@ constexpr float harmonicGains[] = {1.f, 0.45f, 0.22f, 0.11f};
 
 AudioEngine::AudioEngine()
 {
-    before = snapshotSession();
+    before = MS::getSessionState();
     manager.emplace();
-    after = snapshotSession();
+    after = MS::getSessionState();
 
-    config = manager->getDefaultConfig();
-
-    // A tone generator has nothing to capture, and on iOS the capture side is
-    // what turns the session into PlayAndRecord and asks for the microphone.
-    config.input.reset();
+    // A tone generator has nothing to capture, so it asks for the playback side
+    // only — which is what keeps the session off PlayAndRecord and the microphone
+    // out of the bundle.
+    config = manager->getDefaultOutputConfig();
     config.maxBlockSize = 256;
 
     manager->setNotificationCallback(
@@ -41,12 +40,16 @@ AudioEngine::~AudioEngine()
 MS::Error AudioEngine::start()
 {
     lastError = manager->start(config, [this](auto& info) { audioCallback(info); });
+    afterStart = MS::getSessionState();
+
     return lastError;
 }
 
 MS::Error AudioEngine::reopen()
 {
     lastError = manager->setConfig(config);
+    afterStart = MS::getSessionState();
+
     return lastError;
 }
 
@@ -66,6 +69,17 @@ void AudioEngine::setOutputDevice(int deviceId)
         reopen();
         return;
     }
+}
+
+void AudioEngine::setOutputChannels(int firstChannel, int count)
+{
+    if (!config.output.has_value())
+        return;
+
+    config.output->firstChannel = firstChannel;
+    config.output->nChannels = count;
+
+    reopen();
 }
 
 void AudioEngine::setSampleRate(int rate)

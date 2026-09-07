@@ -3,7 +3,6 @@
 #include <eacp/Core/Utils/Logging.h>
 
 #include <cmath>
-#include <exception>
 
 namespace AudioProbe
 {
@@ -14,16 +13,6 @@ std::string milliseconds(double seconds)
     auto rounded = std::round(seconds * 10000.0) / 10.0;
     auto text = std::to_string(rounded);
     return text.substr(0, text.find('.') + 2) + " ms";
-}
-
-std::string shortCategory(const std::string& category)
-{
-    constexpr auto prefix = std::string_view {"AVAudioSessionCategory"};
-
-    if (category.rfind(prefix, 0) == 0)
-        return category.substr(prefix.size());
-
-    return category;
 }
 
 Probe makeProbe(std::string id, std::string expected)
@@ -133,6 +122,9 @@ ProbeSet::ProbeSet(AudioEngine& engineToUse)
 
     probes.add(makeProbe("callback/dirty-on-shape-change",
                          "the first block of a new stream shape reports dirty"));
+
+    probes.add(makeProbe("stream/hardware-rate",
+                         "the rate the stream reports is the rate the hardware runs"));
 }
 
 Probe& ProbeSet::get(std::string_view id)
@@ -157,7 +149,7 @@ int ProbeSet::count(ProbeStatus status) const
 
 void ProbeSet::refresh()
 {
-    session = snapshotSession();
+    session = MS::getSessionState();
 
     refreshSession();
     refreshDevices();
@@ -169,6 +161,7 @@ void ProbeSet::refreshSession()
 {
     const auto& before = engine.getSessionBeforeConstruction();
     const auto& after = engine.getSessionAfterConstruction();
+    const auto& running = engine.getSessionAfterStart();
 
     auto& owned = get("session/owned-by-app");
     auto& microphone = get("session/microphone-cost");
@@ -183,26 +176,35 @@ void ProbeSet::refreshSession()
         return;
     }
 
-    auto touched = before.category != after.category
-                   || before.outputChannels != after.outputChannels;
+    auto name = [](const MS::SessionState& state)
+    { return MS::getSessionCategoryName(state.category); };
 
-    owned.status = touched ? ProbeStatus::Gap : ProbeStatus::Pass;
-    owned.actual = "DeviceManager's constructor moved the session from "
-                   + shortCategory(before.category) + " to "
-                   + shortCategory(after.category) + " and its output channels from "
-                   + std::to_string(before.outputChannels) + " to "
-                   + std::to_string(after.outputChannels)
-                   + "; MakeASound exposes no way to choose either";
+    auto touched = before.category != after.category;
 
-    auto claimsCapture = after.category.find("PlayAndRecord") != std::string::npos
-                         || after.category.find("Record") != std::string::npos;
+    if (touched)
+    {
+        owned.status = ProbeStatus::Gap;
+        owned.actual = "DeviceManager's constructor moved the session from "
+                       + name(before) + " to " + name(after)
+                       + " before the app had said anything";
+    }
+    else
+    {
+        owned.status = ProbeStatus::Pass;
+        owned.actual = "the constructor left the session on " + name(after)
+                       + "; opening a playback-only stream set it to " + name(running)
+                       + ", and setSessionConfig() overrides that";
+    }
+
+    auto claimsCapture = running.category == MS::SessionCategory::Record
+                         || running.category == MS::SessionCategory::PlayAndRecord;
 
     microphone.status = claimsCapture ? ProbeStatus::Gap : ProbeStatus::Pass;
     microphone.actual =
-        "the session is " + shortCategory(after.category) + " and this bundle "
-        + (after.micUsageDescription
-               ? "carries NSMicrophoneUsageDescription to survive it"
-               : "has no NSMicrophoneUsageDescription, which iOS terminates for");
+        "a playback-only stream runs on " + name(running) + " and this bundle "
+        + (hasMicUsageDescription()
+               ? "carries NSMicrophoneUsageDescription, which it no longer needs"
+               : "has no NSMicrophoneUsageDescription, and does not need one");
 }
 
 void ProbeSet::refreshDevices()
@@ -212,21 +214,21 @@ void ProbeSet::refreshDevices()
     if (baseline.empty())
         baseline = manager.getDevices();
 
-    auto fresh = manager.getDefaultConfig();
+    auto fresh = manager.getDefaultOutputConfig();
     auto& playbackOnly = get("config/playback-only");
 
     if (!fresh.input.has_value())
     {
         playbackOnly.status = ProbeStatus::Pass;
-        playbackOnly.actual = "this machine has no capture side to claim";
+        playbackOnly.actual =
+            "getDefaultOutputConfig() claims no capture side; "
+            "getDefaultDuplexConfig() is there for an app that wants one";
     }
     else
     {
         playbackOnly.status = ProbeStatus::Gap;
-        playbackOnly.actual =
-            "the default config claims '" + fresh.input->device.name + "' ("
-            + std::to_string(fresh.input->nChannels)
-            + " ch); a playback-only app has to know to call config.input.reset()";
+        playbackOnly.actual = "getDefaultOutputConfig() still claims '"
+                              + fresh.input->device.name + "'";
     }
 
     auto output = manager.getDefaultOutputDevice();
@@ -291,12 +293,14 @@ void ProbeSet::refreshStream()
     }
     else
     {
-        block.status = ProbeStatus::Gap;
+        auto reported = manager.getStreamBlockSize();
+
+        block.status =
+            reported == stats.blockSize ? ProbeStatus::Pass : ProbeStatus::Gap;
         block.actual = "asked for " + std::to_string(engine.getRequestedBlockSize())
-                       + ", the device runs " + std::to_string(stats.blockSize)
-                       + " (last block " + std::to_string(stats.lastNumSamples)
-                       + "); only AudioCallbackInfo says so, there is no "
-                         "getStreamBlockSize() beside getStreamSampleRate()";
+                       + ", getStreamBlockSize() says " + std::to_string(reported)
+                       + " and the callback says " + std::to_string(stats.blockSize)
+                       + " (last block " + std::to_string(stats.lastNumSamples) + ")";
 
         if (stats.firstBlockDirty)
         {
@@ -311,6 +315,8 @@ void ProbeSet::refreshStream()
             dirty.actual = "the first block of the stream did not report dirty";
         }
     }
+
+    refreshHardwareRate();
 
     if (!session.available)
     {
@@ -328,7 +334,11 @@ void ProbeSet::refreshStream()
 
     auto reported = static_cast<double>(manager.getStreamLatency());
     auto reportedSeconds = reported / stats.sampleRate;
-    auto routeSeconds = session.outputLatencySeconds + session.ioBufferSeconds;
+    auto ioBufferSeconds = session.sampleRate > 0
+                               ? static_cast<double>(session.blockSize)
+                                     / static_cast<double>(session.sampleRate)
+                               : 0.0;
+    auto routeSeconds = session.outputLatencySeconds + ioBufferSeconds;
 
     latency.status = reportedSeconds + 0.0005 < routeSeconds ? ProbeStatus::Gap
                                                              : ProbeStatus::Pass;
@@ -337,7 +347,36 @@ void ProbeSet::refreshStream()
         "getStreamLatency() = " + std::to_string(manager.getStreamLatency())
         + " frames (" + milliseconds(reportedSeconds) + "); the route itself adds "
         + milliseconds(session.outputLatencySeconds) + " output latency + "
-        + milliseconds(session.ioBufferSeconds) + " IO buffer";
+        + milliseconds(ioBufferSeconds) + " IO buffer";
+}
+
+// Asking for a rate the device is not on leaves the backend resampling, which costs
+// latency and CPU and which nothing in the API would otherwise reveal.
+void ProbeSet::refreshHardwareRate()
+{
+    auto& probe = get("stream/hardware-rate");
+    auto reported = engine.getManager().getStreamSampleRate();
+
+    if (reported <= 0 || !engine.getConfig().output.has_value())
+    {
+        probe.status = ProbeStatus::Pending;
+        probe.actual = "no stream running";
+        return;
+    }
+
+    auto hardware = MS::getCurrentSampleRate(engine.getConfig().output->device);
+
+    if (hardware <= 0)
+    {
+        probe.status = ProbeStatus::NotApplicable;
+        probe.actual = "this platform will not say what the device is clocked at";
+        return;
+    }
+
+    probe.status = hardware == reported ? ProbeStatus::Pass : ProbeStatus::Gap;
+    probe.actual = "getStreamSampleRate() says " + std::to_string(reported)
+                   + " and the device is clocked at " + std::to_string(hardware)
+                   + (hardware == reported ? "" : "; the backend is resampling");
 }
 
 void ProbeSet::refreshMidi()
@@ -348,28 +387,19 @@ void ProbeSet::refreshMidi()
     midiProbeRun = true;
     auto& probe = get("midi/virtual-port-errors");
 
-    try
-    {
-        auto midi = MS::MidiManager {};
-        midi.openVirtualOutput("MakeASound Probe");
-        midi.closeOutput();
+    // No try/catch: a facade that still threw would take the app down here, which is
+    // the point of the probe.
+    auto midi = MS::MidiManager {};
+    auto error = midi.openVirtualOutput("MakeASound Probe");
+    midi.closeOutput();
 
-        probe.status = ProbeStatus::Pass;
-        probe.actual = "a virtual output opened and closed without throwing";
-    }
-    catch (const std::exception& error)
-    {
-        probe.status = ProbeStatus::Gap;
-        probe.actual = std::string {"openVirtualOutput threw: "} + error.what()
-                       + "; the audio facade returns an Error for the same kind of "
-                         "failure";
-    }
-    catch (...)
-    {
-        probe.status = ProbeStatus::Gap;
-        probe.actual = "openVirtualOutput threw something that is not a "
-                       "std::exception";
-    }
+    probe.status = ProbeStatus::Pass;
+
+    if (error == MS::Error::NoError)
+        probe.actual = "a virtual output opened and closed, returning NoError";
+    else
+        probe.actual = "openVirtualOutput returned " + MS::getErrorMessage(error)
+                       + " instead of throwing, and the manager stayed usable";
 }
 
 void ProbeSet::observe(const DeviceEvent& event)

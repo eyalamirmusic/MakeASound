@@ -127,11 +127,25 @@ bool deviceSupportsSampleRate(const DeviceInfo& device, int rate)
 
 int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input)
 {
-    auto isCommon = [&](int rate)
+    auto supports = [](const DeviceInfo& device, int rate)
     {
-        return deviceSupportsSampleRate(output, rate)
-               && deviceSupportsSampleRate(input, rate);
+        // A side that isn't there constrains nothing.
+        return device.sampleRates.empty()
+               || deviceSupportsSampleRate(device, rate);
     };
+
+    auto isCommon = [&](int rate)
+    { return supports(output, rate) && supports(input, rate); };
+
+    // The rate a device is already clocked at beats the one it would prefer. Moving a
+    // shared device re-clocks it under every other app using it, and where the
+    // platform resamples instead, the stream quietly pays for a converter nothing in
+    // the API would have shown.
+    if (output.currentSampleRate > 0 && isCommon(output.currentSampleRate))
+        return output.currentSampleRate;
+
+    if (input.currentSampleRate > 0 && isCommon(input.currentSampleRate))
+        return input.currentSampleRate;
 
     if (output.preferredSampleRate > 0 && isCommon(output.preferredSampleRate))
         return output.preferredSampleRate;

@@ -52,12 +52,12 @@ Error DeviceManager::setBackend(Backend backendToUse)
     return error;
 }
 
-StreamConfig DeviceManager::getDefaultConfig() const
+StreamConfig DeviceManager::makeDefaultConfig(bool wantsOutput, bool wantsInput) const
 {
     auto defaultConfig = StreamConfig();
 
-    auto input = getDefaultInputDevice();
-    auto output = getDefaultOutputDevice();
+    auto input = wantsInput ? getDefaultInputDevice() : DeviceInfo {};
+    auto output = wantsOutput ? getDefaultOutputDevice() : DeviceInfo {};
 
     // A side the machine doesn't have stays unset: asking for a duplex stream on a
     // desktop with no microphone fails the whole open, taking the outputs down with
@@ -73,6 +73,33 @@ StreamConfig DeviceManager::getDefaultConfig() const
     defaultConfig.options = StreamOptions {};
 
     return defaultConfig;
+}
+
+StreamConfig DeviceManager::getDefaultOutputConfig() const
+{
+    return makeDefaultConfig(true, false);
+}
+
+StreamConfig DeviceManager::getDefaultInputConfig() const
+{
+    return makeDefaultConfig(false, true);
+}
+
+StreamConfig DeviceManager::getDefaultDuplexConfig() const
+{
+    return makeDefaultConfig(true, true);
+}
+
+void DeviceManager::setSessionConfig(const SessionConfig& sessionConfigToUse) const
+{
+    // Straight onto the backend, like the notification callback: every open reads it
+    // there, including the ones recovery drives from its own thread.
+    pimpl->sessionConfig = sessionConfigToUse;
+}
+
+SessionConfig DeviceManager::getSessionConfig() const
+{
+    return pimpl->sessionConfig;
 }
 
 Error DeviceManager::setConfig(const StreamConfig& configToUse)
@@ -115,7 +142,7 @@ Error DeviceManager::getLastError() const
     return pimpl->getLastError();
 }
 
-long DeviceManager::getStreamLatency() const
+int DeviceManager::getStreamLatency() const
 {
     return pimpl->getStreamLatency();
 }
@@ -123,6 +150,11 @@ long DeviceManager::getStreamLatency() const
 int DeviceManager::getStreamSampleRate() const
 {
     return pimpl->getStreamSampleRate();
+}
+
+int DeviceManager::getStreamBlockSize() const
+{
+    return pimpl->getStreamBlockSize();
 }
 
 Error DeviceManager::openStream()

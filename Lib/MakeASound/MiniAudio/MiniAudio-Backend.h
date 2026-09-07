@@ -4,6 +4,7 @@
 
 #include "../Common/Common.h"
 #include "../Devices/DeviceInfo.h"
+#include "../Devices/AudioSession.h"
 
 namespace MakeASound::MiniAudio
 {

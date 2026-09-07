@@ -12,7 +12,12 @@ namespace MakeASound
 struct NativeFormat
 {
     int channels {};
+
+    // What the route is at now.
     int sampleRate {};
+
+    // What it will accept; empty means sampleRate is the only answer available.
+    Vector<int> sampleRates;
 };
 
 // iOS answers from AVAudioSession — one route, one format — which keeps enumeration

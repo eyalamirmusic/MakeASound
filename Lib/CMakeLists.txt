@@ -1,6 +1,7 @@
 add_library(MakeASound STATIC
         MakeASound/Devices/DeviceInfo.cpp
         MakeASound/Devices/DeviceManager.cpp
+        MakeASound/Devices/AudioSession.cpp
         MakeASound/MiniAudio/MiniAudio-Backend.cpp
         MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
         MakeASound/MIDI/MidiInfo.cpp
@@ -16,13 +17,19 @@ add_library(MakeASound STATIC
 # One device-query implementation per platform: the CoreAudio HAL is macOS-only, and
 # iOS answers the same questions from AVAudioSession instead.
 if(IOS)
-    target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueriesIOS.mm)
+    target_sources(MakeASound PRIVATE
+            MakeASound/Devices/DeviceQueriesIOS.mm
+            MakeASound/Devices/AudioSession-iOS.mm)
     target_link_libraries(MakeASound PRIVATE "-framework AVFoundation")
 elseif(APPLE)
-    target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueries.mm)
+    target_sources(MakeASound PRIVATE
+            MakeASound/Devices/DeviceQueries.mm
+            MakeASound/Devices/AudioSession-Default.cpp)
     target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
 else()
-    target_sources(MakeASound PRIVATE MakeASound/Devices/DeviceQueries.cpp)
+    target_sources(MakeASound PRIVATE
+            MakeASound/Devices/DeviceQueries.cpp
+            MakeASound/Devices/AudioSession-Default.cpp)
 endif()
 
 target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)

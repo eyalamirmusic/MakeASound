@@ -3,6 +3,7 @@
 #include "Common/Common.h"
 #include "Realtime/SPSCQueue.h"
 #include "Devices/DeviceManager.h"
+#include "Devices/AudioSession.h"
 #include "Devices/DeviceQueries.h"
 #include "MIDI/MidiManager.h"
 #include "MIDI/MidiBlockSync.h"

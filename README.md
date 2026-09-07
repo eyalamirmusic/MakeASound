@@ -92,7 +92,7 @@ Either way the apps and tests are skipped, since they only build for a top-level
 
 ## Audio
 
-`getDefaultConfig()` fills in only the sides the machine actually has — asking a mic-less desktop for a duplex stream fails the whole open, so the input stays unset rather than taking the output down with it.
+Ask for the direction you want: `getDefaultOutputConfig()`, `getDefaultInputConfig()` or `getDefaultDuplexConfig()`. There is no one call that guesses, because a config that claims a capture side an app never wanted costs it the microphone permission on macOS and iOS both. Each fills in only the sides the machine actually has — asking a mic-less desktop for a duplex stream fails the whole open, so the input stays unset rather than taking the output down with it.
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -102,7 +102,7 @@ Either way the apps and tests are skipped, since they only build for a top-level
 namespace MS = MakeASound;
 
 auto manager = MS::DeviceManager {};
-auto config = manager.getDefaultConfig();
+auto config = manager.getDefaultOutputConfig();
 auto phase = 0.f;
 
 auto error = manager.start(
@@ -161,6 +161,32 @@ The notification callback runs on an OS audio thread, sometimes while recovery h
 
 Inside the callback, `info.dirty` is raised whenever the stream shape (channels, sample rate, block size) differs from the previous block, and on the first callback after a reroute or interruption. It is the signal to reallocate working buffers and reset any state that depends on the rate.
 
+### The audio session (iOS)
+
+iOS gates what an app may do behind an `AVAudioSession`, and MakeASound never
+configures one behind your back — constructing a `DeviceManager` leaves it exactly
+where it was. The session is applied on each open, and **follows the stream**: the
+category is `Playback` for an output-only config and `PlayAndRecord` for one with a
+capture side, and the rate and block size the `StreamConfig` asked for are what
+`setPreferredSampleRate:` and `setPreferredIOBufferDuration:` are asked for.
+
+That is usually all an app needs. `setSessionConfig` overrides any of it — most
+usefully the options that decide whether opening a stream stops the user's music:
+
+```cpp
+auto session = MS::SessionConfig {};
+session.options.mixWithOthers = true;
+session.category = MS::SessionCategory::Ambient;  // unset follows the stream
+
+manager.setSessionConfig(session);
+manager.start(manager.getDefaultOutputConfig(), callback);
+```
+
+`getSessionState()` reports what the route actually granted — category, channels,
+rate, block size and the route's own latency. Off iOS `hasAudioSession()` is false,
+every call is a no-op and `getSessionState().available` is false, so the same code
+compiles and runs everywhere.
+
 ## MIDI
 
 Callback mode fires on RtMidi's own thread:
@@ -206,7 +232,7 @@ manager.start(config,
 
 Events land one block late — the only way to keep offsets non-negative when MIDI arrives on its own thread.
 
-`openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI, ALSA and JACK, and throw on Windows.
+`openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI, ALSA and JACK. Where they do not — Windows and iOS — `openVirtualOutput` returns an `Error` and `openVirtualInput` returns `nullopt`, as the audio side would. Nothing in the MIDI facade throws.
 
 ## The probe app
 
@@ -245,22 +271,18 @@ xcrun simctl launch --console booted com.eyalamir.makeasound.audioprobe --strict
 
 ### What it finds today
 
-Two gaps on macOS, seven on iOS. These are findings about MakeASound, not bugs in
-the probe:
+Nothing, on either platform — which is the point of having it. It found nine gaps
+when it was written; `gaps.md` records each one, what changed, and what is still
+open.
 
-| probe | what it reports |
-| --- | --- |
-| `session/owned-by-app` | constructing a `DeviceManager` moves the AVAudioSession from SoloAmbient to PlayAndRecord and activates it, and nothing in the API chooses either |
-| `session/microphone-cost` | that category is why a playback-only app still needs `NSMicrophoneUsageDescription` in its bundle |
-| `config/playback-only` | `getDefaultConfig()` claims the built-in microphone; a playback app has to know to call `config.input.reset()` |
-| `devices/default-flag` | iOS enumeration never sets `isDefaultOutput`, so the manager falls back to the first device with outputs |
-| `devices/rate-choices` | the default output offers one sample rate, the session's current one, so a rate picker has nothing to show |
-| `stream/negotiated-block-size` | there is no `getStreamBlockSize()` beside `getStreamSampleRate()`: only `AudioCallbackInfo` says what the device runs |
-| `midi/virtual-port-errors` | `openVirtualOutput` throws on iOS ("error creating OS-X virtual MIDI source"), where the audio façade would return an `Error` |
+```
+macOS   0 gaps, 7 pass, 3 waiting, 3 n/a
+iOS     0 gaps, 10 pass, 3 waiting, 0 n/a
+```
 
-Three more are live checks with nothing to report until the device does something
-on its own — a reroute, an OS-initiated stop, a notification from an audio thread
-— and the rest pass.
+Three rows stay `waiting` on both: an OS-initiated stop, a route change and a
+notification raised off the main thread are all still gaps, and all three need
+hardware no simulator provides.
 
 ## Layout
 
@@ -278,6 +300,7 @@ Lib/MakeASound/
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
 Tests/              NanoTest suites
+gaps.md             what the probe found, what was fixed, what is open
 ```
 
 Data structs opt into JSON reflection in place via `MIRO_REFLECT(...)`, so a `StreamConfig` round-trips through [Miro](https://github.com/eyalamirmusic/Miro) without any extra code:

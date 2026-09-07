@@ -25,11 +25,17 @@ int main()
 
     auto midi = MS::MidiManager {};
 
+    if (auto error = midi.openVirtualOutput("MakeASound Demo Out");
+        error != MS::Error::NoError)
+    {
+        std::cout << "No virtual MIDI output here: "
+                  << MS::getErrorMessage(error) << '\n';
+        return 1;
+    }
+
     // The two virtual ports are not wired to each other: route Demo Out to
     // Demo In in an external MIDI router to see the notes come back in.
-    midi.openVirtualOutput("MakeASound Demo Out");
-
-    midi.openVirtualInput(
+    auto inPort = midi.openVirtualInput(
         "MakeASound Demo In",
         [](const MS::MidiMessage& message)
         {
@@ -43,7 +49,9 @@ int main()
 
     std::cout << "Virtual MIDI ports open:\n"
               << "  out : MakeASound Demo Out\n"
-              << "  in  : MakeASound Demo In\n"
+              << "  in  : "
+              << (inPort ? "MakeASound Demo In" : "(none - input port refused)")
+              << '\n'
               << "Sending a note every second (note off 0.5s later). "
               << "Press Ctrl-C to quit.\n\n";
 

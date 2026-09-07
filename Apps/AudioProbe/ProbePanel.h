@@ -58,16 +58,19 @@ private:
     UI::Checkbox recover {"Auto-recover"};
 
     UI::Label deviceCaption {"output"};
+    UI::Label channelCaption {"channels"};
     UI::Label rateCaption {"rate"};
     UI::Label blockCaption {"block"};
 
     UI::ComboBox device {"device"};
+    UI::ComboBox channels {"channels"};
     UI::ComboBox rate {"rate"};
     UI::ComboBox block {"size"};
 
     UI::ListBox list;
 
     MS::Vector<int> deviceIds;
+    MS::Vector<int> channelValues;
     MS::Vector<int> rateValues;
     MS::Vector<int> blockValues;
 };

@@ -3,7 +3,7 @@
 namespace AudioProbe
 {
 
-SessionState snapshotSession()
-{ return {}; }
+bool hasMicUsageDescription()
+{ return false; }
 
 } // namespace AudioProbe

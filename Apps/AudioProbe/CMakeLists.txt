@@ -6,11 +6,11 @@ add_executable(AudioProbe
         ProbePanel.cpp
         SpectrumView.cpp)
 
-# The session probe is the one platform-specific piece: only iOS has an
-# AVAudioSession for MakeASound to take over.
+# The bundle check is the one platform-specific piece left: the session itself is
+# MakeASound's to report now.
 if (IOS)
     target_sources(AudioProbe PRIVATE AudioSession-iOS.mm)
-    target_link_libraries(AudioProbe PRIVATE "-framework AVFoundation")
+    target_link_libraries(AudioProbe PRIVATE "-framework Foundation")
 else ()
     target_sources(AudioProbe PRIVATE AudioSession.cpp)
 endif ()

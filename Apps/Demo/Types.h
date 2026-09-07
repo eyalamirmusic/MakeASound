@@ -235,7 +235,7 @@ public:
 private:
     void openDefaultDevices()
     {
-        config = manager.getDefaultConfig();
+        config = manager.getDefaultDuplexConfig();
         lastError =
             manager.start(config, [this](auto& info) { renderWhiteNoise(info); });
     }

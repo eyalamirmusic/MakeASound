@@ -3,6 +3,7 @@
 #include <RtMidi.h>
 #include "../Common/Common.h"
 #include "../MIDI/MidiInfo.h"
+#include "../Devices/DeviceInfo.h"
 
 namespace MakeASound::RTMidi
 {

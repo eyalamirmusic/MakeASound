@@ -14,8 +14,7 @@ struct AudioProcessor
 
     AudioProcessor()
     {
-        config = manager.getDefaultConfig();
-        config.input.reset();
+        config = manager.getDefaultOutputConfig();
         manager.start(config, [this](auto& info) { audioCallback(info); });
     }
 
