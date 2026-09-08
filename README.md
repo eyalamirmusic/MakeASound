@@ -37,7 +37,7 @@ manager.start(manager.getDefaultConfig(),
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) are skipped, since eacp draws on macOS, Windows and iOS only.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -256,7 +256,7 @@ Events land one block late — the only way to keep offsets non-negative when MI
 
 ## The probe app
 
-`Apps/AudioProbe` is the example that runs everywhere the library does — macOS,
+`Apps/AudioProbe` is the example that runs everywhere eacp draws — macOS,
 Windows and iOS — and it is deliberately two things at once.
 
 It is a **visualizer**: a tone generator feeding MakeASound's own `SPSCQueue`, an

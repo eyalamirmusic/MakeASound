@@ -13,7 +13,9 @@
 #include <NanoTest/NanoTest.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <new>
 
 using namespace nano;
 using Probe::allocationsIn;
@@ -34,10 +36,17 @@ namespace
 auto tProbeWorks = test("Allocations/theProbeItselfSeesTheHeap") = []
 {
     // Without this the rest of the file could pass by watching nothing at all.
-    auto* leaked = static_cast<int*>(nullptr);
-    auto count = allocationsIn([&leaked] { leaked = new int {1}; });
+    //
+    // The calls go through volatile pointers: a new/delete pair the optimiser can
+    // see both ends of is one it may drop, and Clang does at -O2 - the Release
+    // builds on CI were watching an allocation that never happened.
+    volatile auto allocate = static_cast<void* (*)(std::size_t)>(::operator new);
+    volatile auto release = static_cast<void (*)(void*)>(::operator delete);
 
-    delete leaked;
+    auto* leaked = static_cast<void*>(nullptr);
+    auto count = allocationsIn([&] { leaked = allocate(sizeof(int)); });
+
+    release(leaked);
 
     check(count > 0);
 };

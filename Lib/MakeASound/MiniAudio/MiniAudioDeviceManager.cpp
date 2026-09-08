@@ -122,6 +122,11 @@ void interleaveSlice(const float* src,
 
 DeviceManager::DeviceManager()
 {
+    // Sized once, here: a notification can be raised from the audio thread itself
+    // (PulseAudio's Started comes from the worker that runs the callback), and the
+    // queue must not grow there.
+    pendingNotifications.reserve(kMaxPendingNotifications);
+
     initContext(Backend::Unknown);
 }
 
@@ -851,7 +856,8 @@ Vector<DeviceNotification> DeviceManager::takeNotifications()
 {
     auto lock = std::lock_guard(notificationMutex);
 
-    auto taken = std::move(pendingNotifications);
+    // A copy rather than a move, so the queue keeps the capacity it was given.
+    auto taken = pendingNotifications;
     pendingNotifications.clear();
 
     return taken;

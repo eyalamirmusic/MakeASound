@@ -22,6 +22,7 @@ using namespace nano;
 using namespace std::chrono_literals;
 
 using MakeASound::AudioCallbackInfo;
+using MakeASound::Backend;
 using MakeASound::DeviceManager;
 using MakeASound::Error;
 using MakeASound::MidiEvents;
@@ -88,6 +89,13 @@ auto tAudioThread = test("Allocations/theAudioCallbackThreadStaysOffTheHeap") = 
     auto config = manager.getDefaultOutputConfig();
 
     if (!config.output.has_value())
+        return;
+
+    // PulseAudio has no audio thread of its own to lend us: the callback runs on
+    // miniaudio's worker, which is also the thread that speaks the daemon's socket
+    // protocol, and libpulse heap-allocates every packet of that. What the probe
+    // would count there is not this library's, so nothing is measured.
+    if (manager.getBackend() == Backend::PulseAudio)
         return;
 
     // mark() runs at the end of the callback, so the window it opens covers the rest
