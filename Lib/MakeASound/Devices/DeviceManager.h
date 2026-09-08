@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioSession.h"
 #include "../Common/Common.h"
 #include "DeviceInfo.h"
 #include "AudioSession.h"
@@ -40,6 +41,7 @@ public:
     StreamConfig getDefaultOutputConfig() const;
     StreamConfig getDefaultInputConfig() const;
     StreamConfig getDefaultDuplexConfig() const;
+    StreamConfig getDefaultConfig() const;
 
     // What the platform's audio session should be while a stream is open. Applied by
     // every open, so setting it after start() takes effect on the next one. Has no

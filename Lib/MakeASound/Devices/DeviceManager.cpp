@@ -90,6 +90,11 @@ StreamConfig DeviceManager::getDefaultDuplexConfig() const
     return makeDefaultConfig(true, true);
 }
 
+StreamConfig DeviceManager::getDefaultConfig() const
+{
+    return getDefaultDuplexConfig();
+}
+
 void DeviceManager::setSessionConfig(const SessionConfig& sessionConfigToUse) const
 {
     // Straight onto the backend, like the notification callback: every open reads it
