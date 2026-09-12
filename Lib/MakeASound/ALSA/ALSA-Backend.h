@@ -50,16 +50,16 @@ Error getError(int result);
 // stamped in ticks, or did not stamp at all, falls back to now.
 MidiTimePoint toTimePoint(const snd_seq_event_t& event, MidiTimePoint queueEpoch);
 
-// "<client name>:<port name> <client>:<port>", the string RtMidi's ALSA backend
-// hands out, so names do not move under anyone who was already reading them.
+// "<client name>:<port name> <client>:<port>", the string this library has always
+// handed out here, so names do not move under anyone already reading them.
 std::string getPortName(snd_seq_client_info_t* client, snd_seq_port_info_t* port);
 
 std::string getPortIdentity(const Address& address);
 
-// Every port that can carry MIDI in this direction, walked the way RtMidi walks
-// them: the system client skipped along with our own plumbing, then anything
-// whose type or capabilities say no. `addresses` comes back parallel to the
-// result, so resolving an id back to a client:port needs no second pass.
+// Every port that can carry MIDI in this direction: the system client skipped
+// along with our own plumbing, then anything whose type or capabilities say no.
+// `addresses` comes back parallel to the result, so resolving an id back to a
+// client:port needs no second pass.
 Vector<MidiPortInfo> getPorts(snd_seq_t* seq,
                               Direction direction,
                               const PortFilter& filter,

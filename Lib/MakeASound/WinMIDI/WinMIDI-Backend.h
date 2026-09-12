@@ -49,11 +49,11 @@ int getShortMessageLength(std::uint8_t status);
 // MIM_DATA's dwParam1, low byte first, into `out`. Returns how many it held.
 int unpackShortMessage(DWORD packed, std::array<std::uint8_t, 3>& out);
 
-// szPname as UTF-8 with the port number appended, which is what RtMidi's WinMM
-// backend handed out, so the strings do not move under anyone already reading
-// them. It is also the port's whole identity: two interfaces of one model carry
-// the same szPname and WinMM offers nothing else to tell them apart, so a
-// replug that reorders the list does renumber the ports after it.
+// szPname as UTF-8 with the port number appended, the string this library has
+// always handed out here, so the strings do not move under anyone already
+// reading them. It is also the port's whole identity: two interfaces of one
+// model carry the same szPname and WinMM offers nothing else to tell them
+// apart, so a replug that reorders the list does renumber the ports after it.
 std::string getPortName(Direction direction, int portNumber);
 
 int getPortCount(Direction direction);

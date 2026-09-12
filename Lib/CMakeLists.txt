@@ -34,7 +34,8 @@ else()
 endif()
 
 # One MIDI backend per platform, picked the same way: Core MIDI on macOS and iOS,
-# WinMM on Windows, the ALSA sequencer on Linux, and RtMidi for anything else.
+# WinMM on Windows, the ALSA sequencer on Linux. A platform with none of those has
+# no MIDI, so it fails here rather than linking a library with a dead façade.
 if(APPLE)
     target_sources(MakeASound PRIVATE
             MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
@@ -64,11 +65,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             MakeASound/ALSA/ALSA-Factory.cpp)
     target_link_libraries(MakeASound PRIVATE ALSA::ALSA Threads::Threads)
 else()
-    target_sources(MakeASound PRIVATE
-            MakeASound/RTMidi/RTMidi-Backend.cpp
-            MakeASound/RTMidi/RTMidiManager.cpp
-            MakeASound/RTMidi/RTMidi-Factory.cpp)
-    target_link_libraries(MakeASound PRIVATE rtmidi)
+    message(FATAL_ERROR "No MIDI backend for ${CMAKE_SYSTEM_NAME}")
 endif()
 
 target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio)

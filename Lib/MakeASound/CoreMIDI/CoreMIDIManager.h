@@ -184,7 +184,7 @@ private:
     MidiTimePoint epoch;
 
     // sendMessage() is callable from an audio thread and getLastError() from the
-    // host's, so this is read and written across threads like RtMidi's is.
+    // host's, so this is read and written across threads.
     std::atomic<Error> lastError {Error::NoError};
 
     // Virtual inputs have no system port, so they get negative ids that cannot

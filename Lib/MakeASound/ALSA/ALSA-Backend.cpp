@@ -10,8 +10,8 @@ namespace
 {
 constexpr auto sysExStatus = std::uint8_t {0xF0};
 
-// What RtMidi accepts as a MIDI port: anything else on a client is a control or
-// a timer port that would only clutter a host's list.
+// What counts as a MIDI port: anything else on a client is a control or a timer
+// port that would only clutter a host's list.
 constexpr auto midiPortTypes = SND_SEQ_PORT_TYPE_MIDI_GENERIC
                                | SND_SEQ_PORT_TYPE_SYNTH
                                | SND_SEQ_PORT_TYPE_APPLICATION;
@@ -113,7 +113,7 @@ std::string getPortName(snd_seq_client_info_t* client, snd_seq_port_info_t* port
     name += ":";
     name += portName != nullptr ? portName : "";
 
-    // The numeric pair is RtMidi's too: two ports of one device are told apart
+    // The numeric pair earns its place: two ports of one device are told apart
     // by nothing else.
     name += " " + std::to_string(snd_seq_port_info_get_client(port));
     name += ":" + std::to_string(snd_seq_port_info_get_port(port));
@@ -154,7 +154,7 @@ Vector<MidiPortInfo> getPorts(snd_seq_t* seq,
         auto client = snd_seq_client_info_get_client(clientInfo);
 
         // The system client owns the announce and timer ports, which carry no
-        // MIDI; RtMidi steps over it the same way.
+        // MIDI.
         if (client == SND_SEQ_CLIENT_SYSTEM)
             continue;
 

@@ -38,10 +38,10 @@ constexpr auto inputBufferBytes = 128 * 1024;
 // caller's own bytes instead.
 constexpr auto encoderBufferBytes = 256;
 
-// alsa-lib writes its own diagnostics to stderr through a process-wide hook, the
-// way RtMidi wrote through cerr. A machine with no sequencer is an ordinary
-// state here, not something to print on a host's terminal, so the hook is
-// silenced for as long as we are the one calling.
+// alsa-lib writes its own diagnostics to stderr through a process-wide hook. A
+// machine with no sequencer is an ordinary state here, not something to print on
+// a host's terminal, so the hook is silenced for as long as we are the one
+// calling.
 struct ScopedQuietAlsa
 {
     ScopedQuietAlsa() { snd_lib_error_set_handler(&ignore); }
@@ -334,7 +334,7 @@ void MidiManager::startQueue()
     if (queueId < 0)
     {
         // Without a queue the kernel stamps nothing and arrivals fall back to
-        // the moment they are read, which is what RtMidi always gave.
+        // the moment they are read.
         queueId = -1;
         return;
     }

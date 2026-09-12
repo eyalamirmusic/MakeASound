@@ -191,7 +191,7 @@ auto tStamps = test("Alsa/aStampedEventSitsOnTheQueuesClock") = []
     check(arrival <= Clock::now());
 };
 
-auto tNames = test("Alsa/portNamesReadTheWayRtMidiWroteThem") = []
+auto tNames = test("Alsa/portNamesCarryTheClientAndPortNumbers") = []
 {
     auto client = ClientInfo {};
     auto port = PortInfo {};

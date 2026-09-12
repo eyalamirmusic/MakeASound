@@ -5,7 +5,7 @@ A C++20 static library that gives platform-agnostic access to audio devices and 
 Two façades make up the whole public surface:
 
 - **`MakeASound::DeviceManager`** — audio device enumeration and streaming, backed by [miniaudio](https://github.com/mackron/miniaudio).
-- **`MakeASound::MidiManager`** — MIDI input/output ports, backed by Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux, and [RtMidi](https://github.com/thestk/rtmidi) elsewhere.
+- **`MakeASound::MidiManager`** — MIDI input/output ports, backed by the platform's own MIDI API: Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux.
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
@@ -64,7 +64,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
 
-To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (RtMidi is only fetched where the library has no MIDI backend of its own, so Apple, Windows and Linux never fetch it.)
+To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
 
 ### Tests
 
@@ -319,7 +319,6 @@ Lib/MakeASound/
   CoreMIDI/         MIDI backend, Apple (hidden)
   WinMIDI/          MIDI backend, Windows WinMM (hidden)
   ALSA/             MIDI backend, Linux sequencer (hidden)
-  RTMidi/           MIDI backend, everywhere else (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
 Tests/              NanoTest suites
@@ -334,4 +333,4 @@ Miro::logJSON(manager.getDefaultConfig());
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [RtMidi](https://github.com/thestk/rtmidi) off Apple, Windows and Linux (Core MIDI, WinMM and the ALSA sequencer are the library's own backends there), [eacp](https://github.com/eyalamirmusic/eacp) for the apps and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI backend the platform selected are `PRIVATE`, fully hidden behind the façades.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades.

@@ -4,7 +4,7 @@ namespace MakeASound
 {
 
 // The one TU that names a backend on Apple; Lib/CMakeLists.txt builds this file
-// or RTMidi-Factory.cpp, never both.
+// or one of its siblings, never two.
 OwningPointer<MidiBackend> makeMidiBackend()
 {
     return EA::makeOwned<CoreMIDI::MidiManager>();

@@ -43,8 +43,8 @@ struct ClockAnchor
 MidiTimePoint toTimePoint(MIDITimeStamp stamp);
 
 // kMIDIPropertyDisplayName, falling back to the "device name + endpoint name"
-// composition RtMidi's Core MIDI backend hands out, so names do not move under
-// anyone who was already reading them.
+// composition this library has always handed out, so names do not move under
+// anyone already reading them.
 std::string getPortName(MIDIEndpointRef endpoint);
 
 // kMIDIPropertyUniqueID as a string: the only identity that survives a replug.

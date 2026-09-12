@@ -58,8 +58,9 @@ public:
     void setMaxSysExBytes(int bytes);
     int getMaxSysExBytes() const { return maxSysExBytes; }
 
-    // Timing clock and active sensing are filtered by default. A backend that can
-    // reach the ports it already has open overrides this to do so.
+    // Timing clock and active sensing are filtered by default. Every backend
+    // overrides this to reach the ports it already has open, then calls here to
+    // store the flags for the next one.
     virtual void setIgnoredTypes(bool clock, bool activeSense);
 
     // Delivered on whatever platform thread raised the notification, so it is

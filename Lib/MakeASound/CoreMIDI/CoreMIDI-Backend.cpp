@@ -88,8 +88,8 @@ std::string trim(std::string text)
     return text.substr(first, text.find_last_not_of(' ') - first + 1);
 }
 
-// What RtMidi's Core MIDI backend builds when it names a port: the endpoint's
-// own name with the device's prepended, unless the driver already did that.
+// How a port has always been named here: the endpoint's own name with the
+// device's prepended, unless the driver already did that.
 std::string composeName(MIDIEndpointRef endpoint)
 {
     auto name = trim(getStringProperty(endpoint, kMIDIPropertyName));
@@ -204,7 +204,7 @@ std::string getPortIdentity(MIDIEndpointRef endpoint)
         == noErr)
         return std::to_string(unique);
 
-    // Nothing stable to key on, so fall back to what RtMidi keyed on all along.
+    // Nothing stable to key on, so the name is the identity.
     return getPortName(endpoint);
 }
 

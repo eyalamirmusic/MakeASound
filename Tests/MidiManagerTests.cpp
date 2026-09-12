@@ -107,8 +107,8 @@ auto tAvailable = test("Midi/theAppleBackendComesUp") = []
     auto midi = MidiManager {};
 
 #if defined(__APPLE__)
-    // Core MIDI starts on both macOS and the iOS simulator; RtMidi never did on
-    // the second, which is the whole reason the backend is ours now.
+    // Core MIDI starts on both macOS and the iOS simulator, so Apple has no
+    // machine where the MIDI system is simply absent.
     check(midi.isAvailable());
 #else
     // Elsewhere a machine with no MIDI system at all is an ordinary state - a

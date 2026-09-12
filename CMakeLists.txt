@@ -27,12 +27,6 @@ endfunction()
 find_package(Miniaudio REQUIRED)
 find_package(Miro REQUIRED)
 
-# Apple talks to Core MIDI, Windows to WinMM and Linux to the ALSA sequencer, so
-# RtMidi is fetched only as the fallback for a platform not on that list.
-if (NOT APPLE AND NOT WIN32 AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    find_package(RTMidi REQUIRED)
-endif ()
-
 add_subdirectory(Lib)
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)

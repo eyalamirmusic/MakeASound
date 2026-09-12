@@ -25,8 +25,9 @@ public:
     Vector<MidiPortInfo> getInputPorts() const;
     Vector<MidiPortInfo> getOutputPorts() const;
 
-    // Whether the platform's MIDI system came up at all. A machine whose MIDI
-    // system refused to start is an ordinary state: the manager stays usable and
+    // Whether the platform's MIDI system came up at all. False in practice only
+    // on Linux, where a kernel without snd-seq has no sequencer to open; Core
+    // MIDI and WinMM are always there. Either way the manager stays usable and
     // reports it rather than failing to construct.
     bool isAvailable() const;
 
