@@ -34,7 +34,8 @@ else()
 endif()
 
 # One MIDI backend per platform, picked the same way: Core MIDI is the library's
-# own on macOS and iOS, everything else still goes through RtMidi.
+# own on macOS and iOS, WinMM's is its own on Windows, everything else still goes
+# through RtMidi.
 if(APPLE)
     target_sources(MakeASound PRIVATE
             MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
@@ -43,6 +44,17 @@ if(APPLE)
     target_link_libraries(MakeASound PRIVATE
             "-framework CoreMIDI"
             "-framework CoreFoundation")
+elseif(WIN32)
+    target_sources(MakeASound PRIVATE
+            MakeASound/WinMIDI/WinMIDI-Backend.cpp
+            MakeASound/WinMIDI/WinMidiManager.cpp
+            MakeASound/WinMIDI/WinMIDI-Factory.cpp)
+
+    # On the target rather than only in the header: a unity build concatenates
+    # these with every other TU, and windows.h getting in first without them is
+    # what would leave min/max as macros for the rest of the blob.
+    target_compile_definitions(MakeASound PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(MakeASound PRIVATE winmm)
 else()
     target_sources(MakeASound PRIVATE
             MakeASound/RTMidi/RTMidi-Backend.cpp
