@@ -8,7 +8,8 @@ set(MAKEASOUND_TEST_SOURCES
         BufferTests.cpp
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
-        MidiParserTests.cpp)
+        MidiParserTests.cpp
+        MidiManagerTests.cpp)
 
 set(MAKEASOUND_TEST_TARGETS MakeASound)
 
@@ -19,6 +20,12 @@ set(MAKEASOUND_TEST_TARGETS MakeASound)
 #
 # Test-only: linking AllocationsChecker compiles the interposers into this
 # executable and nothing else. See CMake/FindScopedMemoryAllocations.cmake.
+#
+# No CI runner has MIDI hardware either, so the input path is measured through a
+# virtual-port loopback: our own output sending into our own virtual input, which
+# is a real platform round trip on macOS, iOS and Linux. Windows has no virtual
+# ports, so there its input path is covered by the parser tests alone and every
+# loopback case returns without asserting.
 if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(ScopedMemoryAllocations REQUIRED)
 
