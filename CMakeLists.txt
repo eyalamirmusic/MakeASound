@@ -25,8 +25,12 @@ function(set_makeasound_warnings target)
 endfunction()
 
 find_package(Miniaudio REQUIRED)
-find_package(RTMidi REQUIRED)
 find_package(Miro REQUIRED)
+
+# Apple builds talk to Core MIDI directly, so RtMidi is not even fetched there.
+if (NOT APPLE)
+    find_package(RTMidi REQUIRED)
+endif ()
 
 add_subdirectory(Lib)
 

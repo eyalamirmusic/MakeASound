@@ -11,9 +11,6 @@ add_library(MakeASound STATIC
         MakeASound/MIDI/MidiBlockSync.cpp
         MakeASound/MIDI/MidiParser.cpp
         MakeASound/MIDI/MIDI.cpp
-        MakeASound/RTMidi/RTMidi-Backend.cpp
-        MakeASound/RTMidi/RTMidiManager.cpp
-        MakeASound/RTMidi/RTMidi-Factory.cpp
         MakeASound/UI/Dropdown.cpp
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)
@@ -36,7 +33,25 @@ else()
             MakeASound/Devices/AudioSession-Default.cpp)
 endif()
 
-target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)
+# One MIDI backend per platform, picked the same way: Core MIDI is the library's
+# own on macOS and iOS, everything else still goes through RtMidi.
+if(APPLE)
+    target_sources(MakeASound PRIVATE
+            MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
+            MakeASound/CoreMIDI/CoreMIDIManager.cpp
+            MakeASound/CoreMIDI/CoreMIDI-Factory.cpp)
+    target_link_libraries(MakeASound PRIVATE
+            "-framework CoreMIDI"
+            "-framework CoreFoundation")
+else()
+    target_sources(MakeASound PRIVATE
+            MakeASound/RTMidi/RTMidi-Backend.cpp
+            MakeASound/RTMidi/RTMidiManager.cpp
+            MakeASound/RTMidi/RTMidi-Factory.cpp)
+    target_link_libraries(MakeASound PRIVATE rtmidi)
+endif()
+
+target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 if (MAKEASOUND_UNITY_BUILD)
