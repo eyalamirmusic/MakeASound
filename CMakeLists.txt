@@ -27,8 +27,9 @@ endfunction()
 find_package(Miniaudio REQUIRED)
 find_package(Miro REQUIRED)
 
-# Apple builds talk to Core MIDI directly, so RtMidi is not even fetched there.
-if (NOT APPLE)
+# Apple talks to Core MIDI and Linux to the ALSA sequencer directly, so Windows
+# is the only place RtMidi is even fetched.
+if (WIN32)
     find_package(RTMidi REQUIRED)
 endif ()
 

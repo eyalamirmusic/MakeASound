@@ -34,7 +34,8 @@ else()
 endif()
 
 # One MIDI backend per platform, picked the same way: Core MIDI is the library's
-# own on macOS and iOS, everything else still goes through RtMidi.
+# own on macOS and iOS, the ALSA sequencer is its own on Linux, and Windows still
+# goes through RtMidi.
 if(APPLE)
     target_sources(MakeASound PRIVATE
             MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
@@ -43,6 +44,15 @@ if(APPLE)
     target_link_libraries(MakeASound PRIVATE
             "-framework CoreMIDI"
             "-framework CoreFoundation")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(ALSA REQUIRED)
+    find_package(Threads REQUIRED)
+
+    target_sources(MakeASound PRIVATE
+            MakeASound/ALSA/ALSA-Backend.cpp
+            MakeASound/ALSA/ALSAMidiManager.cpp
+            MakeASound/ALSA/ALSA-Factory.cpp)
+    target_link_libraries(MakeASound PRIVATE ALSA::ALSA Threads::Threads)
 else()
     target_sources(MakeASound PRIVATE
             MakeASound/RTMidi/RTMidi-Backend.cpp
