@@ -22,8 +22,24 @@ enum class Direction
 
 Error getError(OSStatus status);
 
-// mach_absolute_time units into steady_clock's. The two are the same counter on
-// Apple, so this is the timebase scale and nothing else; 0 is Core MIDI's "now".
+// mach_absolute_time and steady_clock are not the same counter: steady_clock
+// reads CLOCK_MONOTONIC_RAW, which keeps running while the machine sleeps, and
+// mach_absolute_time does not. So the offset between them is measured rather
+// than assumed to be zero, and measured fresh — one read of each, per packet
+// list — so no sleep can put a packet hours in the past.
+struct ClockAnchor
+{
+    ClockAnchor();
+
+    // A stamp of 0 is Core MIDI's "as soon as you can", which has already
+    // happened by the time a receive block is looking at it.
+    MidiTimePoint toTimePoint(MIDITimeStamp stamp) const;
+
+    MidiTimePoint steady {};
+    std::uint64_t mach {};
+};
+
+// One conversion, anchored on the spot.
 MidiTimePoint toTimePoint(MIDITimeStamp stamp);
 
 // kMIDIPropertyDisplayName, falling back to the "device name + endpoint name"
@@ -60,11 +76,12 @@ struct PacketListBuffer
     alignas(8) std::uint8_t storage[bytes];
 };
 
-// A packet holds at most 256 bytes and a list 64 KiB, so a dump of any size goes
-// out as a run of lists. Returns how many of `bytes` this one took; 0 means none
-// of it fit, which only a malformed size can cause.
+// Fills `buffer` with a single packet carrying as much of `bytes` as the list
+// holds, so a dump longer than that goes out as a run of lists. Returns how many
+// of `bytes` this one took; 0 means none of it fit.
 int buildPacketList(PacketListBuffer& buffer,
                     const std::uint8_t* bytes,
-                    int size);
+                    int size,
+                    MIDITimeStamp timestamp);
 
 } // namespace MakeASound::CoreMIDI

@@ -20,6 +20,8 @@ public:
     // compare an arrival against a boundary it took itself.
     static MidiTimePoint now();
 
+    // Host thread only: enumerating rescans the platform and rebuilds the id
+    // registry, neither of which is synchronised against the other calls.
     Vector<MidiPortInfo> getInputPorts() const;
     Vector<MidiPortInfo> getOutputPorts() const;
 
@@ -65,7 +67,10 @@ public:
     Vector<int> getOpenInputPorts() const;
 
     // Audio-callback safe: `out` is pre-reserved so no allocation happens, and
-    // each port hands its events over through a wait-free queue.
+    // each port hands its events over through a wait-free queue. The port list
+    // itself is guarded by a spinlock this only tries for, so a call landing on
+    // an openInput/closeInput returns empty rather than waiting; the events keep
+    // for the next block.
     void drainMessages(MidiEvents& out);
 
     Error openOutput(int portId);

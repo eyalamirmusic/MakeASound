@@ -7,6 +7,8 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -31,10 +33,14 @@ struct SharedState
 // One open input: the Core MIDI objects behind it, the parser that turns its
 // packets into whole messages, and the two ways a message leaves — straight to a
 // callback on Core MIDI's receive thread, or into the queue drainMessages()
-// empties on the host's. Everything that thread touches is sized at open time.
+// empties on the host's. Everything that thread touches is sized at open time,
+// and only for the mode the port is in: queue mode gets the queue, callback mode
+// a scratch message as large as the SysEx cap, and neither pays for the other.
 struct InputPort
 {
     static constexpr auto queueCapacity = 2048;
+
+    using Queue = SPSCQueue<MidiInputEvent, queueCapacity>;
 
     ~InputPort();
 
@@ -56,7 +62,8 @@ struct InputPort
     MidiTimePoint epoch {};
     SharedState* shared {};
 
-    SPSCQueue<MidiInputEvent, queueCapacity> queue;
+    // Queue mode only; null where `callback` took the other path.
+    OwningPointer<Queue> queue;
 
 private:
     void deliver(const MidiMessageView& message);
@@ -66,8 +73,11 @@ private:
 // process created its first MIDI client, and keeps that pin even after the
 // thread is gone — a second manager built after the first had died would hear
 // nothing. So the loop belongs to the process, not to a manager: one thread,
-// started on first use and left running, on which every client is created, used
-// and disposed. Hotplug then works in a CLI too, with no run loop of the app's.
+// started on first use and left running, on which a manager's client is created
+// and disposed and its notify block and flag sweep run. Hotplug then works in a
+// CLI too, with no run loop of the app's. Everything else Core MIDI owns — a
+// port connect or disconnect, a virtual endpoint's creation or disposal — runs
+// on whatever thread called for it.
 //
 // Where another library got its client in first the pin is theirs, and the
 // notifications land on whatever loop that was; both paths still carry them.
@@ -76,8 +86,8 @@ class NotifyLoop
 public:
     static NotifyLoop& get();
 
-    // Runs `work` on the loop thread and waits for it, so nothing a manager does
-    // to its Core MIDI objects races the notify block.
+    // Runs `work` on the loop thread and waits for it, so a client is created and
+    // disposed on the thread its notify block and sweep timer run on.
     void call(const std::function<void()>& work);
 
 private:
@@ -85,6 +95,18 @@ private:
 
     std::thread thread;
     std::atomic<CFRunLoopRef> loop {nullptr};
+};
+
+struct MidiManager;
+
+// Where another library pinned the notifications, the notify block runs on their
+// run loop, unserialised against this manager's teardown. So the block holds one
+// of these rather than a pointer: the destructor clears `owner` under the mutex,
+// and a notification already inside has to finish before that returns.
+struct NotifyGate
+{
+    std::mutex mutex;
+    MidiManager* owner {};
 };
 
 struct MidiManager : MidiBackend
@@ -117,9 +139,9 @@ struct MidiManager : MidiBackend
     void setIgnoredTypes(bool clock, bool activeSense) override;
 
 private:
-    // Both run on NotifyLoop's thread: everything Core MIDI owns is made and
-    // unmade there, and the sweep that turns what the receive thread flagged into
-    // notifications runs there too.
+    // All four run on NotifyLoop's thread: the client is created and disposed
+    // there because that is where its notify block lands, and the sweep that
+    // turns what the receive thread flagged into notifications is its timer.
     void start();
     void stop();
     void handleNotification(const MIDINotification* message);
@@ -143,6 +165,10 @@ private:
 
     EA::OwnedVector<InputPort> inputs;
 
+    // Guards `inputs` against the thread draining it. An open or close holds it;
+    // drainMessages() only ever tries for it, so the audio thread never waits.
+    EA::Locks::PrimitiveSpinLock inputsLock;
+
     MidiPortRegistry inputRegistry;
     MidiPortRegistry outputRegistry;
 
@@ -152,12 +178,14 @@ private:
     // want of anything to do.
     CFRunLoopTimerRef sweepTimer {};
 
-    std::atomic<bool> shuttingDown {false};
+    std::shared_ptr<NotifyGate> gate;
 
     // MidiMessage::timestamp is seconds from here, on MidiManager::now()'s clock.
     MidiTimePoint epoch;
 
-    Error lastError = Error::NoError;
+    // sendMessage() is callable from an audio thread and getLastError() from the
+    // host's, so this is read and written across threads like RtMidi's is.
+    std::atomic<Error> lastError {Error::NoError};
 
     // Virtual inputs have no system port, so they get negative ids that cannot
     // collide with the registry slots getInputPorts() hands out.

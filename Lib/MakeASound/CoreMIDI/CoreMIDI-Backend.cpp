@@ -10,7 +10,36 @@ namespace MakeASound::CoreMIDI
 {
 namespace
 {
-constexpr auto maxPacketBytes = 256;
+// What one list carries once its own header and the packet's timestamp and
+// length are paid for. Exactly what MIDIPacketListAdd accepts: 4082 bytes here.
+constexpr auto listOverhead = static_cast<int>(offsetof(MIDIPacketList, packet)
+                                               + offsetof(MIDIPacket, data));
+
+constexpr auto maxListPayload = PacketListBuffer::bytes - listOverhead;
+
+const mach_timebase_info_data_t& getTimebase()
+{
+    static const auto info = []
+    {
+        auto value = mach_timebase_info_data_t {};
+        mach_timebase_info(&value);
+        return value;
+    }();
+
+    return info;
+}
+
+// Divide before multiplying: the raw counter is wide enough that ticks * numer
+// is a live overflow question on arm64.
+std::int64_t machToNanos(std::int64_t ticks)
+{
+    const auto& info = getTimebase();
+
+    auto numer = static_cast<std::int64_t>(info.numer);
+    auto denom = static_cast<std::int64_t>(info.denom);
+
+    return (ticks / denom) * numer + (ticks % denom) * numer / denom;
+}
 
 std::string toStdString(CFStringRef value)
 {
@@ -136,29 +165,28 @@ Error getError(OSStatus status)
     }
 }
 
+ClockAnchor::ClockAnchor()
+    : steady(std::chrono::steady_clock::now())
+    , mach(mach_absolute_time())
+{
+}
+
+MidiTimePoint ClockAnchor::toTimePoint(MIDITimeStamp stamp) const
+{
+    if (stamp == 0)
+        return steady;
+
+    // A signed distance from the anchor, so a stamp scheduled ahead of it works
+    // as well as one already past.
+    auto ticks = static_cast<std::int64_t>(stamp) - static_cast<std::int64_t>(mach);
+    auto nanos = std::chrono::nanoseconds {machToNanos(ticks)};
+
+    return steady + std::chrono::duration_cast<MidiTimePoint::duration>(nanos);
+}
+
 MidiTimePoint toTimePoint(MIDITimeStamp stamp)
 {
-    // Core MIDI's "deliver this as soon as you can", which has already happened
-    // by the time a receive callback is looking at it.
-    if (stamp == 0)
-        return std::chrono::steady_clock::now();
-
-    static const auto timebase = []
-    {
-        auto info = mach_timebase_info_data_t {};
-        mach_timebase_info(&info);
-        return info;
-    }();
-
-    // Divide before multiplying: the raw counter is wide enough that
-    // stamp * numer is a live overflow question on arm64.
-    auto whole = (stamp / timebase.denom) * timebase.numer;
-    auto rest = (stamp % timebase.denom) * timebase.numer / timebase.denom;
-
-    auto nanos = std::chrono::nanoseconds {static_cast<std::int64_t>(whole + rest)};
-
-    return MidiTimePoint {
-        std::chrono::duration_cast<MidiTimePoint::duration>(nanos)};
+    return ClockAnchor {}.toTimePoint(stamp);
 }
 
 std::string getPortName(MIDIEndpointRef endpoint)
@@ -223,46 +251,44 @@ void forEachPacket(const MIDIPacketList* list, const PacketSink& sink)
     if (list == nullptr)
         return;
 
+    // One anchor for the whole list: the two clocks drift apart across a sleep,
+    // so an offset is only good for about as long as this callback.
+    auto anchor = ClockAnchor {};
     const auto* packet = &list->packet[0];
 
     for (auto i = UInt32 {}; i < list->numPackets; ++i)
     {
         if (packet->length > 0)
             sink(Span<const std::uint8_t>(packet->data, packet->length),
-                 toTimePoint(packet->timeStamp));
+                 anchor.toTimePoint(packet->timeStamp));
 
         packet = MIDIPacketNext(packet);
     }
 }
 
-int buildPacketList(PacketListBuffer& buffer, const std::uint8_t* bytes, int size)
+int buildPacketList(PacketListBuffer& buffer,
+                    const std::uint8_t* bytes,
+                    int size,
+                    MIDITimeStamp timestamp)
 {
     auto* list = buffer.get();
-    auto listSize = static_cast<ByteCount>(PacketListBuffer::bytes);
-
     auto* packet = MIDIPacketListInit(list);
-    auto taken = 0;
 
-    while (taken < size)
-    {
-        auto chunk = std::min(size - taken, maxPacketBytes);
+    // MIDIPacketListAdd coalesces adds that share a timestamp into one packet,
+    // so splitting the payload up before handing it over builds exactly what a
+    // single add does. The list's own size is the only real limit.
+    auto chunk = std::min(size, maxListPayload);
 
-        // A timestamp of 0 is "now", which is what a synchronous send wants.
-        auto* next = MIDIPacketListAdd(list,
-                                       listSize,
-                                       packet,
-                                       0,
-                                       static_cast<ByteCount>(chunk),
-                                       bytes + taken);
+    if (MIDIPacketListAdd(list,
+                          static_cast<ByteCount>(PacketListBuffer::bytes),
+                          packet,
+                          timestamp,
+                          static_cast<ByteCount>(chunk),
+                          bytes)
+        == nullptr)
+        return 0;
 
-        if (next == nullptr)
-            break;
-
-        packet = next;
-        taken += chunk;
-    }
-
-    return taken;
+    return chunk;
 }
 
 } // namespace MakeASound::CoreMIDI
