@@ -1,8 +1,9 @@
 // Tests for the facade against whatever backend the platform linked. Everything
 // here needs a virtual port - the only loopback a runner with no MIDI hardware
-// has - and returns without asserting where the platform has none (Windows, and
-// the iOS simulator, which refuses virtual endpoints to a bundle-less process),
-// so a machine that cannot be measured reports the same as one that passed
+// has - and returns without asserting where the platform has none (Windows; the
+// iOS simulator, which refuses virtual endpoints to a bundle-less process; a
+// Linux container with no /dev/snd/seq, where there is no sequencer to open at
+// all), so a machine that cannot be measured reports the same as one that passed
 // nothing: nothing measured.
 
 #include <MakeASound/MakeASound.h>
@@ -110,8 +111,9 @@ auto tAvailable = test("Midi/theAppleBackendComesUp") = []
     // the second, which is the whole reason the backend is ours now.
     check(midi.isAvailable());
 #else
-    // Elsewhere a machine with no MIDI system at all is an ordinary state, so
-    // all that is pinned is that one which did come up says nothing went wrong.
+    // Elsewhere a machine with no MIDI system at all is an ordinary state - a
+    // Linux kernel with no snd-seq is exactly that - so all that is pinned is
+    // that one which did come up says nothing went wrong.
     if (midi.isAvailable())
         check(midi.getLastError() == Error::NoError);
 #endif

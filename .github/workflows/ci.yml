@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rtmidi's ALSA backend needs the ALSA dev headers on Linux.
+      # The library's own ALSA sequencer MIDI backend needs the ALSA dev headers.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
       - name: Install Linux audio dev packages
         if: runner.os == 'Linux'

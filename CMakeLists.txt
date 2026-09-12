@@ -27,9 +27,9 @@ endfunction()
 find_package(Miniaudio REQUIRED)
 find_package(Miro REQUIRED)
 
-# A platform with a MIDI backend of the library's own does not fetch RtMidi at
-# all; it is the fallback for whatever is left.
-if (NOT APPLE AND NOT WIN32)
+# Apple talks to Core MIDI, Windows to WinMM and Linux to the ALSA sequencer, so
+# RtMidi is fetched only as the fallback for a platform not on that list.
+if (NOT APPLE AND NOT WIN32 AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(RTMidi REQUIRED)
 endif ()
 

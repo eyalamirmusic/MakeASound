@@ -33,9 +33,8 @@ else()
             MakeASound/Devices/AudioSession-Default.cpp)
 endif()
 
-# One MIDI backend per platform, picked the same way: Core MIDI is the library's
-# own on macOS and iOS, WinMM's is its own on Windows, everything else still goes
-# through RtMidi.
+# One MIDI backend per platform, picked the same way: Core MIDI on macOS and iOS,
+# WinMM on Windows, the ALSA sequencer on Linux, and RtMidi for anything else.
 if(APPLE)
     target_sources(MakeASound PRIVATE
             MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
@@ -55,6 +54,15 @@ elseif(WIN32)
     # what would leave min/max as macros for the rest of the blob.
     target_compile_definitions(MakeASound PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(MakeASound PRIVATE winmm)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(ALSA REQUIRED)
+    find_package(Threads REQUIRED)
+
+    target_sources(MakeASound PRIVATE
+            MakeASound/ALSA/ALSA-Backend.cpp
+            MakeASound/ALSA/ALSAMidiManager.cpp
+            MakeASound/ALSA/ALSA-Factory.cpp)
+    target_link_libraries(MakeASound PRIVATE ALSA::ALSA Threads::Threads)
 else()
     target_sources(MakeASound PRIVATE
             MakeASound/RTMidi/RTMidi-Backend.cpp
