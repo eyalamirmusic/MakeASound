@@ -28,7 +28,15 @@ struct MidiMessage
 {
     MIRO_REFLECT(timestamp, bytes)
 
+    // Seconds since the MidiManager was created, taken from the packet's own
+    // hardware stamp on MidiManager::now()'s clock — so two messages can be
+    // subtracted for the interval between them, at the platform's resolution
+    // rather than the delivery thread's.
     double timestamp {};
+
+    // One whole message, framing bytes included: a SysEx arrives with its 0xF0
+    // and 0xF7. The buffer belongs to the port and the next message refills it,
+    // so copy what you keep.
     std::vector<std::uint8_t> bytes;
 };
 

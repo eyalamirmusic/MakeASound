@@ -50,8 +50,22 @@ public:
 
     virtual Error sendMessage(const std::uint8_t* bytes, std::size_t size) = 0;
 
-    // Delivered on whatever platform thread raised the notification.
-    MidiNotificationCallback notificationCallback;
+    // The assembly buffer a port gives a SysEx dump. It is allocated when the
+    // port opens, so this only reaches ports opened after the call; anything
+    // longer than it is dropped with a SysExDropped notification.
+    static constexpr int defaultMaxSysExBytes = 64 * 1024;
+
+    void setMaxSysExBytes(int bytes);
+    int getMaxSysExBytes() const { return maxSysExBytes; }
+
+    // Timing clock and active sensing are filtered by default. A backend that can
+    // reach the ports it already has open overrides this to do so.
+    virtual void setIgnoredTypes(bool clock, bool activeSense);
+
+    // Delivered on whatever platform thread raised the notification, so it is
+    // installed under the same lock that guards the queue: a host swapping it
+    // races a hotplug otherwise.
+    void setNotificationCallback(const MidiNotificationCallback& cb);
 
     // Everything queued since the last call, in order, for whatever thread asks.
     Vector<MidiNotification> takeNotifications();
@@ -62,8 +76,13 @@ protected:
     // one.
     void notifyHost(MidiNotification notification);
 
+    int maxSysExBytes {defaultMaxSysExBytes};
+    bool ignoreClock {true};
+    bool ignoreActiveSense {true};
+
 private:
-    std::mutex notificationMutex;
+    mutable std::mutex notificationMutex;
+    MidiNotificationCallback notificationCallback;
     Vector<MidiNotification> pendingNotifications;
 };
 

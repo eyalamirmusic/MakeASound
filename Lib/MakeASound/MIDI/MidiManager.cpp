@@ -61,6 +61,21 @@ std::optional<int> MidiManager::openVirtualInput(const std::string& name,
     return pimpl->openVirtualInput(name, cb);
 }
 
+void MidiManager::setMaxSysExBytes(int bytes)
+{
+    pimpl->setMaxSysExBytes(bytes);
+}
+
+int MidiManager::getMaxSysExBytes() const
+{
+    return pimpl->getMaxSysExBytes();
+}
+
+void MidiManager::setIgnoredTypes(bool clock, bool activeSense)
+{
+    pimpl->setIgnoredTypes(clock, activeSense);
+}
+
 void MidiManager::closeInput(int portId)
 {
     pimpl->closeInput(portId);
@@ -131,7 +146,7 @@ Error MidiManager::sendMessage(const MIDI::Event& event)
 
 void MidiManager::setNotificationCallback(const MidiNotificationCallback& cb) const
 {
-    pimpl->notificationCallback = cb;
+    pimpl->setNotificationCallback(cb);
 }
 
 Vector<MidiNotification> MidiManager::drainNotifications() const
