@@ -56,31 +56,6 @@ std::optional<MIDI::Event> toEvent(Span<const std::uint8_t> bytes)
 
     return MIDI::convertMidi(bytes.data(), bytes.size());
 }
-
-// Takes the lock only if it was free. The audio thread skips a drain rather than
-// waiting behind the open or close that is the only thing ever holding it.
-struct ScopedTryLock
-{
-    explicit ScopedTryLock(EA::Locks::PrimitiveSpinLock& lockToUse)
-        : lock(lockToUse)
-        , held(lockToUse.tryLock())
-    {
-    }
-
-    ~ScopedTryLock()
-    {
-        if (held)
-            lock.unlock();
-    }
-
-    ScopedTryLock(const ScopedTryLock&) = delete;
-    ScopedTryLock& operator=(const ScopedTryLock&) = delete;
-
-    EA::Locks::PrimitiveSpinLock& lock;
-    bool held {};
-};
-
-using ScopedLock = EA::Locks::ScopedSpinLock<EA::Locks::PrimitiveSpinLock>;
 } // namespace
 
 InputPort::~InputPort()
@@ -424,7 +399,7 @@ InputPort* MidiManager::createInput(int portId, const MidiInputCallback& cb)
 
     auto* created = port.get();
 
-    auto lock = ScopedLock(inputsLock);
+    auto lock = ScopedSpinLock(inputsLock);
     inputs.add(std::move(port));
 
     return created;
@@ -506,13 +481,13 @@ std::optional<int> MidiManager::openVirtualInput(const std::string& name,
 
 void MidiManager::closeInput(int portId)
 {
-    auto lock = ScopedLock(inputsLock);
+    auto lock = ScopedSpinLock(inputsLock);
     inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
 }
 
 void MidiManager::closeAllInputs()
 {
-    auto lock = ScopedLock(inputsLock);
+    auto lock = ScopedSpinLock(inputsLock);
     inputs.clear();
 }
 

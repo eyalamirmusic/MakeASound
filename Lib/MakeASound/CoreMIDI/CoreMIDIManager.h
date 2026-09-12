@@ -4,6 +4,7 @@
 #include "../MIDI/MidiBackend.h"
 #include "../MIDI/MidiParser.h"
 #include "../Realtime/SPSCQueue.h"
+#include "../Realtime/SpinLock.h"
 
 #include <atomic>
 #include <functional>

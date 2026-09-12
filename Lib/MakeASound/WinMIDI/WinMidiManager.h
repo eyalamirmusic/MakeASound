@@ -4,6 +4,7 @@
 #include "../MIDI/MidiBackend.h"
 #include "../MIDI/MidiParser.h"
 #include "../Realtime/SPSCQueue.h"
+#include "../Realtime/SpinLock.h"
 
 #include <array>
 #include <atomic>
@@ -45,11 +46,15 @@ struct SysExBuffer
 // One open input: the WinMM handle and its buffer ring, the parser that turns
 // the bytes into whole messages, and the two ways a message leaves — straight to
 // a callback on WinMM's thread, or into the queue drainMessages() empties on the
-// host's. Everything that thread touches is sized at open time.
+// host's. Everything that thread touches is sized at open time, and only for the
+// mode the port is in: queue mode gets the queue, callback mode a scratch message
+// as large as the SysEx cap, and neither pays for the other.
 struct InputPort
 {
     static constexpr auto queueCapacity = 2048;
     static constexpr auto numSysExBuffers = 4;
+
+    using Queue = SPSCQueue<MidiInputEvent, queueCapacity>;
 
     ~InputPort();
 
@@ -77,7 +82,8 @@ struct InputPort
     MidiTimePoint startTime {};
     SharedState* shared {};
 
-    SPSCQueue<MidiInputEvent, queueCapacity> queue;
+    // Queue mode only; null where `callback` took the other path.
+    OwningPointer<Queue> queue;
 
 private:
     void feed(const std::uint8_t* bytes, int size, MidiTimePoint timestamp);
@@ -157,6 +163,10 @@ private:
 
     EA::OwnedVector<InputPort> inputs;
 
+    // Guards `inputs` against the thread draining it. An open or close holds it;
+    // drainMessages() only ever tries for it, so the audio thread never waits.
+    EA::Locks::PrimitiveSpinLock inputsLock;
+
     MidiPortRegistry inputRegistry;
     MidiPortRegistry outputRegistry;
 
@@ -166,7 +176,9 @@ private:
 
     MidiTimePoint epoch;
 
-    Error lastError = Error::NoError;
+    // sendMessage() is callable from an audio thread and getLastError() from the
+    // host's, so this is read and written across threads.
+    std::atomic<Error> lastError {Error::NoError};
 };
 
 } // namespace MakeASound::WinMIDI

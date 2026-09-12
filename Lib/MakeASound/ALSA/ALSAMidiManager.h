@@ -4,6 +4,7 @@
 #include "../MIDI/MidiBackend.h"
 #include "../MIDI/MidiParser.h"
 #include "../Realtime/SPSCQueue.h"
+#include "../Realtime/SpinLock.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -58,10 +59,14 @@ private:
 // One open input: what it listens to, the parser that turns what arrives into
 // whole messages, and the two ways a message leaves - straight to a callback on
 // the input thread, or into the queue drainMessages() empties on the host's.
-// Everything that thread touches is sized when the port opens.
+// Everything that thread touches is sized when the port opens, and only for the
+// mode the port is in: queue mode gets the queue, callback mode a scratch message
+// as large as the SysEx cap, and neither pays for the other.
 struct InputPort
 {
     static constexpr auto queueCapacity = 2048;
+
+    using Queue = SPSCQueue<MidiInputEvent, queueCapacity>;
 
     ~InputPort();
 
@@ -90,7 +95,8 @@ struct InputPort
     MidiTimePoint epoch {};
     SharedState* shared {};
 
-    SPSCQueue<MidiInputEvent, queueCapacity> queue;
+    // Queue mode only; null where `callback` took the other path.
+    OwningPointer<Queue> queue;
 
 private:
     void deliver(const MidiMessageView& message);
@@ -191,6 +197,11 @@ private:
 
     EA::OwnedVector<InputPort> inputs;
 
+    // Guards `inputs` against the thread draining it, which parking the input
+    // thread does nothing for. An open or close holds it; drainMessages() only
+    // ever tries for it, so the audio thread never waits.
+    EA::Locks::PrimitiveSpinLock inputsLock;
+
     MidiPortRegistry inputRegistry;
     MidiPortRegistry outputRegistry;
 
@@ -220,7 +231,9 @@ private:
     // Where the queue's own clock reads zero, on that same clock.
     MidiTimePoint queueEpoch;
 
-    Error lastError = Error::NoError;
+    // sendMessage() is callable from an audio thread and getLastError() from the
+    // host's, so this is read and written across threads.
+    std::atomic<Error> lastError {Error::NoError};
 
     // Virtual inputs have no system port, so they get negative ids that cannot
     // collide with the registry slots getInputPorts() hands out.

@@ -9,6 +9,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <utility>
 
 namespace MakeASound::ALSA
 {
@@ -127,9 +128,14 @@ void InputPort::open(int bytesForSysEx, MidiTimePoint epochToUse, SharedState& s
     sysExStorage.resize(static_cast<std::size_t>(bytesForSysEx));
     parser.setSysExBuffer(Span<std::uint8_t>(sysExStorage));
 
-    // The callback's message never outgrows the dump the parser can assemble, so
-    // reserving here is what keeps assign() off the heap on the input thread.
-    scratch.bytes.reserve(sysExStorage.size());
+    // One mode's storage, never both. The callback's message never outgrows the
+    // dump the parser can assemble, so reserving here is what keeps assign() off
+    // the heap on the input thread; queue mode has no use for it, and callback
+    // mode none for the queue.
+    if (callback)
+        scratch.bytes.reserve(sysExStorage.size());
+    else
+        queue.create();
 }
 
 void InputPort::receive(Span<const std::uint8_t> bytes, MidiTimePoint timestamp)
@@ -175,7 +181,7 @@ void InputPort::deliver(const MidiMessageView& message)
 
     auto event = MidiInputEvent {portId, *typed, message.timestamp};
 
-    if (!queue.push(event))
+    if (!queue->push(event))
         shared->overflowed.store(true, std::memory_order_relaxed);
 }
 
@@ -567,19 +573,18 @@ void MidiManager::resume()
 
 Error MidiManager::record(int result)
 {
-    lastError = getError(result);
-    return lastError;
+    return record(getError(result));
 }
 
 Error MidiManager::record(Error error)
 {
-    lastError = error;
-    return lastError;
+    lastError.store(error, std::memory_order_relaxed);
+    return error;
 }
 
 Error MidiManager::getLastError() const
 {
-    return lastError;
+    return lastError.load(std::memory_order_relaxed);
 }
 
 bool MidiManager::isAvailable() const
@@ -637,24 +642,37 @@ void MidiManager::setIgnoredTypes(bool clock, bool activeSense)
 
 InputPort* MidiManager::createInput(int portId, const MidiInputCallback& cb)
 {
-    auto& port = inputs.createNew();
+    // Built before the lock is taken: open() sizes the port's buffers, and the
+    // drain has better things to do than wait behind that.
+    auto port = EA::makeOwned<InputPort>();
 
-    port.portId = portId;
-    port.callback = cb;
-    port.seq = seq;
-    port.sharedInputPort = inputPort;
-    port.open(getMaxSysExBytes(), epoch, shared);
+    port->portId = portId;
+    port->callback = cb;
+    port->seq = seq;
+    port->sharedInputPort = inputPort;
+    port->open(getMaxSysExBytes(), epoch, shared);
 
-    return &port;
+    auto* created = port.get();
+
+    auto lock = ScopedSpinLock(inputsLock);
+    inputs.add(std::move(port));
+
+    return created;
 }
 
 void MidiManager::removeInput(int portId)
 {
+    auto lock = ScopedSpinLock(inputsLock);
     inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
 }
 
 Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
 {
+    // A virtual port's id, which no system port answers to. Rejected before the
+    // close below, which would otherwise take that virtual port with it.
+    if (portId < 0)
+        return record(Error::INVALID_PARAMETER);
+
     closeInput(portId);
 
     if (!isAvailable())
@@ -725,6 +743,8 @@ void MidiManager::closeInput(int portId)
 void MidiManager::closeAllInputs()
 {
     auto parking = Parked {*this};
+    auto lock = ScopedSpinLock(inputsLock);
+
     inputs.clear();
 }
 
@@ -750,6 +770,13 @@ Vector<int> MidiManager::getOpenInputPorts() const
 
 void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
 {
+    // Contended only while a port is opening or closing, and this is the audio
+    // thread: the events keep, so the block gives up its turn instead.
+    auto lock = ScopedTryLock(inputsLock);
+
+    if (!lock.held)
+        return;
+
     auto event = MidiInputEvent {};
 
     for (auto& port: inputs)
@@ -757,7 +784,7 @@ void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
         if (port->callback)
             continue;
 
-        while (port->queue.pop(event))
+        while (port->queue->pop(event))
             out.add(event);
     }
 }

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <utility>
 
 namespace MakeASound::WinMIDI
 {
@@ -90,9 +91,14 @@ Error InputPort::open(int deviceNumber,
     sysExStorage.resize(static_cast<std::size_t>(bytesForSysEx));
     parser.setSysExBuffer(Span<std::uint8_t>(sysExStorage));
 
-    // The callback's message never outgrows the dump the parser can assemble, so
-    // reserving here is what keeps assign() off the heap on the MIDI thread.
-    scratch.bytes.reserve(sysExStorage.size());
+    // One mode's storage, never both. The callback's message never outgrows the
+    // dump the parser can assemble, so reserving here is what keeps assign() off
+    // the heap on the MIDI thread; queue mode has no use for it, and callback
+    // mode none for the queue.
+    if (callback)
+        scratch.bytes.reserve(sysExStorage.size());
+    else
+        queue.create();
 
     auto result = midiInOpen(&handle,
                              static_cast<UINT>(deviceNumber),
@@ -270,7 +276,7 @@ void InputPort::deliver(const MidiMessageView& message)
 
     auto event = MidiInputEvent {portId, *typed, message.timestamp};
 
-    if (!queue.push(event))
+    if (!queue->push(event))
         shared->overflowed.store(true, std::memory_order_relaxed);
 }
 
@@ -291,19 +297,18 @@ MidiManager::~MidiManager()
 
 Error MidiManager::record(MMRESULT result)
 {
-    lastError = getError(result);
-    return lastError;
+    return record(getError(result));
 }
 
 Error MidiManager::record(Error error)
 {
-    lastError = error;
-    return lastError;
+    lastError.store(error, std::memory_order_relaxed);
+    return error;
 }
 
 Error MidiManager::getLastError() const
 {
-    return lastError;
+    return lastError.load(std::memory_order_relaxed);
 }
 
 bool MidiManager::isAvailable() const
@@ -400,17 +405,24 @@ Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
     if (deviceNumber < 0)
         return record(Error::INVALID_DEVICE);
 
-    auto& port = inputs.createNew();
+    // Built before the lock is taken: open() sizes the port's buffers and opens
+    // the device, and the drain has better things to do than wait behind that. A
+    // port that failed to open never reaches the list, so its own destructor is
+    // what unwinds it.
+    auto port = EA::makeOwned<InputPort>();
 
-    port.portId = portId;
-    port.callback = cb;
+    port->portId = portId;
+    port->callback = cb;
 
-    auto error = port.open(deviceNumber, getMaxSysExBytes(), epoch, shared);
+    auto error = port->open(deviceNumber, getMaxSysExBytes(), epoch, shared);
 
     if (error != Error::NoError)
-        closeInput(portId);
+        return record(error);
 
-    return record(error);
+    auto lock = ScopedSpinLock(inputsLock);
+    inputs.add(std::move(port));
+
+    return record(Error::NoError);
 }
 
 std::optional<int> MidiManager::openVirtualInput(const std::string&,
@@ -424,11 +436,13 @@ std::optional<int> MidiManager::openVirtualInput(const std::string&,
 
 void MidiManager::closeInput(int portId)
 {
+    auto lock = ScopedSpinLock(inputsLock);
     inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
 }
 
 void MidiManager::closeAllInputs()
 {
+    auto lock = ScopedSpinLock(inputsLock);
     inputs.clear();
 }
 
@@ -454,6 +468,13 @@ Vector<int> MidiManager::getOpenInputPorts() const
 
 void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
 {
+    // Contended only while a port is opening or closing, and this is the audio
+    // thread: the events keep, so the block gives up its turn instead.
+    auto lock = ScopedTryLock(inputsLock);
+
+    if (!lock.held)
+        return;
+
     auto event = MidiInputEvent {};
 
     for (auto& port: inputs)
@@ -461,7 +482,7 @@ void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
         if (port->callback)
             continue;
 
-        while (port->queue.pop(event))
+        while (port->queue->pop(event))
             out.add(event);
     }
 }
