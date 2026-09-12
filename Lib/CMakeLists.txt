@@ -9,6 +9,7 @@ add_library(MakeASound STATIC
         MakeASound/MIDI/MidiPortRegistry.cpp
         MakeASound/MIDI/MidiManager.cpp
         MakeASound/MIDI/MidiBlockSync.cpp
+        MakeASound/MIDI/MidiParser.cpp
         MakeASound/MIDI/MIDI.cpp
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp

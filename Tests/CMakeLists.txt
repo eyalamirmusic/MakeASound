@@ -7,7 +7,8 @@ set(MAKEASOUND_TEST_SOURCES
         SPSCQueueTests.cpp
         BufferTests.cpp
         DeviceInfoTests.cpp
-        DeviceManagerTests.cpp)
+        DeviceManagerTests.cpp
+        MidiParserTests.cpp)
 
 set(MAKEASOUND_TEST_TARGETS MakeASound)
 
