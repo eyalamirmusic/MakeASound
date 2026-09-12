@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RTMidi-Backend.h"
+#include "../MIDI/MidiBackend.h"
 
 #include <atomic>
 #include <optional>
@@ -33,35 +34,41 @@ struct InputPort
     Vector<MidiInputEvent> queue;
 };
 
-struct MidiManager
+struct MidiManager : MidiBackend
 {
     MidiManager();
 
-    Error getLastError() const;
-    bool isAvailable() const;
+    Error getLastError() const override;
+    bool isAvailable() const override;
 
-    Vector<MidiPortInfo> getInputPorts();
-    Vector<MidiPortInfo> getOutputPorts();
+    Vector<MidiPortInfo> getInputPorts() override;
+    Vector<MidiPortInfo> getOutputPorts() override;
 
-    Error openInput(int portId, const MidiInputCallback& cb);
+    Error openInput(int portId, const MidiInputCallback& cb) override;
     std::optional<int> openVirtualInput(const std::string& name,
-                                        const MidiInputCallback& cb);
-    void closeInput(int portId);
-    void closeAllInputs();
-    bool isInputOpen(int portId) const;
-    Vector<int> getOpenInputPorts() const;
-    void drainMessages(Vector<MidiInputEvent>& out);
+                                        const MidiInputCallback& cb) override;
+    void closeInput(int portId) override;
+    void closeAllInputs() override;
+    bool isInputOpen(int portId) const override;
+    Vector<int> getOpenInputPorts() const override;
+    void drainMessages(Vector<MidiInputEvent>& out) override;
 
-    Error openOutput(int portId);
-    Error openVirtualOutput(const std::string& name);
-    void closeOutput();
-    bool isOutputOpen() const;
+    Error openOutput(int portId) override;
+    Error openVirtualOutput(const std::string& name) override;
+    void closeOutput() override;
+    bool isOutputOpen() const override;
 
-    Error sendMessage(const std::uint8_t* bytes, std::size_t size);
+    Error sendMessage(const std::uint8_t* bytes, std::size_t size) override;
 
 private:
     void watch(::RtMidi* midi);
     InputPort* createInput(int portId, const MidiInputCallback& cb);
+
+    // The platform's port numbers move under a hotplug and an id does not, so an id
+    // is resolved against a fresh scan every time a port is opened. -1 once the
+    // port the id names is gone.
+    int resolveInput(int portId);
+    int resolveOutput(int portId);
 
     // RtMidi reports either way: through the error callback once one is installed,
     // and by throwing out of a constructor, which is the only place there isn't one.
@@ -94,12 +101,15 @@ private:
     OwningPointer<::RtMidiOut> output;
     EA::OwnedVector<InputPort> inputs;
 
+    MidiPortRegistry inputRegistry;
+    MidiPortRegistry outputRegistry;
+
     // Written by RtMidi's error callback, which can fire on its input thread.
     std::atomic<Error> pendingError {Error::NoError};
     Error lastError = Error::NoError;
 
-    // Virtual inputs have no system index, so they get negative ids that
-    // cannot collide with the indices getInputPorts() returns.
+    // Virtual inputs have no system port, so they get negative ids that cannot
+    // collide with the registry slots getInputPorts() hands out.
     int nextVirtualPortId {-1};
 };
 

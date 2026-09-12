@@ -37,8 +37,8 @@ struct MidiInputEvent
     int portId {};
     MIDI::Event event;
 
-    // Stamped when RtMidi delivered the message; MidiBlockSync translates
-    // it into event.sampleOffset.
+    // Stamped on MidiManager::now()'s clock when the message arrived;
+    // MidiBlockSync translates it into event.sampleOffset.
     MidiTimePoint arrival {};
 };
 
@@ -69,7 +69,18 @@ private:
     Vector<MidiInputEvent> events;
 };
 
+// Something the platform's MIDI system did on its own, or a limit this library hit
+// on the way through. Informational only.
+enum class MidiNotification
+{
+    PortAdded,
+    PortRemoved,
+    SysExDropped,
+    QueueOverflow
+};
+
 using MidiInputCallback = std::function<void(const MidiMessage&)>;
+using MidiNotificationCallback = std::function<void(MidiNotification)>;
 
 // Decoded status, data bytes and a hex dump; channel is rendered 1-based.
 std::string formatMessage(const MidiMessage& message);
