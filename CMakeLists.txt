@@ -27,8 +27,9 @@ endfunction()
 find_package(Miniaudio REQUIRED)
 find_package(Miro REQUIRED)
 
-# Apple builds talk to Core MIDI directly, so RtMidi is not even fetched there.
-if (NOT APPLE)
+# A platform with a MIDI backend of the library's own does not fetch RtMidi at
+# all; it is the fallback for whatever is left.
+if (NOT APPLE AND NOT WIN32)
     find_package(RTMidi REQUIRED)
 endif ()
 
