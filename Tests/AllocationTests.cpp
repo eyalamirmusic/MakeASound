@@ -9,10 +9,12 @@
 
 #include <MakeASound/MakeASound.h>
 #include <MakeASound/Common/Algorithms.h>
+#include <MakeASound/MIDI/MidiParser.h>
 
 #include <NanoTest/NanoTest.h>
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -25,6 +27,10 @@ using MakeASound::MidiBlockSync;
 using MakeASound::MidiEvents;
 using MakeASound::MidiInputEvent;
 using MakeASound::MidiManager;
+using MakeASound::MidiMessageView;
+using MakeASound::MidiParser;
+using MakeASound::MidiTimePoint;
+using MakeASound::Span;
 using MakeASound::SPSCQueue;
 using MakeASound::MIDI::Event;
 
@@ -221,6 +227,139 @@ auto tAddFromGrowsOnce =
 
     check(count <= 2);
     check(destination.size() == 1056);
+};
+
+// The parser is what every native backend will run on the platform's MIDI
+// thread, so all four of its paths - short messages, dump assembly, the
+// oversize drop and the stall timeout - are measured under the ban. The buffer
+// and the parser are built outside it: the ban counts frees too.
+
+auto tParserShortMessages =
+    test("Allocations/theMidiParserDecodesShortMessagesOffTheHeap") = []
+{
+    auto sysExBuffer = std::array<std::uint8_t, 256> {};
+    auto parser = MidiParser {Span<std::uint8_t>(sysExBuffer.data(), 256)};
+    parser.setIgnoredTypes(false, false);
+
+    // Running status, a two-byte message, system common, and a realtime byte in
+    // the middle of a channel message: every branch except SysEx.
+    auto voice = std::array<std::uint8_t, 7> {
+        0x90, 0x3C, 0x64, 0x3E, 0x64, 0xC0, 0x01};
+
+    auto system = std::array<std::uint8_t, 7> {
+        0xF2, 0x10, 0x20, 0x90, 0x40, 0xF8, 0x64};
+
+    auto delivered = 0;
+    auto onMessage = [&delivered](const MidiMessageView&) { ++delivered; };
+
+    auto count = allocationsIn(
+        [&]
+        {
+            auto now = MidiTimePoint {};
+            parser.feed(Span<const std::uint8_t>(voice.data(), 7), now, onMessage);
+            parser.feed(Span<const std::uint8_t>(system.data(), 7), now, onMessage);
+        });
+
+    check(count == 0);
+    check(delivered == 6);
+};
+
+auto tParserSysEx = test("Allocations/theMidiParserAssemblesSysExOffTheHeap") = []
+{
+    auto sysExBuffer = std::array<std::uint8_t, 1024> {};
+    auto parser = MidiParser {Span<std::uint8_t>(sysExBuffer.data(), 1024)};
+
+    auto opening = std::array<std::uint8_t, 1> {0xF0};
+    auto closing = std::array<std::uint8_t, 1> {0xF7};
+    auto chunk = std::array<std::uint8_t, 128> {};
+    chunk.fill(0x01);
+
+    auto delivered = 0;
+    auto onMessage = [&delivered](const MidiMessageView& message)
+    { delivered = message.bytes.size(); };
+
+    auto count = allocationsIn(
+        [&]
+        {
+            auto now = MidiTimePoint {};
+            parser.feed(Span<const std::uint8_t>(opening.data(), 1), now, onMessage);
+
+            for (auto i = 0; i < 6; ++i)
+                parser.feed(Span<const std::uint8_t>(chunk.data(), 128),
+                            now,
+                            onMessage);
+
+            parser.feed(Span<const std::uint8_t>(closing.data(), 1), now, onMessage);
+        });
+
+    check(count == 0);
+    check(delivered == 6 * 128 + 2);
+};
+
+auto tParserOversizeSysEx =
+    test("Allocations/theMidiParserDropsAnOversizeSysExOffTheHeap") = []
+{
+    // The path a sample dump takes when the port's buffer cannot hold it: the
+    // bytes are counted and thrown away, never accumulated.
+    auto sysExBuffer = std::array<std::uint8_t, 16> {};
+    auto parser = MidiParser {Span<std::uint8_t>(sysExBuffer.data(), 16)};
+
+    auto dump = std::array<std::uint8_t, 512> {};
+    dump.fill(0x02);
+    dump.front() = 0xF0;
+    dump.back() = 0xF7;
+
+    auto delivered = 0;
+    auto dropped = 0;
+    auto onMessage = [&delivered](const MidiMessageView&) { ++delivered; };
+    auto onDropped = [&dropped](int numBytes) { dropped = numBytes; };
+
+    auto count = allocationsIn(
+        [&]
+        {
+            parser.feed(Span<const std::uint8_t>(dump.data(), 512),
+                        MidiTimePoint {},
+                        onMessage,
+                        onDropped);
+        });
+
+    check(count == 0);
+    check(delivered == 0);
+    check(dropped == 512);
+};
+
+auto tParserSysExTimeout =
+    test("Allocations/theMidiParserAbandonsAStalledSysExOffTheHeap") = []
+{
+    auto sysExBuffer = std::array<std::uint8_t, 64> {};
+    auto parser = MidiParser {Span<std::uint8_t>(sysExBuffer.data(), 64)};
+    parser.setSysExTimeout(std::chrono::milliseconds {10});
+
+    auto opening = std::array<std::uint8_t, 3> {0xF0, 0x43, 0x00};
+
+    auto dropped = 0;
+    auto onMessage = [](const MidiMessageView&) {};
+    auto onDropped = [&dropped](int numBytes) { dropped = numBytes; };
+
+    auto count = allocationsIn(
+        [&]
+        {
+            auto start = MidiTimePoint {};
+
+            parser.feed(Span<const std::uint8_t>(opening.data(), 3),
+                        start,
+                        onMessage,
+                        onDropped);
+
+            // An empty tick a second later is what the owner calls to give up.
+            parser.feed(Span<const std::uint8_t> {},
+                        start + std::chrono::seconds {1},
+                        onMessage,
+                        onDropped);
+        });
+
+    check(count == 0);
+    check(dropped == 3);
 };
 
 auto tDrainNoPorts = test("Allocations/drainingWithNoInputOpenTouchesNothing") = []
