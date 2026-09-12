@@ -5,11 +5,14 @@ add_library(MakeASound STATIC
         MakeASound/MiniAudio/MiniAudio-Backend.cpp
         MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
         MakeASound/MIDI/MidiInfo.cpp
+        MakeASound/MIDI/MidiBackend.cpp
+        MakeASound/MIDI/MidiPortRegistry.cpp
         MakeASound/MIDI/MidiManager.cpp
         MakeASound/MIDI/MidiBlockSync.cpp
         MakeASound/MIDI/MIDI.cpp
         MakeASound/RTMidi/RTMidi-Backend.cpp
         MakeASound/RTMidi/RTMidiManager.cpp
+        MakeASound/RTMidi/RTMidi-Factory.cpp
         MakeASound/UI/Dropdown.cpp
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)

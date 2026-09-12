@@ -83,7 +83,7 @@ Vector<MidiPortInfo> MidiManager::getInputPorts()
     if (inputEnumerator == nullptr)
         return {};
 
-    return getPorts(*inputEnumerator);
+    return getPorts(*inputEnumerator, inputRegistry);
 }
 
 Vector<MidiPortInfo> MidiManager::getOutputPorts()
@@ -91,7 +91,19 @@ Vector<MidiPortInfo> MidiManager::getOutputPorts()
     if (outputEnumerator == nullptr)
         return {};
 
-    return getPorts(*outputEnumerator);
+    return getPorts(*outputEnumerator, outputRegistry);
+}
+
+int MidiManager::resolveInput(int portId)
+{
+    getInputPorts();
+    return inputRegistry.portNumberForId(portId);
+}
+
+int MidiManager::resolveOutput(int portId)
+{
+    getOutputPorts();
+    return outputRegistry.portNumberForId(portId);
 }
 
 InputPort* MidiManager::createInput(int portId, const MidiInputCallback& cb)
@@ -118,13 +130,22 @@ Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
 {
     closeInput(portId);
 
+    auto portNumber = resolveInput(portId);
+
+    if (portNumber < 0)
+    {
+        lastError = Error::INVALID_PARAMETER;
+        return lastError;
+    }
+
     auto* port = createInput(portId, cb);
 
     if (port == nullptr)
         return lastError;
 
-    auto error = guard([port, portId]
-                       { port->rtIn->openPort(static_cast<unsigned int>(portId)); });
+    auto error =
+        guard([port, portNumber]
+              { port->rtIn->openPort(static_cast<unsigned int>(portNumber)); });
 
     if (error != Error::NoError)
         closeInput(portId);
@@ -207,8 +228,16 @@ Error MidiManager::openOutput(int portId)
     if (output == nullptr)
         return Error::SYSTEM_ERROR;
 
-    return guard([this, portId]
-                 { output->openPort(static_cast<unsigned int>(portId)); });
+    auto portNumber = resolveOutput(portId);
+
+    if (portNumber < 0)
+    {
+        lastError = Error::INVALID_PARAMETER;
+        return lastError;
+    }
+
+    return guard([this, portNumber]
+                 { output->openPort(static_cast<unsigned int>(portNumber)); });
 }
 
 Error MidiManager::openVirtualOutput(const std::string& name)

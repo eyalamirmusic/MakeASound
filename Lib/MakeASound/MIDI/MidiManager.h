@@ -8,16 +8,17 @@
 
 namespace MakeASound
 {
-namespace RTMidi
-{
-struct MidiManager;
-}
+class MidiBackend;
 
 class MidiManager
 {
 public:
     MidiManager();
     ~MidiManager();
+
+    // The clock every backend stamps MidiInputEvent::arrival on, so a host can
+    // compare an arrival against a boundary it took itself.
+    static MidiTimePoint now();
 
     Vector<MidiPortInfo> getInputPorts() const;
     Vector<MidiPortInfo> getOutputPorts() const;
@@ -33,8 +34,9 @@ public:
     // Queue mode: events accumulate internally until drainMessages().
     Error openInput(int portId);
 
-    // Callback mode: `cb` fires on RtMidi's input thread, nothing is queued. The
-    // message is a per-port buffer refilled by the next one, so copy what you keep.
+    // Callback mode: `cb` fires on the platform's MIDI thread, nothing is queued.
+    // The message is a per-port buffer refilled by the next one, so copy what you
+    // keep.
     Error openInput(int portId, const MidiInputCallback& cb);
 
     // A synthetic (negative) portId, usable like a real one, or nullopt where the
@@ -65,8 +67,17 @@ public:
     Error sendMessage(const std::uint8_t* bytes, std::size_t size);
     Error sendMessage(const MIDI::Event& event);
 
+    // Runs on whatever platform thread raised the notification, so treat it like
+    // the audio one and do no work there. Prefer drainNotifications() unless the
+    // delivery has to be immediate.
+    void setNotificationCallback(const MidiNotificationCallback& cb) const;
+
+    // The same notifications, queued instead of delivered: everything since the
+    // last call, in order; past 64 undrained the newest are dropped.
+    Vector<MidiNotification> drainNotifications() const;
+
 private:
-    OwningPointer<RTMidi::MidiManager> pimpl;
+    OwningPointer<MidiBackend> pimpl;
 };
 
 } // namespace MakeASound

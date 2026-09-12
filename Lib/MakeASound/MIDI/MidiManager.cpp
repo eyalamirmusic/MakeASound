@@ -1,11 +1,11 @@
 #include "MidiManager.h"
-#include "../RTMidi/RTMidiManager.h"
+#include "MidiBackend.h"
 
 namespace MakeASound
 {
 
 MidiManager::MidiManager()
-    : pimpl(EA::makeOwned<RTMidi::MidiManager>())
+    : pimpl(makeMidiBackend())
 {
 }
 
@@ -13,6 +13,11 @@ MidiManager::~MidiManager()
 {
     closeAllInputs();
     closeOutput();
+}
+
+MidiTimePoint MidiManager::now()
+{
+    return std::chrono::steady_clock::now();
 }
 
 Vector<MidiPortInfo> MidiManager::getInputPorts() const
@@ -122,6 +127,16 @@ Error MidiManager::sendMessage(const MIDI::Event& event)
         return Error::INVALID_PARAMETER;
 
     return pimpl->sendMessage(raw.data.data(), static_cast<std::size_t>(raw.size));
+}
+
+void MidiManager::setNotificationCallback(const MidiNotificationCallback& cb) const
+{
+    pimpl->notificationCallback = cb;
+}
+
+Vector<MidiNotification> MidiManager::drainNotifications() const
+{
+    return pimpl->takeNotifications();
 }
 
 } // namespace MakeASound

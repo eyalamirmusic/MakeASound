@@ -14,7 +14,7 @@ void MidiBlockSync::drainForBlock(MidiManager& midi, int numSamples, int sampleR
     if (numSamples <= 0 || sampleRate <= 0)
         return;
 
-    auto now = std::chrono::steady_clock::now();
+    auto now = MidiManager::now();
     midi.drainMessages(buffer);
 
     if (!hasPrevBlock)
