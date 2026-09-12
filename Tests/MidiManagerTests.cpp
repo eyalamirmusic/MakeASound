@@ -9,6 +9,7 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -16,6 +17,13 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// The Apple backend's timestamp conversion, reached directly: a loopback cannot
+// exercise it on its own, and the library's include root is already on the path.
+#if defined(__APPLE__)
+    #include <MakeASound/CoreMIDI/CoreMIDI-Backend.h>
+    #include <mach/mach_time.h>
+#endif
 
 using namespace nano;
 using namespace std::chrono_literals;
@@ -124,6 +132,31 @@ auto tDefaults = test("Midi/theSysExLimitsAreWhatTheyClaim") = []
     check(midi.getMaxSysExBytes() >= 3);
 };
 
+#if defined(__APPLE__)
+auto tClockConversion = test("Midi/aMachTimestampConvertsToTheManagersClock") = []
+{
+    // mach_absolute_time and steady_clock are different counters — the second
+    // keeps running while the machine sleeps and the first does not — so the
+    // backend measures the offset between them instead of assuming it is zero.
+    // A stamp taken right now has to come back as right now.
+    auto worst = Clock::duration {};
+
+    for (auto i = 0; i < 16; ++i)
+    {
+        auto converted = MakeASound::CoreMIDI::toTimePoint(mach_absolute_time());
+        auto now = MidiManager::now();
+        auto delta = now > converted ? now - converted : converted - now;
+
+        worst = std::max(worst, delta);
+    }
+
+    check(worst < 5ms);
+
+    // A stamp of 0 is Core MIDI's "as soon as you can", which is also now.
+    check(MidiManager::now() - MakeASound::CoreMIDI::toTimePoint(0) < 5ms);
+};
+#endif
+
 auto tArrival = test("Midi/aLoopbackArrivalSitsOnTheManagersClock") = []
 {
     auto midi = MidiManager {};
@@ -144,14 +177,14 @@ auto tArrival = test("Midi/aLoopbackArrivalSitsOnTheManagersClock") = []
     if (delivered == 0)
         return;
 
-    // The hardware timestamp is taken on the same clock MidiManager::now()
-    // reads, so it lands in the window the send was made in, give or take the
-    // few ms the platform took to hand it over.
-    auto slack = 20ms;
+    // The send stamps the packet with the platform's own clock, so the arrival
+    // cannot predate the send. The other side is only bounded loosely: a loaded
+    // runner can take a while to hand the packet over, and how long it took is
+    // not what this is measuring.
     auto arrival = events[0].arrival;
 
-    check(arrival >= before - slack);
-    check(arrival <= after + slack);
+    check(arrival >= before - 20ms);
+    check(arrival <= after + 500ms);
 };
 
 auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = []
@@ -183,6 +216,7 @@ auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = [
     auto seen = 0;
     auto ordered = true;
     auto inRange = true;
+    auto placed = 0;
 
     for (auto block = 0; block < 200 && seen < sent; ++block)
     {
@@ -196,6 +230,7 @@ auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = [
 
             ordered = ordered && offset >= previous;
             inRange = inRange && offset >= 0 && offset < numSamples;
+            placed += offset > 0 ? 1 : 0;
 
             previous = offset;
             ++seen;
@@ -213,6 +248,11 @@ auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = [
 
     check(ordered);
     check(inRange);
+
+    // A block is ~10.7ms at this rate and the sends are 1ms apart, so the window
+    // an event lands in is wide enough to place it somewhere other than its
+    // start. All-zero offsets would pass the two checks above and mean nothing.
+    check(placed > 0);
 };
 
 auto tSysExRoundTrip = test("Midi/aLongSysExComesBackWholeInCallbackMode") = []
