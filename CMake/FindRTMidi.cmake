@@ -35,6 +35,10 @@ if (APPLE)
 elseif (WIN32)
     target_compile_definitions(rtmidi PRIVATE __WINDOWS_MM__)
     target_link_libraries(rtmidi PRIVATE winmm)
+elseif (EMSCRIPTEN OR ANDROID)
+    # No MIDI API RtMidi knows on either: its dummy backend compiles to ports
+    # that never appear.
+    target_compile_definitions(rtmidi PRIVATE __RTMIDI_DUMMY__)
 elseif (UNIX)
     find_package(ALSA REQUIRED)
     find_package(Threads REQUIRED)
