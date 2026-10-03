@@ -28,14 +28,8 @@ set_target_properties(AudioProbe PROPERTIES
 eacp_set_gui_subsystem(AudioProbe)
 set_default_target_setting(AudioProbe)
 
-# Our own Info.plist rather than eacp's stock one: opening the capture side
-# needs NSMicrophoneUsageDescription, which neither platform's default carries.
-if (IOS)
-    set_target_properties(AudioProbe PROPERTIES MACOSX_BUNDLE_INFO_PLIST
-            "${CMAKE_CURRENT_SOURCE_DIR}/Info-iOS.plist.in")
-elseif (APPLE)
-    set_target_properties(AudioProbe PROPERTIES MACOSX_BUNDLE_INFO_PLIST
-            "${CMAKE_CURRENT_SOURCE_DIR}/Info-macOS.plist.in")
-endif ()
+# Opening the capture side needs a usage description on macOS and iOS alike.
+eacp_add_plist_entries(AudioProbe NSMicrophoneUsageDescription
+        "MakeASound's probe opens a capture stream to show what asking for one costs.")
 
 set_makeasound_warnings(AudioProbe)
