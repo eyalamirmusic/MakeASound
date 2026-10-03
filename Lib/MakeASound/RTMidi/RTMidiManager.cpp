@@ -50,9 +50,14 @@ void errorTrampoline(::RtMidiError::Type type,
 
 MidiManager::MidiManager()
 {
-    // Constructing an RtMidi object is where the platform's MIDI client is created,
-    // and on iOS that fails — so it happens under the guard like everything else and
-    // leaves the manager usable but empty rather than throwing out of a constructor.
+    // A machine whose MIDI system cannot be reached is an ordinary state: the
+    // manager stays usable but empty rather than throwing out of a constructor.
+    if (!prepareMidiClient())
+    {
+        lastError = Error::SYSTEM_ERROR;
+        return;
+    }
+
     guard([this] { inputEnumerator = EA::makeOwned<::RtMidiIn>(); });
     guard([this] { outputEnumerator = EA::makeOwned<::RtMidiOut>(); });
     guard([this] { output = EA::makeOwned<::RtMidiOut>(); });
@@ -96,6 +101,12 @@ Vector<MidiPortInfo> MidiManager::getOutputPorts()
 
 InputPort* MidiManager::createInput(int portId, const MidiInputCallback& cb)
 {
+    if (!isAvailable())
+    {
+        lastError = Error::SYSTEM_ERROR;
+        return nullptr;
+    }
+
     auto& port = inputs.createNew();
     port.portId = portId;
     port.callback = cb;

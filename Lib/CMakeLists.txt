@@ -32,6 +32,16 @@ else()
             MakeASound/Devices/AudioSession-Default.cpp)
 endif()
 
+# RtMidi creates its Core MIDI client inside a throw() function, so a MIDI server
+# it cannot reach terminates the process. On Apple the client is created here
+# first and handed over; see RTMidi::prepareMidiClient.
+if(APPLE)
+    target_sources(MakeASound PRIVATE MakeASound/RTMidi/RTMidi-Client-Apple.cpp)
+    target_link_libraries(MakeASound PRIVATE "-framework CoreMIDI")
+else()
+    target_sources(MakeASound PRIVATE MakeASound/RTMidi/RTMidi-Client-Default.cpp)
+endif()
+
 target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
