@@ -44,9 +44,10 @@ bool capturesAudio(SessionCategory category)
            || category == SessionCategory::PlayAndRecord;
 }
 
-AVAudioSessionCategoryOptions toOptions(const SessionOptions& options,
+AVAudioSessionCategoryOptions toOptions(const SessionOptions& requested,
                                         SessionCategory category)
 {
+    auto options = getOptionsForCategory(requested, category);
     auto flags = AVAudioSessionCategoryOptions {};
 
     if (options.mixWithOthers)
@@ -62,20 +63,17 @@ AVAudioSessionCategoryOptions toOptions(const SessionOptions& options,
 #else
         flags |= AVAudioSessionCategoryOptionAllowBluetooth;
 #endif
-        flags |= AVAudioSessionCategoryOptionAllowBluetoothA2DP;
+
+        // Record cannot take A2DP, which is output only.
+        if (category == SessionCategory::PlayAndRecord)
+            flags |= AVAudioSessionCategoryOptionAllowBluetoothA2DP;
     }
 
     if (options.allowAirPlay)
         flags |= AVAudioSessionCategoryOptionAllowAirPlay;
 
-    // iOS rejects the whole setCategory call for a category that cannot honour the
-    // option, so these two are filtered rather than passed through.
-    if (options.defaultToSpeaker && category == SessionCategory::PlayAndRecord)
+    if (options.defaultToSpeaker)
         flags |= AVAudioSessionCategoryOptionDefaultToSpeaker;
-
-    if (category == SessionCategory::Ambient)
-        flags &= ~AVAudioSessionCategoryOptions(
-            AVAudioSessionCategoryOptionDuckOthers);
 
     return flags;
 }
