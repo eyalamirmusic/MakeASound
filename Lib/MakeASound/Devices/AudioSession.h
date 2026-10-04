@@ -47,6 +47,8 @@ struct SessionOptions
     // broken phone.
     bool defaultToSpeaker = true;
 
+    // For PlayAndRecord (and a Bluetooth microphone in Record). Playback and Ambient
+    // always route to Bluetooth speakers and AirPlay, and cannot be asked to.
     bool allowBluetooth = true;
     bool allowAirPlay = true;
 };
@@ -96,6 +98,11 @@ struct SessionState
 };
 
 bool hasAudioSession();
+
+// What of `options` the category takes. iOS fails setCategory outright, with the
+// stream never opening, for an option the category cannot carry.
+SessionOptions getOptionsForCategory(const SessionOptions& options,
+                                     SessionCategory category);
 
 // Resolves an unset category from `wantsInput`, applies the rest and activates.
 // NoError where there is no session to apply it to.

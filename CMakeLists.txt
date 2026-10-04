@@ -13,6 +13,11 @@ if (APPLE)
     set(CMAKE_OBJCXX_STANDARD 20)
 endif ()
 
+# emscripten ships no clang-scan-deps, and nothing here is a C++ module.
+if (EMSCRIPTEN)
+    set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+endif ()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 
 function(set_makeasound_warnings target)
@@ -30,7 +35,8 @@ find_package(Miro REQUIRED)
 
 add_subdirectory(Lib)
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)
+# The apps need eacp, which has no wasm32 build to offer them.
+if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS AND NOT EMSCRIPTEN)
     add_subdirectory(Apps)
 endif ()
 

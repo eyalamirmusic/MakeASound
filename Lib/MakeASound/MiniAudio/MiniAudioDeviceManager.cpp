@@ -278,6 +278,13 @@ DeviceInfo DeviceManager::buildDeviceInfo(const ma_device_info& enumInfo,
         channels = std::max(channels,
                             static_cast<int>(source.nativeDataFormats[i].channels));
 
+#if defined(__EMSCRIPTEN__)
+    // Web Audio answers 0, meaning any count, which would read as a device with no
+    // outputs; miniaudio opens it in stereo.
+    if (channels == 0 && source.nativeDataFormatCount > 0)
+        channels = 2;
+#endif
+
     if (isPlayback)
         info.outputChannels = channels;
     else
@@ -895,10 +902,16 @@ bool DeviceManager::isStarved() const
 
 void DeviceManager::ensureRecoveryThread()
 {
+#if defined(__EMSCRIPTEN__)
+    // No threads on the web, and nothing to retry: Web Audio has the one default
+    // device, and a context the autoplay policy suspends is resumed by miniaudio
+    // itself on the next user gesture.
+#else
     if (recoveryThread.joinable())
         return;
 
     recoveryThread = std::thread([this] { runRecovery(); });
+#endif
 }
 
 void DeviceManager::requestRecovery()
