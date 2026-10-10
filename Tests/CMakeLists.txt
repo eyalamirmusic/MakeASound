@@ -25,6 +25,12 @@ if (MAKEASOUND_BUILD_PLUGIN)
     # eacp-core so the swap's and the wrapper's cases can pump the message loop.
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS eacp-core)
+
+    # The standalone format's pieces, where eacp can draw.
+    if (MAKEASOUND_HAS_GUI)
+        list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
+    endif ()
 endif ()
 
 # The ALSA backend's conversions are the one half of a platform backend that can
@@ -74,3 +80,8 @@ endif ()
 nano_add_executable(MakeASoundTests
         SOURCES ${MAKEASOUND_TEST_SOURCES}
         TARGETS ${MAKEASOUND_TEST_TARGETS})
+
+# PluginAllocationTests.cpp has a standalone case, built only where the format is.
+if (MAKEASOUND_BUILD_PLUGIN AND MAKEASOUND_HAS_GUI)
+    target_compile_definitions(MakeASoundTests PRIVATE MAKEASOUND_HAS_GUI=1)
+endif ()

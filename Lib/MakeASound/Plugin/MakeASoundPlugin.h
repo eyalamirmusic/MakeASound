@@ -15,6 +15,7 @@
 #include "StateContext.h"
 #include "State.h"
 #include "HostEditListener.h"
+#include "Editor.h"
 #include "Plugin.h"
 #include "StatePlugin.h"
 #include "PluginWrapper.h"

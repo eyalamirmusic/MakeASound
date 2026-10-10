@@ -9,7 +9,7 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
-On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)).
+On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its first format, a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)).
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -34,14 +34,15 @@ manager.start(manager.getDefaultConfig(),
 - **Typed MIDI.** `MIDI::Event` is a variant over note on/off, CC, pitch bend, aftertouch, program change and short SysEx, with allocation-free conversion to and from raw bytes.
 - **Block-aligned MIDI.** `MidiBlockSync` resolves arrival times into sample offsets inside the current audio block.
 - **A `Processor` run by an `Engine`.** Write `prepare`/`process`/`reset` against a `ProcessContext` of buses, and `Engine` wires it to a device stream and the open MIDI ports: the main buses refer straight into the callback's channels, MIDI arrives sorted by sample offset, and a device that cannot feed a bus channel is stood in for. The same `Processor` is what the plugin formats will host.
-- **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline the format adapters will share.
+- **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
+- **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches.
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset`, `Smoother`, `ScopedNoDenormals` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) are skipped, since eacp draws on macOS, Windows and iOS only.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -66,7 +67,8 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | --- | --- | --- |
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
-| `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. |
+| `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp draws (macOS, Windows), also the generic editor and the standalone format. |
+| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Examples/` (top-level builds with the plugin core only). |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
 
 To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
@@ -89,7 +91,7 @@ thread, so a steady-state block and a delivered MIDI message are measured end to
 end. Those need a playback device and a virtual MIDI port, and measure nothing
 rather than failing where the platform has neither. `PluginAllocationTests.cpp`
 does the same for the plugin core: parameter values, host-id lookup, the realtime
-swap and a whole `PluginWrapper` block.
+swap, a whole `PluginWrapper` block, and a standalone block on `Engine`.
 
 Interposition needs `dlsym(RTLD_NEXT, ...)`, so these files are added to the test
 target on Apple and Linux only, rather than reporting zero allocations elsewhere
@@ -298,7 +300,7 @@ engine.start(devices.getDefaultDuplexConfig(), gain);
 
 ## Plugins
 
-`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. No format adapter exists yet; a standalone app, VST3 and AU are the next stages in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
+`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app is the first format (below); VST3 and AU are the next stages in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
 
 ```cpp
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
@@ -348,6 +350,111 @@ target_link_libraries(MyPlugin PRIVATE MakeASoundPlugin)
 Parameters are declared in a `ParameterGroup` and registered with `add(...)` in its constructor, in the order the host lists them. A nested group takes a name per instance, so `OscParams osc1 {"Osc 1"}` gives its `attack` the id `"Osc 1/Attack"` and the name `"Osc 1 Attack"`; `add` also takes arrays and vectors of groups or parameters, each element under its own name. An id defaults to the name, and `{.id = "cutoff"}` on a parameter or a group pins it so a later rename keeps saved state and automation. The host id is a 31-bit hash of the full id rather than a position (VST3 reserves the ids above), so inserting a parameter in a later release moves nobody's automation; `{.hostId = ...}` pins one by hand. Values are atomics, read straight from `process`. `StatePlugin` saves and loads the group as JSON with a `version` field: choices by name, a missing key back to its default, and a `{.sessionOnly = true}` parameter only in a DAW session, never in a preset. A load assigns into the registered parameters and rebuilds nothing. `version` is what this build writes; the loaded document's is `loadedVersion`, for migrating in a `reflect` override. Parameters are not Miro fields: one in a `MIRO_REFLECT` list does not compile.
 
 `PluginWrapper` is what a format adapter drives, one block at a time. By the time `process` runs, each output channel already holds its input (copied, or the same memory when the host processes in place), which is why the gain above only multiplies; after the block every bus is detached again. A host saving from its own thread gets the published snapshot without waiting on the message thread, and a load applies the parameters at once and the rest of the document on the message thread, unless a newer load overtook it. While the plugin's own editor holds a parameter in a gesture, host writes to it are dropped. Destroy the wrapper on the message thread. `Tests/PluginTests.cpp` drives it as a fake host.
+
+## Running a plugin standalone
+
+`Examples/Gain` is a complete plugin. The header declares the parameters and the processor:
+
+```cpp
+#pragma once
+
+#include <MakeASound/Plugin/MakeASoundPlugin.h>
+
+namespace MakeASoundExamples
+{
+using namespace MakeASound;
+
+struct GainParams : ParameterGroup
+{
+    GainParams() { add(gain); }
+
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
+};
+
+struct GainPlugin : StatePlugin<State<GainParams>>
+{
+    std::string_view name() const override { return "Gain"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec& spec) override;
+    void reset() noexcept override;
+    void process(ProcessContext& context) noexcept override;
+
+    Smoother gain;
+};
+
+} // namespace MakeASoundExamples
+```
+
+and the source implements it and describes the module:
+
+```cpp
+#include "GainPlugin.h"
+
+namespace MakeASoundExamples
+{
+
+void GainPlugin::prepare(const ProcessSpec& spec)
+{
+    gain.setSampleRate(spec.sampleRate);
+    gain.setRampTime(0.02f);
+    reset();
+}
+
+void GainPlugin::reset() noexcept { gain.reset(params.gain.gain()); }
+
+void GainPlugin::process(ProcessContext& context) noexcept
+{
+    gain.setTarget(params.gain.gain());
+    gain.applyGain(context.mainOutput());
+}
+
+} // namespace MakeASoundExamples
+
+namespace MakeASound
+{
+
+ModuleDescription describeModule()
+{
+    auto module = ModuleDescription {};
+    module.vendor = "MakeASound";
+    module.manufacturerCode = "MkAS";
+    module.plugins.add(
+        {.name = "Gain",
+         .category = Category::Effect,
+         .pluginCode = "Gain",
+         .create = [] { return EA::makeOwned<MakeASoundExamples::GainPlugin>(); }});
+    return module;
+}
+
+} // namespace MakeASound
+```
+
+One CMake call builds it:
+
+```cmake
+makeasound_add_plugin(Gain
+        FORMATS Standalone
+        OUTPUT_NAME "MakeASound Gain"
+        SOURCES GainPlugin.cpp)
+```
+
+That makes `Gain`, a static library holding the plugin, and `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS). `BUNDLE_ID` and `COMPANY` are optional, and VST3 and AU will be further `FORMATS` on the same call. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
+
+```bash
+open "./build/Examples/Gain/MakeASound Gain.app"
+open "./build/Examples/Synth/MakeASound Synth.app"   # the instrument example
+```
+
+The app hosts the module's first plugin, run by `Engine`:
+
+- **The editor window** shows the plugin's own `Editor` when `createEditor()` returns one, and otherwise a generic page: a slider, a dropdown or a checkbox per parameter, with its value text, kept in step with the parameters while it is open. Both are eacp GPU widgets, so neither needs npm or a webview.
+- **Audio / MIDI Settings…** (Cmd+,) picks the output and input devices and channels, the sample rate, the block size, the MIDI inputs and, for a plugin with a MIDI output bus, the port it sends to. Rows a layout cannot use are hidden, and the lists follow devices and ports as they come and go. An instrument opens no capture side, so it asks for no microphone.
+- **The computer MIDI keyboard** (Cmd+K, on by default for a plugin with a MIDI input): `A W S E D F T G Y H U J K O L P ;` play an octave and a half from middle C, `Z` and `X` shift it an octave. Notes held when the window loses focus are released.
+- **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
+
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Examples/Synth` is a monophonic instrument that plays from a hardware port and the typing keyboard.
 
 ## The probe app
 
@@ -408,7 +515,9 @@ Lib/MakeASound/
   Devices/          DeviceInfo data types, DeviceManager façade, Engine, device queries
   MIDI/             typed events, port info, block sync, MidiManager façade
   Realtime/         SPSCQueue, SpinLock, ScopedNoDenormals, Smoother
-  Plugin/           MakeASoundPlugin: Plugin, parameters, state, PluginWrapper
+  Plugin/           MakeASoundPlugin: Plugin, parameters, state, PluginWrapper, Editor
+    UI/             MakeASoundPluginUI: the generic parameter editor
+    Standalone/     MakeASoundStandalone: the standalone app format
   UI/               dropdown/toggle-list helpers for the demo apps
   Common/           EA type re-exports and audio-thread-safe algorithms
   MiniAudio/        audio backend (hidden)
@@ -417,6 +526,8 @@ Lib/MakeASound/
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
+Examples/           Gain, Synth: plugins built with makeasound_add_plugin
+CMake/              CPM, the Find modules, MakeASoundPlugin.cmake
 Tests/              NanoTest suites
 gaps.md             what the probe found, what was fixed, what is open
 ```
@@ -429,4 +540,4 @@ Miro::logJSON(manager.getDefaultConfig());
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`.

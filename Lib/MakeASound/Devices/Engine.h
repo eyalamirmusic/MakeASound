@@ -17,7 +17,8 @@ namespace MakeASound
 // buffers refer straight into the callback's.
 //
 // MIDI output buses are cleared every block and otherwise ignored here; sending
-// is not audio-thread safe and arrives with the standalone format.
+// is not audio-thread safe, so a processor that sends hands its events to a
+// thread of its own (the standalone format's MidiSender).
 //
 // Every public member but process() is host-thread only.
 class Engine

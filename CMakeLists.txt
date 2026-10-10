@@ -9,6 +9,7 @@ option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only
 option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
        ${PROJECT_IS_TOP_LEVEL})
+option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins (top-level builds only)" ON)
 
 if (APPLE)
     enable_language(OBJCXX)
@@ -32,12 +33,29 @@ find_package(Miro REQUIRED)
 # The plugin core links eacp-core; the demo apps find eacp again, which CPM dedupes.
 if (MAKEASOUND_BUILD_PLUGIN)
     find_package(eacp REQUIRED)
+
+    # The generic editor and the standalone format need eacp's GUI tier and a
+    # desktop with a menu bar: macOS and Windows. A Linux or iOS build keeps the
+    # core.
+    if (((APPLE AND NOT IOS) OR WIN32) AND EACP_BUILD_GRAPHICS)
+        set(MAKEASOUND_HAS_GUI ON)
+    else ()
+        set(MAKEASOUND_HAS_GUI OFF)
+    endif ()
 endif ()
 
 add_subdirectory(Lib)
 
+if (MAKEASOUND_BUILD_PLUGIN)
+    include(CMake/MakeASoundPlugin.cmake)
+endif ()
+
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)
     add_subdirectory(Apps)
+endif ()
+
+if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUGIN)
+    add_subdirectory(Examples)
 endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_TESTS)

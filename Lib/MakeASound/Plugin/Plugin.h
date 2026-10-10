@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Audio/Processor.h"
+#include "Editor.h"
 #include "HostEditListener.h"
 #include "ParameterList.h"
 #include "StateContext.h"
@@ -21,8 +22,7 @@ enum class PluginFormat
 };
 
 // A Processor with a host behind it: a name, a layout it negotiates, latency and
-// tail, a parameter registry and a state document. Editors arrive with the
-// standalone format.
+// tail, a parameter registry, a state document and an optional editor.
 class Plugin : public Processor
 {
 public:
@@ -51,6 +51,11 @@ public:
     // True once each time latencySamples() moved on its own since the last ask.
     // Message thread.
     virtual bool takeLatencyChanged() noexcept { return false; }
+
+    // Null means no editor of its own, and the host shows its generic parameter
+    // page. Cheap by contract: a host may call it only to learn whether one
+    // exists, so build the view lazily in Editor::view(). Message thread.
+    virtual OwningPointer<Editor> createEditor() { return {}; }
 
     // The plugin's whole document, on the message thread.
     virtual std::string saveState(StateContext context);

@@ -102,4 +102,33 @@ if (MAKEASOUND_BUILD_PLUGIN)
     endif ()
 
     set_makeasound_warnings(MakeASoundPlugin)
+
+    # MakeASoundPluginUI: the eacp-ui pieces every format shares, today the
+    # generic parameter editor. MakeASoundStandalone: the standalone format, a
+    # Plugin in a window on Engine. Both need eacp to draw.
+    if (MAKEASOUND_HAS_GUI)
+        add_library(MakeASoundPluginUI STATIC
+                MakeASound/Plugin/UI/GenericEditor.cpp)
+
+        target_link_libraries(MakeASoundPluginUI PUBLIC MakeASoundPlugin eacp-ui)
+
+        add_library(MakeASoundStandalone STATIC
+                MakeASound/Plugin/Standalone/StandaloneProcessor.cpp
+                MakeASound/Plugin/Standalone/MidiSender.cpp
+                MakeASound/Plugin/Standalone/TypingKeyboard.cpp
+                MakeASound/Plugin/Standalone/Settings.cpp
+                MakeASound/Plugin/Standalone/SettingsPanel.cpp
+                MakeASound/Plugin/Standalone/StandaloneApp.cpp)
+
+        target_link_libraries(MakeASoundStandalone
+                PUBLIC MakeASoundPluginUI eacp-graphics)
+
+        foreach (target MakeASoundPluginUI MakeASoundStandalone)
+            if (MAKEASOUND_UNITY_BUILD)
+                set_target_properties(${target} PROPERTIES UNITY_BUILD ON)
+            endif ()
+
+            set_makeasound_warnings(${target})
+        endforeach ()
+    endif ()
 endif ()

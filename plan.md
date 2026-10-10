@@ -16,7 +16,7 @@ it.
 | 0 | `Buffer`, one class, owning or referring | suite green, allocation tests cover every view path — **landed 2026-10-10** |
 | 1 | `Processor`, `ProcessContext`, `Engine` in the device library | the Synth demo is a `Processor` run by `Engine` — **landed 2026-10-10** |
 | 2 | `MakeASoundPlugin`: `Plugin`, parameters, state, description | fake-host tests drive a plugin end to end — **landed 2026-10-10** |
-| 3 | Standalone format | a `Plugin` runs in a window with device and MIDI pickers |
+| 3 | Standalone format | a `Plugin` runs in a window with device and MIDI pickers — **landed 2026-10-10** |
 | 4 | VST3 | pluginval at strictness 10 |
 | 5 | AU | auval after an install step |
 | 6 | editors, examples, CI, docs | |
@@ -395,6 +395,115 @@ block size and MIDI port pickers; `Synth` plays from a hardware MIDI port and th
 typing keyboard; settings and state survive a relaunch; the per-example allocation
 test (the harness from `Tests/AllocationProbe.h`) passes under a live callback.
 
+Landed: two more static targets behind `MAKEASOUND_HAS_GUI`, which the top-level
+`CMakeLists.txt` sets under `MAKEASOUND_BUILD_PLUGIN` to `(APPLE OR WIN32) AND
+EACP_BUILD_GRAPHICS`, eacp's own condition for drawing, so a Linux build keeps
+the core and skips the window. `MakeASoundPluginUI` (`Plugin/UI/`, linking
+`MakeASoundPlugin` and `eacp-ui` PUBLIC) holds `GenericEditor`;
+`MakeASoundStandalone` (`Plugin/Standalone/`, linking `MakeASoundPluginUI` and
+`eacp-graphics` PUBLIC) holds `StandaloneApp`, `StandaloneProcessor`,
+`MidiSender`, `TypingKeyboard`, `Settings` and `SettingsPanel`.
+`makeasound_add_plugin(<Name> FORMATS Standalone SOURCES ... [OUTPUT_NAME]
+[BUNDLE_ID] [COMPANY])` lives in `CMake/MakeASoundPlugin.cmake`, which the
+top-level file includes whenever the plugin core is built, so a CPM consumer
+calls it from its own tree; `MAKEASOUND_HAS_GUI` reaches it through a global
+property for the same reason. It builds the sources once as the static core
+`<Name>` and links `<Name>-Standalone` from
+`Plugin/Standalone/StandaloneMain.cpp` (`eacp::Apps::run<StandaloneApp>()`), a
+`MACOSX_BUNDLE` with `NSMicrophoneUsageDescription` and an ad-hoc codesign
+post-build; without a GUI the format is skipped with a status line, and an
+unknown format is a configure error. `MAKEASOUND_BUILD_EXAMPLES` (on, top-level
+only, and only with the plugin core) adds `Examples/Gain` (targets `Gain`,
+`Gain-Standalone`, bundle `MakeASound Gain.app`) and `Examples/Synth`
+(`SynthPlugin`, `SynthPlugin-Standalone`, `MakeASound Synth.app`; a monophonic
+last-note-priority instrument with a waveform choice, attack, release, level and
+legato). Tests: 24 `Standalone/` cases in `StandaloneTests.cpp` (the processor
+on `Engine` with a synthetic callback, injection order and capacity, the sender
+over a virtual-port loopback, the typing keyboard's map, the settings file and
+the by-name re-resolution), and in `PluginAllocationTests.cpp` a
+`StandaloneProcessor` block on `Engine` for the effect and for the instrument
+with an injected note echoed into the sender, plus a live callback on the
+machine's default output device, banned from inside the plugin's `process` and
+measuring nothing where no device opens. README and
+CLAUDE.md describe the format.
+Where it differs from the bullets above:
+
+- **`Engine` keeps running a `Processor`.** `Standalone::StandaloneProcessor` is
+  the thin adapter the bullet offered: `getBusLayout()` is the wrapper's,
+  `prepare` sizes one run of channel pointers per bus, back to back, and prepares
+  the wrapper, and each `process` drives the wrapper's steps as any adapter will
+  (`clearMidi`, the hardware MIDI of every bus, the injected queue at offset 0,
+  `sortMidiInByOffset`, `setPlayhead`, `bindInput`/`bindOutput` through those
+  tables, `process`, MIDI out bus 0 into `MidiSender`). `Engine` lives in the
+  device library and cannot name `PluginWrapper`, and growing a path for it there
+  would have pulled the plugin core into the device library. A run is clamped to
+  what `prepare` sized, so a context wider than the layout binds fewer channels
+  instead of writing past the table.
+- **The host-side UI is eacp-ui GPU widgets, not web pages.** `GenericEditor` and
+  `SettingsPanel` are `eacp::UI::ComponentHost` trees, the panel's lists built
+  from the existing `UI::DropdownInfo` helpers (`makeOutputDeviceDropdown`,
+  `makeSampleRateDropdown`, `makeBlockSizeDropdown`, the channel dropdowns), as
+  `Apps/AudioProbe` already does: no npm, no JS bridge, no embedded resources in
+  a plugin that never asked for them. A plugin's own `Editor` may still wrap a
+  `WebView`. Stage 6's "generic parameter page with no npm" is therefore done.
+- **`Editor` is `view()`, `initialSize()`, `isResizable()`,
+  `onAttached()`/`onRemoved()`**, with `view()` an `eacp::Graphics::View&`
+  built lazily and stable for the editor's lifetime. `Editor.h` carries only a
+  forward declaration of `eacp::Graphics::View`, so `MakeASoundPlugin` still
+  includes no eacp header and links no GUI tier; whoever builds or hosts an
+  editor does. `Plugin::createEditor()` returns null by default, and is cheap by
+  contract, since a host may call it only to learn whether one exists.
+- **`MakeASoundPluginUI` is a target of its own**, not part of the standalone:
+  `GenericEditor` is what every format shows for a plugin with no editor, so
+  VST3's and AU's views will link it without the standalone's device and window
+  code.
+- **MIDI out has a sender.** `MidiSender` owns an `SPSCQueue<MIDI::Event, 1024>`
+  the audio thread pushes into and a thread that drains it every millisecond,
+  sending while an output is open and dropping otherwise; it is stopped around
+  opening or closing the output, because `MidiManager` does not guard a send
+  against either. Only bus 0 is forwarded, to the one output port.
+- **Settings are stored by name.** `Standalone::Settings {version, audio,
+  midiInputPorts, midiOutputPort, pluginState}`: the `StreamConfig`, the port
+  *names* and the plugin's `Session` document, at
+  `<app support>/<vendor>/<plugin>/settings.json`, written atomically.
+  `resolveConfig` re-points each saved side at the device of that name present
+  now (its channel span clamped, a missing device taking the fallback's side, a
+  rate no device lists re-chosen as `pickCompatibleSampleRate` would), and
+  `resolvePortIds` maps port names to today's ids, because both id registries
+  are per launch. A missing, blank or non-object file loads as nothing.
+- **The typing keyboard** is Ableton's layout (`A W S E D F T G Y H U J K O L P
+  ;` over 17 semitones, `Z`/`X` an octave) on eacp `KeyCode`s, a pure class with
+  a sink that the app points at `StandaloneProcessor::injectMidi` (an
+  `SPSCQueue<MIDI::Event, 256>`, landing at offset 0 after the hardware events of
+  that offset). It remembers the note each key holds, so a release after an
+  octave shift ends the note that was played. The app feeds it from a
+  `WindowInputListener` on both windows, ignores a repeat and a key with
+  command, control or alt held, releases every held note when a window stops
+  being key, and turns it on by default for a layout with a MIDI-in bus, with
+  Cmd+K (`Computer MIDI Keyboard` in the app menu) toggling it.
+- **`StandaloneApp` hosts the module's first plugin** and has no plugin picker.
+  The editor window is the primary one (resizable only when the editor says so);
+  the settings window is a hidden secondary one opened by Cmd+, and hidden again
+  on close. The app menu also has `Reset Plugin to Defaults` (the `Preset`
+  document saved before any settings were loaded, so session-only parameters
+  stay) and `Reset Audio / MIDI Settings` (every port closed, the default
+  config). The default config is output-only for every layout: an instrument
+  asks for no microphone, and an effect's input is only ever one the user picked
+  in the settings window, because the default microphone into the default
+  speakers is a feedback loop (which the first run of `Gain` produced). A failed
+  open is printed to `stderr`; the app keeps running with what it has.
+- **`SynthPlugin`, not `Synth`**, for the instrument example's targets:
+  `Apps/Synth`, the `Engine` demo it was ported from, owns that name and stays.
+- **The settings panel follows the layout.** `SettingsPanelOptions::forLayout`
+  hides the input rows for a layout with no input bus, the MIDI input toggles for
+  one with no MIDI-in bus and the MIDI output picker for one with no MIDI-out bus;
+  the panel edits a copy of the config, reports it, and shows what the app
+  answers with `setConfig`, and a 2 Hz timer of its own rebuilds the lists when a
+  device or port comes or goes.
+- **The proof's allocation test is the format's, not each example's**: the
+  standalone cases in `PluginAllocationTests.cpp` drive `StandaloneProcessor`
+  with the test plugins, which cover what both examples exercise.
+
 ## Later stages, in brief
 
 - **VST3**: SDK through CPM `DOWNLOAD_ONLY` with a pinned tag and a small in-house
@@ -466,3 +575,27 @@ test (the harness from `Tests/AllocationProbe.h`) passes under a live callback.
 - 2026-10-10: `RealtimeSwap` and `MessageThread` live in `Plugin/Realtime/`, not
   the device library's `Realtime/`: the swap needs the message thread, eacp
   backs that, and keeping it there keeps eacp out of the device library.
+- 2026-10-10: the standalone format drives `PluginWrapper` through a thin
+  `Processor`, `Standalone::StandaloneProcessor`, rather than giving `Engine` a
+  wrapper path: `Engine` is in the device library, which must not know the plugin
+  core, and the adapter is the same sequence of wrapper calls VST3 and AU will
+  make, so the standalone exercises the pipeline as they will.
+- 2026-10-10: host-side UI (the generic editor, the settings panel) is eacp-ui
+  GPU widgets in `ComponentHost` trees, not web pages: no npm, no JS bridge and
+  no embedded resources in every plugin binary, and the `UI::DropdownInfo`
+  helpers the web demos use feed the widgets directly. A plugin's own editor may
+  still be a `WebView`.
+- 2026-10-10: `Editor.h` carries only a forward declaration of
+  `eacp::Graphics::View`, so `MakeASoundPlugin` still includes no eacp header and
+  links no GUI tier; `MakeASoundPluginUI` and `MakeASoundStandalone` do, and an
+  adapter that hosts an editor links them.
+- 2026-10-10: the standalone settings store devices and MIDI ports by name and
+  re-resolve them on launch (`resolveConfig`, `resolvePortIds`): both id
+  registries are per launch, so a saved id names nothing next time.
+- 2026-10-10: `MidiSender` is stopped around opening or closing the MIDI output
+  rather than `MidiManager` guarding a send against a port change: the guard
+  would sit on every backend's send path for the one caller that sends from a
+  thread of its own.
+- 2026-10-10: a standalone starts output-only whatever its layout; an effect's
+  input is the user's explicit pick. The first `Gain` run opened the default
+  microphone into the default speakers and fed back.
