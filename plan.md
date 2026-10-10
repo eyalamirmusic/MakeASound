@@ -513,13 +513,13 @@ Where it differs from the bullets above:
 
 ## Later stages, in brief
 
-- **VST3**: SDK through CPM `DOWNLOAD_ONLY` with a pinned tag and a small in-house
-  target, single-component `IComponent`/`IAudioProcessor`/`IEditController`,
+- **VST3**: the SDK vendored in `ThirdParty/VST3_SDK` (3.8.1, MIT since 3.8.0,
+  trimmed to the plugin side, built as the in-house target `vst3sdk`),
+  single-component `IComponent`/`IAudioProcessor`/`IEditController`,
   `IMidiMapping` shadow parameters expanded point by point into CC events,
   `IPlugView` over `eacp::Graphics::EmbeddedView`, bundle with `PkgInfo`, sealed
-  exports, generated plist, pluginval in CI. The VST3 SDK is GPLv3 or Steinberg's
-  proprietary licence, which matters once this repository has a licence of its
-  own.
+  exports, generated plist, pluginval in CI. The entry file and the export list
+  are properties on `vst3sdk`, for the format target to compile in.
 - **AU**: AudioUnitSDK through CPM, `ausdk::AUBase` family factories chosen by
   category, parameters reconciled through `GetParameterRT`, MIDI output
   callback, `kAudioUnitProperty_CocoaUI` view factory over `EmbeddedView`,
@@ -574,6 +574,9 @@ Where it differs from the bullets above:
   `Realtime/`, usable by an app with no plugin; eacp enters `MakeASoundPlugin`
   PRIVATE through one TU.
 - 2026-10-10: parameter host ids are 31 bits (VST3 reserves the top half).
+- 2026-10-10: the repository is MIT, and the VST3 SDK is vendored rather than
+  fetched: 3.8.0 relicensed it to MIT, so a trimmed in-tree copy with its notices
+  is clean, builds offline and configures with no network.
 - 2026-10-10: `State::version` is the schema written; a load reads the
   document's into `loadedVersion`, so a v2 build loading a v1 document still
   saves v2.

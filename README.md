@@ -545,6 +545,12 @@ Data structs opt into JSON reflection in place via `MIRO_REFLECT(...)`, so a `St
 Miro::logJSON(manager.getDefaultConfig());
 ```
 
+## License
+
+MIT; see [LICENSE](LICENSE). Every dependency is MIT or more permissive, and the
+VST3 SDK vendored under `ThirdParty/VST3_SDK` is MIT as of 3.8.0, its notices kept
+alongside. A plugin built on MakeASound ships those notices with it.
+
 ## Dependencies
 
 Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`.

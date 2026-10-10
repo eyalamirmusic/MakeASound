@@ -27,6 +27,10 @@ if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS eacp-core)
 
+    # The vendored VST3 SDK: compiled and linked here before any adapter needs it.
+    list(APPEND MAKEASOUND_TEST_SOURCES VST3SDKTests.cpp)
+    list(APPEND MAKEASOUND_TEST_TARGETS vst3sdk)
+
     # The standalone format's pieces, where the format was built.
     if (TARGET MakeASoundStandalone)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
