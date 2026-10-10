@@ -1,11 +1,11 @@
 #include "MidiManager.h"
-#include "../RTMidi/RTMidiManager.h"
+#include "MidiBackend.h"
 
 namespace MakeASound
 {
 
 MidiManager::MidiManager()
-    : pimpl(EA::makeOwned<RTMidi::MidiManager>())
+    : pimpl(makeMidiBackend())
 {
 }
 
@@ -13,6 +13,11 @@ MidiManager::~MidiManager()
 {
     closeAllInputs();
     closeOutput();
+}
+
+MidiTimePoint MidiManager::now()
+{
+    return std::chrono::steady_clock::now();
 }
 
 Vector<MidiPortInfo> MidiManager::getInputPorts() const
@@ -54,6 +59,21 @@ std::optional<int> MidiManager::openVirtualInput(const std::string& name,
                                                  const MidiInputCallback& cb)
 {
     return pimpl->openVirtualInput(name, cb);
+}
+
+void MidiManager::setMaxSysExBytes(int bytes)
+{
+    pimpl->setMaxSysExBytes(bytes);
+}
+
+int MidiManager::getMaxSysExBytes() const
+{
+    return pimpl->getMaxSysExBytes();
+}
+
+void MidiManager::setIgnoredTypes(bool clock, bool activeSense)
+{
+    pimpl->setIgnoredTypes(clock, activeSense);
 }
 
 void MidiManager::closeInput(int portId)
@@ -122,6 +142,16 @@ Error MidiManager::sendMessage(const MIDI::Event& event)
         return Error::INVALID_PARAMETER;
 
     return pimpl->sendMessage(raw.data.data(), static_cast<std::size_t>(raw.size));
+}
+
+void MidiManager::setNotificationCallback(const MidiNotificationCallback& cb) const
+{
+    pimpl->setNotificationCallback(cb);
+}
+
+Vector<MidiNotification> MidiManager::drainNotifications() const
+{
+    return pimpl->takeNotifications();
 }
 
 } // namespace MakeASound

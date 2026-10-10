@@ -5,11 +5,12 @@ add_library(MakeASound STATIC
         MakeASound/MiniAudio/MiniAudio-Backend.cpp
         MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
         MakeASound/MIDI/MidiInfo.cpp
+        MakeASound/MIDI/MidiBackend.cpp
+        MakeASound/MIDI/MidiPortRegistry.cpp
         MakeASound/MIDI/MidiManager.cpp
         MakeASound/MIDI/MidiBlockSync.cpp
+        MakeASound/MIDI/MidiParser.cpp
         MakeASound/MIDI/MIDI.cpp
-        MakeASound/RTMidi/RTMidi-Backend.cpp
-        MakeASound/RTMidi/RTMidiManager.cpp
         MakeASound/UI/Dropdown.cpp
         MakeASound/UI/UIDeviceManager.cpp
         MakeASound/UI/UIMidiManager.cpp)
@@ -32,17 +33,42 @@ else()
             MakeASound/Devices/AudioSession-Default.cpp)
 endif()
 
-# RtMidi creates its Core MIDI client inside a throw() function, so a MIDI server
-# it cannot reach terminates the process. On Apple the client is created here
-# first and handed over; see RTMidi::prepareMidiClient.
+# One MIDI backend per platform, picked the same way: Core MIDI on macOS and iOS,
+# WinMM on Windows, the ALSA sequencer on Linux. A platform with none of those has
+# no MIDI, so it fails here rather than linking a library with a dead façade.
 if(APPLE)
-    target_sources(MakeASound PRIVATE MakeASound/RTMidi/RTMidi-Client-Apple.cpp)
-    target_link_libraries(MakeASound PRIVATE "-framework CoreMIDI")
+    target_sources(MakeASound PRIVATE
+            MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
+            MakeASound/CoreMIDI/CoreMIDIManager.cpp
+            MakeASound/CoreMIDI/CoreMIDI-Factory.cpp)
+    target_link_libraries(MakeASound PRIVATE
+            "-framework CoreMIDI"
+            "-framework CoreFoundation")
+elseif(WIN32)
+    target_sources(MakeASound PRIVATE
+            MakeASound/WinMIDI/WinMIDI-Backend.cpp
+            MakeASound/WinMIDI/WinMidiManager.cpp
+            MakeASound/WinMIDI/WinMIDI-Factory.cpp)
+
+    # On the target rather than only in the header: a unity build concatenates
+    # these with every other TU, and windows.h getting in first without them is
+    # what would leave min/max as macros for the rest of the blob.
+    target_compile_definitions(MakeASound PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(MakeASound PRIVATE winmm)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(ALSA REQUIRED)
+    find_package(Threads REQUIRED)
+
+    target_sources(MakeASound PRIVATE
+            MakeASound/ALSA/ALSA-Backend.cpp
+            MakeASound/ALSA/ALSAMidiManager.cpp
+            MakeASound/ALSA/ALSA-Factory.cpp)
+    target_link_libraries(MakeASound PRIVATE ALSA::ALSA Threads::Threads)
 else()
-    target_sources(MakeASound PRIVATE MakeASound/RTMidi/RTMidi-Client-Default.cpp)
+    message(FATAL_ERROR "No MIDI backend for ${CMAKE_SYSTEM_NAME}")
 endif()
 
-target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio rtmidi)
+target_link_libraries(MakeASound PUBLIC Miro PRIVATE miniaudio)
 target_include_directories(MakeASound PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 if (MAKEASOUND_UNITY_BUILD)

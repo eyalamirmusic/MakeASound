@@ -103,7 +103,6 @@ std::string getErrorMessage(Error error)
             return "The system audio service is unavailable";
         case Error::THREAD_ERROR:
             return "The audio device could not be started";
-        case Error::WARNING:
         case Error::UNKNOWN_ERROR:
         default:
             return "The audio device could not be opened";

@@ -119,16 +119,16 @@ audio callback asks for the latency on every block. On the Fireface the route ad
 
 ### The MIDI facade returns errors instead of throwing
 
-There was no `try` / `catch` anywhere under `Lib/MakeASound/RTMidi/`, so RtMidi
-printed to stderr and threw straight through the public API — including out of
-`MidiManager`'s constructor on iOS, where creating the MIDI client fails.
+Nothing in the MIDI backend of the day caught anything, so it printed to stderr
+and threw straight through the public API — including out of `MidiManager`'s
+constructor on iOS, where creating its MIDI client failed.
 
 Every entry point now returns `Error`, virtual-port openers return
-`std::optional<int>`, and `isAvailable()` / `getLastError()` say what happened. RtMidi
-gets an error callback installed on every object, which suppresses both the print
-and the throw; construction is still wrapped, since that is the one place the
-callback cannot be installed in time. `sendMessage` with nothing open returns
-`INVALID_USE` rather than silently succeeding.
+`std::optional<int>`, and `isAvailable()` / `getLastError()` say what happened. The
+backends are the library's own since — Core MIDI, WinMM, the ALSA sequencer — and
+none of them raises or prints: every platform result is mapped to an `Error` at the
+call that produced it. `sendMessage` with nothing open returns `INVALID_USE` rather
+than silently succeeding.
 
 Fixes `midi/virtual-port-errors`.
 

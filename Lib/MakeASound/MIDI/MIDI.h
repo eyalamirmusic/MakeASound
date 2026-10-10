@@ -51,10 +51,11 @@ struct ProgramChange
 };
 
 // Capped because the realtime stream only carries short control messages
-// (GM/GS/XG reset, MTC, master volume); longer dumps need a non-realtime path.
+// (GM/GS/XG reset, MTC, master volume) plus an identity reply with a three-byte
+// manufacturer id; longer dumps need callback mode, which has no such cap.
 struct SysEx
 {
-    static constexpr int maxBytes = 16;
+    static constexpr int maxBytes = 32;
 
     std::array<uint8_t, maxBytes> data {};
     int size = 0;

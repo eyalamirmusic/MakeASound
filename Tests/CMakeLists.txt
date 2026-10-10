@@ -7,9 +7,22 @@ set(MAKEASOUND_TEST_SOURCES
         SPSCQueueTests.cpp
         BufferTests.cpp
         DeviceInfoTests.cpp
-        DeviceManagerTests.cpp)
+        DeviceManagerTests.cpp
+        MidiParserTests.cpp
+        MidiManagerTests.cpp)
 
 set(MAKEASOUND_TEST_TARGETS MakeASound)
+
+# The ALSA backend's conversions are the one half of a platform backend that can
+# be measured without the platform: alsa-lib turns events into bytes and back
+# with no sequencer open, so these run on a container where the loopback below
+# has nothing to open.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(ALSA REQUIRED)
+
+    list(APPEND MAKEASOUND_TEST_SOURCES ALSABackendTests.cpp)
+    list(APPEND MAKEASOUND_TEST_TARGETS ALSA::ALSA)
+endif ()
 
 # The allocation suites interpose malloc/new through dlsym(RTLD_NEXT, ...), which
 # only exists on Apple and Linux. Elsewhere the checker degrades to a stub, so the
@@ -18,6 +31,14 @@ set(MAKEASOUND_TEST_TARGETS MakeASound)
 #
 # Test-only: linking AllocationsChecker compiles the interposers into this
 # executable and nothing else. See CMake/FindScopedMemoryAllocations.cmake.
+#
+# No CI runner has MIDI hardware either, so the input path is measured through a
+# virtual-port loopback: our own output sending into our own virtual input, which
+# is a real platform round trip on macOS, iOS and Linux. Windows has no virtual
+# ports, so there its input path is covered by the parser tests alone and every
+# loopback case returns without asserting. A Linux box with no sequencer -
+# a container with no /dev/snd/seq - is in the same position, and skips the same
+# way rather than failing.
 if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(ScopedMemoryAllocations REQUIRED)
 

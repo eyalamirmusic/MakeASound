@@ -37,11 +37,11 @@ int allocationsIn(Fn&& fn)
     return count;
 }
 
-// The same measurement on a thread we don't own - an audio callback, RtMidi's input
-// thread. The ban is thread_local and those threads run between our calls, so it is
-// raised and lowered from inside their own callbacks and the count crosses back
-// through an atomic. Install it before the thread starts and keep it installed until
-// after the thread is gone: the handler is a plain global.
+// The same measurement on a thread we don't own - an audio callback, the platform's
+// MIDI thread. The ban is thread_local and those threads run between our calls, so
+// it is raised and lowered from inside their own callbacks and the count crosses
+// back through an atomic. Install it before the thread starts and keep it installed
+// until after the thread is gone: the handler is a plain global.
 struct ThreadProbe
 {
     ThreadProbe() { EA::Allocations::setViolationHandler([this] { ++violations; }); }

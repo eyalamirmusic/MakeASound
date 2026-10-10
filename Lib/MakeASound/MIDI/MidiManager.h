@@ -8,10 +8,7 @@
 
 namespace MakeASound
 {
-namespace RTMidi
-{
-struct MidiManager;
-}
+class MidiBackend;
 
 class MidiManager
 {
@@ -19,11 +16,19 @@ public:
     MidiManager();
     ~MidiManager();
 
+    // The clock every backend stamps MidiInputEvent::arrival on, so a host can
+    // compare an arrival against a boundary it took itself.
+    static MidiTimePoint now();
+
+    // Host thread only: enumerating rescans the platform and rebuilds the id
+    // registry, neither of which is synchronised against the other calls.
     Vector<MidiPortInfo> getInputPorts() const;
     Vector<MidiPortInfo> getOutputPorts() const;
 
-    // Whether the platform's MIDI system came up at all. False on iOS, where the
-    // ports below all fail; the manager stays usable and reports it.
+    // Whether the platform's MIDI system came up at all. False in practice only
+    // on Linux, where a kernel without snd-seq has no sequencer to open; Core
+    // MIDI and WinMM are always there. Either way the manager stays usable and
+    // reports it rather than failing to construct.
     bool isAvailable() const;
 
     // Why the last call failed. Errors are returned rather than thrown, as on the
@@ -33,28 +38,45 @@ public:
     // Queue mode: events accumulate internally until drainMessages().
     Error openInput(int portId);
 
-    // Callback mode: `cb` fires on RtMidi's input thread, nothing is queued. The
-    // message is a per-port buffer refilled by the next one, so copy what you keep.
+    // Callback mode: `cb` fires on the platform's MIDI thread, nothing is queued.
+    // The message is a per-port buffer refilled by the next one, so copy what you
+    // keep.
     Error openInput(int portId, const MidiInputCallback& cb);
 
     // A synthetic (negative) portId, usable like a real one, or nullopt where the
-    // platform has no virtual ports — Windows and iOS.
+    // platform has no virtual ports — Windows, and the iOS simulator, which
+    // refuses them to a process with no bundle.
     std::optional<int> openVirtualInput(const std::string& name);
     std::optional<int> openVirtualInput(const std::string& name,
                                         const MidiInputCallback& cb);
+
+    // How much of a SysEx dump an input port assembles before giving up on it.
+    // The buffer is allocated when the port opens, so set this before openInput;
+    // a longer dump is dropped and raises MidiNotification::SysExDropped. Queue
+    // mode has a second, much smaller limit: a dump reaches drainMessages() only
+    // when it fits MIDI::SysEx::maxBytes.
+    void setMaxSysExBytes(int bytes);
+    int getMaxSysExBytes() const;
+
+    // Timing clock (0xF8) and active sensing (0xFE) are filtered by default;
+    // pass false to either to have it delivered. Applies to ports already open.
+    void setIgnoredTypes(bool clock, bool activeSense);
 
     void closeInput(int portId);
     void closeAllInputs();
     bool isInputOpen(int portId) const;
     Vector<int> getOpenInputPorts() const;
 
-    // Audio-callback safe: `out` is pre-reserved so no allocation happens,
-    // and ports whose spinlock is contended are skipped until the next call.
+    // Audio-callback safe: `out` is pre-reserved so no allocation happens, and
+    // each port hands its events over through a wait-free queue. The port list
+    // itself is guarded by a spinlock this only tries for, so a call landing on
+    // an openInput/closeInput returns empty rather than waiting; the events keep
+    // for the next block.
     void drainMessages(MidiEvents& out);
 
     Error openOutput(int portId);
 
-    // Replaces any currently open output. No virtual ports on Windows or iOS.
+    // Replaces any currently open output. No virtual ports on Windows.
     Error openVirtualOutput(const std::string& name);
 
     void closeOutput();
@@ -65,8 +87,17 @@ public:
     Error sendMessage(const std::uint8_t* bytes, std::size_t size);
     Error sendMessage(const MIDI::Event& event);
 
+    // Runs on whatever platform thread raised the notification, so treat it like
+    // the audio one and do no work there. Prefer drainNotifications() unless the
+    // delivery has to be immediate.
+    void setNotificationCallback(const MidiNotificationCallback& cb) const;
+
+    // The same notifications, queued instead of delivered: everything since the
+    // last call, in order; past 64 undrained the newest are dropped.
+    Vector<MidiNotification> drainNotifications() const;
+
 private:
-    OwningPointer<RTMidi::MidiManager> pimpl;
+    OwningPointer<MidiBackend> pimpl;
 };
 
 } // namespace MakeASound

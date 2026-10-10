@@ -25,7 +25,6 @@ function(set_makeasound_warnings target)
 endfunction()
 
 find_package(Miniaudio REQUIRED)
-find_package(RTMidi REQUIRED)
 find_package(Miro REQUIRED)
 
 add_subdirectory(Lib)

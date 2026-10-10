@@ -5,7 +5,7 @@ A C++20 static library that gives platform-agnostic access to audio devices and 
 Two façades make up the whole public surface:
 
 - **`MakeASound::DeviceManager`** — audio device enumeration and streaming, backed by [miniaudio](https://github.com/mackron/miniaudio).
-- **`MakeASound::MidiManager`** — MIDI input/output ports, backed by [RtMidi](https://github.com/thestk/rtmidi).
+- **`MakeASound::MidiManager`** — MIDI input/output ports, backed by the platform's own MIDI API: Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux.
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
@@ -64,7 +64,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
 
-To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_RTMidi_SOURCE=/path/to/rtmidi` at configure time.
+To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
 
 ### Tests
 
@@ -79,7 +79,7 @@ assert that the real-time paths never reach the allocator. `AllocationTests.cpp`
 covers what can be called directly — MIDI encode/decode, the block buffers, the
 planar views, the façade calls a host makes with nothing open.
 `RealtimeThreadAllocationTests.cpp` covers the threads we do not own: it raises the
-(thread-local) ban from inside a live audio callback and from inside RtMidi's input
+(thread-local) ban from inside a live audio callback and from inside the platform's MIDI input
 thread, so a steady-state block and a delivered MIDI message are measured end to
 end. Those need a playback device and a virtual MIDI port, and measure nothing
 rather than failing where the platform has neither.
@@ -209,7 +209,7 @@ compiles and runs everywhere.
 
 ## MIDI
 
-Callback mode fires on RtMidi's own thread:
+Callback mode fires on the platform's own MIDI thread:
 
 ```cpp
 namespace MIDI = MakeASound::MIDI;
@@ -252,7 +252,7 @@ manager.start(config,
 
 Events land one block late — the only way to keep offsets non-negative when MIDI arrives on its own thread.
 
-`openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI, ALSA and JACK. Where they do not — Windows and iOS — `openVirtualOutput` returns an `Error` and `openVirtualInput` returns `nullopt`, as the audio side would. Nothing in the MIDI facade throws.
+`openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI (iOS included) and ALSA. Where they do not — Windows, and the iOS simulator, which refuses them to a process with no bundle — `openVirtualOutput` returns an `Error` and `openVirtualInput` returns `nullopt`, as the audio side would. Nothing in the MIDI facade throws.
 
 ## The probe app
 
@@ -316,7 +316,9 @@ Lib/MakeASound/
   UI/               dropdown/toggle-list helpers for the demo apps
   Common/           EA type re-exports and audio-thread-safe algorithms
   MiniAudio/        audio backend (hidden)
-  RTMidi/           MIDI backend (hidden)
+  CoreMIDI/         MIDI backend, Apple (hidden)
+  WinMIDI/          MIDI backend, Windows WinMM (hidden)
+  ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
 Tests/              NanoTest suites
@@ -331,4 +333,4 @@ Miro::logJSON(manager.getDefaultConfig());
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [RtMidi](https://github.com/thestk/rtmidi), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and RtMidi are `PRIVATE`, fully hidden behind the façades.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades.
