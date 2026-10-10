@@ -16,6 +16,14 @@ void callOnMessageThread(std::function<void()> function);
 // Host's UI thread only.
 void adoptHostMessageThread();
 
+// The inverse, for the module's exit, before the host unloads the library: takes
+// down everything the host's message loop could still reach in this image (on
+// Windows a message-only window and its class, whose procedure is our code; the
+// deferred-call scheduler thread; the queued calls). A host scans a plugin, drops
+// it and loads it again, and a window procedure left behind by the first load
+// is the first message's crash. A no-op in an executable. Same thread as adopt.
+void releaseHostMessageThread();
+
 // The descriptor a host's run loop watches for the message loop and one
 // non-blocking pass of that loop, in MessageThread-<platform>.cpp: Linux has
 // both, everywhere else the descriptor is -1 and the pass a no-op.

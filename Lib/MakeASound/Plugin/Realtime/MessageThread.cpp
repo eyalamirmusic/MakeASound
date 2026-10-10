@@ -110,6 +110,12 @@ void adoptHostMessageThread()
         eacp::Threads::attachCurrentThreadAsMain();
 }
 
+void releaseHostMessageThread()
+{
+    if (eacp::Platform::isDLL())
+        eacp::Threads::detachCurrentThreadAsMain();
+}
+
 void startReclaiming(Reclaimable& reclaimable)
 {
     getReclaimer().add(reclaimable);
