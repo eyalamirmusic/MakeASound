@@ -57,15 +57,23 @@ function(makeasound_add_plugin name)
 
     add_library(${name} STATIC ${ARG_SOURCES})
     target_link_libraries(${name} PUBLIC MakeASoundPlugin)
-    set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
+    # Position independent because the VST3 module links it on Linux; a consumer's
+    # own tree needs CMAKE_POSITION_INDEPENDENT_CODE on for whatever else it links.
+    set_target_properties(${name} PROPERTIES
+            FOLDER "${ARG_FOLDER}"
+            POSITION_INDEPENDENT_CODE ON)
 
     if (MAKEASOUND_UNITY_BUILD)
         set_target_properties(${name} PROPERTIES UNITY_BUILD ON)
     endif ()
 
-    if (COMMAND set_makeasound_warnings)
-        set_makeasound_warnings(${name})
+    if (COMMAND set_makeasound_target_settings)
+        set_makeasound_target_settings(${name})
     endif ()
+
+    # Release LTO whatever tree this runs in: eacp's Release archives are LTO
+    # bitcode under Clang, and so is everything linked into a format target.
+    set_target_properties(${name} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
     foreach (format IN LISTS ARG_FORMATS)
         if (format STREQUAL "Standalone")
@@ -135,6 +143,7 @@ function(_makeasound_add_vst3 name)
     add_library(${target} MODULE "${vst3_entry}" "${vst3_main}")
     # The format first, as for the Standalone: the core defines describeModule().
     target_link_libraries(${target} PRIVATE MakeASoundVST3 ${name})
+    set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
     # Every bundle in one folder, to hand PluginValidator as a whole.
     set(bundle_dir "${CMAKE_BINARY_DIR}/VST3")

@@ -27,6 +27,10 @@ option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core
 option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" OFF)
 
+# A .vst3 is a shared module on Linux, and every static archive linked into it,
+# ours and the dependencies' alike, has to be position independent for that.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 if (APPLE)
     enable_language(OBJCXX)
     set(CMAKE_OBJCXX_STANDARD 20)
@@ -34,13 +38,18 @@ endif ()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 
-function(set_makeasound_warnings target)
+# Every target of ours: the warnings, and link-time optimisation in Release to
+# match eacp, whose Release archives are LTO bitcode under Clang that a link
+# without -flto cannot read (GNU ld: "file format not recognized").
+function(set_makeasound_target_settings target)
     if (MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(${target} PRIVATE
                 -Wall -Wextra -Wpedantic)
     endif ()
+
+    set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endfunction()
 
 find_package(Miniaudio REQUIRED)

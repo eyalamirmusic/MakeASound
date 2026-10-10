@@ -5,6 +5,7 @@
 
 #include <crtdbg.h>
 #include <cstdlib>
+#include <initializer_list>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

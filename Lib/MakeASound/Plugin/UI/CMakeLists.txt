@@ -14,4 +14,4 @@ if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundPluginUI PROPERTIES UNITY_BUILD ON)
 endif ()
 
-set_makeasound_warnings(MakeASoundPluginUI)
+set_makeasound_target_settings(MakeASoundPluginUI)

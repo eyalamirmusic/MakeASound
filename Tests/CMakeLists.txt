@@ -113,6 +113,10 @@ nano_add_executable(MakeASoundTests
         SOURCES ${MAKEASOUND_TEST_SOURCES}
         TARGETS ${MAKEASOUND_TEST_TARGETS})
 
+# Release LTO as every target of ours has: eacp's Release archives are LTO bitcode
+# under Clang, which a link without -flto cannot read.
+set_target_properties(MakeASoundTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
 if (MAKEASOUND_TEST_PLUGINVAL)
     target_compile_definitions(MakeASoundTests PRIVATE
             MAKEASOUND_VST3_DIR="${CMAKE_BINARY_DIR}/VST3")

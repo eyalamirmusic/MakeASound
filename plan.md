@@ -706,7 +706,7 @@ Elsewhere:
     path of the file of that name. They are read by `makeasound_add_plugin` from a
     consumer's directory, as `MAKEASOUND_STANDALONE_MAIN` already is.
   - Unity build follows `MAKEASOUND_UNITY_BUILD`; the `VST3Common.h`-first rule is
-    what makes that safe. `set_makeasound_warnings` applies.
+    what makes that safe. `set_makeasound_target_settings` applies.
 - **`<Name>-VST3`** (MODULE, one per plugin), built by `makeasound_add_plugin` (see
   Build).
 - **`vst3sdk-hosting`** (STATIC, test-only, IDE folder `External/VST3_SDK`).

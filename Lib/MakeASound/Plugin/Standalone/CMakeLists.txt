@@ -25,4 +25,4 @@ if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundStandalone PROPERTIES UNITY_BUILD ON)
 endif ()
 
-set_makeasound_warnings(MakeASoundStandalone)
+set_makeasound_target_settings(MakeASoundStandalone)

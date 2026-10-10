@@ -32,4 +32,4 @@ set_default_target_setting(AudioProbe)
 eacp_add_plist_entries(AudioProbe NSMicrophoneUsageDescription
         "MakeASound's probe opens a capture stream to show what asking for one costs.")
 
-set_makeasound_warnings(AudioProbe)
+set_makeasound_target_settings(AudioProbe)

@@ -22,4 +22,4 @@ if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundPluginval PROPERTIES UNITY_BUILD ON)
 endif ()
 
-set_makeasound_warnings(MakeASoundPluginval)
+set_makeasound_target_settings(MakeASoundPluginval)

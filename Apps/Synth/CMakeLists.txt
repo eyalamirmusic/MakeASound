@@ -10,4 +10,4 @@ eacp_add_webview_app(Synth
 
 target_link_libraries(Synth PRIVATE MakeASoundDSP)
 target_link_libraries(SynthSchema_Codegen PRIVATE MakeASoundDSP)
-set_makeasound_warnings(Synth)
+set_makeasound_target_settings(Synth)

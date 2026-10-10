@@ -11,4 +11,4 @@ if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundDSP PROPERTIES UNITY_BUILD ON)
 endif ()
 
-set_makeasound_warnings(MakeASoundDSP)
+set_makeasound_target_settings(MakeASoundDSP)

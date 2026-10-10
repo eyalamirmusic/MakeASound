@@ -10,4 +10,4 @@ eacp_add_webview_app(Demo
 
 target_link_libraries(Demo PRIVATE MakeASound)
 target_link_libraries(DemoSchema_Codegen PRIVATE MakeASound)
-set_makeasound_warnings(Demo)
+set_makeasound_target_settings(Demo)
