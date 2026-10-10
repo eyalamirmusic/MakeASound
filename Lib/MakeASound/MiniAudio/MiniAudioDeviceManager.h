@@ -39,7 +39,8 @@ struct DeviceManager
     Error setBackend(Backend backendToUse);
 
     // On failure the recovery worker keeps retrying in the background, unless the
-    // config names no device at all — retrying that would change nothing.
+    // config names no device at all — retrying that would change nothing. The web
+    // has no worker, so there a failed start stays failed.
     Error start(const StreamConfig& configToUse);
     void stop();
 

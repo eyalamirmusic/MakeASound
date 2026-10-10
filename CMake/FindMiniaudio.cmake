@@ -42,6 +42,10 @@ if (APPLE)
     endif ()
 elseif (WIN32)
     target_link_libraries(miniaudio PRIVATE ole32)
+elseif (EMSCRIPTEN)
+    # Web Audio needs no library of its own, and asking for Threads here would be
+    # asking for a pthreads build.
+    target_link_libraries(miniaudio PRIVATE m)
 elseif (UNIX)
     find_package(Threads REQUIRED)
     target_link_libraries(miniaudio PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
