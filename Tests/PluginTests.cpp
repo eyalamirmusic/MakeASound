@@ -63,7 +63,9 @@ struct ThrowingPlugin : Plugin
     void process(ProcessContext&) noexcept override {}
 
     std::string saveState(StateContext) override
-    { throw std::runtime_error("no document"); }
+    {
+        throw std::runtime_error("no document");
+    }
 };
 
 struct RecordingListener : HostEditListener
@@ -79,15 +81,21 @@ struct RecordingListener : HostEditListener
 };
 
 bool near(float a, float b)
-{ return std::abs(a - b) < 1e-4f; }
+{
+    return std::abs(a - b) < 1e-4f;
+}
 
 template <typename T = GainPlugin>
 PluginWrapper makeWrapper(PluginFormat format = PluginFormat::Unknown)
-{ return PluginWrapper(EA::makeOwned<T>(), format); }
+{
+    return PluginWrapper(EA::makeOwned<T>(), format);
+}
 
 template <typename T>
 T& pluginOf(PluginWrapper& wrapper)
-{ return static_cast<T&>(wrapper.plugin()); }
+{
+    return static_cast<T&>(wrapper.plugin());
+}
 
 Block ramp(float first)
 {
@@ -100,7 +108,9 @@ Block ramp(float first)
 }
 
 bool equals(const Block& block, const Block& expected)
-{ return block == expected; }
+{
+    return block == expected;
+}
 
 bool isSilent(const Block& block)
 {
@@ -113,10 +123,14 @@ bool isSilent(const Block& block)
 
 template <typename Predicate>
 bool pumpUntil(Predicate ready)
-{ return eacp::Threads::runEventLoopUntil(ready, eacp::Time::MS {5000}); }
+{
+    return eacp::Threads::runEventLoopUntil(ready, eacp::Time::MS {5000});
+}
 
 bool contains(const std::string& text, const std::string& part)
-{ return text.find(part) != std::string::npos; }
+{
+    return text.find(part) != std::string::npos;
+}
 
 std::string sessionDocument(float gain, const std::string& preset)
 {

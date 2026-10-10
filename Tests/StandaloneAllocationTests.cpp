@@ -53,8 +53,7 @@ int standaloneAllocationsPerBlock(bool inject, int& processed)
     auto midi = MidiManager {};
     auto engine = Engine {devices, midi};
     auto sender = Standalone::MidiSender {midi};
-    auto wrapper =
-        PluginWrapper(EA::makeOwned<PluginT>(), PluginFormat::Standalone);
+    auto wrapper = PluginWrapper(EA::makeOwned<PluginT>(), PluginFormat::Standalone);
     auto processor = Standalone::StandaloneProcessor {wrapper, sender};
     auto stream = StandaloneStream {};
 
@@ -77,8 +76,7 @@ int standaloneAllocationsPerBlock(bool inject, int& processed)
     return count;
 }
 
-auto tStandaloneEffect =
-    test("Allocations/standaloneEffectBlockIsOffTheHeap") = []
+auto tStandaloneEffect = test("Allocations/standaloneEffectBlockIsOffTheHeap") = []
 {
     auto processed = 0;
 
@@ -139,8 +137,7 @@ struct ProbedGainPlugin : GainPlugin
     Probe::ThreadProbe& probe;
 };
 
-auto tStandaloneLive =
-    test("Allocations/standaloneLiveCallbackIsOffTheHeap") = []
+auto tStandaloneLive = test("Allocations/standaloneLiveCallbackIsOffTheHeap") = []
 {
     // Declared first: the audio thread still carries the ban on its way down.
     auto probe = Probe::ThreadProbe {};

@@ -12,7 +12,9 @@ Engine::Engine(DeviceManager& devicesToUse, MidiManager& midiToUse)
 }
 
 Engine::~Engine()
-{ stop(); }
+{
+    stop();
+}
 
 void Engine::prepare(Processor& processorToUse, int sampleRate, int maxBlockSize)
 {
@@ -69,10 +71,14 @@ Error Engine::start(const StreamConfig& configToUse, Processor& processorToUse)
 }
 
 void Engine::stop()
-{ devices.stop(); }
+{
+    devices.stop();
+}
 
 bool Engine::isRunning() const
-{ return devices.isRunning(); }
+{
+    return devices.isRunning();
+}
 
 void Engine::process(AudioCallbackInfo& info) noexcept
 {

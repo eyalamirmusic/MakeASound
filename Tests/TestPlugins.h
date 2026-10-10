@@ -21,7 +21,9 @@ struct FilterParams : ParameterGroup
 {
     FilterParams()
         : ParameterGroup("Filter")
-    { add(cutoff); }
+    {
+        add(cutoff);
+    }
 
     HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f};
 };

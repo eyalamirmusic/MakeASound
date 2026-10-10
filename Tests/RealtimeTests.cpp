@@ -55,7 +55,9 @@ auto tResetJumps = test("Smoother/resetLandsWithNoGlide") = []
 auto tArrivesWithinRamp = test("Smoother/arrivesWithinItsRampAndHolds") = []
 {
     struct Ramp
-    { float start, target; };
+    {
+        float start, target;
+    };
 
     const Ramp ramps[] = {
         {0.f, 1.f},

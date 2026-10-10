@@ -29,23 +29,35 @@ public:
     }
 
     std::string saveState(StateContext context) override
-    { return state.serialize(context); }
+    {
+        return state.serialize(context);
+    }
 
     void loadState(std::string_view data, StateContext context) override
-    { state.deserialize(data, context); }
+    {
+        state.deserialize(data, context);
+    }
 
     void loadStateExceptParameters(std::string_view data,
                                    StateContext context) override
-    { state.deserializeExceptParams(data, context); }
+    {
+        state.deserializeExceptParams(data, context);
+    }
 
     std::string saveStateWithoutMessageThread(StateContext context) override
-    { return state.snapshotDocument(context); }
+    {
+        return state.snapshotDocument(context);
+    }
 
     bool isStateSnapshotCurrent() const override
-    { return state.isPublishedDocumentCurrent(); }
+    {
+        return state.isPublishedDocumentCurrent();
+    }
 
     void loadParameters(std::string_view data, StateContext context) override
-    { state.loadParams(data, context); }
+    {
+        state.loadParams(data, context);
+    }
 
     StateT state;
     ParamsType& params = state.params;

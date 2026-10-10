@@ -9,11 +9,15 @@ namespace
 constexpr auto channelAlignment = 16;
 
 int alignedStride(int numSamples) noexcept
-{ return (numSamples + channelAlignment - 1) / channelAlignment * channelAlignment; }
+{
+    return (numSamples + channelAlignment - 1) / channelAlignment * channelAlignment;
+}
 } // namespace
 
 Buffer::Buffer(int numChannelsToUse, int numSamplesToUse)
-{ setSize(numChannelsToUse, numSamplesToUse); }
+{
+    setSize(numChannelsToUse, numSamplesToUse);
+}
 
 Buffer Buffer::copyOf(const Buffer& source)
 {

@@ -31,7 +31,9 @@ struct Tracked
     Tracked(Counts& countsToUse, int valueToUse)
         : counts(countsToUse)
         , value(valueToUse)
-    { ++counts.live; }
+    {
+        ++counts.live;
+    }
 
     ~Tracked()
     {
@@ -47,10 +49,14 @@ struct Tracked
 
 template <typename Predicate>
 bool pumpUntil(Predicate ready)
-{ return eacp::Threads::runEventLoopUntil(ready, eacp::Time::MS {5000}); }
+{
+    return eacp::Threads::runEventLoopUntil(ready, eacp::Time::MS {5000});
+}
 
 void pumpFor(int ms)
-{ eacp::Threads::runEventLoopFor(eacp::Time::MS {ms}); }
+{
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {ms});
+}
 
 auto tNextBlockSeesPublish = test("RealtimeSwap/nextBlockSeesWhatWasPublished") = []
 {
@@ -214,7 +220,9 @@ auto tReentrantTeardown =
     swap.publish(destroyed);
     swap.currentForBlock();
 
-    while (MakeASound::reclaimNow() > 0) {}
+    while (MakeASound::reclaimNow() > 0)
+    {
+    }
 
     check(destroyed);
 };

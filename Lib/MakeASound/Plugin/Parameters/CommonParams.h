@@ -23,7 +23,9 @@ struct DecibelParam : FloatParam
     float gain() const noexcept { return std::pow(10.f, get() / 20.f); }
 
     std::string valueToText(float db) const override
-    { return formatNumber("%+.1f dB", db); }
+    {
+        return formatNumber("%+.1f dB", db);
+    }
 };
 
 // A linearly mapped frequency. Typed text may use kHz.
@@ -39,7 +41,9 @@ struct HzParam : FloatParam
     }
 
     std::string valueToText(float hz) const override
-    { return formatNumber("%.2f Hz", hz); }
+    {
+        return formatNumber("%.2f Hz", hz);
+    }
 
     float textToValue(std::string_view text) const override
     {
@@ -92,7 +96,9 @@ struct TimeParam : FloatParam
 
 private:
     bool isWithinRange(float seconds) const noexcept
-    { return seconds >= minValue() && seconds <= maxValue(); }
+    {
+        return seconds >= minValue() && seconds <= maxValue();
+    }
 };
 
 // A 0..1 amount shown as a whole percentage.
@@ -106,7 +112,9 @@ struct PercentParam : FloatParam
     }
 
     std::string valueToText(float fraction) const override
-    { return formatNumber("%.0f %%", fraction * 100.f); }
+    {
+        return formatNumber("%.0f %%", fraction * 100.f);
+    }
 
     float textToValue(std::string_view text) const override
     {

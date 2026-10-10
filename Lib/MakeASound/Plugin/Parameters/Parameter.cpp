@@ -11,10 +11,14 @@ namespace MakeASound
 namespace
 {
 float clampUnit(float value) noexcept
-{ return value < 0.f ? 0.f : (value > 1.f ? 1.f : value); }
+{
+    return value < 0.f ? 0.f : (value > 1.f ? 1.f : value);
+}
 
 char lower(char c) noexcept
-{ return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+{
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+}
 } // namespace
 
 Parameter::Parameter(std::string_view nameToUse, ParameterOptions options)
@@ -30,10 +34,14 @@ Parameter::Parameter(std::string_view nameToUse, ParameterOptions options)
 }
 
 void Parameter::setNormalized(float normalized) noexcept
-{ setValue(toPlain(normalized)); }
+{
+    setValue(toPlain(normalized));
+}
 
 float Parameter::getNormalized() const noexcept
-{ return toNormalized(getValue()); }
+{
+    return toNormalized(getValue());
+}
 
 float Parameter::toNormalized(float plain) const noexcept
 {
@@ -77,10 +85,14 @@ std::string Parameter::valueToText(float plain) const
 }
 
 float Parameter::textToValue(std::string_view text) const
-{ return parseNumber(text).value_or(defaultValue()); }
+{
+    return parseNumber(text).value_or(defaultValue());
+}
 
 std::string Parameter::toStateText() const
-{ return shortestText(getValue()); }
+{
+    return shortestText(getValue());
+}
 
 bool Parameter::fromStateText(std::string_view text)
 {

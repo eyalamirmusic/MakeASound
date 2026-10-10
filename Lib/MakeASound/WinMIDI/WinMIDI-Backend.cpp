@@ -21,14 +21,8 @@ std::string toUtf8(const WCHAR* text)
     // `length` counts the terminator, which the string then trims back off.
     auto buffer = std::string(static_cast<std::size_t>(length), '\0');
 
-    auto written = WideCharToMultiByte(CP_UTF8,
-                                       0,
-                                       text,
-                                       -1,
-                                       buffer.data(),
-                                       length,
-                                       nullptr,
-                                       nullptr);
+    auto written = WideCharToMultiByte(
+        CP_UTF8, 0, text, -1, buffer.data(), length, nullptr, nullptr);
 
     if (written <= 0)
         return {};
@@ -168,8 +162,8 @@ std::string getPortName(Direction direction, int portNumber)
 
 int getPortCount(Direction direction)
 {
-    auto count = direction == Direction::Input ? midiInGetNumDevs()
-                                               : midiOutGetNumDevs();
+    auto count =
+        direction == Direction::Input ? midiInGetNumDevs() : midiOutGetNumDevs();
 
     return static_cast<int>(count);
 }

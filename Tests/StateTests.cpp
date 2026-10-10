@@ -26,10 +26,14 @@ using MakeASound::StateContext;
 namespace
 {
 bool near(float a, float b)
-{ return std::abs(a - b) < 1e-6f; }
+{
+    return std::abs(a - b) < 1e-6f;
+}
 
 bool contains(const std::string& text, const std::string& part)
-{ return text.find(part) != std::string::npos; }
+{
+    return text.find(part) != std::string::npos;
+}
 
 struct ToneParams : ParameterGroup
 {
@@ -58,7 +62,9 @@ struct OscParams : ParameterGroup
 {
     explicit OscParams(std::string_view name)
         : ParameterGroup(name)
-    { add(level); }
+    {
+        add(level);
+    }
 
     FloatParam level {"Level", 0.f, 1.f, 0.8f};
 };
@@ -295,7 +301,9 @@ struct VoiceParams : ParameterGroup
 {
     explicit VoiceParams(std::string_view name)
         : ParameterGroup(name)
-    { add(level); }
+    {
+        add(level);
+    }
 
     FloatParam level {"Level", 0.f, 1.f, 0.8f};
 };
@@ -338,7 +346,9 @@ struct RenamedFilter : ParameterGroup
     RenamedFilter(std::string_view groupName, std::string_view cutoffName)
         : ParameterGroup(groupName, {.id = "filter"})
         , cutoff(cutoffName, 0.f, 1.f, 0.5f, {.id = "cutoff"})
-    { add(cutoff); }
+    {
+        add(cutoff);
+    }
 
     FloatParam cutoff;
 };

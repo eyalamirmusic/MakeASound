@@ -39,7 +39,9 @@ constexpr auto blockSize = 256;
 constexpr auto garbage = 7.f;
 
 float patternAt(int channel, int sample) noexcept
-{ return static_cast<float>(channel * 1000 + sample + 1); }
+{
+    return static_cast<float>(channel * 1000 + sample + 1);
+}
 
 struct FakeProcessor : Processor
 {

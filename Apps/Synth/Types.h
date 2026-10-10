@@ -124,8 +124,8 @@ private:
         {
             state.sampleRates =
                 uiDevices.makeSampleRateDropdown(currentDeviceId, config.sampleRate);
-            state.blockSizes =
-                uiDevices.makeBlockSizeDropdown(currentDeviceId, config.maxBlockSize);
+            state.blockSizes = uiDevices.makeBlockSizeDropdown(currentDeviceId,
+                                                               config.maxBlockSize);
         }
 
         lastInputPorts = host.midi.getInputPorts();

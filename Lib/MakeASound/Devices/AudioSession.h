@@ -44,11 +44,8 @@ struct SessionOptions
     bool allowBluetooth = true;
     bool allowAirPlay = true;
 
-    MIRO_REFLECT(mixWithOthers,
-                 duckOthers,
-                 defaultToSpeaker,
-                 allowBluetooth,
-                 allowAirPlay)
+    MIRO_REFLECT(
+        mixWithOthers, duckOthers, defaultToSpeaker, allowBluetooth, allowAirPlay)
 };
 
 struct SessionConfig

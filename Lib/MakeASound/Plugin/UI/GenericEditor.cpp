@@ -238,7 +238,9 @@ public:
     }
 
     void paint(Widgets::Graphics& g) override
-    { g.fillAll(Widgets::defaultTheme().background); }
+    {
+        g.fillAll(Widgets::defaultTheme().background);
+    }
 
     void resized() override
     {

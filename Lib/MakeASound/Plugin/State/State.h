@@ -61,7 +61,9 @@ public:
     }
 
     std::string serialize(StateContext context = StateContext::Preset) const
-    { return Miro::toJSONString(*this, 0, customOptionsFor(context)); }
+    {
+        return Miro::toJSONString(*this, 0, customOptionsFor(context));
+    }
 
     void deserialize(std::string_view data,
                      StateContext context = StateContext::Preset)

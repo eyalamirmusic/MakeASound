@@ -97,6 +97,8 @@ int ParameterList::indexOfHostId(uint32_t hostId) const noexcept
 }
 
 bool ParameterList::isHostExposed(int index) const noexcept
-{ return index >= 0 && index < size() && entries[index].automatable; }
+{
+    return index >= 0 && index < size() && entries[index].automatable;
+}
 
 } // namespace MakeASound

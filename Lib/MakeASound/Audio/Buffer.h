@@ -79,21 +79,31 @@ public:
     int getNumSamples() const noexcept { return numSamples; }
 
     Channel getChannel(int channel) noexcept
-    { return {channels[channel] + startSample, numSamples}; }
+    {
+        return {channels[channel] + startSample, numSamples};
+    }
 
     ConstChannel getChannel(int channel) const noexcept
-    { return {channels[channel] + startSample, numSamples}; }
+    {
+        return {channels[channel] + startSample, numSamples};
+    }
 
     Channel operator[](int channel) noexcept { return getChannel(channel); }
 
     ConstChannel operator[](int channel) const noexcept
-    { return getChannel(channel); }
+    {
+        return getChannel(channel);
+    }
 
     float* getChannelPointer(int channel) noexcept
-    { return channels[channel] + startSample; }
+    {
+        return channels[channel] + startSample;
+    }
 
     const float* getChannelPointer(int channel) const noexcept
-    { return channels[channel] + startSample; }
+    {
+        return channels[channel] + startSample;
+    }
 
     // The table the channels are read through, with the offset reported beside
     // it rather than applied: a buffer over sample 0 of its table (every owning
@@ -110,7 +120,9 @@ public:
     }
 
     Buffer getSubBuffer(int start) noexcept
-    { return getSubBuffer(start, numSamples - start); }
+    {
+        return getSubBuffer(start, numSamples - start);
+    }
 
     Buffer getChannelSubset(int firstChannel, int numChannelsToUse) noexcept
     {
@@ -120,7 +132,9 @@ public:
     }
 
     Buffer getSingleChannel(int channel) noexcept
-    { return getChannelSubset(channel, 1); }
+    {
+        return getChannelSubset(channel, 1);
+    }
 
     void clear() noexcept { fill(0.0f); }
 
@@ -159,13 +173,19 @@ public:
     Iterator begin() noexcept { return {channels, startSample, numSamples, 0}; }
 
     Iterator end() noexcept
-    { return {channels, startSample, numSamples, numChannels}; }
+    {
+        return {channels, startSample, numSamples, numChannels};
+    }
 
     ConstIterator begin() const noexcept
-    { return {channels, startSample, numSamples, 0}; }
+    {
+        return {channels, startSample, numSamples, 0};
+    }
 
     ConstIterator end() const noexcept
-    { return {channels, startSample, numSamples, numChannels}; }
+    {
+        return {channels, startSample, numSamples, numChannels};
+    }
 
     // Yields a Span per channel. The shape is held by value rather than through a
     // pointer back to the Buffer, so an iterator stays valid once the Buffer it
@@ -186,7 +206,9 @@ public:
         }
 
         Span<T> operator*() const noexcept
-        { return {channels[channel] + startSample, numSamples}; }
+        {
+            return {channels[channel] + startSample, numSamples};
+        }
 
         ChannelIterator& operator++() noexcept
         {
@@ -195,10 +217,14 @@ public:
         }
 
         bool operator==(const ChannelIterator& other) const noexcept
-        { return channel == other.channel; }
+        {
+            return channel == other.channel;
+        }
 
         bool operator!=(const ChannelIterator& other) const noexcept
-        { return channel != other.channel; }
+        {
+            return channel != other.channel;
+        }
 
     private:
         T* const* channels;

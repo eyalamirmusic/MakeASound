@@ -8,7 +8,9 @@ namespace MakeASound::DSP
 {
 
 float TestSynth::noteToFrequency(int note) noexcept
-{ return 440.f * std::pow(2.f, static_cast<float>(note - 69) / 12.f); }
+{
+    return 440.f * std::pow(2.f, static_cast<float>(note - 69) / 12.f);
+}
 
 void TestSynth::prepare(const ProcessSpec& spec)
 {
@@ -160,6 +162,8 @@ void TestSynth::setNote(int note) noexcept
 }
 
 float TestSynth::envelopeStep(float seconds) const noexcept
-{ return 1.f / std::max(1.f, seconds * static_cast<float>(sampleRate)); }
+{
+    return 1.f / std::max(1.f, seconds * static_cast<float>(sampleRate));
+}
 
 } // namespace MakeASound::DSP

@@ -22,10 +22,14 @@ ChoiceParam::ChoiceParam(std::string_view nameToUse,
 }
 
 float ChoiceParam::maxValue() const noexcept
-{ return static_cast<float>(numChoices() - 1); }
+{
+    return static_cast<float>(numChoices() - 1);
+}
 
 float ChoiceParam::defaultValue() const noexcept
-{ return static_cast<float>(initial); }
+{
+    return static_cast<float>(initial);
+}
 
 int ChoiceParam::clampIndex(int choice) const noexcept
 {
@@ -43,10 +47,14 @@ void ChoiceParam::setValue(float plain) noexcept
 }
 
 float ChoiceParam::getValue() const noexcept
-{ return static_cast<float>(getIndex()); }
+{
+    return static_cast<float>(getIndex());
+}
 
 const std::string& ChoiceParam::choiceName(int choice) const noexcept
-{ return choices[clampIndex(choice)]; }
+{
+    return choices[clampIndex(choice)];
+}
 
 std::string ChoiceParam::valueToText(float plain) const
 {
@@ -76,7 +84,9 @@ int ChoiceParam::indexOfChoice(std::string_view text) const noexcept
 }
 
 std::string ChoiceParam::toStateText() const
-{ return choiceName(getIndex()); }
+{
+    return choiceName(getIndex());
+}
 
 bool ChoiceParam::fromStateText(std::string_view text)
 {

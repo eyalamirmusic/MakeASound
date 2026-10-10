@@ -10,7 +10,9 @@ void SynthPlugin::prepare(const ProcessSpec& spec)
 }
 
 void SynthPlugin::reset() noexcept
-{ synth.reset(); }
+{
+    synth.reset();
+}
 
 void SynthPlugin::process(ProcessContext& context) noexcept
 {

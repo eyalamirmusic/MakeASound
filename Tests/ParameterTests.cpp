@@ -39,7 +39,9 @@ static_assert(Miro::Reflectable<double>);
 namespace
 {
 bool near(float a, float b, float tolerance = 1e-5f)
-{ return std::abs(a - b) < tolerance; }
+{
+    return std::abs(a - b) < tolerance;
+}
 
 std::vector<std::string> idsOf(const ParameterList& list)
 {
@@ -65,7 +67,9 @@ struct OscParams : ParameterGroup
 {
     explicit OscParams(std::string_view name)
         : ParameterGroup(name)
-    { add(attack, wave); }
+    {
+        add(attack, wave);
+    }
 
     TimeParam attack {"Attack", 0.f, 5.f, 0.01f};
     ChoiceParam wave {"Wave", {"Sine", "Saw"}, 0};
@@ -75,7 +79,9 @@ struct FilterParams : ParameterGroup
 {
     FilterParams()
         : ParameterGroup("Filter")
-    { add(cutoff); }
+    {
+        add(cutoff);
+    }
 
     HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f};
 };
@@ -163,7 +169,9 @@ struct HiddenParams : ParameterGroup
 {
     explicit HiddenParams(std::string_view name)
         : ParameterGroup(name, {.automatable = false})
-    { add(level); }
+    {
+        add(level);
+    }
 
     FloatParam level {"Level"};
 };
@@ -213,7 +221,9 @@ struct BandParams : ParameterGroup
 {
     explicit BandParams(std::string_view name)
         : ParameterGroup(name)
-    { add(gain, q); }
+    {
+        add(gain, q);
+    }
 
     FloatParam gain {"Gain", -24.f, 24.f, 0.f};
     FloatParam q {"Q", 0.1f, 10.f, 1.f};
@@ -315,7 +325,9 @@ struct PinnedFilter : ParameterGroup
     PinnedFilter(std::string_view groupName, std::string_view cutoffName)
         : ParameterGroup(groupName, {.id = "filter"})
         , cutoff(cutoffName, 20.f, 20000.f, 1000.f, {.id = "cutoff"})
-    { add(cutoff); }
+    {
+        add(cutoff);
+    }
 
     HzParam cutoff;
 };
@@ -324,7 +336,9 @@ struct PinnedParams : ParameterGroup
 {
     PinnedParams(std::string_view groupName, std::string_view cutoffName)
         : filter(groupName, cutoffName)
-    { add(filter); }
+    {
+        add(filter);
+    }
 
     PinnedFilter filter;
 };

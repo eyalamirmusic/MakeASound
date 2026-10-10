@@ -11,10 +11,14 @@ MidiSender::MidiSender(MidiManager& midiToUse)
 }
 
 MidiSender::~MidiSender()
-{ stop(); }
+{
+    stop();
+}
 
 bool MidiSender::push(const MIDI::Event& event) noexcept
-{ return queue.push(event); }
+{
+    return queue.push(event);
+}
 
 void MidiSender::start()
 {
@@ -24,7 +28,9 @@ void MidiSender::start()
     // What queued up while stopped was meant for a port that is gone.
     auto stale = MIDI::Event {};
 
-    while (queue.pop(stale)) {}
+    while (queue.pop(stale))
+    {
+    }
 
     running = true;
     thread = std::thread([this] { run(); });

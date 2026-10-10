@@ -251,11 +251,11 @@ auto tParserShortMessages =
 
     // Running status, a two-byte message, system common, and a realtime byte in
     // the middle of a channel message: every branch except SysEx.
-    auto voice = std::array<std::uint8_t, 7> {
-        0x90, 0x3C, 0x64, 0x3E, 0x64, 0xC0, 0x01};
+    auto voice =
+        std::array<std::uint8_t, 7> {0x90, 0x3C, 0x64, 0x3E, 0x64, 0xC0, 0x01};
 
-    auto system = std::array<std::uint8_t, 7> {
-        0xF2, 0x10, 0x20, 0x90, 0x40, 0xF8, 0x64};
+    auto system =
+        std::array<std::uint8_t, 7> {0xF2, 0x10, 0x20, 0x90, 0x40, 0xF8, 0x64};
 
     auto delivered = 0;
     auto onMessage = [&delivered](const MidiMessageView&) { ++delivered; };
@@ -293,9 +293,8 @@ auto tParserSysEx = test("Allocations/theMidiParserAssemblesSysExOffTheHeap") = 
             parser.feed(Span<const std::uint8_t>(opening.data(), 1), now, onMessage);
 
             for (auto i = 0; i < 6; ++i)
-                parser.feed(Span<const std::uint8_t>(chunk.data(), 128),
-                            now,
-                            onMessage);
+                parser.feed(
+                    Span<const std::uint8_t>(chunk.data(), 128), now, onMessage);
 
             parser.feed(Span<const std::uint8_t>(closing.data(), 1), now, onMessage);
         });
@@ -437,8 +436,8 @@ auto tSendClosed = test("Allocations/sendingToAClosedOutputTouchesNothing") = []
     auto midi = MidiManager {};
     auto error = MakeASound::Error::NoError;
 
-    auto count = allocationsIn(
-        [&] { error = midi.sendMessage(Event::noteOn(0, 60, 1.f)); });
+    auto count =
+        allocationsIn([&] { error = midi.sendMessage(Event::noteOn(0, 60, 1.f)); });
 
     check(count == 0);
     check(error == MakeASound::Error::INVALID_USE);

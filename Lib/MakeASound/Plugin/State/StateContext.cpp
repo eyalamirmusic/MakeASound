@@ -28,6 +28,8 @@ StateContext stateContextOf(const Miro::Reflector& ref)
 }
 
 bool isSession(const Miro::Reflector& ref)
-{ return stateContextOf(ref) == StateContext::Session; }
+{
+    return stateContextOf(ref) == StateContext::Session;
+}
 
 } // namespace MakeASound

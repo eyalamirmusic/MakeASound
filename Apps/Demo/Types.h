@@ -376,7 +376,9 @@ private:
     }
 
     MeterState makeMeter() const
-    { return {.inputLevel = static_cast<double>(inputLevelValue.load())}; }
+    {
+        return {.inputLevel = static_cast<double>(inputLevelValue.load())};
+    }
 
     UIState makeUi()
     {

@@ -35,7 +35,9 @@ constexpr auto noteKeys = std::array<uint16_t, 17> {Key::A,
 
 TypingKeyboard::TypingKeyboard(Sink sinkToUse)
     : sink(std::move(sinkToUse))
-{ held.fill(-1); }
+{
+    held.fill(-1);
+}
 
 std::optional<int> TypingKeyboard::semitoneForKey(uint16_t keyCode) noexcept
 {

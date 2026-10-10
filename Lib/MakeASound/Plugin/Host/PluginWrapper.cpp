@@ -24,7 +24,9 @@ PluginWrapper::PluginWrapper(OwningPointer<Plugin> pluginToUse, PluginFormat for
 }
 
 PluginWrapper::~PluginWrapper()
-{ assert(isMessageThread()); }
+{
+    assert(isMessageThread());
+}
 
 bool PluginWrapper::setLayout(const BusLayout& proposed)
 {
@@ -37,10 +39,14 @@ bool PluginWrapper::setLayout(const BusLayout& proposed)
 }
 
 void PluginWrapper::prepare(int sampleRate, int maxBlockSize)
-{ pluginPtr->prepare({sampleRate, maxBlockSize, layout}); }
+{
+    pluginPtr->prepare({sampleRate, maxBlockSize, layout});
+}
 
 void PluginWrapper::reset() noexcept
-{ pluginPtr->reset(); }
+{
+    pluginPtr->reset();
+}
 
 std::string PluginWrapper::saveState(StateContext stateContext)
 {
@@ -109,7 +115,9 @@ Parameter* PluginWrapper::parameterAt(int index) const noexcept
 }
 
 Parameter* PluginWrapper::writableParameterAt(int index) const noexcept
-{ return isParameterHeld(index) ? nullptr : parameterAt(index); }
+{
+    return isParameterHeld(index) ? nullptr : parameterAt(index);
+}
 
 void PluginWrapper::setNormalizedParameter(int index, float normalized) noexcept
 {
@@ -171,10 +179,14 @@ bool PluginWrapper::isParameterHeld(int index) const noexcept
 }
 
 void PluginWrapper::setPlayhead(const Playhead& playhead) noexcept
-{ context.playhead = playhead; }
+{
+    context.playhead = playhead;
+}
 
 void PluginWrapper::clearMidi() noexcept
-{ context.clearMidi(); }
+{
+    context.clearMidi();
+}
 
 bool PluginWrapper::pushMidiIn(int bus, const MIDI::Event& event) noexcept
 {

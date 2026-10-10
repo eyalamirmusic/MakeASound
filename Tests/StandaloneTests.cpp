@@ -35,7 +35,9 @@ constexpr auto sampleRate = 48000;
 constexpr auto garbage = 7.f;
 
 float inputAt(int channel, int sample) noexcept
-{ return static_cast<float>(channel * 100 + sample + 1); }
+{
+    return static_cast<float>(channel * 100 + sample + 1);
+}
 
 struct FakeStream
 {
@@ -361,10 +363,14 @@ struct Typist
 };
 
 bool isNoteOn(const MIDI::Event& event, int pitch)
-{ return event.isNoteOn() && event.asNoteOn()->pitch == pitch; }
+{
+    return event.isNoteOn() && event.asNoteOn()->pitch == pitch;
+}
 
 bool isNoteOff(const MIDI::Event& event, int pitch)
-{ return event.isNoteOff() && event.asNoteOff()->pitch == pitch; }
+{
+    return event.isNoteOff() && event.asNoteOff()->pitch == pitch;
+}
 
 auto tKeyMap = test("Standalone/typingKeyboardMapsEveryKey") = []
 {

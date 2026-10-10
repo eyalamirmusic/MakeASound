@@ -11,7 +11,9 @@ void GainPlugin::prepare(const ProcessSpec& spec)
 }
 
 void GainPlugin::reset() noexcept
-{ gain.reset(params.gain.gain()); }
+{
+    gain.reset(params.gain.gain());
+}
 
 void GainPlugin::process(ProcessContext& context) noexcept
 {

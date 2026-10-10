@@ -26,7 +26,9 @@ StandaloneProcessor::StandaloneProcessor(PluginWrapper& wrapperToUse,
 }
 
 BusLayout StandaloneProcessor::getBusLayout() const
-{ return wrapper.busLayout(); }
+{
+    return wrapper.busLayout();
+}
 
 void StandaloneProcessor::prepare(const ProcessSpec& spec)
 {
@@ -36,16 +38,22 @@ void StandaloneProcessor::prepare(const ProcessSpec& spec)
     // Typed while no stream was running would otherwise all land in the first block.
     auto stale = MIDI::Event {};
 
-    while (injected.pop(stale)) {}
+    while (injected.pop(stale))
+    {
+    }
 
     wrapper.prepare(spec.sampleRate, spec.maxBlockSize);
 }
 
 void StandaloneProcessor::reset() noexcept
-{ wrapper.reset(); }
+{
+    wrapper.reset();
+}
 
 bool StandaloneProcessor::injectMidi(const MIDI::Event& event) noexcept
-{ return injected.push(event); }
+{
+    return injected.push(event);
+}
 
 void StandaloneProcessor::process(ProcessContext& context) noexcept
 {

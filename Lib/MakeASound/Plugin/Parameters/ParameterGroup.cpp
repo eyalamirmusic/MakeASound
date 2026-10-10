@@ -132,7 +132,9 @@ bool ParameterGroup::hasKey(std::string_view key) const
 }
 
 void ParameterGroup::forEach(const Visitor& visitor) const
-{ walk(visitor, {}, {}, true); }
+{
+    walk(visitor, {}, {}, true);
+}
 
 void ParameterGroup::walk(const Visitor& visitor,
                           const std::string& idPrefix,

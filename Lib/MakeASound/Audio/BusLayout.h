@@ -80,10 +80,14 @@ struct BusLayout
     }
 
     int getMainInputChannels() const noexcept
-    { return inputs.empty() ? 0 : inputs[0].numChannels; }
+    {
+        return inputs.empty() ? 0 : inputs[0].numChannels;
+    }
 
     int getMainOutputChannels() const noexcept
-    { return outputs.empty() ? 0 : outputs[0].numChannels; }
+    {
+        return outputs.empty() ? 0 : outputs[0].numChannels;
+    }
 
     Vector<Bus> inputs;
     Vector<Bus> outputs;

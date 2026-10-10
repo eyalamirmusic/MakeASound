@@ -88,22 +88,34 @@ private:
 };
 
 Reclaimer& getReclaimer()
-{ return eacp::Singleton::getImmortal<Reclaimer>(); }
+{
+    return eacp::Singleton::getImmortal<Reclaimer>();
+}
 } // namespace
 
 bool isMessageThread()
-{ return eacp::Threads::isMainThread(); }
+{
+    return eacp::Threads::isMainThread();
+}
 
 void callOnMessageThread(std::function<void()> function)
-{ eacp::Threads::callAsync(std::move(function)); }
+{
+    eacp::Threads::callAsync(std::move(function));
+}
 
 void startReclaiming(Reclaimable& reclaimable)
-{ getReclaimer().add(reclaimable); }
+{
+    getReclaimer().add(reclaimable);
+}
 
 void stopReclaiming(Reclaimable& reclaimable)
-{ getReclaimer().remove(reclaimable); }
+{
+    getReclaimer().remove(reclaimable);
+}
 
 int reclaimNow()
-{ return getReclaimer().sweep(); }
+{
+    return getReclaimer().sweep();
+}
 
 } // namespace MakeASound

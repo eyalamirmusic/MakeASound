@@ -51,7 +51,9 @@ public:
     void setOn(bool on) noexcept { state.store(on, std::memory_order_relaxed); }
 
     std::string valueToText(float plain) const override
-    { return plain >= 0.5f ? onText : offText; }
+    {
+        return plain >= 0.5f ? onText : offText;
+    }
 
     float textToValue(std::string_view text) const override
     {

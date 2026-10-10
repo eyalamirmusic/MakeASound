@@ -64,7 +64,9 @@ private:
     }
 
     static void writeFpcr(std::uint64_t value) noexcept
-    { __asm__ __volatile__("msr fpcr, %0" : : "r"(value) : "memory"); }
+    {
+        __asm__ __volatile__("msr fpcr, %0" : : "r"(value) : "memory");
+    }
 
     std::uint64_t saved = 0;
 #endif

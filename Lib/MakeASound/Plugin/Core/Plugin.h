@@ -81,7 +81,9 @@ public:
 
     // Message thread; null where there is no host.
     void setHostEditListener(HostEditListener* listener) noexcept
-    { editListener = listener; }
+    {
+        editListener = listener;
+    }
 
     HostEditListener* hostEditListener() const noexcept { return editListener; }
 

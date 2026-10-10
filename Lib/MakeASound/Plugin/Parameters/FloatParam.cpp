@@ -16,10 +16,14 @@ FloatParam::FloatParam(std::string_view nameToUse,
     , maximum(maxToUse)
     , initial(clamp(defaultToUse))
     , value(initial)
-{ assert(minToUse <= maxToUse); }
+{
+    assert(minToUse <= maxToUse);
+}
 
 float FloatParam::clamp(float plain) const noexcept
-{ return plain < minimum ? minimum : (plain > maximum ? maximum : plain); }
+{
+    return plain < minimum ? minimum : (plain > maximum ? maximum : plain);
+}
 
 void FloatParam::setValue(float plain) noexcept
 {

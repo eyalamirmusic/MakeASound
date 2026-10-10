@@ -129,8 +129,7 @@ int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input)
     auto supports = [](const DeviceInfo& device, int rate)
     {
         // A side that isn't there constrains nothing.
-        return device.sampleRates.empty()
-               || deviceSupportsSampleRate(device, rate);
+        return device.sampleRates.empty() || deviceSupportsSampleRate(device, rate);
     };
 
     auto isCommon = [&](int rate)
@@ -197,8 +196,14 @@ int getNumChannels(const std::optional<StreamParameters>& params)
     return 0;
 }
 
-int StreamConfig::getInputChannels() const { return getNumChannels(input); }
-int StreamConfig::getOutputChannels() const { return getNumChannels(output); }
+int StreamConfig::getInputChannels() const
+{
+    return getNumChannels(input);
+}
+int StreamConfig::getOutputChannels() const
+{
+    return getNumChannels(output);
+}
 
 Buffer AudioCallbackInfo::getInput() const noexcept
 {
@@ -213,8 +218,7 @@ Buffer AudioCallbackInfo::getOutput() const noexcept
 bool AudioCallbackInfo::operator==(const AudioCallbackInfo& other) const
 {
     return numInputs == other.numInputs && numOutputs == other.numOutputs
-           && sampleRate == other.sampleRate
-           && maxBlockSize == other.maxBlockSize;
+           && sampleRate == other.sampleRate && maxBlockSize == other.maxBlockSize;
 }
 
 bool AudioCallbackInfo::operator!=(const AudioCallbackInfo& other) const

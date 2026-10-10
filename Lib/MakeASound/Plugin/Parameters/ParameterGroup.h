@@ -61,7 +61,9 @@ protected:
     // Takes parameters, groups, pointers to either, and ranges of any of those.
     template <typename... Items>
     void add(Items&... items)
-    { (addItem(items), ...); }
+    {
+        (addItem(items), ...);
+    }
 
 private:
     struct Entry

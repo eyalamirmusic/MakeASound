@@ -128,7 +128,9 @@ void StandaloneApp::restoreMidi(const Settings& saved)
 }
 
 void StandaloneApp::startEngine(const StreamConfig& config)
-{ reportIfFailed(engine.start(config, processor)); }
+{
+    reportIfFailed(engine.start(config, processor));
+}
 
 void StandaloneApp::createEditorWindow()
 {

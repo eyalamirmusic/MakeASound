@@ -39,7 +39,9 @@ struct Root final : eacp::Graphics::View
     Root(SpectrumView& spectrumToUse, ProbePanel& panelToUse)
         : spectrum(spectrumToUse)
         , panel(panelToUse)
-    { addChildren({spectrum, panel}); }
+    {
+        addChildren({spectrum, panel});
+    }
 
     void resized() override
     {

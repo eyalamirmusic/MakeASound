@@ -49,16 +49,24 @@ struct ProcessContext
     void clearMidiOut() noexcept;
 
     const Buffer& mainInput() const noexcept
-    { return inputs.empty() ? detachedInput : inputs[0]; }
+    {
+        return inputs.empty() ? detachedInput : inputs[0];
+    }
 
     Buffer& mainOutput() noexcept
-    { return outputs.empty() ? detachedOutput : outputs[0]; }
+    {
+        return outputs.empty() ? detachedOutput : outputs[0];
+    }
 
     MIDI::Buffer& mainMidiIn() noexcept
-    { return midiIn.empty() ? detachedMidiIn : midiIn[0]; }
+    {
+        return midiIn.empty() ? detachedMidiIn : midiIn[0];
+    }
 
     MIDI::Buffer& mainMidiOut() noexcept
-    { return midiOut.empty() ? detachedMidiOut : midiOut[0]; }
+    {
+        return midiOut.empty() ? detachedMidiOut : midiOut[0];
+    }
 
     Vector<Buffer> inputs;
     Vector<Buffer> outputs;

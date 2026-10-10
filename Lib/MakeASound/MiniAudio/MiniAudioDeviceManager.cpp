@@ -59,8 +59,7 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     {
         config.playback.pDeviceID = playbackId;
         config.playback.format = ma_format_f32;
-        config.playback.channels =
-            static_cast<ma_uint32>(nativePlaybackChannels);
+        config.playback.channels = static_cast<ma_uint32>(nativePlaybackChannels);
     }
 
     if (wantsCapture)
@@ -93,11 +92,8 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     return config;
 }
 
-void deinterleaveSlice(const float* src,
-                       Buffer& dst,
-                       int srcChannels,
-                       int firstChannel,
-                       int frames)
+void deinterleaveSlice(
+    const float* src, Buffer& dst, int srcChannels, int firstChannel, int frames)
 {
     for (auto ch = 0; ch < dst.getNumChannels(); ++ch)
     {
@@ -108,11 +104,8 @@ void deinterleaveSlice(const float* src,
     }
 }
 
-void interleaveSlice(const Buffer& src,
-                     float* dst,
-                     int dstChannels,
-                     int firstChannel,
-                     int frames)
+void interleaveSlice(
+    const Buffer& src, float* dst, int dstChannels, int firstChannel, int frames)
 {
     for (auto ch = 0; ch < src.getNumChannels(); ++ch)
     {
@@ -160,10 +153,8 @@ Error DeviceManager::initContext(Backend backendToUse)
 
     // A null list means miniaudio's own priority order; a list of exactly one fails
     // rather than being quietly answered by the next backend down.
-    auto result = ma_context_init(named ? &requested : nullptr,
-                                  named ? 1 : 0,
-                                  &contextConfig,
-                                  &context);
+    auto result = ma_context_init(
+        named ? &requested : nullptr, named ? 1 : 0, &contextConfig, &context);
 
     // A backend that won't initialise leaves the manager alive but empty rather than
     // taking down an application over a machine with no working audio.
@@ -338,11 +329,8 @@ Error DeviceManager::refreshDeviceCache()
     ma_device_info* captureInfos = nullptr;
     auto captureCount = ma_uint32 {0};
 
-    auto result = ma_context_get_devices(&context,
-                                         &playbackInfos,
-                                         &playbackCount,
-                                         &captureInfos,
-                                         &captureCount);
+    auto result = ma_context_get_devices(
+        &context, &playbackInfos, &playbackCount, &captureInfos, &captureCount);
 
     if (result != MA_SUCCESS)
         return setError(getError(result));
@@ -375,13 +363,13 @@ Error DeviceManager::refreshDeviceCache()
                 cached.captureId = captureInfos[i].id;
                 cached.hasCapture = true;
 
-                auto captureInfo =
-                    buildDeviceInfo(captureInfos[i], ma_device_type_capture, cached.id);
+                auto captureInfo = buildDeviceInfo(
+                    captureInfos[i], ma_device_type_capture, cached.id);
 
                 cached.info.inputChannels = captureInfo.inputChannels;
                 cached.info.isDefaultInput = captureInfo.isDefaultInput;
-                cached.info.duplexChannels = std::min(cached.info.outputChannels,
-                                                     cached.info.inputChannels);
+                cached.info.duplexChannels =
+                    std::min(cached.info.outputChannels, cached.info.inputChannels);
 
                 for (auto rate: captureInfo.sampleRates)
                     cached.info.sampleRates.addIfNotThere(rate);
@@ -660,11 +648,8 @@ Error DeviceManager::openStreamLocked()
         sessionError != Error::NoError)
         return setError(sessionError);
 
-    auto deviceConfig = makeDeviceConfig(config,
-                                         playbackId,
-                                         captureId,
-                                         nativePlayback,
-                                         nativeCapture);
+    auto deviceConfig = makeDeviceConfig(
+        config, playbackId, captureId, nativePlayback, nativeCapture);
     deviceConfig.dataCallback = audioCallback;
     deviceConfig.notificationCallback = deviceNotificationCallback;
     deviceConfig.pUserData = this;
@@ -677,9 +662,9 @@ Error DeviceManager::openStreamLocked()
     deviceInitialised = true;
     framesElapsed = 0;
 
-    config.maxBlockSize = static_cast<int>(
-        std::max(device.playback.internalPeriodSizeInFrames,
-                 device.capture.internalPeriodSizeInFrames));
+    config.maxBlockSize =
+        static_cast<int>(std::max(device.playback.internalPeriodSizeInFrames,
+                                  device.capture.internalPeriodSizeInFrames));
 
     if (config.maxBlockSize == 0)
         config.maxBlockSize = static_cast<int>(deviceConfig.periodSizeInFrames);
@@ -688,7 +673,8 @@ Error DeviceManager::openStreamLocked()
     captureChannels = static_cast<int>(device.capture.channels);
     playbackChannels = static_cast<int>(device.playback.channels);
 
-    auto clampSlice = [](int available, int first, int count, int& outFirst, int& outCount)
+    auto clampSlice =
+        [](int available, int first, int count, int& outFirst, int& outCount)
     {
         outCount = std::clamp(count, 0, available);
         outFirst = std::clamp(first, 0, std::max(0, available - outCount));
@@ -715,8 +701,8 @@ Error DeviceManager::openStreamLocked()
         routeLatencyFrames = getRouteLatency(config.output->device, false);
 
     if (config.input.has_value())
-        routeLatencyFrames =
-            std::max(routeLatencyFrames, getRouteLatency(config.input->device, true));
+        routeLatencyFrames = std::max(routeLatencyFrames,
+                                      getRouteLatency(config.input->device, true));
 
     return setError(Error::NoError);
 }
@@ -726,8 +712,9 @@ int DeviceManager::getStreamLatency() const
     if (!deviceInitialised)
         return 0;
 
-    auto playbackLatency = static_cast<int>(device.playback.internalPeriodSizeInFrames)
-                           * static_cast<int>(device.playback.internalPeriods);
+    auto playbackLatency =
+        static_cast<int>(device.playback.internalPeriodSizeInFrames)
+        * static_cast<int>(device.playback.internalPeriods);
     auto captureLatency = static_cast<int>(device.capture.internalPeriodSizeInFrames)
                           * static_cast<int>(device.capture.internalPeriods);
 
@@ -804,11 +791,8 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         std::fill(out, out + playbackChannels * frames, 0.0f);
 
         if (outChannels > 0)
-            interleaveSlice(outputScratch,
-                            out,
-                            playbackChannels,
-                            outputFirstChannel,
-                            frames);
+            interleaveSlice(
+                outputScratch, out, playbackChannels, outputFirstChannel, frames);
     }
 
     framesElapsed += frameCount;
@@ -957,9 +941,8 @@ void DeviceManager::runRecovery()
                 break;
 
             // Interruptible so teardown never waits on a device that is truly gone.
-            recoveryCv.wait_for(lock,
-                                kRecoveryRetryInterval,
-                                [this] { return recoveryQuit; });
+            recoveryCv.wait_for(
+                lock, kRecoveryRetryInterval, [this] { return recoveryQuit; });
         }
     }
 }

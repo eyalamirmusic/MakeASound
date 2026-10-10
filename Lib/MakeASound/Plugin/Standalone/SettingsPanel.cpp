@@ -233,7 +233,9 @@ struct SettingsPanel::Content final : Widgets::Component
     }
 
     void paint(Widgets::Graphics& g) override
-    { g.fillAll(Widgets::defaultTheme().background); }
+    {
+        g.fillAll(Widgets::defaultTheme().background);
+    }
 
     void resized() override { scroll.setBounds(getLocalBounds()); }
 
@@ -531,7 +533,9 @@ void SettingsPanel::setConfig(const StreamConfig& config)
 }
 
 const StreamConfig& SettingsPanel::getConfig() const
-{ return content->config; }
+{
+    return content->config;
+}
 
 void SettingsPanel::setMidiOutput(std::optional<int> portId)
 {
@@ -542,15 +546,23 @@ void SettingsPanel::setMidiOutput(std::optional<int> portId)
 }
 
 std::optional<int> SettingsPanel::getMidiOutput() const
-{ return content->midiOutput; }
+{
+    return content->midiOutput;
+}
 
 void SettingsPanel::refresh()
-{ content->refresh(); }
+{
+    content->refresh();
+}
 
 int SettingsPanel::preferredWidth() const
-{ return panelWidth; }
+{
+    return panelWidth;
+}
 
 int SettingsPanel::preferredHeight() const
-{ return static_cast<int>(content->form.naturalHeight()); }
+{
+    return static_cast<int>(content->form.naturalHeight());
+}
 
 } // namespace MakeASound::Standalone
