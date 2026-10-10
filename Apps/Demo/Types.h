@@ -263,7 +263,7 @@ private:
     {
         auto peak = 0.0f;
 
-        for (auto channel: info.getInput().channels())
+        for (auto channel: info.getInput())
             for (auto sample: channel)
                 peak = std::max(peak, std::abs(sample));
 
@@ -272,7 +272,7 @@ private:
         auto on = playing.load(std::memory_order_relaxed);
         auto g = gainValue.load(std::memory_order_relaxed);
 
-        for (auto channel: info.getOutput().channels())
+        for (auto channel: info.getOutput())
         {
             if (!on)
             {

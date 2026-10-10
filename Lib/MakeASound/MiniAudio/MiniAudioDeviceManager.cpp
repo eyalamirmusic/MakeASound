@@ -94,29 +94,42 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
 }
 
 void deinterleaveSlice(const float* src,
-                       float* dst,
+                       Buffer& dst,
                        int srcChannels,
                        int firstChannel,
-                       int count,
                        int frames)
 {
-    for (auto frame = 0; frame < frames; ++frame)
-        for (auto ch = 0; ch < count; ++ch)
-            dst[ch * frames + frame] =
-                src[frame * srcChannels + (firstChannel + ch)];
+    for (auto ch = 0; ch < dst.getNumChannels(); ++ch)
+    {
+        auto* channel = dst.getChannelPointer(ch);
+
+        for (auto frame = 0; frame < frames; ++frame)
+            channel[frame] = src[frame * srcChannels + (firstChannel + ch)];
+    }
 }
 
-void interleaveSlice(const float* src,
+void interleaveSlice(const Buffer& src,
                      float* dst,
                      int dstChannels,
                      int firstChannel,
-                     int count,
                      int frames)
 {
-    for (auto frame = 0; frame < frames; ++frame)
-        for (auto ch = 0; ch < count; ++ch)
-            dst[frame * dstChannels + (firstChannel + ch)] =
-                src[ch * frames + frame];
+    for (auto ch = 0; ch < src.getNumChannels(); ++ch)
+    {
+        auto* channel = src.getChannelPointer(ch);
+
+        for (auto frame = 0; frame < frames; ++frame)
+            dst[frame * dstChannels + (firstChannel + ch)] = channel[frame];
+    }
+}
+
+// A block larger than the scratch is the one case left that allocates on the
+// audio thread; the open sizes both for the negotiated period so it never fires
+// in the steady state.
+void ensureScratch(Buffer& scratch, int numChannels, int frames)
+{
+    if (scratch.getNumChannels() != numChannels || scratch.getNumSamples() < frames)
+        scratch.setSize(numChannels, frames);
 }
 } // namespace
 
@@ -693,8 +706,8 @@ Error DeviceManager::openStreamLocked()
                outputFirstChannel,
                outputChannelCount);
 
-    inputScratch.assign(inputChannelCount * config.maxBlockSize, 0.0f);
-    outputScratch.assign(outputChannelCount * config.maxBlockSize, 0.0f);
+    inputScratch.setSize(inputChannelCount, config.maxBlockSize);
+    outputScratch.setSize(outputChannelCount, config.maxBlockSize);
 
     routeLatencyFrames = 0;
 
@@ -753,31 +766,21 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
     auto inChannels = inputChannelCount;
     auto outChannels = outputChannelCount;
 
-    auto neededInput = inChannels * frames;
-    auto neededOutput = outChannels * frames;
-
-    if (static_cast<int>(inputScratch.size()) < neededInput)
-        inputScratch.assign(neededInput, 0.0f);
-
-    if (static_cast<int>(outputScratch.size()) < neededOutput)
-        outputScratch.assign(neededOutput, 0.0f);
+    ensureScratch(inputScratch, inChannels, frames);
+    ensureScratch(outputScratch, outChannels, frames);
 
     if (inChannels > 0 && input != nullptr)
         deinterleaveSlice(static_cast<const float*>(input),
-                          inputScratch.data(),
+                          inputScratch,
                           captureChannels,
                           inputFirstChannel,
-                          inChannels,
                           frames);
 
-    if (outChannels > 0)
-        std::fill(outputScratch.begin(),
-                  outputScratch.begin() + neededOutput,
-                  0.0f);
+    outputScratch.getSubBuffer(0, frames).clear();
 
     auto info = AudioCallbackInfo {};
-    info.inputBuffer = inputScratch.data();
-    info.outputBuffer = outputScratch.data();
+    info.inputChannels = inputScratch.getChannelPointers();
+    info.outputChannels = outputScratch.getChannelPointers();
     info.numSamples = frames;
     info.numInputs = inChannels;
     info.numOutputs = outChannels;
@@ -801,11 +804,10 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         std::fill(out, out + playbackChannels * frames, 0.0f);
 
         if (outChannels > 0)
-            interleaveSlice(outputScratch.data(),
+            interleaveSlice(outputScratch,
                             out,
                             playbackChannels,
                             outputFirstChannel,
-                            outChannels,
                             frames);
     }
 

@@ -192,18 +192,23 @@ struct StreamConfig
 
 struct AudioCallbackInfo
 {
-    // Planar views; the backend owns the interleaved<->planar conversion, so
-    // callers only ever see planar data.
-    Buffer getInput() const;
-    Buffer getOutput();
+    // Referring Buffers over the backend's planar scratch, built per call, so
+    // `auto out = info.getOutput()` costs nothing and allocates nothing. The
+    // backend owns the interleaved<->planar conversion; callers only ever see
+    // planar data.
+    Buffer getInput() const noexcept;
+    Buffer getOutput() const noexcept;
 
     bool operator==(const AudioCallbackInfo& other) const;
     bool operator!=(const AudioCallbackInfo& other) const;
 
     int numInputs = 0;
     int numOutputs = 0;
-    float* outputBuffer = nullptr;
-    float* inputBuffer = nullptr;
+
+    // Per-channel pointer tables the backend owns; what getInput()/getOutput()
+    // read through.
+    float* const* inputChannels = nullptr;
+    float* const* outputChannels = nullptr;
     int numSamples {};
     double streamTime {};
     AudioCallbackStatus status = AudioCallbackStatus::OK;

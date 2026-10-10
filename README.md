@@ -26,7 +26,7 @@ manager.start(manager.getDefaultConfig(),
 ## What you get
 
 - **Device enumeration** across every audio API the machine offers (Core Audio, WASAPI, DirectSound, WinMM, ALSA, PulseAudio, JACK, AAudio, OpenSL, ...), with the API selectable at runtime.
-- **Planar audio buffers.** The backend de-interleaves on the way in and re-interleaves on the way out, so a callback only ever sees channel-major data.
+- **One `Buffer` type, owning or referring.** Planar, move-only, sliced by sample range or channel subset into further `Buffer`s over the same channel table, so a sub-block is free and never allocates. The backend de-interleaves on the way in and re-interleaves on the way out, so a callback only ever sees channel-major data.
 - **Errors, not exceptions.** A machine with no device, or with one that is busy, is an ordinary desktop state: `start`/`setConfig` return an `Error` and `getErrorMessage` turns it into something a user can read.
 - **Automatic recovery.** A device stopped by the OS — sample-rate change, unplug, reclaim — is re-opened on a worker thread; a `dirty` flag on the callback tells you when to re-derive anything you cached.
 - **Typed MIDI.** `MIDI::Event` is a variant over note on/off, CC, pitch bend, aftertouch, program change and short SysEx, with allocation-free conversion to and from raw bytes.
@@ -77,7 +77,7 @@ Two of the suites are about allocation rather than behaviour: they link
 which interposes `malloc`/`free` and `new`/`delete` for the test binary only, and
 assert that the real-time paths never reach the allocator. `AllocationTests.cpp`
 covers what can be called directly — MIDI encode/decode, the block buffers, the
-planar views, the façade calls a host makes with nothing open.
+`Buffer` slices and operations, the façade calls a host makes with nothing open.
 `RealtimeThreadAllocationTests.cpp` covers the threads we do not own: it raises the
 (thread-local) ban from inside a live audio callback and from inside the platform's MIDI input
 thread, so a steady-state block and a delivered MIDI message are measured end to
@@ -145,7 +145,15 @@ if (error != MS::Error::NoError)
     std::cout << MS::getErrorMessage(error) << '\n';
 ```
 
-`Buffer` is a non-owning planar view and iterates over its channels; a `Channel` is an `EA::Span<float>`, so range-for, the standard algorithms and EA's own `fill`/`copyFrom`/`mixFrom` all work on it. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
+`getOutput()` hands back a `Buffer` that refers to the backend's scratch; the same type, constructed with a channel count and a sample count, owns its storage. A `Buffer` iterates over its channels; a `Channel` is an `EA::Span<float>`, so range-for, the standard algorithms and EA's own `fill`/`copyFrom`/`mixFrom` all work on it. `getSubBuffer(start, length)` and `getChannelSubset(first, count)` return further `Buffer`s over the same channels, which is how a block is split around MIDI events or a bus is carved out of a wider one:
+
+```cpp
+auto output = info.getOutput();
+output.getSubBuffer(0, event.sampleOffset).clear();
+output.getChannelSubset(2, 2).applyGain(0.5f);
+```
+
+`Buffer` is move-only. A deep copy is `Buffer::copyOf(source)`, and `setSize` keeps its capacity so a buffer sized in a prepare step never allocates again for equal or smaller shapes. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
 
 ### Picking a device
 
@@ -309,7 +317,7 @@ hardware no simulator provides.
 ```
 Lib/MakeASound/
   MakeASound.h      umbrella public header
-  Audio/            Buffer and Channel, non-owning planar views
+  Audio/            Buffer, the owning-or-referring planar block, and Channel
   Devices/          DeviceInfo data types, DeviceManager façade, device queries
   MIDI/             typed events, port info, block sync, MidiManager façade
   Realtime/         SPSCQueue

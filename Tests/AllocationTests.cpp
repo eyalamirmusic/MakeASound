@@ -23,6 +23,7 @@ using namespace nano;
 using Probe::allocationsIn;
 
 using MakeASound::AudioCallbackInfo;
+using MakeASound::Buffer;
 using MakeASound::MidiBlockSync;
 using MakeASound::MidiEvents;
 using MakeASound::MidiInputEvent;
@@ -439,12 +440,13 @@ auto tSendClosed = test("Allocations/sendingToAClosedOutputTouchesNothing") = []
 auto tCallbackInfo = test("Allocations/audioCallbackInfoIsAllViewsAndInts") = []
 {
     // What the facade does around every user callback: compare the shape against the
-    // previous block, then hand out planar views over the backend's scratch.
+    // previous block, then hand out referring Buffers over the backend's scratch.
     auto samples = std::array<float, 2 * 128> {};
+    float* table[] = {samples.data(), samples.data() + 128};
 
     auto info = AudioCallbackInfo {};
     info.numOutputs = 2;
-    info.outputBuffer = samples.data();
+    info.outputChannels = table;
     info.numSamples = 128;
     info.sampleRate = 48000;
     info.maxBlockSize = 128;
@@ -461,7 +463,7 @@ auto tCallbackInfo = test("Allocations/audioCallbackInfoIsAllViewsAndInts") = []
 
             auto output = info.getOutput();
 
-            for (auto channel: output.channels())
+            for (auto channel: output)
             {
                 channel.fill(0.25f);
                 written += channel[0];
@@ -471,6 +473,57 @@ auto tCallbackInfo = test("Allocations/audioCallbackInfoIsAllViewsAndInts") = []
     check(count == 0);
     check(changed);
     check(written == 0.5f);
+};
+
+auto tBufferViews = test("Allocations/bufferSlicesAndOperationsStayOffTheHeap") = []
+{
+    // Everything a process callback does with a Buffer short of giving it
+    // storage: refer, slice, subset, iterate, mix, move.
+    auto owner = Buffer {4, 128};
+    auto source = Buffer {4, 128};
+    auto sum = 0.f;
+
+    auto count = allocationsIn(
+        [&]
+        {
+            auto referring = Buffer {owner.getChannelPointers(), 4, 128};
+            auto tail = referring.getSubBuffer(64);
+            auto pair = tail.getChannelSubset(2, 2);
+            auto single = pair.getSingleChannel(1);
+
+            pair.copyFrom(source);
+            pair.addFrom(source, 0.5f);
+            single.applyGain(2.f);
+            tail.fill(0.25f);
+            referring.getSubBuffer(0, 64).clear();
+
+            for (auto channel: referring)
+                sum += channel[64];
+
+            auto moved = std::move(single);
+            sum += moved[0][0];
+        });
+
+    check(count == 0);
+    check(sum == 4 * 0.25f + 0.25f);
+};
+
+auto tBufferSetSizeReuses = test("Allocations/bufferSetSizeReusesItsCapacity") = []
+{
+    // The prepare-then-process pattern: size once at the largest shape, then every
+    // equal-or-smaller setSize is free.
+    auto buffer = Buffer {2, 512};
+
+    auto count = allocationsIn(
+        [&]
+        {
+            buffer.setSize(2, 256);
+            buffer.setSize(1, 512);
+            buffer.setSize(2, 512);
+        });
+
+    check(count == 0);
+    check(buffer.getNumSamples() == 512);
 };
 
 auto tInsertionSort = test("Allocations/theBlockSortIsInPlace") = []

@@ -137,7 +137,7 @@ auto tAudioThread = test("Allocations/theAudioCallbackThreadStaysOffTheHeap") = 
     auto error = manager.start(config,
                                [&probe](AudioCallbackInfo& info)
                                {
-                                   for (auto channel: info.getOutput().channels())
+                                   for (auto channel: info.getOutput())
                                        channel.fill(0.f);
 
                                    probe.mark();

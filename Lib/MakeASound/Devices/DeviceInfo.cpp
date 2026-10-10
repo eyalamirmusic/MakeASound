@@ -200,14 +200,14 @@ int getNumChannels(const std::optional<StreamParameters>& params)
 int StreamConfig::getInputChannels() const { return getNumChannels(input); }
 int StreamConfig::getOutputChannels() const { return getNumChannels(output); }
 
-Buffer AudioCallbackInfo::getInput() const
+Buffer AudioCallbackInfo::getInput() const noexcept
 {
-    return {inputBuffer, numInputs, numSamples};
+    return {inputChannels, numInputs, numSamples};
 }
 
-Buffer AudioCallbackInfo::getOutput()
+Buffer AudioCallbackInfo::getOutput() const noexcept
 {
-    return {outputBuffer, numOutputs, numSamples};
+    return {outputChannels, numOutputs, numSamples};
 }
 
 bool AudioCallbackInfo::operator==(const AudioCallbackInfo& other) const

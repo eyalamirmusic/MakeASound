@@ -1,4 +1,5 @@
 add_library(MakeASound STATIC
+        MakeASound/Audio/Buffer.cpp
         MakeASound/Devices/DeviceInfo.cpp
         MakeASound/Devices/DeviceManager.cpp
         MakeASound/Devices/AudioSession.cpp

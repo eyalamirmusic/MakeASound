@@ -284,13 +284,15 @@ auto tCallbackBuffers = test("AudioCallbackInfo/handsOutCorrectlyShapedBuffers")
 {
     auto outputSamples = std::array<float, 8> {};
     auto inputSamples = std::array<float, 4> {};
+    float* outputTable[] = {outputSamples.data(), outputSamples.data() + 4};
+    float* inputTable[] = {inputSamples.data()};
 
     auto info = AudioCallbackInfo {};
     info.numOutputs = 2;
     info.numInputs = 1;
     info.numSamples = 4;
-    info.outputBuffer = outputSamples.data();
-    info.inputBuffer = inputSamples.data();
+    info.outputChannels = outputTable;
+    info.inputChannels = inputTable;
 
     auto output = info.getOutput();
     check(output.getNumChannels() == 2);

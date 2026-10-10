@@ -1,21 +1,22 @@
-// Tests for MakeASound::Buffer and MakeASound::Channel - the non-owning planar
-// views a callback sees over its audio block. The block is channel-major, so
-// what's worth pinning is the arithmetic Buffer does on the caller's behalf:
-// where each channel starts, that writes land in the right place, and that the
-// shape survives being read off a temporary (the C++20 lifetime case Buffer.h
-// calls out).
+// Tests for MakeASound::Buffer, the one planar block type: owning or referring,
+// move-only, every slice another Buffer over the same channel table. What is
+// worth pinning is the arithmetic it does on the caller's behalf - where each
+// channel starts, that an offset lands writes in the right place, that slices
+// compose - plus the ownership rules: what a move leaves behind, that copyOf is
+// independent, that setSize keeps its capacity, and that the shape survives being
+// read off a temporary (the C++20 lifetime case Buffer.h calls out).
 
 #include <MakeASound/Audio/Buffer.h>
 
 #include <NanoTest/NanoTest.h>
 
 #include <array>
-#include <vector>
+#include <type_traits>
 
 using namespace nano;
 using MakeASound::Buffer;
 using MakeASound::Channel;
-using MakeASound::Span;
+using MakeASound::ConstChannel;
 
 // Tests live in an anonymous namespace: NanoTest registers a case by
 // constructing a namespace-scope variable, so two files naming one the same way
@@ -25,339 +26,467 @@ namespace
 constexpr auto numChannels = 3;
 constexpr auto numSamples = 4;
 
-// A 3x4 planar block where channel c, sample s holds the value c * 10 + s, so
-// any mix-up of channel/sample indexing shows up as an obviously wrong number.
-struct PlanarBlock
+static_assert(!std::is_copy_constructible_v<Buffer>);
+static_assert(!std::is_copy_assignable_v<Buffer>);
+static_assert(std::is_nothrow_move_constructible_v<Buffer>);
+static_assert(std::is_nothrow_move_assignable_v<Buffer>);
+
+// A 3x4 block where channel c, sample s holds c * 10 + s, so any mix-up of
+// channel/sample indexing shows up as an obviously wrong number. The storage is
+// three separate arrays with a table over them - the layout a host hands over.
+struct HostBlock
 {
-    PlanarBlock() noexcept
+    HostBlock() noexcept
     {
         for (auto channel = 0; channel < numChannels; ++channel)
+        {
             for (auto sample = 0; sample < numSamples; ++sample)
-                samples[channel * numSamples + sample] =
-                    static_cast<float>(channel * 10 + sample);
+                storage[channel][sample] = static_cast<float>(channel * 10 + sample);
+
+            table[channel] = storage[channel].data();
+        }
     }
 
-    Buffer view() noexcept { return {samples.data(), numChannels, numSamples}; }
+    Buffer view() noexcept { return {table, numChannels, numSamples}; }
 
-    std::array<float, numChannels * numSamples> samples {};
+    std::array<std::array<float, numSamples>, numChannels> storage {};
+    float* table[numChannels] {};
 };
 
-auto tShape = test("Buffer/reportsItsShape") = []
+Buffer makeOwned()
 {
-    auto block = PlanarBlock {};
-    auto buffer = block.view();
+    auto buffer = Buffer {numChannels, numSamples};
 
-    check(buffer.getNumChannels() == numChannels);
-    check(buffer.getNumSamples() == numSamples);
-    check(!buffer.isEmpty());
-};
+    for (auto channel = 0; channel < numChannels; ++channel)
+        for (auto sample = 0; sample < numSamples; ++sample)
+            buffer[channel][sample] = static_cast<float>(channel * 10 + sample);
 
-auto tDefaultEmpty = test("Buffer/defaultConstructedIsEmpty") = []
+    return buffer;
+}
+
+// ---------------------------------------------------------------------------
+// Shape and ownership
+// ---------------------------------------------------------------------------
+
+auto tDefaultEmpty = test("Buffer/defaultConstructedIsEmptyAndOwnsNothing") = []
 {
     auto buffer = Buffer {};
 
     check(buffer.isEmpty());
+    check(!buffer.isOwning());
     check(buffer.getNumChannels() == 0);
     check(buffer.getNumSamples() == 0);
+    check(buffer.begin() == buffer.end());
 };
 
-auto tChannelMajor = test("Buffer/laysChannelsOutChannelMajor") = []
+auto tOwningShape = test("Buffer/owningConstructorAllocatesZeroedChannels") = []
 {
-    auto block = PlanarBlock {};
+    auto buffer = Buffer {numChannels, numSamples};
+
+    check(buffer.isOwning());
+    check(!buffer.isEmpty());
+    check(buffer.getNumChannels() == numChannels);
+    check(buffer.getNumSamples() == numSamples);
+    check(buffer.getStartSample() == 0);
+
+    for (auto channel: buffer)
+        for (auto sample: channel)
+            check(sample == 0.0f);
+};
+
+auto tOwningChannelsDistinct =
+    test("Buffer/owningChannelsAreDistinctAndAligned") = []
+{
+    auto buffer = Buffer {numChannels, 5};
+
+    for (auto channel = 1; channel < numChannels; ++channel)
+    {
+        auto distance = buffer.getChannelPointer(channel)
+                        - buffer.getChannelPointer(channel - 1);
+
+        check(distance >= 5);
+        check(distance % 16 == 0);
+    }
+};
+
+auto tReferringShape = test("Buffer/referringConstructorPointsAtTheTable") = []
+{
+    auto block = HostBlock {};
     auto buffer = block.view();
 
-    // Channel c starts exactly c * numSamples into the flat block.
+    check(!buffer.isOwning());
+    check(buffer.getNumChannels() == numChannels);
+    check(buffer.getNumSamples() == numSamples);
+    check(buffer.getChannelPointers() == block.table);
+
     for (auto channel = 0; channel < numChannels; ++channel)
-        check(buffer.getChannelPointer(channel)
-              == block.samples.data() + channel * numSamples);
+        check(buffer.getChannelPointer(channel) == block.storage[channel].data());
+};
+
+auto tReferringOffset = test("Buffer/referringConstructorAppliesTheStartSample") = []
+{
+    auto block = HostBlock {};
+    auto buffer = Buffer {block.table, numChannels, 2, 1};
+
+    check(buffer.getStartSample() == 1);
+    check(buffer.getNumSamples() == 2);
 
     for (auto channel = 0; channel < numChannels; ++channel)
     {
-        auto samples = buffer.getChannel(channel);
-
-        check(samples.size() == numSamples);
-
-        for (auto sample = 0; sample < numSamples; ++sample)
-            check(samples[sample] == static_cast<float>(channel * 10 + sample));
+        check(buffer.getChannelPointer(channel)
+              == block.storage[channel].data() + 1);
+        check(buffer[channel][0] == static_cast<float>(channel * 10 + 1));
     }
 };
 
 auto tAccessorsAgree = test("Buffer/getChannelAndSubscriptAgree") = []
 {
-    auto block = PlanarBlock {};
+    auto block = HostBlock {};
     auto buffer = block.view();
 
     for (auto channel = 0; channel < numChannels; ++channel)
     {
-        check(buffer[channel].data() == buffer.getChannel(channel).data());
-        check(buffer[channel].size() == buffer.getChannel(channel).size());
-        check(buffer[channel].data() == buffer.getChannelPointer(channel));
+        check(buffer.getChannel(channel).data() == buffer[channel].data());
+        check(buffer.getChannel(channel).data()
+              == buffer.getChannelPointer(channel));
+        check(buffer.getChannel(channel).size() == numSamples);
     }
 };
 
-auto tSplitsFlatSpan = test("Buffer/splitsAFlatSpanEvenlyBetweenChannels") = []
+auto tWritesLand = test("Buffer/writesThroughAChannelLandInTheSource") = []
 {
-    auto block = PlanarBlock {};
-    auto buffer = Buffer {Span<float> {block.samples}, numChannels};
-
-    check(buffer.getNumChannels() == numChannels);
-    check(buffer.getNumSamples() == numSamples);
-
-    // Same layout as the explicit-shape constructor.
-    check(buffer.getChannel(2)[1] == 21.0f);
-};
-
-auto tSplitTruncates = test("Buffer/splittingAFlatSpanTruncatesTheRemainder") = []
-{
-    // 10 samples across 3 channels leaves a remainder: each channel gets 3 and
-    // the odd sample is left out rather than over-running the block.
-    auto samples = std::array<float, 10> {};
-    auto buffer = Buffer {Span<float> {samples}, 3};
-
-    check(buffer.getNumChannels() == 3);
-    check(buffer.getNumSamples() == 3);
-};
-
-auto tWritesLand = test("Buffer/writesThroughAChannelLandInTheBlock") = []
-{
-    auto block = PlanarBlock {};
+    auto block = HostBlock {};
     auto buffer = block.view();
 
-    // Channel is a contiguous range, so the standard vocabulary works on it.
-    buffer.getChannel(1).fill(-1.0f);
+    buffer[1][2] = 99.0f;
+    buffer.getChannel(2)[0] = 77.0f;
 
-    for (auto sample = 0; sample < numSamples; ++sample)
-        check(block.samples[numSamples + sample] == -1.0f);
-
-    // Neighbouring channels are untouched.
-    check(block.samples[0] == 0.0f);
-    check(block.samples[2 * numSamples] == 20.0f);
+    check(block.storage[1][2] == 99.0f);
+    check(block.storage[2][0] == 77.0f);
+    check(block.storage[0][0] == 0.0f);
 };
 
-auto tIterates = test("Buffer/iteratesItsChannels") = []
+auto tConstHandsOutConstChannels =
+    test("Buffer/constBufferHandsOutConstChannels") = []
 {
-    auto block = PlanarBlock {};
+    auto block = HostBlock {};
+    const auto buffer = block.view();
 
-    auto seen = std::vector<float> {};
+    static_assert(std::is_same_v<decltype(buffer[0]), ConstChannel>);
+    static_assert(std::is_same_v<decltype(*buffer.begin()), ConstChannel>);
 
-    for (auto channel: block.view())
-        seen.push_back(channel[0]);
-
-    check(seen.size() == numChannels);
-    check(seen[0] == 0.0f);
-    check(seen[1] == 10.0f);
-    check(seen[2] == 20.0f);
+    check(buffer[2][3] == 23.0f);
 };
 
-auto tTemporarySafe = test("Buffer/channelsOutlivesTheTemporaryItCameFrom") = []
-{
-    auto block = PlanarBlock {};
-
-    // The Buffer temporary dies before the loop body runs in C++20; channels()
-    // carries the shape by value, so iterating it stays valid. This is the case
-    // Buffer.h documents - if channels() ever went back to pointing at the
-    // Buffer, this test is what catches it.
-    auto total = 0.0f;
-
-    for (auto channel: block.view().channels())
-        total += channel[0];
-
-    check(total == 30.0f);
-};
-
-float valueAt(int channel, int sample) noexcept
-{ return static_cast<float>(channel * 10 + sample); }
-
-auto tStridedConstructor = test("Buffer/stridedConstructorReportsItsStride") = []
-{
-    auto block = PlanarBlock {};
-    auto buffer = Buffer {block.samples.data(), numChannels, 2, numSamples};
-
-    check(buffer.getNumSamples() == 2);
-    check(buffer.getChannelStride() == numSamples);
-    check(!buffer.isContiguous());
-    check(buffer.getChannelPointer(2) == block.samples.data() + 2 * numSamples);
-    check(buffer[2][1] == valueAt(2, 1));
-};
-
-auto tContiguousByDefault = test("Buffer/defaultLayoutIsContiguous") = []
-{
-    auto block = PlanarBlock {};
-    auto buffer = block.view();
-
-    check(buffer.isContiguous());
-    check(buffer.getChannelStride() == numSamples);
-};
+// ---------------------------------------------------------------------------
+// Slicing
+// ---------------------------------------------------------------------------
 
 auto tSubBuffer = test("Buffer/subBufferOffsetsEveryChannel") = []
 {
-    auto block = PlanarBlock {};
-    auto sub = block.view().subBuffer(1, 2);
+    auto block = HostBlock {};
+    auto sub = block.view().getSubBuffer(1, 2);
 
     check(sub.getNumChannels() == numChannels);
     check(sub.getNumSamples() == 2);
-    check(sub.getChannelStride() == numSamples);
-    check(!sub.isContiguous());
+    check(sub.getStartSample() == 1);
+    check(!sub.isOwning());
 
     for (auto channel = 0; channel < numChannels; ++channel)
     {
-        check(sub.getChannelPointer(channel)
-              == block.samples.data() + channel * numSamples + 1);
-        check(sub[channel][0] == valueAt(channel, 1));
-        check(sub[channel][1] == valueAt(channel, 2));
+        check(sub.getChannelPointer(channel) == block.storage[channel].data() + 1);
+        check(sub[channel][0] == static_cast<float>(channel * 10 + 1));
+        check(sub[channel][1] == static_cast<float>(channel * 10 + 2));
     }
+};
+
+auto tSubBufferToEnd = test("Buffer/subBufferWithoutALengthRunsToTheEnd") = []
+{
+    auto block = HostBlock {};
+    auto sub = block.view().getSubBuffer(3);
+
+    check(sub.getNumSamples() == 1);
+    check(sub[1][0] == 13.0f);
 };
 
 auto tSubBufferClamps = test("Buffer/subBufferClampsToItsSource") = []
 {
-    auto block = PlanarBlock {};
+    auto block = HostBlock {};
+    auto buffer = block.view();
 
-    check(block.view().subBuffer(3, 10).getNumSamples() == 1);
-    check(block.view().subBuffer(numSamples, 1).isEmpty());
+    check(buffer.getSubBuffer(2, 10).getNumSamples() == 2);
+    check(buffer.getSubBuffer(10, 2).getNumSamples() == 0);
+    check(buffer.getSubBuffer(-3, 2).getStartSample() == 0);
+    check(buffer.getSubBuffer(1, -1).getNumSamples() == 0);
 };
 
-auto tSubBufferIterates = test("Buffer/subBufferChannelsHonourTheStride") = []
+auto tSubBuffersCompose = test("Buffer/subBuffersOfSubBuffersAddTheirOffsets") = []
 {
-    auto block = PlanarBlock {};
-    auto seen = std::vector<float> {};
+    auto block = HostBlock {};
+    auto inner = block.view().getSubBuffer(1, 3).getSubBuffer(1, 1);
 
-    for (auto channel: block.view().subBuffer(2, 2).channels())
-    {
-        check(channel.size() == 2);
-        seen.push_back(channel[0]);
-    }
-
-    check(seen.size() == numChannels);
-    check(seen[0] == valueAt(0, 2));
-    check(seen[1] == valueAt(1, 2));
-    check(seen[2] == valueAt(2, 2));
+    check(inner.getStartSample() == 2);
+    check(inner.getNumSamples() == 1);
+    check(inner[2][0] == 22.0f);
 };
+
+auto tChannelSubset = test("Buffer/channelSubsetSkipsTheFirstChannels") = []
+{
+    auto block = HostBlock {};
+    auto subset = block.view().getChannelSubset(1, 2);
+
+    check(subset.getNumChannels() == 2);
+    check(subset.getNumSamples() == numSamples);
+    check(subset.getChannelPointers() == block.table + 1);
+    check(subset[0][0] == 10.0f);
+    check(subset[1][0] == 20.0f);
+};
+
+auto tChannelSubsetClamps = test("Buffer/channelSubsetClampsToItsSource") = []
+{
+    auto block = HostBlock {};
+    auto buffer = block.view();
+
+    check(buffer.getChannelSubset(2, 5).getNumChannels() == 1);
+    check(buffer.getChannelSubset(5, 1).getNumChannels() == 0);
+    check(buffer.getChannelSubset(-1, 2).getNumChannels() == 2);
+};
+
+auto tSingleChannel = test("Buffer/singleChannelIsAOneChannelSubset") = []
+{
+    auto block = HostBlock {};
+    auto single = block.view().getSingleChannel(2).getSubBuffer(1, 2);
+
+    check(single.getNumChannels() == 1);
+    check(single[0][0] == 21.0f);
+    check(single[0][1] == 22.0f);
+};
+
+// ---------------------------------------------------------------------------
+// Sample operations
+// ---------------------------------------------------------------------------
 
 auto tClearSubBuffer = test("Buffer/clearOnASubBufferTouchesOnlyItsRange") = []
 {
-    auto block = PlanarBlock {};
-    block.view().subBuffer(1, 2).clear();
+    auto block = HostBlock {};
+    block.view().getSubBuffer(1, 2).clear();
 
     for (auto channel = 0; channel < numChannels; ++channel)
     {
-        for (auto sample = 0; sample < numSamples; ++sample)
-        {
-            auto inRange = sample == 1 || sample == 2;
-            auto expected = inRange ? 0.0f : valueAt(channel, sample);
-            check(block.samples[channel * numSamples + sample] == expected);
-        }
+        check(block.storage[channel][0] == static_cast<float>(channel * 10));
+        check(block.storage[channel][1] == 0.0f);
+        check(block.storage[channel][2] == 0.0f);
+        check(block.storage[channel][3] == static_cast<float>(channel * 10 + 3));
     }
 };
 
-auto tFillSubBuffer = test("Buffer/fillOnASubBufferTouchesOnlyItsRange") = []
+auto tFillSubset = test("Buffer/fillOnAChannelSubsetTouchesOnlyItsChannels") = []
 {
-    auto block = PlanarBlock {};
-    block.view().subBuffer(3, 1).fill(-1.0f);
+    auto block = HostBlock {};
+    block.view().getChannelSubset(1, 1).fill(5.0f);
 
-    for (auto channel = 0; channel < numChannels; ++channel)
-    {
-        for (auto sample = 0; sample < numSamples; ++sample)
-        {
-            auto expected = sample == 3 ? -1.0f : valueAt(channel, sample);
-            check(block.samples[channel * numSamples + sample] == expected);
-        }
-    }
+    check(block.storage[0][0] == 0.0f);
+    check(block.storage[1][0] == 5.0f);
+    check(block.storage[1][3] == 5.0f);
+    check(block.storage[2][0] == 20.0f);
 };
 
 auto tCopyIntoSubBuffer = test("Buffer/copyFromFillsASubBuffer") = []
 {
-    auto block = PlanarBlock {};
-    auto source = std::array<float, numChannels * 2> {1, 2, 3, 4, 5, 6};
+    auto block = HostBlock {};
+    auto source = Buffer {numChannels, 2};
+    source.fill(-1.0f);
 
-    block.view().subBuffer(1, 2).copyFrom(Buffer {source.data(), numChannels, 2});
-
-    for (auto channel = 0; channel < numChannels; ++channel)
-    {
-        auto row = block.view()[channel];
-        check(row[0] == valueAt(channel, 0));
-        check(row[1] == source[channel * 2]);
-        check(row[2] == source[channel * 2 + 1]);
-        check(row[3] == valueAt(channel, 3));
-    }
-};
-
-auto tCopyFromSubBuffer = test("Buffer/copyFromReadsASubBuffer") = []
-{
-    auto block = PlanarBlock {};
-    auto target = std::array<float, numChannels * 2> {};
-
-    Buffer {target.data(), numChannels, 2}.copyFrom(block.view().subBuffer(2, 2));
+    block.view().getSubBuffer(1, 2).copyFrom(source);
 
     for (auto channel = 0; channel < numChannels; ++channel)
     {
-        check(target[channel * 2] == valueAt(channel, 2));
-        check(target[channel * 2 + 1] == valueAt(channel, 3));
+        check(block.storage[channel][0] == static_cast<float>(channel * 10));
+        check(block.storage[channel][1] == -1.0f);
+        check(block.storage[channel][2] == -1.0f);
+        check(block.storage[channel][3] == static_cast<float>(channel * 10 + 3));
     }
 };
 
 auto tCopyMismatched = test("Buffer/copyFromStopsAtTheSmallerShape") = []
 {
-    // The source is one channel of two samples followed by sentinels: reading
-    // past its end would pull a 99 into the target.
-    auto source = std::array<float, 6> {1, 2, 99, 99, 99, 99};
-    auto block = PlanarBlock {};
+    auto block = HostBlock {};
+    auto source = Buffer {1, 2};
+    source.fill(-1.0f);
 
-    block.view().copyFrom(Buffer {source.data(), 1, 2});
+    block.view().copyFrom(source);
 
-    check(block.samples[0] == 1.0f);
-    check(block.samples[1] == 2.0f);
-    check(block.samples[2] == valueAt(0, 2));
-    check(block.samples[3] == valueAt(0, 3));
-
-    for (auto channel = 1; channel < numChannels; ++channel)
-        check(block.view()[channel][0] == valueAt(channel, 0));
+    check(block.storage[0][0] == -1.0f);
+    check(block.storage[0][1] == -1.0f);
+    check(block.storage[0][2] == 2.0f);
+    check(block.storage[1][0] == 10.0f);
 };
 
-auto tCopyLongerSource = test("Buffer/copyFromIgnoresExtraSourceSamples") = []
+auto tAddFromWithGain = test("Buffer/addFromMixesWithAGain") = []
 {
-    auto block = PlanarBlock {};
-    auto target = std::array<float, 5> {-1, -1, -1, -1, -1};
+    auto block = HostBlock {};
+    auto source = Buffer {numChannels, numSamples};
+    source.fill(1.0f);
 
-    // Two channels of two samples, three apart, fed from the 3x4 block.
-    Buffer {target.data(), 2, 2, 3}.copyFrom(block.view());
+    block.view().getSubBuffer(2, 2).addFrom(source, 0.5f);
 
-    check(target[0] == valueAt(0, 0));
-    check(target[1] == valueAt(0, 1));
-    check(target[2] == -1.0f);
-    check(target[3] == valueAt(1, 0));
-    check(target[4] == valueAt(1, 1));
+    check(block.storage[1][1] == 11.0f);
+    check(block.storage[1][2] == 12.5f);
+    check(block.storage[1][3] == 13.5f);
 };
 
-auto tAddIntoSubBuffer = test("Buffer/addFromMixesIntoASubBuffer") = []
+auto tApplyGain = test("Buffer/applyGainScalesEverySample") = []
 {
-    auto block = PlanarBlock {};
-    auto source = std::array<float, 8> {1, 1, 1, 1, 1, 1, 99, 99};
+    auto block = HostBlock {};
+    block.view().getChannelSubset(1, 1).applyGain(2.0f);
 
-    // Two channels of three samples into a two-sample range of three channels:
-    // only two channels and two samples are shared.
-    block.view().subBuffer(2, 2).addFrom(Buffer {source.data(), 2, 3});
+    check(block.storage[0][1] == 1.0f);
+    check(block.storage[1][1] == 22.0f);
+    check(block.storage[2][1] == 21.0f);
+};
 
-    for (auto channel = 0; channel < numChannels; ++channel)
+// ---------------------------------------------------------------------------
+// Iteration
+// ---------------------------------------------------------------------------
+
+auto tIterates = test("Buffer/iteratesItsChannelsInOrder") = []
+{
+    auto block = HostBlock {};
+    auto buffer = block.view();
+    auto index = 0;
+
+    for (auto channel: buffer)
     {
-        for (auto sample = 0; sample < numSamples; ++sample)
-        {
-            auto mixed = channel < 2 && sample >= 2;
-            auto expected = valueAt(channel, sample) + (mixed ? 1.0f : 0.0f);
-            check(block.samples[channel * numSamples + sample] == expected);
-        }
+        check(channel.data() == block.storage[index].data());
+        check(channel.size() == numSamples);
+        ++index;
     }
+
+    check(index == numChannels);
 };
 
-auto tAddFromSubBuffer = test("Buffer/addFromReadsASubBuffer") = []
+auto tTemporarySafe = test("Buffer/channelsOutliveTheTemporaryTheyCameFrom") = []
 {
-    auto block = PlanarBlock {};
-    auto target = std::array<float, 4> {1, 1, 1, 1};
+    // The Buffer temporary from view() is what the range-for binds; the iterator
+    // keeps the shape by value, so nothing points back at a dead Buffer.
+    auto block = HostBlock {};
+    auto sum = 0.0f;
 
-    Buffer {target.data(), 2, 2}.addFrom(block.view().subBuffer(1, 3));
+    for (auto channel: block.view().getSubBuffer(1, 2))
+        for (auto sample: channel)
+            sum += sample;
 
-    check(target[0] == 1.0f + valueAt(0, 1));
-    check(target[1] == 1.0f + valueAt(0, 2));
-    check(target[2] == 1.0f + valueAt(1, 1));
-    check(target[3] == 1.0f + valueAt(1, 2));
+    check(sum == (1 + 2) + (11 + 12) + (21 + 22));
+};
+
+// ---------------------------------------------------------------------------
+// Moves, copies and resizing
+// ---------------------------------------------------------------------------
+
+auto tMoveOwning = test("Buffer/movingAnOwningBufferCarriesItsSamples") = []
+{
+    auto source = makeOwned();
+    auto* firstChannel = source.getChannelPointer(0);
+
+    auto moved = std::move(source);
+
+    check(moved.isOwning());
+    check(moved.getChannelPointer(0) == firstChannel);
+    check(moved[2][3] == 23.0f);
+
+    check(source.isEmpty());
+    check(!source.isOwning());
+};
+
+auto tMoveAssignReleases = test("Buffer/moveAssigningOverAnOwnerReleasesIt") = []
+{
+    auto block = HostBlock {};
+    auto target = makeOwned();
+
+    target = block.view();
+
+    check(!target.isOwning());
+    check(target.getChannelPointers() == block.table);
+    check(target[1][1] == 11.0f);
+};
+
+auto tMoveReferring = test("Buffer/movingAReferringBufferCopiesTheView") = []
+{
+    auto block = HostBlock {};
+    auto source = block.view().getSubBuffer(1, 2);
+    auto moved = std::move(source);
+
+    check(!moved.isOwning());
+    check(moved.getStartSample() == 1);
+    check(moved.getNumSamples() == 2);
+    check(moved[0][0] == 1.0f);
+};
+
+auto tCopyOf = test("Buffer/copyOfIsAnIndependentOwner") = []
+{
+    auto block = HostBlock {};
+    auto copy = Buffer::copyOf(block.view());
+
+    check(copy.isOwning());
+    check(copy.getNumChannels() == numChannels);
+    check(copy.getNumSamples() == numSamples);
+    check(copy[2][3] == 23.0f);
+
+    copy[0][0] = 99.0f;
+    check(block.storage[0][0] == 0.0f);
+};
+
+auto tSetSizeZeroes = test("Buffer/setSizeZeroesAndReshapes") = []
+{
+    auto buffer = makeOwned();
+    buffer.setSize(2, 8);
+
+    check(buffer.getNumChannels() == 2);
+    check(buffer.getNumSamples() == 8);
+
+    for (auto channel: buffer)
+        for (auto sample: channel)
+            check(sample == 0.0f);
+};
+
+auto tSetSizeKeepsCapacity =
+    test("Buffer/setSizeToASmallerShapeKeepsItsStorage") = []
+{
+    auto buffer = Buffer {2, 512};
+    auto* storage = buffer.getChannelPointer(0);
+
+    buffer.setSize(2, 256);
+    check(buffer.getChannelPointer(0) == storage);
+
+    buffer.setSize(1, 512);
+    check(buffer.getChannelPointer(0) == storage);
+
+    buffer.setSize(2, 512);
+    check(buffer.getChannelPointer(0) == storage);
+};
+
+auto tSetSizeOnReferring = test("Buffer/setSizeOnAReferringBufferMakesItOwning") = []
+{
+    auto block = HostBlock {};
+    auto buffer = block.view();
+
+    buffer.setSize(1, 2);
+
+    check(buffer.isOwning());
+    check(buffer.getChannelPointers() != block.table);
+    check(buffer[0][0] == 0.0f);
+    check(block.storage[0][0] == 0.0f);
+};
+
+auto tReferToOnOwning = test("Buffer/referToOnAnOwningBufferDropsItsStorage") = []
+{
+    auto block = HostBlock {};
+    auto buffer = makeOwned();
+
+    buffer.referTo(block.table, numChannels, 2, 2);
+
+    check(!buffer.isOwning());
+    check(buffer.getStartSample() == 2);
+    check(buffer[1][0] == 12.0f);
 };
 } // namespace
