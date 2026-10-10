@@ -150,13 +150,17 @@ function(_makeasound_add_vst3 name)
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.vst3")
 
     # $<1:...> keeps a multi-config generator from appending a per-config folder;
-    # the import library, .exp and .pdb stay out of the bundle.
+    # the import library, .exp and .pdb stay out of the bundle, and the .pdb is
+    # named apart from the standalone's, which shares the output name and the
+    # folder: two links writing one program database fail (LNK1201).
     set_target_properties(${target} PROPERTIES
             FOLDER "${ARG_FOLDER}"
             OUTPUT_NAME "${ARG_OUTPUT_NAME}"
             PREFIX ""
             ARCHIVE_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
             PDB_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            PDB_NAME "${ARG_OUTPUT_NAME}-VST3"
+            COMPILE_PDB_NAME "${ARG_OUTPUT_NAME}-VST3"
             MAKEASOUND_VST3_BUNDLE "${bundle}")
 
     if (APPLE)
