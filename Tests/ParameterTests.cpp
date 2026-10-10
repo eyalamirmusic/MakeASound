@@ -25,21 +25,11 @@ using MakeASound::ParameterList;
 using MakeASound::PercentParam;
 using MakeASound::TimeParam;
 
-// Whether Miro can reflect T as a field, found the way its dispatch finds it.
-namespace MiroProbe
-{
-using Miro::Detail::reflectValue;
-
-template <typename T>
-concept Reflectable =
-    requires(Miro::Reflector& ref, T& value) { reflectValue(ref, value); };
-} // namespace MiroProbe
-
 // A Parameter in a MIRO_REFLECT list does not compile: parameters are
 // registered with ParameterGroup::add and saved by the group alone.
-static_assert(!MiroProbe::Reflectable<FloatParam>);
-static_assert(!MiroProbe::Reflectable<ChoiceParam>);
-static_assert(MiroProbe::Reflectable<double>);
+static_assert(!Miro::Reflectable<FloatParam>);
+static_assert(!Miro::Reflectable<ChoiceParam>);
+static_assert(Miro::Reflectable<double>);
 
 // Tests live in an anonymous namespace: NanoTest registers a case by
 // constructing a namespace-scope variable, so two files naming one the same way
