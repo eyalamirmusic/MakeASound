@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ParameterGroup.h"
-#include "../Common/Common.h"
+#include "../../Common/Common.h"
 
 #include <cstdint>
 #include <string>

@@ -11,9 +11,8 @@
 # into eacp's embedded app info; the app's settings are filed under the module's
 # vendor and the plugin's name. Every target goes in the IDE folder <Name>,
 # nested under CMAKE_FOLDER when the caller set one, unless FOLDER names another.
-# A global property, because a CPM consumer calls the function from its own
-# directory, where MakeASound's variables are out of scope.
-set_property(GLOBAL PROPERTY MAKEASOUND_HAS_GUI ${MAKEASOUND_HAS_GUI})
+# A format whose library was not built is skipped with a status line; targets are
+# global, so this works from a CPM consumer's directory too.
 
 function(makeasound_add_plugin name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG ""
@@ -55,17 +54,16 @@ function(makeasound_add_plugin name)
         set_makeasound_warnings(${name})
     endif ()
 
-    get_property(has_gui GLOBAL PROPERTY MAKEASOUND_HAS_GUI)
-    set(plugin_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../Lib/MakeASound/Plugin")
-    set(standalone_main "${plugin_dir}/Standalone/StandaloneMain.cpp")
-
     foreach (format IN LISTS ARG_FORMATS)
         if (format STREQUAL "Standalone")
-            if (NOT has_gui)
+            if (NOT TARGET MakeASoundStandalone)
                 message(STATUS "${name}: Standalone format skipped "
-                        "(needs eacp graphics on macOS or Windows)")
+                        "(MakeASoundStandalone not built)")
                 continue()
             endif ()
+
+            get_target_property(standalone_main MakeASoundStandalone
+                    MAKEASOUND_STANDALONE_MAIN)
 
             set(target ${name}-Standalone)
             add_executable(${target} "${standalone_main}")

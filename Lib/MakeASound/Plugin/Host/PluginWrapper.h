@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Plugin.h"
+#include "../Core/Plugin.h"
 
 #include <atomic>
 #include <cstdint>

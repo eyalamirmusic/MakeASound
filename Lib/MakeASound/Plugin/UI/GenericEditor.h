@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../Editor.h"
-#include "../Plugin.h"
+#include "../Core/Editor.h"
+#include "../Core/Plugin.h"
 #include "../../Common/Common.h"
 
 namespace MakeASound

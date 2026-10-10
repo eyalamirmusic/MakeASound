@@ -35,25 +35,7 @@ if (PROJECT_IS_TOP_LEVEL)
     cmake_language(DEFER CALL makeasound_group_external_targets)
 endif ()
 
-# The plugin core links eacp-core; the demo apps find eacp again, which CPM dedupes.
-if (MAKEASOUND_BUILD_PLUGIN)
-    find_package(eacp REQUIRED)
-
-    # The generic editor and the standalone format need eacp's GUI tier and a
-    # desktop with a menu bar: macOS and Windows. A Linux or iOS build keeps the
-    # core.
-    if (((APPLE AND NOT IOS) OR WIN32) AND EACP_BUILD_GRAPHICS)
-        set(MAKEASOUND_HAS_GUI ON)
-    else ()
-        set(MAKEASOUND_HAS_GUI OFF)
-    endif ()
-endif ()
-
 add_subdirectory(Lib)
-
-if (MAKEASOUND_BUILD_PLUGIN)
-    include(CMake/MakeASoundPlugin.cmake)
-endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)
     add_subdirectory(Apps)

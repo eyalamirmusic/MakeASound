@@ -82,58 +82,7 @@ endif ()
 
 set_makeasound_warnings(MakeASound)
 
-# MakeASoundPlugin: the SDK-free plugin core; format adapters add their SDK on top.
-# eacp-core backs its message-thread marshalling, kept out of every public header.
+# The plugin core and its drawing tiers live in their own directory.
 if (MAKEASOUND_BUILD_PLUGIN)
-    add_library(MakeASoundPlugin STATIC
-            MakeASound/Plugin/Description.cpp
-            MakeASound/Plugin/Parameter.cpp
-            MakeASound/Plugin/FloatParam.cpp
-            MakeASound/Plugin/ChoiceParam.cpp
-            MakeASound/Plugin/ParameterGroup.cpp
-            MakeASound/Plugin/ParameterList.cpp
-            MakeASound/Plugin/StateContext.cpp
-            MakeASound/Plugin/Plugin.cpp
-            MakeASound/Plugin/PluginWrapper.cpp
-            MakeASound/Plugin/Realtime/MessageThread.cpp)
-
-    target_link_libraries(MakeASoundPlugin PUBLIC MakeASound PRIVATE eacp-core)
-    set_target_properties(MakeASoundPlugin PROPERTIES FOLDER Lib/Plugin)
-
-    if (MAKEASOUND_UNITY_BUILD)
-        set_target_properties(MakeASoundPlugin PROPERTIES UNITY_BUILD ON)
-    endif ()
-
-    set_makeasound_warnings(MakeASoundPlugin)
-
-    # MakeASoundPluginUI: the eacp-ui pieces every format shares, today the
-    # generic parameter editor. MakeASoundStandalone: the standalone format, a
-    # Plugin in a window on Engine. Both need eacp to draw.
-    if (MAKEASOUND_HAS_GUI)
-        add_library(MakeASoundPluginUI STATIC
-                MakeASound/Plugin/UI/GenericEditor.cpp)
-
-        target_link_libraries(MakeASoundPluginUI PUBLIC MakeASoundPlugin eacp-ui)
-
-        add_library(MakeASoundStandalone STATIC
-                MakeASound/Plugin/Standalone/StandaloneProcessor.cpp
-                MakeASound/Plugin/Standalone/MidiSender.cpp
-                MakeASound/Plugin/Standalone/TypingKeyboard.cpp
-                MakeASound/Plugin/Standalone/Settings.cpp
-                MakeASound/Plugin/Standalone/SettingsPanel.cpp
-                MakeASound/Plugin/Standalone/StandaloneApp.cpp)
-
-        target_link_libraries(MakeASoundStandalone
-                PUBLIC MakeASoundPluginUI eacp-graphics)
-
-        foreach (target MakeASoundPluginUI MakeASoundStandalone)
-            set_target_properties(${target} PROPERTIES FOLDER Lib/Plugin)
-
-            if (MAKEASOUND_UNITY_BUILD)
-                set_target_properties(${target} PROPERTIES UNITY_BUILD ON)
-            endif ()
-
-            set_makeasound_warnings(${target})
-        endforeach ()
-    endif ()
+    add_subdirectory(MakeASound/Plugin)
 endif ()

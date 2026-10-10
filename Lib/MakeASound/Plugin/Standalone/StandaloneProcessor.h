@@ -1,7 +1,7 @@
 #pragma once
 
 #include "MidiSender.h"
-#include "../PluginWrapper.h"
+#include "../Host/PluginWrapper.h"
 #include "../../Realtime/SPSCQueue.h"
 
 namespace MakeASound::Standalone

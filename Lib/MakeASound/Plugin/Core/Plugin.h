@@ -1,10 +1,10 @@
 #pragma once
 
-#include "../Audio/Processor.h"
+#include "../../Audio/Processor.h"
 #include "Editor.h"
 #include "HostEditListener.h"
-#include "ParameterList.h"
-#include "StateContext.h"
+#include "../Parameters/ParameterList.h"
+#include "../State/StateContext.h"
 
 #include <string>
 #include <string_view>

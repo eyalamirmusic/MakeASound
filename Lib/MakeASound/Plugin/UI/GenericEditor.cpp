@@ -1,6 +1,6 @@
 #include "GenericEditor.h"
-#include "../BoolParam.h"
-#include "../ChoiceParam.h"
+#include "../Parameters/BoolParam.h"
+#include "../Parameters/ChoiceParam.h"
 
 #include <eacp/Core/Core.h>
 #include <eacp/UI/UI.h>

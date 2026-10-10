@@ -26,8 +26,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS eacp-core)
 
-    # The standalone format's pieces, where eacp can draw.
-    if (MAKEASOUND_HAS_GUI)
+    # The standalone format's pieces, where the format was built.
+    if (TARGET MakeASoundStandalone)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
     endif ()
@@ -71,6 +71,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_SOURCES PluginAllocationTests.cpp)
     endif ()
+
+    if (TARGET MakeASoundStandalone)
+        list(APPEND MAKEASOUND_TEST_SOURCES StandaloneAllocationTests.cpp)
+    endif ()
 endif ()
 
 # NanoTest registers one ctest case per nano::test() and re-runs the binary with
@@ -80,8 +84,3 @@ endif ()
 nano_add_executable(MakeASoundTests
         SOURCES ${MAKEASOUND_TEST_SOURCES}
         TARGETS ${MAKEASOUND_TEST_TARGETS})
-
-# PluginAllocationTests.cpp has a standalone case, built only where the format is.
-if (MAKEASOUND_BUILD_PLUGIN AND MAKEASOUND_HAS_GUI)
-    target_compile_definitions(MakeASoundTests PRIVATE MAKEASOUND_HAS_GUI=1)
-endif ()

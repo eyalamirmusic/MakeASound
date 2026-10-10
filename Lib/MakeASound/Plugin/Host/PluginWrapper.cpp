@@ -1,7 +1,7 @@
 #include "PluginWrapper.h"
 
-#include "Realtime/MessageThread.h"
-#include "../Realtime/ScopedNoDenormals.h"
+#include "../Realtime/MessageThread.h"
+#include "../../Realtime/ScopedNoDenormals.h"
 
 #include <algorithm>
 #include <cassert>

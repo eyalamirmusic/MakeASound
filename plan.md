@@ -395,19 +395,18 @@ block size and MIDI port pickers; `Synth` plays from a hardware MIDI port and th
 typing keyboard; settings and state survive a relaunch; the per-example allocation
 test (the harness from `Tests/AllocationProbe.h`) passes under a live callback.
 
-Landed: two more static targets behind `MAKEASOUND_HAS_GUI`, which the top-level
-`CMakeLists.txt` sets under `MAKEASOUND_BUILD_PLUGIN` to `(APPLE OR WIN32) AND
-EACP_BUILD_GRAPHICS`, eacp's own condition for drawing, so a Linux build keeps
-the core and skips the window. `MakeASoundPluginUI` (`Plugin/UI/`, linking
+Landed: two more static targets, each in its own directory's `CMakeLists.txt`
+under `Plugin/CMakeLists.txt` and gated on the eacp target it links existing
+(`eacp-ui` for the UI library, `eacp-graphics` on a desktop for the standalone),
+so a Linux or iOS build keeps the core and skips the window. `MakeASoundPluginUI` (`Plugin/UI/`, linking
 `MakeASoundPlugin` and `eacp-ui` PUBLIC) holds `GenericEditor`;
 `MakeASoundStandalone` (`Plugin/Standalone/`, linking `MakeASoundPluginUI` and
 `eacp-graphics` PUBLIC) holds `StandaloneApp`, `StandaloneProcessor`,
 `MidiSender`, `TypingKeyboard`, `Settings` and `SettingsPanel`.
 `makeasound_add_plugin(<Name> FORMATS Standalone SOURCES ... [OUTPUT_NAME]
-[BUNDLE_ID] [COMPANY])` lives in `CMake/MakeASoundPlugin.cmake`, which the
-top-level file includes whenever the plugin core is built, so a CPM consumer
-calls it from its own tree; `MAKEASOUND_HAS_GUI` reaches it through a global
-property for the same reason. It builds the sources once as the static core
+[BUNDLE_ID] [COMPANY])` lives in `CMake/MakeASoundPlugin.cmake`, which
+`Plugin/CMakeLists.txt` includes, so a CPM consumer calls it from its own tree;
+it tests `TARGET MakeASoundStandalone`, global for the same reason. It builds the sources once as the static core
 `<Name>` and links `<Name>-Standalone` from
 `Plugin/Standalone/StandaloneMain.cpp` (`eacp::Apps::run<StandaloneApp>()`), a
 `MACOSX_BUNDLE` with `NSMicrophoneUsageDescription` and an ad-hoc codesign
@@ -420,7 +419,7 @@ last-note-priority instrument with a waveform choice, attack, release, level and
 legato). Tests: 24 `Standalone/` cases in `StandaloneTests.cpp` (the processor
 on `Engine` with a synthetic callback, injection order and capacity, the sender
 over a virtual-port loopback, the typing keyboard's map, the settings file and
-the by-name re-resolution), and in `PluginAllocationTests.cpp` a
+the by-name re-resolution), and in `StandaloneAllocationTests.cpp` a
 `StandaloneProcessor` block on `Engine` for the effect and for the instrument
 with an injected note echoed into the sender, plus a live callback on the
 machine's default output device, banned from inside the plugin's `process` and
@@ -501,7 +500,7 @@ Where it differs from the bullets above:
   answers with `setConfig`, and a 2 Hz timer of its own rebuilds the lists when a
   device or port comes or goes.
 - **The proof's allocation test is the format's, not each example's**: the
-  standalone cases in `PluginAllocationTests.cpp` drive `StandaloneProcessor`
+  standalone cases in `StandaloneAllocationTests.cpp` drive `StandaloneProcessor`
   with the test plugins, which cover what both examples exercise.
 
 ## Later stages, in brief

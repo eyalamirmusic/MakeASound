@@ -67,7 +67,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | --- | --- | --- |
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
-| `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp draws (macOS, Windows), also the generic editor and the standalone format. |
+| `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
 
@@ -91,7 +91,8 @@ thread, so a steady-state block and a delivered MIDI message are measured end to
 end. Those need a playback device and a virtual MIDI port, and measure nothing
 rather than failing where the platform has neither. `PluginAllocationTests.cpp`
 does the same for the plugin core: parameter values, host-id lookup, the realtime
-swap, a whole `PluginWrapper` block, and a standalone block on `Engine`.
+swap and a whole `PluginWrapper` block; `StandaloneAllocationTests.cpp` a
+standalone block on `Engine`.
 
 Interposition needs `dlsym(RTLD_NEXT, ...)`, so these files are added to the test
 target on Apple and Linux only, rather than reporting zero allocations elsewhere
@@ -515,7 +516,12 @@ Lib/MakeASound/
   Devices/          DeviceInfo data types, DeviceManager façade, Engine, device queries
   MIDI/             typed events, port info, block sync, MidiManager façade
   Realtime/         SPSCQueue, SpinLock, ScopedNoDenormals, Smoother
-  Plugin/           MakeASoundPlugin: Plugin, parameters, state, PluginWrapper, Editor
+  Plugin/           MakeASoundPlugin.h, the plugin core's umbrella header
+    Parameters/     Parameter, FloatParam, ChoiceParam, BoolParam, ParameterGroup, ParameterList
+    State/          StateContext, State
+    Core/           Description, Editor, HostEditListener, Plugin, StatePlugin
+    Host/           PluginWrapper, the per-block pipeline every format adapter shares
+    Realtime/       MessageThread, RealtimeSwap
     UI/             MakeASoundPluginUI: the generic parameter editor
     Standalone/     MakeASoundStandalone: the standalone app format
   UI/               dropdown/toggle-list helpers for the demo apps

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Parameter.h"
-#include "../Common/Common.h"
+#include "../../Common/Common.h"
 
 #include <atomic>
 
