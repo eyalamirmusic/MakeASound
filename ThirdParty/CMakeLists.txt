@@ -51,6 +51,12 @@ target_compile_definitions(vst3sdk
         PRIVATE PROJECT_INCLUDES_VSTEDITCONTROLLER=1
         _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)
 
+# fdebug.cpp and fdynlib.cpp include <windows.h> bare, and in a unity chunk their
+# min/max macros then reach fstring.cpp's std::numeric_limits<int64>::max ().
+if (WIN32)
+    target_compile_definitions(vst3sdk PRIVATE NOMINMAX)
+endif ()
+
 # Steinberg's code, Steinberg's warnings. Always a unity build: nothing here is
 # ever edited, so the whole-archive rebuild unity costs an edit never happens.
 if (MSVC)

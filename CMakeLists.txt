@@ -4,6 +4,11 @@ project(MakeASound)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 
+# Nothing here or in a dependency uses C++ modules, and a source CMake scans for
+# them is left out of its target's unity build: with MSVC and clang-cl the unity
+# builds below were skipped wholesale, and a Windows runner compiled every TU.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 option(MAKEASOUND_UNITY_BUILD "Enable unity (jumbo) build for the MakeASound library" OFF)
 option(MAKEASOUND_CI_BUILD
        "Mirror the flag set CI builds with: unity builds here and in every dependency, eacp's own CI set" OFF)
