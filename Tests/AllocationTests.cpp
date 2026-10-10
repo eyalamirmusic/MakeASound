@@ -8,6 +8,7 @@
 #include "AllocationProbe.h"
 
 #include <MakeASound/MakeASound.h>
+#include <MakeASound/DSP/MakeASoundDSP.h>
 #include <MakeASound/Common/Algorithms.h>
 #include <MakeASound/MIDI/MidiParser.h>
 
@@ -708,5 +709,37 @@ auto tSmootherSteps = test("Allocations/smootherStepsOffTheHeap") = []
 
     check(count == 0);
     check(smoother.isSmoothing());
+};
+
+auto tTestSynthBlock = test("Allocations/testSynthBlockStaysOffTheHeap") = []
+{
+    auto synth = MakeASound::DSP::TestSynth();
+    auto spec = ProcessSpec {48000, 256, synth.getBusLayout()};
+    synth.prepare(spec);
+
+    auto output = Buffer(2, 256);
+    auto context = ProcessContext();
+    context.prepare(spec.layout);
+    context.mainOutput().referTo(output.getChannelPointers(), 2, 256);
+
+    auto& midi = context.mainMidiIn();
+    midi.add(Event::noteOn(0, 60, 1.f, 0));
+    midi.add(Event::noteOn(0, 64, 1.f, 64));
+    midi.add(Event::noteOff(0, 60, 0.f, 128));
+    midi.add(Event::controlChange(0, 123, 0.f, 192));
+
+    auto settings = MakeASound::DSP::TestSynth::Settings {};
+    settings.waveform = MakeASound::DSP::Waveform::Saw;
+    settings.gain = 0.5f;
+
+    auto count = allocationsIn(
+        [&]
+        {
+            synth.setSettings(settings);
+            synth.process(context);
+            synth.reset();
+        });
+
+    check(count == 0);
 };
 } // namespace

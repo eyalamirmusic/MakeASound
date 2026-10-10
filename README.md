@@ -297,7 +297,7 @@ auto gain = Gain {};
 engine.start(devices.getDefaultDuplexConfig(), gain);
 ```
 
-`BusLayout::stereoInOut()` is the default layout; an instrument returns `BusLayout::instrument()` from `getBusLayout()` and reads `ctx.mainMidiIn()`, a `MIDI::Buffer` already sorted by offset, so a block is split around events with `mainOutput().getSubBuffer(from, length)`. A layout with no input bus never opens the capture side, so an instrument costs no microphone permission. `Apps/Synth` is the worked example.
+`BusLayout::stereoInOut()` is the default layout; an instrument returns `BusLayout::instrument()` from `getBusLayout()` and reads `ctx.mainMidiIn()`, a `MIDI::Buffer` already sorted by offset, so a block is split around events with `mainOutput().getSubBuffer(from, length)`. A layout with no input bus never opens the capture side, so an instrument costs no microphone permission. `Apps/Synth` is the worked example: it runs `MakeASound::DSP::TestSynth` from the optional `MakeASoundDSP` library, a monophonic instrument with a choice of waveform, an attack/release envelope and a smoothed level, and `Plugins/Synth` plays the same synth as a plugin.
 
 ## Plugins
 
@@ -455,7 +455,7 @@ The app hosts the module's first plugin, run by `Engine`:
 - **The computer MIDI keyboard** (Cmd+K, on by default for a plugin with a MIDI input): `A W S E D F T G Y H U J K O L P ;` play an octave and a half from middle C, `Z` and `X` shift it an octave. Notes held when the window loses focus are released.
 - **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is a monophonic instrument that plays from a hardware port and the typing keyboard.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard.
 
 ## The probe app
 
@@ -524,6 +524,7 @@ Lib/MakeASound/
     Realtime/       MessageThread, RealtimeSwap
     UI/             MakeASoundPluginUI: the generic parameter editor
     Standalone/     MakeASoundStandalone: the standalone app format
+  DSP/              MakeASoundDSP, optional: TestSynth, the instrument the Synth app and plugin share
   UI/               dropdown/toggle-list helpers for the demo apps
   Common/           EA type re-exports and audio-thread-safe algorithms
   MiniAudio/        audio backend (hidden)

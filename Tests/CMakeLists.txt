@@ -11,9 +11,10 @@ set(MAKEASOUND_TEST_SOURCES
         DeviceManagerTests.cpp
         MidiParserTests.cpp
         MidiManagerTests.cpp
-        RealtimeTests.cpp)
+        RealtimeTests.cpp
+        TestSynthTests.cpp)
 
-set(MAKEASOUND_TEST_TARGETS MakeASound)
+set(MAKEASOUND_TEST_TARGETS MakeASound MakeASoundDSP)
 
 if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPlugin)

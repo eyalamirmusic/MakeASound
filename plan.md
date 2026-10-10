@@ -493,6 +493,14 @@ Where it differs from the bullets above:
   open is printed to `stderr`; the app keeps running with what it has.
 - **`SynthPlugin`, not `Synth`**, for the instrument example's targets:
   `Apps/Synth`, the `Engine` demo it was ported from, owns that name and stays.
+- **One synth, two hosts** (2026-10-10): the instrument's DSP moved out of the
+  plugin into `MakeASoundDSP`, an optional static target under
+  `Lib/MakeASound/DSP/` that links the device library alone, as
+  `DSP::TestSynth`, a `Processor` with settable `Settings`. `Plugins/Synth` is
+  that synth with its settings on parameters and `Apps/Synth` is it behind the
+  web page's gain slider and MIDI log, so the demo and the plugin play the same
+  instrument. `Tests/TestSynthTests.cpp` covers it and the allocation suite
+  drives a block of it.
 - **The settings panel follows the layout.** `SettingsPanelOptions::forLayout`
   hides the input rows for a layout with no input bus, the MIDI input toggles for
   one with no MIDI-in bus and the MIDI output picker for one with no MIDI-out bus;

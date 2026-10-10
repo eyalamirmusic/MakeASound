@@ -1,8 +1,7 @@
 #pragma once
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
-
-#include <vector>
+#include <MakeASound/DSP/MakeASoundDSP.h>
 
 namespace MakeASoundExamples
 {
@@ -19,45 +18,21 @@ struct SynthParams : ParameterGroup
     BoolParam legato {"Legato", false};
 };
 
-// Monophonic, last-note priority: releasing a note falls back to the newest
-// one still held.
+// The TestSynth with its settings on parameters.
 struct SynthPlugin : StatePlugin<State<SynthParams>>
 {
     std::string_view name() const override { return "Synth"; }
 
-    BusLayout getBusLayout() const override { return BusLayout::instrument(); }
+    BusLayout getBusLayout() const override { return synth.getBusLayout(); }
 
     void prepare(const ProcessSpec& spec) override;
     void reset() noexcept override;
     void process(ProcessContext& context) noexcept override;
 
 private:
-    struct BlockSettings
-    {
-        int waveform = 0;
-        float attackStep = 1.f;
-        float releaseStep = 1.f;
-    };
+    DSP::TestSynth::Settings settingsFromParams() const noexcept;
 
-    void render(Buffer& output, const BlockSettings& settings) noexcept;
-    float oscillator(int waveform) noexcept;
-
-    void applyEvent(const MIDI::Event& event) noexcept;
-    void noteOn(int note, float velocityToUse) noexcept;
-    void noteOff(int note) noexcept;
-    void allNotesOff() noexcept;
-
-    float envelopeStep(float seconds) const noexcept;
-
-    std::vector<int> heldNotes;
-    int sampleRate = 44100;
-
-    int currentNote = -1;
-    float phase = 0.f;
-    float increment = 0.f;
-    float velocity = 0.f;
-    float envelope = 0.f;
-    Smoother level;
+    DSP::TestSynth synth;
 };
 
 } // namespace MakeASoundExamples

@@ -82,6 +82,9 @@ endif ()
 
 set_makeasound_warnings(MakeASound)
 
+# The optional DSP library, always built and linked only by what asks for it.
+add_subdirectory(MakeASound/DSP)
+
 # The plugin core and its drawing tiers live in their own directory.
 if (MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(MakeASound/Plugin)
