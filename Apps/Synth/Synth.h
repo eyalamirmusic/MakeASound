@@ -1,6 +1,9 @@
 #pragma once
 
 #include <MakeASound/MakeASound.h>
+#include <eacp/Core/Core.h>
+
+#include <functional>
 #include <numbers>
 
 namespace MS = MakeASound;
@@ -17,7 +20,7 @@ struct AudioControls
     double velocity {};
 };
 
-struct Synth
+struct Synth : MS::Processor
 {
     static constexpr float twoPi = 2.0f * std::numbers::pi_v<float>;
 
@@ -45,13 +48,39 @@ struct Synth
         float phase {0.0f};
     };
 
-    void reset() { voice.phase = 0.0f; }
+    using MidiAppliedCallback = std::function<void(const MIDI::Event&)>;
 
-    void render(MS::AudioCallbackInfo& info, int startSample, int endSample)
+    MS::BusLayout getBusLayout() const override
+    { return MS::BusLayout::instrument(); }
+
+    void prepare(const MS::ProcessSpec& spec) override
     {
-        auto output = info.getOutput();
+        sampleRate = spec.sampleRate;
+        reset();
+    }
 
-        if (startSample >= endSample || output.getNumChannels() <= 0)
+    void process(MS::ProcessContext& ctx) noexcept override
+    {
+        auto& output = ctx.mainOutput();
+        auto cursor = 0;
+
+        for (auto& event: ctx.mainMidiIn())
+        {
+            auto block = output.getSubBuffer(cursor, event.sampleOffset - cursor);
+            render(block);
+            applyMidiOnAudioThread(event);
+            cursor = event.sampleOffset;
+        }
+
+        auto tail = output.getSubBuffer(cursor);
+        render(tail);
+    }
+
+    void reset() noexcept override { voice.phase = 0.0f; }
+
+    void render(MS::Buffer& output) noexcept
+    {
+        if (output.getNumSamples() <= 0 || output.getNumChannels() <= 0)
             return;
 
         auto noteValue = note.load();
@@ -62,27 +91,34 @@ struct Synth
 
         if (noteValue < 0)
         {
-            std::fill(first.begin() + startSample, first.begin() + endSample, 0.0f);
+            std::fill(first.begin(), first.end(), 0.0f);
         }
         else
         {
             auto frequency = midiNoteToFrequency(noteValue);
-            auto increment = twoPi * frequency / static_cast<float>(info.sampleRate);
+            auto increment = twoPi * frequency / static_cast<float>(sampleRate);
             auto amplitude = gainValue * velocityValue;
 
-            for (auto i = static_cast<std::size_t>(startSample);
-                 i < static_cast<std::size_t>(endSample);
-                 ++i)
-                first[i] = voice.renderSample(increment) * amplitude;
+            for (auto& sample: first)
+                sample = voice.renderSample(increment) * amplitude;
         }
 
         for (auto channel = 1; channel < output.getNumChannels(); ++channel)
         {
             auto out = output.getChannel(channel);
-            std::copy(first.begin() + startSample,
-                      first.begin() + endSample,
-                      out.begin() + startSample);
+            std::copy(first.begin(), first.end(), out.begin());
         }
+    }
+
+    // The UI's MIDI log; the callAsync is the demo's marshalling, not the
+    // library's, and allocates on the audio thread.
+    void applyMidiOnAudioThread(const MIDI::Event& midiEvent)
+    {
+        applyMidiEvent(midiEvent);
+
+        if (midiAppliedCb)
+            eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb]
+                                     { cb(midiEvent); });
     }
 
     // Called on the audio thread.
@@ -154,6 +190,9 @@ struct Synth
     std::atomic<float> velocity {0.0f};
     std::atomic<float> gain {0.5f};
 
+    MidiAppliedCallback midiAppliedCb;
+
     SineVoice voice;
     std::vector<int> heldNotes;
+    int sampleRate {44100};
 };

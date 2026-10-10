@@ -31,6 +31,7 @@ manager.start(manager.getDefaultConfig(),
 - **Automatic recovery.** A device stopped by the OS — sample-rate change, unplug, reclaim — is re-opened on a worker thread; a `dirty` flag on the callback tells you when to re-derive anything you cached.
 - **Typed MIDI.** `MIDI::Event` is a variant over note on/off, CC, pitch bend, aftertouch, program change and short SysEx, with allocation-free conversion to and from raw bytes.
 - **Block-aligned MIDI.** `MidiBlockSync` resolves arrival times into sample offsets inside the current audio block.
+- **A `Processor` run by an `Engine`.** Write `prepare`/`process`/`reset` against a `ProcessContext` of buses, and `Engine` wires it to a device stream and the open MIDI ports: the main buses refer straight into the callback's channels, MIDI arrives sorted by sample offset, and a device that cannot feed a bus channel is stood in for. The same `Processor` is what the plugin formats will host.
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
@@ -262,6 +263,33 @@ Events land one block late — the only way to keep offsets non-negative when MI
 
 `openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI (iOS included) and ALSA. Where they do not — Windows, and the iOS simulator, which refuses them to a process with no bundle — `openVirtualOutput` returns an `Error` and `openVirtualInput` returns `nullopt`, as the audio side would. Nothing in the MIDI facade throws.
 
+## Processors
+
+`Processor` is the format-neutral unit of work: `getBusLayout()` says what buses it wants, `prepare` receives a `ProcessSpec` (rate, block size, layout), `process` gets a `ProcessContext` whose buffers refer to the host's memory, and `reset` drops state after a gap. `Engine` runs one on a device stream with the open MIDI inputs on its main MIDI bus:
+
+```cpp
+struct Gain : MS::Processor
+{
+    void prepare(const MS::ProcessSpec&) override {}
+
+    void process(MS::ProcessContext& ctx) noexcept override
+    {
+        auto& out = ctx.mainOutput();
+        out.copyFrom(ctx.mainInput());
+        out.applyGain(0.5f);
+    }
+};
+
+auto devices = MS::DeviceManager {};
+auto midi = MS::MidiManager {};
+auto engine = MS::Engine {devices, midi};
+auto gain = Gain {};
+
+engine.start(devices.getDefaultDuplexConfig(), gain);
+```
+
+`BusLayout::stereoInOut()` is the default layout; an instrument returns `BusLayout::instrument()` from `getBusLayout()` and reads `ctx.mainMidiIn()`, a `MIDI::Buffer` already sorted by offset, so a block is split around events with `mainOutput().getSubBuffer(from, length)`. A layout with no input bus never opens the capture side, so an instrument costs no microphone permission. `Apps/Synth` is the worked example.
+
 ## The probe app
 
 `Apps/AudioProbe` is the example that runs everywhere eacp draws — macOS,
@@ -317,8 +345,8 @@ hardware no simulator provides.
 ```
 Lib/MakeASound/
   MakeASound.h      umbrella public header
-  Audio/            Buffer, the owning-or-referring planar block, and Channel
-  Devices/          DeviceInfo data types, DeviceManager façade, device queries
+  Audio/            Buffer, Channel, and the Processor / ProcessContext / BusLayout vocabulary
+  Devices/          DeviceInfo data types, DeviceManager façade, Engine, device queries
   MIDI/             typed events, port info, block sync, MidiManager façade
   Realtime/         SPSCQueue
   UI/               dropdown/toggle-list helpers for the demo apps

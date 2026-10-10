@@ -1,8 +1,10 @@
 add_library(MakeASound STATIC
         MakeASound/Audio/Buffer.cpp
+        MakeASound/Audio/ProcessContext.cpp
         MakeASound/Devices/DeviceInfo.cpp
         MakeASound/Devices/DeviceManager.cpp
         MakeASound/Devices/AudioSession.cpp
+        MakeASound/Devices/Engine.cpp
         MakeASound/MiniAudio/MiniAudio-Backend.cpp
         MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
         MakeASound/MIDI/MidiInfo.cpp

@@ -24,6 +24,9 @@ using Probe::allocationsIn;
 
 using MakeASound::AudioCallbackInfo;
 using MakeASound::Buffer;
+using MakeASound::BusLayout;
+using MakeASound::DeviceManager;
+using MakeASound::Engine;
 using MakeASound::MidiBlockSync;
 using MakeASound::MidiEvents;
 using MakeASound::MidiInputEvent;
@@ -31,6 +34,9 @@ using MakeASound::MidiManager;
 using MakeASound::MidiMessageView;
 using MakeASound::MidiParser;
 using MakeASound::MidiTimePoint;
+using MakeASound::ProcessContext;
+using MakeASound::Processor;
+using MakeASound::ProcessSpec;
 using MakeASound::Span;
 using MakeASound::SPSCQueue;
 using MakeASound::MIDI::Event;
@@ -564,5 +570,120 @@ auto tSpscQueue = test("Allocations/theSpscQueueNeverGrows") = []
 
     check(count == 0);
     check(moved == 200);
+};
+
+auto tProcessContext =
+    test("Allocations/aPreparedProcessContextStaysOffTheHeap") = []
+{
+    // What a host does to the context every block, on a layout with every bus and
+    // on one with none, where the accessors hand back the stand-ins.
+    auto layout = BusLayout::instrument();
+    layout.inputs.add({"Input", 2});
+    layout.midiOutputs.add({"MIDI Out"});
+
+    auto full = ProcessContext {};
+    full.prepare(layout);
+
+    auto bare = ProcessContext {};
+    bare.prepare(BusLayout {});
+
+    auto samples = std::array<float, 2 * 64> {};
+    float* table[] = {samples.data(), samples.data() + 64};
+
+    auto inputChannels = 0;
+    auto outputChannels = 0;
+    auto bareChannels = 0;
+
+    auto count = allocationsIn(
+        [&]
+        {
+            full.clearMidi();
+            bare.clearMidi();
+
+            for (auto i = 0; i < 300; ++i)
+            {
+                full.mainMidiIn().add(Event::noteOn(0, 60, 1.f, 300 - i));
+                full.mainMidiOut().add(Event::noteOff(0, 60, 0.f, i));
+                bare.mainMidiIn().add(Event::noteOn(0, 60, 1.f, 300 - i));
+            }
+
+            full.mainMidiIn().sortByOffset();
+            bare.mainMidiIn().sortByOffset();
+
+            full.inputs[0].referTo(table, 2, 64);
+            full.outputs[0].referTo(table, 2, 64);
+            full.mainOutput().fill(0.5f);
+
+            inputChannels = full.mainInput().getNumChannels();
+            outputChannels = full.mainOutput().getNumChannels();
+            bareChannels = bare.mainInput().getNumChannels()
+                           + bare.mainOutput().getNumChannels();
+            bare.mainOutput().clear();
+        });
+
+    check(count == 0);
+    check(inputChannels == 2);
+    check(outputChannels == 2);
+    check(bareChannels == 0);
+    check(full.mainMidiIn().size() == 300);
+    check(full.mainMidiIn()[0].sampleOffset == 1);
+    check(samples[0] == 0.5f);
+};
+
+struct WritingProcessor : Processor
+{
+    BusLayout getBusLayout() const override { return BusLayout::instrument(); }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        for (auto channel: context.mainOutput())
+            channel.fill(0.25f);
+
+        midiEvents += context.mainMidiIn().size();
+    }
+
+    int midiEvents = 0;
+};
+
+auto tEngineSteadyState = test("Allocations/engineProcessStaysOffTheHeap") = []
+{
+    // The first block is dirty and may prepare; every one after it is the audio
+    // thread's steady state, MidiBlockSync's drain included.
+    auto devices = DeviceManager {};
+    auto midi = MidiManager {};
+    auto engine = Engine {devices, midi};
+    auto processor = WritingProcessor {};
+
+    auto samples = std::array<float, 3 * 256> {};
+    float* table[] = {samples.data(), samples.data() + 256, samples.data() + 512};
+
+    auto info = AudioCallbackInfo {};
+    info.numOutputs = 3;
+    info.outputChannels = table;
+    info.numSamples = 256;
+    info.sampleRate = 48000;
+    info.maxBlockSize = 256;
+    info.dirty = true;
+
+    engine.prepare(processor, 48000, 256);
+    engine.process(info);
+
+    info.dirty = false;
+    samples.fill(1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            engine.process(info);
+            engine.process(info);
+        });
+
+    check(count == 0);
+    check(samples[0] == 0.25f);
+    check(samples[256 + 255] == 0.25f);
+    check(samples[512] == 0.f);
+    check(processor.midiEvents == 0);
 };
 } // namespace

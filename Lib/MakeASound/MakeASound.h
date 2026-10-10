@@ -2,7 +2,9 @@
 
 #include "Common/Common.h"
 #include "Realtime/SPSCQueue.h"
+#include "Audio/Processor.h"
 #include "Devices/DeviceManager.h"
+#include "Devices/Engine.h"
 #include "Devices/AudioSession.h"
 #include "Devices/DeviceQueries.h"
 #include "MIDI/MidiManager.h"

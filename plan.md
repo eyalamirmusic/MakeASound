@@ -13,8 +13,8 @@ it.
 
 | stage | deliverable | proof |
 | --- | --- | --- |
-| 0 | `Buffer`, one class, owning or referring | suite green, allocation tests cover every view path |
-| 1 | `Processor`, `ProcessContext`, `Engine` in the device library | the Synth demo is a `Processor` run by `Engine` |
+| 0 | `Buffer`, one class, owning or referring | suite green, allocation tests cover every view path — **landed 2026-10-10** |
+| 1 | `Processor`, `ProcessContext`, `Engine` in the device library | the Synth demo is a `Processor` run by `Engine` — **landed 2026-10-10** |
 | 2 | `MakeASoundPlugin`: `Plugin`, parameters, state, description | fake-host tests drive a plugin end to end |
 | 3 | Standalone format | a `Plugin` runs in a window with device and MIDI pickers |
 | 4 | VST3 | pluginval at strictness 10 |
@@ -202,21 +202,32 @@ use it with no plugin involved and so the standalone format is nearly free.
   rates stay `int` for consistency with `DeviceManager`; the VST3 and AU adapters
   round at the boundary. `ParameterChanges` is empty in stage 1 and exists so
   sample-accurate automation is additive later.
-- **`Audio/Processor.h`**: `prepare(const ProcessSpec&)`, `process(ProcessContext&)
-  noexcept`, `reset() noexcept`. Plug has no `reset` and fakes one in its AU
-  adapter; a real virtual is cleaner.
+- **`Audio/Processor.h`**: `getBusLayout()`, `prepare(const ProcessSpec&)`,
+  `process(ProcessContext&) noexcept`, `reset() noexcept`. Plug has no `reset` and
+  fakes one in its AU adapter; a real virtual is cleaner. The layout lives here
+  rather than on `Plugin` because `Engine` has to size the context for an app-level
+  processor with no plugin in sight; `Plugin` inherits it.
 - **`Devices/Engine.{h,cpp}`**: wires a `Processor` to a `DeviceManager` and a
-  `MidiManager`: `Engine(DeviceManager&, MidiManager&)`, `start(const
-  StreamConfig&, Processor&)`, `stop()`. It owns the `MidiBlockSync`, the
-  `ProcessContext` and the stand-in buffers for a bus the device cannot feed, maps
-  `dirty` onto `prepare`, converts `MidiInputEvent`s to `MIDI::Event`s, and renders
-  the context over `AudioCallbackInfo`'s buffers with no copy. This is most of
-  `Apps/Synth/AudioProcessor.h` moved into the library.
+  `MidiManager`: `Engine(DeviceManager&, MidiManager&)`, `prepare(Processor&, rate,
+  block)`, `start(const StreamConfig&, Processor&)`, `stop()`, and `process(
+  AudioCallbackInfo&)` public so a test or a host with its own stream can drive it.
+  It owns the `MidiBlockSync`, the `ProcessContext` and the stand-in buffers for a
+  bus the device cannot feed, and renders the context over `AudioCallbackInfo`'s
+  buffers with no copy. `start` prepares for the config, opens the stream, and if
+  the device settled on another rate or period re-prepares on the host thread and
+  re-opens; a `dirty` block resets the processor and the MIDI window, and only one
+  whose shape still differs from the spec re-prepares on the audio thread. MIDI
+  out buses are cleared and ignored until the standalone format brings its sender
+  thread. This is most of `Apps/Synth/AudioProcessor.h` moved into the library.
 
 Proof: the Synth demo becomes a `Processor` run by `Engine`, with its
 `AudioProcessor.h` deleted; `Tests/EngineTests.cpp` drives a fake processor with
 a synthetic `AudioCallbackInfo` and asserts prepare-on-dirty, MIDI alignment and
 zero allocations in the steady state.
+
+Landed: `Synth` is a `Processor` with `BusLayout::instrument()`, `SynthHost` holds
+the managers, the `Engine` and the config the UI shows; twenty `Engine/` cases plus
+two allocation cases; README and CLAUDE.md describe the vocabulary.
 
 ## Stage 2: the plugin core, `MakeASoundPlugin`
 
@@ -225,7 +236,7 @@ A second static target, `Lib/MakeASound/Plugin/`, SDK-free, linking
 `MakeASound::VST3`, `MakeASound::AU`, `MakeASound::Standalone`, the way device
 backends live in `MakeASound::MiniAudio` and `MakeASound::CoreMIDI`.
 
-- **`Plugin : Processor`** adds `name()`, `busLayout()`, `acceptsLayout()`,
+- **`Plugin : Processor`** adds `name()`, `acceptsLayout()`,
   `createEditor()`, `latencySamples()`, `tailSamples()`, `saveState()` /
   `loadState()` with a `StateContext` (session vs preset), and the host bridge
   `HostEditListener` (begin/perform/end edit, latency changed, parameter info
@@ -314,3 +325,12 @@ test (the harness from `Tests/AllocationProbe.h`) passes under a live callback.
   info.getOutput()` stays valid in Plug and tamber-web.
 - 2026-10-10: parameter host ids are hashes of stable string ids, not indices.
 - 2026-10-10: sample rates stay `int` across `ProcessSpec`; adapters round.
+- 2026-10-10: `getBusLayout()` is on `Processor`, not `Plugin`: `Engine` sizes its
+  context from it for an app with no plugin. A bus channel the device cannot
+  feed reads device channel 0 when the device has inputs at all (a mono mic
+  spreads across a stereo bus, as in Plug) and silence otherwise; an output bus
+  channel past the device writes into a bin.
+- 2026-10-10: `Engine::start` re-prepares on the host thread for the rate and
+  period the device actually opened at; the audio-thread re-prepare is kept for
+  a recovery that re-opens at a shape nobody prepared for, and is the one
+  documented allocation there.

@@ -6,6 +6,7 @@ find_package(NanoTest REQUIRED)
 set(MAKEASOUND_TEST_SOURCES
         SPSCQueueTests.cpp
         BufferTests.cpp
+        EngineTests.cpp
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
         MidiParserTests.cpp
