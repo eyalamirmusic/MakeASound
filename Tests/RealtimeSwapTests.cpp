@@ -112,7 +112,7 @@ auto tUnseenPublishIsFreed =
 
 auto tBurst = test("RealtimeSwap/aBurstOfPublishesLosesNothing") = []
 {
-    constexpr auto publishes = 2000;
+    static constexpr auto publishes = 2000;
 
     auto counts = Counts();
     auto swap = RealtimeSwap<Tracked>();

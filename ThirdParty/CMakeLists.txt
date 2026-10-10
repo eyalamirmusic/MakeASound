@@ -51,12 +51,24 @@ target_compile_definitions(vst3sdk
         PRIVATE PROJECT_INCLUDES_VSTEDITCONTROLLER=1
         _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)
 
-# Steinberg's code, Steinberg's warnings.
+# Steinberg's code, Steinberg's warnings. Always a unity build: nothing here is
+# ever edited, so the whole-archive rebuild unity costs an edit never happens.
 if (MSVC)
     target_compile_options(vst3sdk PRIVATE /w)
 else ()
     target_compile_options(vst3sdk PRIVATE -w)
 endif ()
+
+set_target_properties(vst3sdk PROPERTIES UNITY_BUILD ON)
+
+# Two files stay objects of their own: moduleinit.cpp references the moduleHandle
+# the platform entry file defines, so only a plugin module may pull it in, and
+# vstsinglecomponenteffect.cpp must include its own header before any other has
+# included ivsteditcontroller.h, because that header renames two methods on the way.
+set_source_files_properties(
+        ${VST3_SDK_DIR}/public.sdk/source/main/moduleinit.cpp
+        ${VST3_SDK_DIR}/public.sdk/source/vst/vstsinglecomponenteffect.cpp
+        PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 
 if (APPLE)
     target_link_libraries(vst3sdk PUBLIC "-framework CoreFoundation")
@@ -80,6 +92,7 @@ add_library(vst3sdk-hosting STATIC
         ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/parameterchanges.cpp)
 
 target_link_libraries(vst3sdk-hosting PUBLIC vst3sdk)
+set_target_properties(vst3sdk-hosting PROPERTIES UNITY_BUILD ON)
 
 if (MSVC)
     target_compile_options(vst3sdk-hosting PRIVATE /w)

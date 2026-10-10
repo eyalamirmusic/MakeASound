@@ -59,6 +59,10 @@ function(makeasound_add_plugin name)
     target_link_libraries(${name} PUBLIC MakeASoundPlugin)
     set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
 
+    if (MAKEASOUND_UNITY_BUILD)
+        set_target_properties(${name} PROPERTIES UNITY_BUILD ON)
+    endif ()
+
     if (COMMAND set_makeasound_warnings)
         set_makeasound_warnings(${name})
     endif ()

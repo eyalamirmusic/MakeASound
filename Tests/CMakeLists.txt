@@ -16,6 +16,12 @@ set(MAKEASOUND_TEST_SOURCES
 
 set(MAKEASOUND_TEST_TARGETS MakeASound MakeASoundDSP)
 
+# A Debug assertion on Windows otherwise opens a dialog, which a CI runner never
+# dismisses; this TU routes it to stderr and aborts, so a case fails instead.
+if (WIN32)
+    list(APPEND MAKEASOUND_TEST_SOURCES AssertReporting-Windows.cpp)
+endif ()
+
 if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPlugin)
     list(APPEND MAKEASOUND_TEST_SOURCES

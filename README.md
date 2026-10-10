@@ -43,7 +43,7 @@ manager.start(manager.getDefaultConfig(),
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -71,7 +71,8 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
 | `MAKEASOUND_INSTALL_PLUGINS` | `OFF` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`). A failed copy is a warning. |
-| `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
+| `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
+| `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
 
 To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
 

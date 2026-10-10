@@ -5,6 +5,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 
 option(MAKEASOUND_UNITY_BUILD "Enable unity (jumbo) build for the MakeASound library" OFF)
+option(MAKEASOUND_CI_BUILD
+       "Mirror the flag set CI builds with: unity builds here and in every dependency, eacp's own CI set" OFF)
+
+# A cold build of the plugin core compiles all of eacp and the VST3 SDK, so CI
+# compiles everything as unity builds with eacp's precompiled header. Off by
+# default: a unity build rebuilds a whole chunk per edit, the wrong trade for an
+# edit-compile loop. Cache entries, because the dependencies read them when CPM
+# configures them.
+if (MAKEASOUND_CI_BUILD)
+    set(MAKEASOUND_UNITY_BUILD ON CACHE BOOL
+            "Enable unity (jumbo) build for the MakeASound library" FORCE)
+    set(EACP_CI_BUILD ON CACHE BOOL "Mirror the exact flag set used by CI builds" FORCE)
+    set(MIRO_UNITY_BUILD ON CACHE BOOL "Enable CMake unity build for the Miro library" FORCE)
+    set(ESIMD_UNITY_BUILD ON CACHE BOOL "Compile ESIMD as a CMake unity build" FORCE)
+endif ()
 option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"

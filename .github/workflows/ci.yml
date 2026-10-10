@@ -72,13 +72,22 @@ jobs:
 
       # The library's own ALSA sequencer MIDI backend needs the ALSA dev headers.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
-      # libcurl is eacp-network's transport, which PluginValidator fetches with;
-      # xvfb is for pluginval, whose JUCE host wants an X server even headless.
-      - name: Install Linux audio dev packages
+      # The plugin core links eacp, whose Linux graphics tier links Wayland,
+      # xkbcommon, libdecor, xcb, FreeType, HarfBuzz and fontconfig and generates
+      # its protocol bindings with wayland-scanner: eacp's own CI list. libcurl
+      # is eacp-network's transport, which PluginValidator fetches with, and xvfb
+      # is for pluginval, whose JUCE host wants an X server even headless.
+      - name: Install Linux dev packages
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev xvfb
+          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev xvfb \
+            libwayland-dev wayland-protocols libwayland-bin libxkbcommon-dev \
+            libdecor-0-dev pkg-config \
+            libxcb1-dev libxcb-xkb-dev libxkbcommon-x11-dev \
+            libxcb-randr0-dev libxcb-xfixes0-dev libxcb-cursor-dev \
+            libxcb-icccm4-dev libxcb-xinput-dev libxcb-xtest0-dev \
+            libfreetype-dev libharfbuzz-dev libfontconfig-dev
 
       # Puts cl.exe / clang-cl.exe and the matching Windows SDK on
       # PATH/INCLUDE/LIB for the target architecture.
@@ -93,7 +102,7 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Build & test (Debug & Release, unity ON)
+      - name: Build & test (Debug & Release, CI build)
         shell: bash
         env:
           CC_COMPILER: ${{ matrix.cc }}
@@ -105,7 +114,7 @@ jobs:
           for bt in Debug Release; do
             args=( -S . -B "build-$bt" -G Ninja
                    -DCMAKE_BUILD_TYPE="$bt"
-                   -DMAKEASOUND_UNITY_BUILD=ON
+                   -DMAKEASOUND_CI_BUILD=ON
                    -DMAKEASOUND_BUILD_APPS=OFF
                    -DMAKEASOUND_BUILD_TESTS=ON )
 
@@ -132,10 +141,12 @@ jobs:
             echo "::endgroup::"
 
             # --no-tests=error so a job that stops producing tests fails loudly
-            # instead of passing vacuously.
+            # instead of passing vacuously; --timeout so a case that hangs (a
+            # Windows assertion dialog, a wait that never ends) fails in two
+            # minutes rather than ctest's default twenty-five.
             echo "::group::Test $bt"
             ctest --test-dir "build-$bt" --build-config "$bt" \
-                  --output-on-failure --no-tests=error
+                  --output-on-failure --no-tests=error --timeout 120
             echo "::endgroup::"
           done
 
@@ -199,7 +210,7 @@ jobs:
       # still the half that catches iOS-specific compile breakage: miniaudio's
       # Objective-C implementation TU and the macOS-only CoreAudio HAL that
       # BlockSizes.mm uses.
-      - name: Build for iOS device (Debug & Release, unity ON)
+      - name: Build for iOS device (Debug & Release, CI build)
         shell: bash
         run: |
           set -euo pipefail
@@ -211,7 +222,7 @@ jobs:
                   -DCMAKE_OSX_SYSROOT=iphoneos \
                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
                   -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
-                  -DMAKEASOUND_UNITY_BUILD=ON \
+                  -DMAKEASOUND_CI_BUILD=ON \
                   -DMAKEASOUND_BUILD_APPS=OFF \
                   -DMAKEASOUND_BUILD_TESTS=OFF
             echo "::endgroup::"
@@ -280,6 +291,7 @@ jobs:
                 -DCMAKE_OSX_SYSROOT=iphonesimulator \
                 -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=ON \
                 -DCMAKE_CROSSCOMPILING_EMULATOR="xcrun;simctl;spawn;${{ steps.sim.outputs.udid }}"
@@ -293,5 +305,5 @@ jobs:
           # single ctest entry that runs the whole binary through the simulator.
           # A failing case still propagates out as a non-zero exit.
           echo "::group::Test (simulator)"
-          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error
+          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
           echo "::endgroup::"
