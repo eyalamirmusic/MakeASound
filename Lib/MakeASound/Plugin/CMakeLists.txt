@@ -17,6 +17,14 @@ add_library(MakeASoundPlugin STATIC
         Realtime/MessageThread.cpp
         State/StateContext.cpp)
 
+# The message loop a host's run loop can pump is a Linux affair; the rest answer
+# that there is none.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(MakeASoundPlugin PRIVATE Realtime/MessageThread-Linux.cpp)
+else ()
+    target_sources(MakeASoundPlugin PRIVATE Realtime/MessageThread-Default.cpp)
+endif ()
+
 target_link_libraries(MakeASoundPlugin PUBLIC MakeASound PRIVATE eacp-core)
 
 if (MAKEASOUND_UNITY_BUILD)
@@ -30,6 +38,8 @@ set_makeasound_warnings(MakeASoundPlugin)
 # only a <Name>-Standalone executable ever links MakeASoundStandalone.
 add_subdirectory(UI)
 add_subdirectory(Standalone)
+add_subdirectory(VST3)
+add_subdirectory(Validation)
 
 # makeasound_add_plugin(), for this tree's Plugins/ and for a CPM consumer's own.
 include(MakeASoundPlugin)

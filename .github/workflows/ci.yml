@@ -26,18 +26,21 @@ jobs:
             os: macos-latest
             osx_archs: "arm64;x86_64"
             deployment_target: "11.0"
+            pluginval: true
 
           - name: Windows MSVC (x64)
             os: windows-latest
             cc: cl
             cxx: cl
             msvc_arch: x64
+            pluginval: true
 
           - name: Windows Clang (x64)
             os: windows-latest
             cc: clang-cl
             cxx: clang-cl
             msvc_arch: x64
+            pluginval: true
 
           # Native ARM64 runners, so the tests below run on real hardware
           # rather than being cross-compiled and skipped.
@@ -57,6 +60,7 @@ jobs:
             os: ubuntu-latest
             cc: gcc
             cxx: g++
+            pluginval: true
 
           - name: Linux Clang
             os: ubuntu-latest
@@ -68,11 +72,13 @@ jobs:
 
       # The library's own ALSA sequencer MIDI backend needs the ALSA dev headers.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
+      # libcurl is eacp-network's transport, which PluginValidator fetches with;
+      # xvfb is for pluginval, whose JUCE host wants an X server even headless.
       - name: Install Linux audio dev packages
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev xvfb
 
       # Puts cl.exe / clang-cl.exe and the matching Windows SDK on
       # PATH/INCLUDE/LIB for the target architecture.
@@ -132,6 +138,31 @@ jobs:
                   --output-on-failure --no-tests=error
             echo "::endgroup::"
           done
+
+      # Both example bundles at strictness 10, built by the default target above
+      # and handed over as the folder they land in. PluginValidator downloads
+      # pluginval on its first run and exits with the number of failures. Linux skips the editor tests: the runner has no
+      # display and no Vulkan device for them.
+      - name: pluginval (Release)
+        if: matrix.pluginval
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=build-Release/Tools/PluginValidator/PluginValidator
+          args=(--logs build-Release/pluginval/logs build-Release/VST3)
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a "$validator" --skip-gui-tests "${args[@]}"
+          else
+            "$validator" "${args[@]}"
+          fi
+
+      - name: Upload pluginval logs
+        if: failure() && matrix.pluginval
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-logs-${{ matrix.name }}
+          path: build-Release/pluginval/logs/
+          if-no-files-found: ignore
 
       # Prove requirement #1: the archive is a real fat binary and every slice
       # is built against the macOS 11.0 minimum.

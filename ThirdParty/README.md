@@ -18,8 +18,9 @@ side of a single-component effect: `source/common` (iids, string conversion,
 `MemoryStream`, `CPluginView`), `source/main` (the factory, module init and the
 three platform entry files), `source/vst` (`AudioEffect`, `EditController`,
 `SingleComponentEffect`, buses, parameters, presets, representation and the
-headers around them) and the header-only `source/vst/utility`. Hosting, the
-samples, the wrappers, `vstgui4`, `moduleinfo`, `cmake`, `doc` and `tutorials`
+headers around them), the header-only `source/vst/utility`, and from
+`source/vst/hosting` only `parameterchanges` and `eventlist`, which the tests use
+to host the adapter. The rest of hosting, the samples, the wrappers, `vstgui4`, `moduleinfo`, `cmake`, `doc` and `tutorials`
 are left out; `vstgui4` is under its own BSD-style licence and nothing here
 needs it.
 
@@ -29,9 +30,12 @@ configuration as the SDK expects, and records the platform's entry file on the
 target as `MAKEASOUND_VST3_SDK_MAIN` (and the export list on macOS as
 `MAKEASOUND_VST3_SDK_EXPORTS`), because `bundleEntry`, `InitDll` and
 `ModuleEntry` must be compiled into the plugin binary itself, where a static
-archive would let the linker drop them.
+archive would let the linker drop them. The two hosting files build separately as
+the test-only static target `vst3sdk-hosting`, so no plugin links them.
 
 To update: clone `steinbergmedia/vst3sdk` at the new tag with the `base`,
 `pluginterfaces` and `public.sdk` submodules, replace the folders above with the
-same selection of files, bump this note and rebuild `MakeASoundTests`, whose
-`VST3SDKTests.cpp` links the target.
+same selection of files (`source/vst/hosting/{parameterchanges,eventlist}.{h,cpp}`
+included, taken from the same tag: the `public.sdk` submodule commit it pins),
+bump this note and rebuild `MakeASoundTests`, whose `VST3SDKTests.cpp` links
+the target and whose `VST3/` suites link `vst3sdk-hosting`.

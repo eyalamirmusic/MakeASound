@@ -2,6 +2,7 @@
 
 #include "../../Common/Common.h"
 
+#include <eacp/Core/Platform/Platform.h>
 #include <eacp/Core/Threads/EventLoop.h>
 #include <eacp/Core/Threads/ThreadUtils.h>
 #include <eacp/Core/Utils/Singleton.h>
@@ -101,6 +102,12 @@ bool isMessageThread()
 void callOnMessageThread(std::function<void()> function)
 {
     eacp::Threads::callAsync(std::move(function));
+}
+
+void adoptHostMessageThread()
+{
+    if (eacp::Platform::isDLL())
+        eacp::Threads::attachCurrentThreadAsMain();
 }
 
 void startReclaiming(Reclaimable& reclaimable)

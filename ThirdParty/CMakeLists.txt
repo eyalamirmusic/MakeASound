@@ -72,3 +72,17 @@ else ()
 endif ()
 
 set_target_properties(vst3sdk PROPERTIES MAKEASOUND_VST3_SDK_MAIN "${VST3_SDK_MAIN}")
+
+# vst3sdk-hosting: the SDK's own IParameterChanges and IEventList, for the tests
+# that host the VST3 adapter in-process. Test-only; no plugin links it.
+add_library(vst3sdk-hosting STATIC
+        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/eventlist.cpp
+        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/parameterchanges.cpp)
+
+target_link_libraries(vst3sdk-hosting PUBLIC vst3sdk)
+
+if (MSVC)
+    target_compile_options(vst3sdk-hosting PRIVATE /w)
+else ()
+    target_compile_options(vst3sdk-hosting PRIVATE -w)
+endif ()

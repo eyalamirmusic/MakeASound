@@ -11,6 +11,17 @@ bool isMessageThread();
 // Safe from any thread but the audio one: queuing the call allocates.
 void callOnMessageThread(std::function<void()> function);
 
+// Marks the calling thread as the message thread when this code lives in a
+// dynamic library a foreign host loaded; a no-op in an executable. Idempotent.
+// Host's UI thread only.
+void adoptHostMessageThread();
+
+// The descriptor a host's run loop watches for the message loop and one
+// non-blocking pass of that loop, in MessageThread-<platform>.cpp: Linux has
+// both, everywhere else the descriptor is -1 and the pass a no-op.
+int messageLoopFd();
+void pumpMessageLoop();
+
 // An object of any type, owned, destroyed wherever the owner lets go of it.
 using ErasedOwner = std::unique_ptr<void, void (*)(void*)>;
 

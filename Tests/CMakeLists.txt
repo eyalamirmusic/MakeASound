@@ -36,6 +36,19 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
     endif ()
+
+    # The VST3 adapter hosted in-process, with the SDK's own queues and event lists.
+    if (TARGET MakeASoundVST3)
+        list(APPEND MAKEASOUND_TEST_SOURCES VST3Tests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundVST3 vst3sdk-hosting)
+    endif ()
+
+    # pluginval over the example bundles, run only when MAKEASOUND_PLUGINVAL is set.
+    if (TARGET MakeASoundPluginval AND TARGET MakeASoundVST3)
+        list(APPEND MAKEASOUND_TEST_SOURCES PluginvalTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginval)
+        set(MAKEASOUND_TEST_PLUGINVAL ON)
+    endif ()
 endif ()
 
 # The ALSA backend's conversions are the one half of a platform backend that can
@@ -80,6 +93,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (TARGET MakeASoundStandalone)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneAllocationTests.cpp)
     endif ()
+
+    if (TARGET MakeASoundVST3)
+        list(APPEND MAKEASOUND_TEST_SOURCES VST3AllocationTests.cpp)
+    endif ()
 endif ()
 
 # NanoTest registers one ctest case per nano::test() and re-runs the binary with
@@ -89,3 +106,8 @@ endif ()
 nano_add_executable(MakeASoundTests
         SOURCES ${MAKEASOUND_TEST_SOURCES}
         TARGETS ${MAKEASOUND_TEST_TARGETS})
+
+if (MAKEASOUND_TEST_PLUGINVAL)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_VST3_DIR="${CMAKE_BINARY_DIR}/VST3")
+endif ()

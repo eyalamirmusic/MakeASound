@@ -1,4 +1,4 @@
 makeasound_add_plugin(Gain
-        FORMATS Standalone
+        FORMATS Standalone VST3
         OUTPUT_NAME "MakeASound Gain"
         SOURCES GainPlugin.cpp)

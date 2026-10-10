@@ -10,6 +10,7 @@ option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
        ${PROJECT_IS_TOP_LEVEL})
 option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
+option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" OFF)
 
 if (APPLE)
     enable_language(OBJCXX)
@@ -48,6 +49,7 @@ endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(Plugins)
+    add_subdirectory(Tools)
 endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_TESTS)

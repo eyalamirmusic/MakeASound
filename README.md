@@ -9,7 +9,7 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
-On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its first format, a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)).
+On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its first two formats, a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)) and VST3 (see [VST3](#vst3)).
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -36,13 +36,14 @@ manager.start(manager.getDefaultConfig(),
 - **A `Processor` run by an `Engine`.** Write `prepare`/`process`/`reset` against a `ProcessContext` of buses, and `Engine` wires it to a device stream and the open MIDI ports: the main buses refer straight into the callback's channels, MIDI arrives sorted by sample offset, and a device that cannot feed a bus channel is stood in for. The same `Processor` is what the plugin formats will host.
 - **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
 - **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches.
+- **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the generic editor, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset`, `Smoother`, `ScopedNoDenormals` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -69,6 +70,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
+| `MAKEASOUND_INSTALL_PLUGINS` | `OFF` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`). A failed copy is a warning. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
 
 To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
@@ -301,7 +303,7 @@ engine.start(devices.getDefaultDuplexConfig(), gain);
 
 ## Plugins
 
-`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app is the first format (below); VST3 and AU are the next stages in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
+`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app and VST3 are its formats (below); AU is the next stage in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
 
 ```cpp
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
@@ -436,12 +438,12 @@ One CMake call builds it:
 
 ```cmake
 makeasound_add_plugin(Gain
-        FORMATS Standalone
+        FORMATS Standalone VST3
         OUTPUT_NAME "MakeASound Gain"
         SOURCES GainPlugin.cpp)
 ```
 
-That makes `Gain`, a static library holding the plugin, and `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS). `BUNDLE_ID` and `COMPANY` are optional, and VST3 and AU will be further `FORMATS` on the same call. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
+That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), and `Gain-VST3`, the plug-in (see [VST3](#vst3)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional, and AU will be a further format on the same call. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
 
 ```bash
 open "./build/Plugins/Gain/MakeASound Gain.app"
@@ -456,6 +458,27 @@ The app hosts the module's first plugin, run by `Engine`:
 - **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
 
 A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard.
+
+## VST3
+
+The `VST3` format builds `<build>/VST3/<OUTPUT_NAME>.vst3`, a bundle any VST3 host scans: on macOS an ad-hoc signed bundle with identifier `<BUNDLE_ID>.vst3` that exports nothing but the three entry points, on Windows and Linux the standard `Contents/<arch>-win` and `Contents/<arch>-linux` layout. It is one single-component class per plugin over `PluginWrapper`, so the plugin code is the same code the standalone app runs:
+
+- **Parameters** are listed by their host id, the 31-bit hash of the id path, so adding a parameter in a later release moves nobody's automation. Only automatable parameters are listed; values are read live and automation is applied before each block.
+- **MIDI.** Notes, poly pressure and SysEx arrive as events. CC, channel aftertouch, pitch bend and program change arrive through hidden parameters the host maps them onto, and reach the plugin as ordinary `MIDI::Event`s at their sample offsets; a plugin's MIDI output goes back to the host the same way.
+- **State** is the plugin's document, saved as a session (session-only parameters included) unless the host marks the save as a preset.
+- **The editor** is the plugin's own `Editor`, or the generic page, embedded in the host's window.
+
+```bash
+cmake -S . -B build -G Ninja -DMAKEASOUND_INSTALL_PLUGINS=ON   # also copy into the plug-in folder
+cmake --build build
+./build/Tools/PluginValidator/PluginValidator build/VST3   # validate every bundle there at strictness 10
+```
+
+`PluginValidator` is an ordinary executable target, so it runs from an IDE as well as from a shell. It takes the bundles to validate, or folders of them, as arguments and depends on nothing else in the build. It downloads Tracktion's [pluginval](https://github.com/Tracktion/pluginval) the first time (and never again for the same release), validates each bundle, leaves a log per bundle (`--logs <dir>`, the system temp folder by default) and exits with the number that failed. `--skip-gui-tests` leaves out the editor tests on a machine with no display; `--strictness`, `--timeout-ms` and `--version` set the rest. CI runs it on macOS, Windows x64 and Linux. The test suite has a case that does the same through the library, run only when `MAKEASOUND_PLUGINVAL` is set (`nogui` skips the editor tests):
+
+```bash
+MAKEASOUND_PLUGINVAL=1 ./build/Tests/MakeASoundTests --test Pluginval/exampleBundlesPassAtStrictness10
+```
 
 ## The probe app
 
@@ -524,6 +547,8 @@ Lib/MakeASound/
     Realtime/       MessageThread, RealtimeSwap
     UI/             MakeASoundPluginUI: the generic parameter editor
     Standalone/     MakeASoundStandalone: the standalone app format
+    VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
+    Validation/     MakeASoundPluginval: fetches and runs pluginval
   DSP/              MakeASoundDSP, optional: TestSynth, the instrument the Synth app and plugin share
   UI/               dropdown/toggle-list helpers for the demo apps
   Common/           EA type re-exports and audio-thread-safe algorithms
@@ -534,7 +559,10 @@ Lib/MakeASound/
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
 Plugins/            Gain, Synth: plugins built with makeasound_add_plugin
-CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, ExternalFolders.cmake
+Tools/              PluginValidator: pluginval over the .vst3s on its command line
+CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, ExternalFolders.cmake,
+                    the plug-in install script
+ThirdParty/         the vendored VST3 SDK
 Tests/              NanoTest suites
 gaps.md             what the probe found, what was fixed, what is open
 ```
