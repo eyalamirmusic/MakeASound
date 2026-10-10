@@ -68,7 +68,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp draws (macOS, Windows), also the generic editor and the standalone format. |
-| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Examples/` (top-level builds with the plugin core only). |
+| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
 
 To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
@@ -353,7 +353,7 @@ Parameters are declared in a `ParameterGroup` and registered with `add(...)` in 
 
 ## Running a plugin standalone
 
-`Examples/Gain` is a complete plugin. The header declares the parameters and the processor:
+`Plugins/Gain` is a complete plugin. The header declares the parameters and the processor:
 
 ```cpp
 #pragma once
@@ -443,8 +443,8 @@ makeasound_add_plugin(Gain
 That makes `Gain`, a static library holding the plugin, and `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS). `BUNDLE_ID` and `COMPANY` are optional, and VST3 and AU will be further `FORMATS` on the same call. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
 
 ```bash
-open "./build/Examples/Gain/MakeASound Gain.app"
-open "./build/Examples/Synth/MakeASound Synth.app"   # the instrument example
+open "./build/Plugins/Gain/MakeASound Gain.app"
+open "./build/Plugins/Synth/MakeASound Synth.app"   # the instrument example
 ```
 
 The app hosts the module's first plugin, run by `Engine`:
@@ -454,7 +454,7 @@ The app hosts the module's first plugin, run by `Engine`:
 - **The computer MIDI keyboard** (Cmd+K, on by default for a plugin with a MIDI input): `A W S E D F T G Y H U J K O L P ;` play an octave and a half from middle C, `Z` and `X` shift it an octave. Notes held when the window loses focus are released.
 - **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Examples/Synth` is a monophonic instrument that plays from a hardware port and the typing keyboard.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is a monophonic instrument that plays from a hardware port and the typing keyboard.
 
 ## The probe app
 
@@ -526,8 +526,8 @@ Lib/MakeASound/
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
-Examples/           Gain, Synth: plugins built with makeasound_add_plugin
-CMake/              CPM, the Find modules, MakeASoundPlugin.cmake
+Plugins/            Gain, Synth: plugins built with makeasound_add_plugin
+CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, ExternalFolders.cmake
 Tests/              NanoTest suites
 gaps.md             what the probe found, what was fixed, what is open
 ```

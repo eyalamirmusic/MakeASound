@@ -9,7 +9,7 @@ option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only
 option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
        ${PROJECT_IS_TOP_LEVEL})
-option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins (top-level builds only)" ON)
+option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
 
 if (APPLE)
     enable_language(OBJCXX)
@@ -29,6 +29,11 @@ endfunction()
 
 find_package(Miniaudio REQUIRED)
 find_package(Miro REQUIRED)
+
+if (PROJECT_IS_TOP_LEVEL)
+    include(ExternalFolders)
+    cmake_language(DEFER CALL makeasound_group_external_targets)
+endif ()
 
 # The plugin core links eacp-core; the demo apps find eacp again, which CPM dedupes.
 if (MAKEASOUND_BUILD_PLUGIN)
@@ -55,7 +60,7 @@ if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)
 endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUGIN)
-    add_subdirectory(Examples)
+    add_subdirectory(Plugins)
 endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_TESTS)

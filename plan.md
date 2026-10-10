@@ -387,8 +387,8 @@ is what Plug's `Standalone/` already proves works on top of this library.
   `<Name>-Standalone` (`MACOSX_BUNDLE`, `eacp_set_gui_subsystem` on Windows,
   ad-hoc codesign). The function is written so VST3 and AU slot in as further
   `FORMATS` without changing its signature.
-- **Examples**: `Examples/Gain` (effect, the smallest possible) and
-  `Examples/Synth` (instrument, ported from `Apps/Synth`).
+- **Examples**: `Plugins/Gain` (effect, the smallest possible) and
+  `Plugins/Synth` (instrument, ported from `Apps/Synth`).
 
 Proof: both examples run as standalone apps on macOS with device, sample rate,
 block size and MIDI port pickers; `Synth` plays from a hardware MIDI port and the
@@ -413,8 +413,8 @@ property for the same reason. It builds the sources once as the static core
 `MACOSX_BUNDLE` with `NSMicrophoneUsageDescription` and an ad-hoc codesign
 post-build; without a GUI the format is skipped with a status line, and an
 unknown format is a configure error. `MAKEASOUND_BUILD_EXAMPLES` (on, top-level
-only, and only with the plugin core) adds `Examples/Gain` (targets `Gain`,
-`Gain-Standalone`, bundle `MakeASound Gain.app`) and `Examples/Synth`
+only, and only with the plugin core) adds `Plugins/Gain` (targets `Gain`,
+`Gain-Standalone`, bundle `MakeASound Gain.app`) and `Plugins/Synth`
 (`SynthPlugin`, `SynthPlugin-Standalone`, `MakeASound Synth.app`; a monophonic
 last-note-priority instrument with a waveform choice, attack, release, level and
 legato). Tests: 24 `Standalone/` cases in `StandaloneTests.cpp` (the processor
