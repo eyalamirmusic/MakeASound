@@ -10,9 +10,22 @@ set(MAKEASOUND_TEST_SOURCES
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
         MidiParserTests.cpp
-        MidiManagerTests.cpp)
+        MidiManagerTests.cpp
+        RealtimeTests.cpp)
 
 set(MAKEASOUND_TEST_TARGETS MakeASound)
+
+if (MAKEASOUND_BUILD_PLUGIN)
+    list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPlugin)
+    list(APPEND MAKEASOUND_TEST_SOURCES
+            ParameterTests.cpp
+            StateTests.cpp
+            PluginTests.cpp)
+
+    # eacp-core so the swap's and the wrapper's cases can pump the message loop.
+    list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
+    list(APPEND MAKEASOUND_TEST_TARGETS eacp-core)
+endif ()
 
 # The ALSA backend's conversions are the one half of a platform backend that can
 # be measured without the platform: alsa-lib turns events into bytes and back
@@ -48,6 +61,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
             RealtimeThreadAllocationTests.cpp)
 
     list(APPEND MAKEASOUND_TEST_TARGETS AllocationsChecker)
+
+    if (MAKEASOUND_BUILD_PLUGIN)
+        list(APPEND MAKEASOUND_TEST_SOURCES PluginAllocationTests.cpp)
+    endif ()
 endif ()
 
 # NanoTest registers one ctest case per nano::test() and re-runs the binary with

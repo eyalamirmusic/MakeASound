@@ -45,6 +45,9 @@ struct ProcessContext
     // Every MIDI buffer, in and out, stand-ins included.
     void clearMidi() noexcept;
 
+    // The output half of clearMidi(), stand-in included.
+    void clearMidiOut() noexcept;
+
     const Buffer& mainInput() const noexcept
     { return inputs.empty() ? detachedInput : inputs[0]; }
 

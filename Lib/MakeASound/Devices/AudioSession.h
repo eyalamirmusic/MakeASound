@@ -33,12 +33,6 @@ std::string getSessionCategoryName(SessionCategory category);
 
 struct SessionOptions
 {
-    MIRO_REFLECT(mixWithOthers,
-                 duckOthers,
-                 defaultToSpeaker,
-                 allowBluetooth,
-                 allowAirPlay)
-
     // Leave other apps playing. Off, opening a stream stops the user's music.
     bool mixWithOthers = false;
     bool duckOthers = false;
@@ -49,12 +43,16 @@ struct SessionOptions
 
     bool allowBluetooth = true;
     bool allowAirPlay = true;
+
+    MIRO_REFLECT(mixWithOthers,
+                 duckOthers,
+                 defaultToSpeaker,
+                 allowBluetooth,
+                 allowAirPlay)
 };
 
 struct SessionConfig
 {
-    MIRO_REFLECT(category, options, preferredSampleRate, preferredBlockSize)
-
     // Unset follows the stream: Playback with no input side, PlayAndRecord with one.
     std::optional<SessionCategory> category;
 
@@ -65,21 +63,13 @@ struct SessionConfig
     // getSessionState() says what that was.
     int preferredSampleRate = 0;
     int preferredBlockSize = 0;
+
+    MIRO_REFLECT(category, options, preferredSampleRate, preferredBlockSize)
 };
 
 // What the session is doing now, as opposed to what was asked of it.
 struct SessionState
 {
-    MIRO_REFLECT(available,
-                 category,
-                 options,
-                 outputChannels,
-                 inputChannels,
-                 sampleRate,
-                 blockSize,
-                 outputLatencySeconds,
-                 inputLatencySeconds)
-
     bool available = false;
 
     SessionCategory category = SessionCategory::Playback;
@@ -93,6 +83,16 @@ struct SessionState
     // The route's own latency, on top of whatever the stream reports.
     double outputLatencySeconds = 0.0;
     double inputLatencySeconds = 0.0;
+
+    MIRO_REFLECT(available,
+                 category,
+                 options,
+                 outputChannels,
+                 inputChannels,
+                 sampleRate,
+                 blockSize,
+                 outputLatencySeconds,
+                 inputLatencySeconds)
 };
 
 bool hasAudioSession();

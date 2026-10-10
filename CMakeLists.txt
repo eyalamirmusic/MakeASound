@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD 20)
 option(MAKEASOUND_UNITY_BUILD "Enable unity (jumbo) build for the MakeASound library" OFF)
 option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
+option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
+       ${PROJECT_IS_TOP_LEVEL})
 
 if (APPLE)
     enable_language(OBJCXX)
@@ -26,6 +28,11 @@ endfunction()
 
 find_package(Miniaudio REQUIRED)
 find_package(Miro REQUIRED)
+
+# The plugin core links eacp-core; the demo apps find eacp again, which CPM dedupes.
+if (MAKEASOUND_BUILD_PLUGIN)
+    find_package(eacp REQUIRED)
+endif ()
 
 add_subdirectory(Lib)
 

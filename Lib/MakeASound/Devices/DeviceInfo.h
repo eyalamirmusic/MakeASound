@@ -52,18 +52,6 @@ struct DeviceInfo
     // neither side — the whole open fails on the half that isn't there.
     bool hasChannels(bool input) const;
 
-    MIRO_REFLECT(id,
-                 name,
-                 backend,
-                 outputChannels,
-                 inputChannels,
-                 duplexChannels,
-                 isDefaultOutput,
-                 isDefaultInput,
-                 sampleRates,
-                 currentSampleRate,
-                 preferredSampleRate)
-
     int id {};
     std::string name;
 
@@ -83,6 +71,18 @@ struct DeviceInfo
     // app moves it, so this is a snapshot from enumeration; falls back to preferred.
     int currentSampleRate {};
     int preferredSampleRate {};
+
+    MIRO_REFLECT(id,
+                 name,
+                 backend,
+                 outputChannels,
+                 inputChannels,
+                 duplexChannels,
+                 isDefaultOutput,
+                 isDefaultInput,
+                 sampleRates,
+                 currentSampleRate,
+                 preferredSampleRate)
 };
 
 // Returned rather than thrown: a machine with no audio device, or one whose device
@@ -120,33 +120,33 @@ struct StreamParameters
                      int numChannels = -1,
                      int firstCh = 0);
 
-    MIRO_REFLECT(device, nChannels, firstChannel)
-
     DeviceInfo device;
 
     // Uses the device's channels [firstChannel, firstChannel + nChannels), which is
     // how a stereo pair is picked out of a multi-channel interface.
     int nChannels {};
     int firstChannel {};
+
+    MIRO_REFLECT(device, nChannels, firstChannel)
 };
 
 struct Flags
 {
-    MIRO_REFLECT(nonInterleaved, minimizeLatency, hogDevice)
-
     bool nonInterleaved = true;
     bool minimizeLatency = false;
     bool hogDevice = false;
+
+    MIRO_REFLECT(nonInterleaved, minimizeLatency, hogDevice)
 };
 
 struct StreamOptions
 {
-    MIRO_REFLECT(flags, numberOfBuffers, streamName, priority)
-
     Flags flags {};
     int numberOfBuffers {};
     std::string streamName {};
     int priority {};
+
+    MIRO_REFLECT(flags, numberOfBuffers, streamName, priority)
 };
 
 // What the block that just arrived cost. miniaudio's data callback carries no status
@@ -180,14 +180,14 @@ struct StreamConfig
     int getInputChannels() const;
     int getOutputChannels() const;
 
-    MIRO_REFLECT(input, output, sampleRate, maxBlockSize, options)
-
     std::optional<StreamParameters> input;
     std::optional<StreamParameters> output;
 
     int sampleRate {};
     int maxBlockSize = 0;
     std::optional<StreamOptions> options;
+
+    MIRO_REFLECT(input, output, sampleRate, maxBlockSize, options)
 };
 
 struct AudioCallbackInfo

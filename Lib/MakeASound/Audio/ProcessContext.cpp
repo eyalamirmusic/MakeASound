@@ -26,10 +26,15 @@ void ProcessContext::clearMidi() noexcept
     for (auto& buffer: midiIn)
         buffer.clear();
 
+    detachedMidiIn.clear();
+    clearMidiOut();
+}
+
+void ProcessContext::clearMidiOut() noexcept
+{
     for (auto& buffer: midiOut)
         buffer.clear();
 
-    detachedMidiIn.clear();
     detachedMidiOut.clear();
 }
 

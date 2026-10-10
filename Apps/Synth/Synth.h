@@ -11,13 +11,13 @@ namespace MIDI = MS::MIDI;
 
 struct AudioControls
 {
-    MIRO_REFLECT(playing, gain, note, frequency, velocity)
-
     bool playing {};
     double gain {};
     int note {-1};
     double frequency {};
     double velocity {};
+
+    MIRO_REFLECT(playing, gain, note, frequency, velocity)
 };
 
 struct Synth : MS::Processor

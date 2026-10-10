@@ -10,27 +10,28 @@ namespace MakeASound
 
 struct Bus
 {
-    MIRO_REFLECT(name, numChannels, isMain)
     bool operator==(const Bus&) const = default;
 
     std::string name = "Audio";
     int numChannels = 2;
     bool isMain = true;
+
+    MIRO_REFLECT(name, numChannels, isMain)
 };
 
 struct MidiBus
 {
-    MIRO_REFLECT(name)
     bool operator==(const MidiBus&) const = default;
 
     std::string name = "MIDI";
+
+    MIRO_REFLECT(name)
 };
 
 // What a Processor reads and writes: bus 0 on each side is the main one by
 // convention, and what nearly every process() is written against.
 struct BusLayout
 {
-    MIRO_REFLECT(inputs, outputs, midiInputs, midiOutputs)
     bool operator==(const BusLayout&) const = default;
 
     static BusLayout stereoInOut(int numChannels = 2)
@@ -88,6 +89,8 @@ struct BusLayout
     Vector<Bus> outputs;
     Vector<MidiBus> midiInputs;
     Vector<MidiBus> midiOutputs;
+
+    MIRO_REFLECT(inputs, outputs, midiInputs, midiOutputs)
 };
 
 } // namespace MakeASound

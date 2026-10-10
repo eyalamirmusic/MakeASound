@@ -10,27 +10,27 @@
 
 struct UIState
 {
-    MIRO_REFLECT(devices, sampleRates, blockSizes, midiPorts)
-
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo sampleRates;
     MakeASound::UI::DropdownInfo blockSizes;
     MakeASound::UI::ToggleListInfo midiPorts;
+
+    MIRO_REFLECT(devices, sampleRates, blockSizes, midiPorts)
 };
 
 struct MidiPortToggleRequest
 {
-    MIRO_REFLECT(id, on)
-
     int id {};
     bool on {};
+
+    MIRO_REFLECT(id, on)
 };
 
 struct MidiLogEntry
 {
-    MIRO_REFLECT(text)
-
     std::string text;
+
+    MIRO_REFLECT(text)
 };
 
 namespace Api

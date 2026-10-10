@@ -686,4 +686,27 @@ auto tEngineSteadyState = test("Allocations/engineProcessStaysOffTheHeap") = []
     check(samples[512] == 0.f);
     check(processor.midiEvents == 0);
 };
+
+auto tSmootherSteps = test("Allocations/smootherStepsOffTheHeap") = []
+{
+    auto smoother = MakeASound::Smoother();
+    smoother.setSampleRate(48000);
+    smoother.setRampTime(0.02f);
+    smoother.setTarget(1.f);
+
+    auto buffer = Buffer(2, 256);
+    buffer.fill(1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            smoother.next();
+            smoother.fill(buffer[0]);
+            smoother.setTarget(0.5f);
+            smoother.applyGain(buffer);
+        });
+
+    check(count == 0);
+    check(smoother.isSmoothing());
+};
 } // namespace

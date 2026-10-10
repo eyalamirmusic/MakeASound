@@ -79,3 +79,27 @@ if (MAKEASOUND_UNITY_BUILD)
 endif ()
 
 set_makeasound_warnings(MakeASound)
+
+# MakeASoundPlugin: the SDK-free plugin core; format adapters add their SDK on top.
+# eacp-core backs its message-thread marshalling, kept out of every public header.
+if (MAKEASOUND_BUILD_PLUGIN)
+    add_library(MakeASoundPlugin STATIC
+            MakeASound/Plugin/Description.cpp
+            MakeASound/Plugin/Parameter.cpp
+            MakeASound/Plugin/FloatParam.cpp
+            MakeASound/Plugin/ChoiceParam.cpp
+            MakeASound/Plugin/ParameterGroup.cpp
+            MakeASound/Plugin/ParameterList.cpp
+            MakeASound/Plugin/StateContext.cpp
+            MakeASound/Plugin/Plugin.cpp
+            MakeASound/Plugin/PluginWrapper.cpp
+            MakeASound/Plugin/Realtime/MessageThread.cpp)
+
+    target_link_libraries(MakeASoundPlugin PUBLIC MakeASound PRIVATE eacp-core)
+
+    if (MAKEASOUND_UNITY_BUILD)
+        set_target_properties(MakeASoundPlugin PROPERTIES UNITY_BUILD ON)
+    endif ()
+
+    set_makeasound_warnings(MakeASoundPlugin)
+endif ()

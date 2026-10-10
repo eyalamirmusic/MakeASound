@@ -15,7 +15,7 @@ it.
 | --- | --- | --- |
 | 0 | `Buffer`, one class, owning or referring | suite green, allocation tests cover every view path — **landed 2026-10-10** |
 | 1 | `Processor`, `ProcessContext`, `Engine` in the device library | the Synth demo is a `Processor` run by `Engine` — **landed 2026-10-10** |
-| 2 | `MakeASoundPlugin`: `Plugin`, parameters, state, description | fake-host tests drive a plugin end to end |
+| 2 | `MakeASoundPlugin`: `Plugin`, parameters, state, description | fake-host tests drive a plugin end to end — **landed 2026-10-10** |
 | 3 | Standalone format | a `Plugin` runs in a window with device and MIDI pickers |
 | 4 | VST3 | pluginval at strictness 10 |
 | 5 | AU | auval after an install step |
@@ -243,9 +243,9 @@ backends live in `MakeASound::MiniAudio` and `MakeASound::CoreMIDI`.
   changed).
 - **Parameters.** `Param<float>`, `ChoiceParam`, `BoolParam`, plus the typed
   helpers Plug has (`DecibelParam`, `HzParam`, `TimeParam`, `PercentParam`).
-  Declared as a `MIRO_REFLECT`ed struct; a `ParameterReflector` walks it to build
-  the registry, nested structs become id and display prefixes, and the same
-  reflection serialises state. The host id is a 32-bit hash of the stable string
+  Declared in a `ParameterGroup` whose constructor registers its members with
+  `add(...)`; nested groups become id and display prefixes, ids default to names
+  with an `id` override, and the group's own `reflect` serialises state. The host id is a 32-bit hash of the stable string
   id, collision-asserted at registration and overridable, not the registration
   index as in Plug: inserting a parameter must not break saved automation, and
   CLAP requires stable ids anyway. Values are `std::atomic`, read directly on the
@@ -268,18 +268,120 @@ fake host: layout negotiation, parameter ids and hashing, state round trips
 including a schema with a parameter inserted mid-list, in-place and aliased
 buses, MIDI ordering, and allocation-free steady state.
 
+Landed: `MakeASoundPlugin` is a second static target behind
+`MAKEASOUND_BUILD_PLUGIN` (on by default in a top-level build only, like
+`MAKEASOUND_BUILD_APPS`, so Plug and tamber-web fetch no eacp unless they ask),
+umbrella
+`<MakeASound/Plugin/MakeASoundPlugin.h>`, linking `MakeASound` PUBLIC and
+`eacp-core` PRIVATE; eacp is included by one TU,
+`Plugin/Realtime/MessageThread.cpp`, and by no header. It holds `Plugin`,
+`StatePlugin`, the parameter types, `ParameterGroup` and `ParameterList`,
+`State`, `StateContext`, `HostEditListener`, `Description` and `PluginWrapper`;
+`ScopedNoDenormals` and `Smoother` went into the device library's `Realtime/`.
+Tests: 32 `Plugin/` cases over `Tests/TestPlugins.h` (a `StatePlugin` gain effect
+and a MIDI-echoing instrument), 19 `Parameters/`, 21 `State/`, 6 `RealtimeSwap/`,
+10 for the smoother and the denormal guard, 6 in `PluginAllocationTests.cpp` and
+one more in `AllocationTests.cpp`. README and CLAUDE.md describe the core.
+Where it differs from the bullets above:
+
+- **`FloatParam`, not `Param<float>`.** Each concrete type is a class over its
+  own atomic (a `float`, a choice index, a `bool`) with its own text and state
+  conversions, so a template would have covered only the first; the typed
+  helpers derive from `FloatParam`. Options are a trailing `ParameterOptions`
+  written with designated initialisers (`{.sessionOnly = true}`, `{.hostId = 7}`).
+- **Parameters are registered, not reflected.** A params struct derives from
+  `ParameterGroup` and calls `add(...)` in its constructor with parameters,
+  groups, pointers to either and ranges of any of those; it carries no
+  `MIRO_REFLECT`, and a `Parameter` in a `MIRO_REFLECT` list elsewhere does not
+  compile. A group is named per instance (`OscParams osc1 {"Osc 1"}`), an id
+  defaults to the name (`"Osc 1/Attack"`, displayed `"Osc 1 Attack"`) and
+  `ParameterOptions::id` / `GroupOptions::id` pin one across a rename. A range
+  adds no segment: each element is under its own name. The group's `reflect`
+  saves and loads by walking what was registered, so a load assigns into the
+  existing parameters and a vector of groups survives it; see the decisions log.
+- **Host ids are 31 bits.** `hostIdFor` masks the FNV-1a hash with `0x7fffffff`
+  because VST3 reserves ids from 2^31 up, and an explicit `hostId` at or above
+  that asserts.
+- **`createEditor` is deferred to stage 3.** There is no `Editor` type yet, and
+  stage 3's window is the first thing that needs one; `Plugin` carries no
+  placeholder.
+- **`RealtimeSwap` is redesigned and lives in `Plugin/Realtime/`**, not the device
+  library's `Realtime/`, because it needs the message thread. Plug's FIFO plus a
+  `use_count` reaper is replaced by two atomic slots, `pending` and `retired`,
+  with single ownership: the audio thread takes `pending` at the top of a block
+  and parks what it held in `retired`, and a process-wide reclaimer in
+  `MessageThread.cpp` frees every registered swap's `retired` on the message
+  thread every 250 ms. While `retired` is still full the audio thread keeps its
+  object one more block, so the latest publish is delayed, never lost, and no
+  `shared_ptr` count is ever touched on the audio thread.
+- **Parameter reconciliation is the adapters'.** `ProcessContext::paramChanges`
+  is still empty; an adapter writes each host point through
+  `setNormalizedParameter`/`setParameterByHostId` before the block, so the last
+  point per block wins as planned, but the wrapper does not walk a queue.
+  `holdParameter`/`releaseParameter` count a plugin-side gesture, and the
+  wrapper's three host setters drop a write while the parameter is held: the
+  editor sets the `Parameter` directly and reports through `HostEditListener`.
+- **The wrapper is a pipeline of calls, not one call.** The adapter runs the
+  steps in order (parameters, `setPlayhead`, `clearMidi`/`pushMidiIn`/
+  `sortMidiInByOffset`, `bindInput`/`bindOutput` per bus, `process`, drain
+  `midiOut()`); `process()` itself only clears MIDI out (`ProcessContext` gained
+  `clearMidiOut()`), runs the plugin under `ScopedNoDenormals` and detaches
+  every audio bus afterwards, so a bus left unbound next block reads empty
+  rather than the last block's host pointers. `bindOutput`
+  decides per channel, not per bus (copy, skip when aliased, zero past the
+  input's width), since zeroing an output that aliases an input would wipe it.
+  Out-of-range indices are no-ops and a full MIDI bus drops the event.
+- **More on `Plugin` than listed:** `format()`, set by the wrapper's constructor
+  argument after the plugin is built (so `Unknown` in its constructor, valid
+  from `prepare`); `takeLatencyChanged()`; and three state hooks beside
+  `saveState`/`loadState`: `saveStateWithoutMessageThread`,
+  `isStateSnapshotCurrent`, `loadParameters` and `loadStateExceptParameters`
+  (whose default loads the whole document, for a plugin that cannot split it). `HostEditListener` gained an
+  optional edit group (VST3 only).
+- **The threading of state is the wrapper's.** `saveState` off the message thread
+  returns the plugin's snapshot and marshals and waits only when there is none,
+  with a throwing `saveState` handed back through the promise. `State` publishes
+  a preset and a session document, so a `StatePlugin` never marshals.
+  `loadState` applies the parameters inline (they are atomics) and the rest of
+  the document on the message thread later, without the parameters, so a host
+  write in between survives; each load is stamped from an atomic counter, and a
+  deferred half older than the latest load drops, as does one queued past
+  teardown. The wrapper is destroyed on the message thread (asserted), where a
+  running deferred load holds the plugin. `isPublishedDocumentCurrent` compares
+  with `params` erased, since automation moves them between any two reads.
+- **`version` is written, `loadedVersion` is read.** A load never overwrites the
+  schema version the build writes; the document's lands in `loadedVersion` for
+  migration code in a `reflect` override under `ref.isLoading()`.
+- **Session-only parameters** are written and read by `ParameterGroup::reflect`
+  only under `StateContext::Session`, so a preset carries no key for them.
+- **Description** gained `subcategory` and `Category::MidiEffect` (AU `aumi`, a
+  VST3 instrument), and codes are a `FourCC` type.
+- **The allocation-free steady state** is pinned in `PluginAllocationTests.cpp`
+  rather than `PluginTests.cpp`, because it needs the interposer and so builds
+  only on Apple and Linux.
+
 ## Stage 3: the standalone format, the first provable step
 
 The first format, because it needs no SDK, exercises every MakeASound seam, and
 is what Plug's `Standalone/` already proves works on top of this library.
 
+- **`Editor` and `Plugin::createEditor()`**, deferred from stage 2: the smallest
+  type the window can host (a `view()`), with size policy and host resize left
+  to stage 6. A plugin that returns none gets the generic parameter page, built
+  from `parameters()`' display names and `valueToText`.
 - **`Plugin/Standalone/`**: `StandaloneApp` built on `eacp::Apps::run<T>`, a
-  `Window` whose content is the editor's view or a generic parameter page,
-  `Engine` from stage 1 driving the `PluginWrapper`, a settings panel built from
-  `UIDeviceManager` and `UIMidiManager`'s dropdowns and toggle lists, settings
-  persisted as the already-reflected `StreamConfig` plus open MIDI ports in
-  `FilePath::appSupportDirectory()`, a typing keyboard feeding MIDI through an
-  `SPSCQueue`, and state saved on quit and restored on launch.
+  `Window` whose content is the editor's view or a generic parameter page, a
+  `PluginWrapper` constructed with `PluginFormat::Standalone` and no
+  `HostEditListener` (there is no host), `Engine` from stage 1 driving it, a
+  settings panel built from `UIDeviceManager` and `UIMidiManager`'s dropdowns
+  and toggle lists, settings persisted as the already-reflected `StreamConfig`
+  plus open MIDI ports in `FilePath::appSupportDirectory()`, a typing keyboard
+  feeding MIDI through an `SPSCQueue`, and state saved on quit and restored on
+  launch through the wrapper's `saveState`/`loadState` with
+  `StateContext::Session`, on the message thread. `Engine` runs a `Processor`,
+  not a `PluginWrapper`, so the adapter needs a thin `Processor` that drives the
+  wrapper's `bind*`/`process` steps, or `Engine` grows a path for the wrapper;
+  decide at the start of the stage.
 - **Build**: `makeasound_add_plugin(<Name> FORMATS Standalone SOURCES ...)` in
   `CMake/MakeASoundPlugin.cmake` makes the static core `<Name>` and
   `<Name>-Standalone` (`MACOSX_BUNDLE`, `eacp_set_gui_subsystem` on Windows,
@@ -307,9 +409,9 @@ test (the harness from `Tests/AllocationProbe.h`) passes under a live callback.
   callback, `kAudioUnitProperty_CocoaUI` view factory over `EmbeddedView`,
   `AudioComponents` plist written by a build-time generator that links the plugin
   core and calls `describeModule()`, `auval` in CI after an install step.
-- **Editors**: `Editor` with `view()`, size and aspect policy, host resize
-  request; a generic parameter page with no npm; a React page through the same
-  `miro_export` codegen `Apps/Synth` uses.
+- **Editors**: on top of stage 3's `Editor` and its `view()`, size and aspect
+  policy and the host resize request; a generic parameter page with no npm; a
+  React page through the same `miro_export` codegen `Apps/Synth` uses.
 - **CLAP**: the ids and the per-event MIDI path are already prepared; note ids and
   per-note expression are the remaining `MIDI::Event` gap.
 - **AUv3**: a new adapter over the same core plus app-extension packaging.
@@ -334,3 +436,33 @@ test (the harness from `Tests/AllocationProbe.h`) passes under a live callback.
   period the device actually opened at; the audio-thread re-prepare is kept for
   a recovery that re-opens at a shape nobody prepared for, and is the one
   documented allocation there.
+- 2026-10-10: `RealtimeSwap` is two atomic slots with single ownership and a
+  message-thread sweep every 250 ms, not Plug's FIFO plus `use_count` reaper: no
+  reference count on the audio thread, nothing freed there, and a publish that
+  meets a full `retired` slot is delayed a block rather than dropped.
+- 2026-10-10: parameters are registered with `add()` in a `ParameterGroup`
+  constructor, separate from other reflectable state and explicit; ids default
+  to names, with an `id` override on a parameter or a group to keep a key across
+  a rename. The reflected-struct walk (`ParameterReflector`,
+  `MAKEASOUND_PARAMETERS`) was dropped: Miro's walk carries keys, not C++ types,
+  so two instances of one group type could not have their own names; leaving a
+  session-only parameter out of a preset needed a specialisation in Miro's
+  detail namespace; and Miro's load rebuilt vectors and maps of groups under the
+  registry, leaving its pointers dangling.
+- 2026-10-10: state saves off the message thread read a published snapshot, preset
+  and session both, with the parameters read live, and loads apply parameters
+  inline and defer the rest without them, so no host thread ever waits on the
+  message thread for a `StatePlugin`'s document. A deferred half older than the
+  latest load drops.
+- 2026-10-10: `ScopedNoDenormals` and `Smoother` live in the device library's
+  `Realtime/`, usable by an app with no plugin; eacp enters `MakeASoundPlugin`
+  PRIVATE through one TU.
+- 2026-10-10: parameter host ids are 31 bits (VST3 reserves the top half).
+- 2026-10-10: `State::version` is the schema written; a load reads the
+  document's into `loadedVersion`, so a v2 build loading a v1 document still
+  saves v2.
+- 2026-10-10: `createEditor` waits for stage 3, which brings the first window;
+  `Plugin` carries no placeholder for it.
+- 2026-10-10: `RealtimeSwap` and `MessageThread` live in `Plugin/Realtime/`, not
+  the device library's `Realtime/`: the swap needs the message thread, eacp
+  backs that, and keeping it there keeps eacp out of the device library.
