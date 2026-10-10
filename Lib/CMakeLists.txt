@@ -96,6 +96,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
             MakeASound/Plugin/Realtime/MessageThread.cpp)
 
     target_link_libraries(MakeASoundPlugin PUBLIC MakeASound PRIVATE eacp-core)
+    set_target_properties(MakeASoundPlugin PROPERTIES FOLDER Plugin)
 
     if (MAKEASOUND_UNITY_BUILD)
         set_target_properties(MakeASoundPlugin PROPERTIES UNITY_BUILD ON)
@@ -124,6 +125,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
                 PUBLIC MakeASoundPluginUI eacp-graphics)
 
         foreach (target MakeASoundPluginUI MakeASoundStandalone)
+            set_target_properties(${target} PROPERTIES FOLDER Plugin)
+
             if (MAKEASOUND_UNITY_BUILD)
                 set_target_properties(${target} PROPERTIES UNITY_BUILD ON)
             endif ()

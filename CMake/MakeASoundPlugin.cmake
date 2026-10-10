@@ -3,19 +3,21 @@
 #         SOURCES <file>...
 #         [OUTPUT_NAME <display name>]
 #         [BUNDLE_ID <reverse.dns.id>]
-#         [COMPANY <vendor>])
+#         [COMPANY <vendor>]
+#         [FOLDER <ide folder>])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
 # target per format: <Name>-Standalone today. The company and display name go
 # into eacp's embedded app info; the app's settings are filed under the module's
-# vendor and the plugin's name.
+# vendor and the plugin's name. Every target goes in the IDE folder <Name>,
+# nested under CMAKE_FOLDER when the caller set one, unless FOLDER names another.
 # A global property, because a CPM consumer calls the function from its own
 # directory, where MakeASound's variables are out of scope.
 set_property(GLOBAL PROPERTY MAKEASOUND_HAS_GUI ${MAKEASOUND_HAS_GUI})
 
 function(makeasound_add_plugin name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "OUTPUT_NAME;BUNDLE_ID;COMPANY"
-            "FORMATS;SOURCES")
+    cmake_parse_arguments(PARSE_ARGV 1 ARG ""
+            "OUTPUT_NAME;BUNDLE_ID;COMPANY;FOLDER" "FORMATS;SOURCES")
 
     if (NOT ARG_SOURCES)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): no SOURCES")
@@ -37,8 +39,17 @@ function(makeasound_add_plugin name)
         set(ARG_COMPANY "MakeASound")
     endif ()
 
+    if (NOT ARG_FOLDER)
+        if (CMAKE_FOLDER)
+            set(ARG_FOLDER "${CMAKE_FOLDER}/${name}")
+        else ()
+            set(ARG_FOLDER "${name}")
+        endif ()
+    endif ()
+
     add_library(${name} STATIC ${ARG_SOURCES})
     target_link_libraries(${name} PUBLIC MakeASoundPlugin)
+    set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
 
     if (COMMAND set_makeasound_warnings)
         set_makeasound_warnings(${name})
@@ -64,6 +75,7 @@ function(makeasound_add_plugin name)
 
             # Set before eacp_set_gui_subsystem, which reads both into AppInfo.
             set_target_properties(${target} PROPERTIES
+                    FOLDER "${ARG_FOLDER}"
                     OUTPUT_NAME "${ARG_OUTPUT_NAME}"
                     MACOSX_BUNDLE_BUNDLE_NAME "${ARG_OUTPUT_NAME}"
                     EACP_COMPANY_NAME "${ARG_COMPANY}")
