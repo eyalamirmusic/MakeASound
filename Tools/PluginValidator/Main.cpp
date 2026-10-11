@@ -1,9 +1,12 @@
 // PluginValidator [--strictness N] [--skip-gui-tests] [--timeout-ms N]
-//                 [--version vX.Y.Z] [--logs <dir>] <bundle or folder>...
+//                 [--version vX.Y.Z] [--stress N] [--logs <dir>]
+//                 <bundle or folder>...
 //
-// Runs Tracktion's pluginval over each bundle named, and every .vst3 in each folder
-// named, and exits with the number that failed. It knows nothing of this build:
-// what to validate is always an argument.
+// Validates each bundle named, and every .vst3 and .component in each folder named:
+// a .vst3 through Tracktion's pluginval, a .component through auval -strict after
+// installing it into the user's Components folder (macOS only). Exits with the
+// number that failed. It knows nothing of this build: what to validate is always
+// an argument.
 
 #include <MakeASound/Plugin/Validation/Pluginval.h>
 
@@ -33,14 +36,23 @@ struct Arguments
 void printUsage()
 {
     std::cerr << "usage: PluginValidator [--strictness N] [--skip-gui-tests] "
-                 "[--timeout-ms N] [--version vX.Y.Z] [--logs <dir>] "
+                 "[--timeout-ms N] [--version vX.Y.Z] [--stress N] [--logs <dir>] "
                  "<bundle or folder>...\n";
 }
 
-bool isDirectory(const eacp::FilePath& path)
+bool isFolderOfBundles(const eacp::FilePath& path)
 {
+    auto folder = eacp::toStdPath(path);
     auto error = std::error_code {};
-    return std::filesystem::is_directory(eacp::toStdPath(path), error);
+
+    if (!std::filesystem::is_directory(folder, error))
+        return false;
+
+    if (!folder.has_filename())
+        folder = folder.parent_path();
+
+    auto extension = folder.extension();
+    return extension != ".vst3" && extension != ".component";
 }
 
 Arguments parseArguments(int argc, char* argv[])
@@ -67,13 +79,14 @@ Arguments parseArguments(int argc, char* argv[])
             args.options.timeout = {std::stoll(value())};
         else if (arg == "--version")
             args.options.version = value();
+        else if (arg == "--stress")
+            args.options.stress = std::stoi(value());
         else if (arg == "--logs")
             args.logs = eacp::FilePath {value()};
         else if (arg.starts_with("--"))
             throw std::invalid_argument("unknown option " + std::string(arg));
         else if (auto path = eacp::FilePath {std::string {arg}};
-                 isDirectory(path) && !arg.ends_with(".vst3")
-                 && !arg.ends_with(".vst3/"))
+                 isFolderOfBundles(path))
             for (auto& bundle: Pluginval::findBundles(path))
                 args.bundles.push_back(std::move(bundle));
         else
@@ -128,12 +141,19 @@ void printTail(const std::string& log, int count)
 
 int run(const Arguments& args)
 {
-    auto pluginval = Pluginval::fetch(args.options);
+    auto needsPluginval = std::any_of(args.bundles.begin(),
+                                      args.bundles.end(),
+                                      [](const auto& bundle)
+                                      { return !Pluginval::isAudioUnit(bundle); });
+
+    auto pluginval =
+        needsPluginval ? Pluginval::fetch(args.options) : eacp::FilePath {};
     auto failures = 0;
 
     for (const auto& bundle: args.bundles)
     {
-        std::cout << "pluginval " << bundleName(bundle) << " ..." << std::endl;
+        auto tool = Pluginval::isAudioUnit(bundle) ? "auval " : "pluginval ";
+        std::cout << tool << bundleName(bundle) << " ..." << std::endl;
 
         auto result = Pluginval::validate(pluginval, bundle, args.options);
         auto log = writeLog(result, args.logs);

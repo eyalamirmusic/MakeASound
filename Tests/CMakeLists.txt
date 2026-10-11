@@ -49,7 +49,36 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundVST3 vst3sdk-hosting)
     endif ()
 
-    # pluginval over the example bundles, run only when MAKEASOUND_PLUGINVAL is set.
+    # The AU adapter hosted in-process through AudioToolbox's C API. The suites
+    # stay C++20 and include no adapter header; the module's entry point and view,
+    # which include the C++23 SDK, build into a test-only archive that links the
+    # format privately, so its standard does not reach the suites.
+    if (TARGET MakeASoundAU)
+        get_target_property(au_entry MakeASoundAU MAKEASOUND_AU_ENTRY)
+        get_target_property(au_view_source MakeASoundAU MAKEASOUND_AU_VIEW_SOURCE)
+        get_target_property(au_view_libraries MakeASoundAU MAKEASOUND_AU_VIEW_LIBRARIES)
+
+        add_library(MakeASoundAUTestModule STATIC "${au_entry}" "${au_view_source}")
+        target_link_libraries(MakeASoundAUTestModule PRIVATE
+                MakeASoundAU ${au_view_libraries})
+        target_compile_definitions(MakeASoundAUTestModule PRIVATE
+                MAKEASOUND_AU_VIEW_CLASS=MakeASoundAUView_MakeASoundTests)
+        target_compile_options(MakeASoundAUTestModule PRIVATE
+                $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+        set_target_properties(MakeASoundAUTestModule PROPERTIES
+                OBJCXX_STANDARD 23
+                INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
+        list(APPEND MAKEASOUND_TEST_SOURCES AUTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUTestModule MakeASoundAUDescribe)
+
+        if (au_view_source MATCHES "CocoaUI\\.mm$")
+            set(MAKEASOUND_TEST_AU_VIEW ON)
+        endif ()
+    endif ()
+
+    # pluginval and auval over the example bundles, run only when MAKEASOUND_PLUGINVAL
+    # is set.
     if (TARGET MakeASoundPluginval AND TARGET MakeASoundVST3)
         list(APPEND MAKEASOUND_TEST_SOURCES PluginvalTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginval)
@@ -103,6 +132,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (TARGET MakeASoundVST3)
         list(APPEND MAKEASOUND_TEST_SOURCES VST3AllocationTests.cpp)
     endif ()
+
+    if (TARGET MakeASoundAU)
+        list(APPEND MAKEASOUND_TEST_SOURCES AUAllocationTests.cpp)
+    endif ()
 endif ()
 
 # NanoTest registers one ctest case per nano::test() and re-runs the binary with
@@ -117,7 +150,16 @@ nano_add_executable(MakeASoundTests
 # under Clang, which a link without -flto cannot read.
 set_target_properties(MakeASoundTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
+if (MAKEASOUND_TEST_AU_VIEW)
+    target_compile_definitions(MakeASoundTests PRIVATE MAKEASOUND_AU_HAS_VIEW=1)
+endif ()
+
 if (MAKEASOUND_TEST_PLUGINVAL)
     target_compile_definitions(MakeASoundTests PRIVATE
             MAKEASOUND_VST3_DIR="${CMAKE_BINARY_DIR}/VST3")
+
+    if (TARGET MakeASoundAU)
+        target_compile_definitions(MakeASoundTests PRIVATE
+                MAKEASOUND_AU_DIR="${CMAKE_BINARY_DIR}/AU")
+    endif ()
 endif ()

@@ -39,3 +39,14 @@ same selection of files (`source/vst/hosting/{parameterchanges,eventlist}.{h,cpp
 included, taken from the same tag: the `public.sdk` submodule commit it pins),
 bump this note and rebuild `MakeASoundTests`, whose `VST3SDKTests.cpp` links
 the target and whose `VST3/` suites link `vst3sdk-hosting`.
+
+## AudioUnitSDK (not in this tree)
+
+Apple's AudioUnitSDK, Apache-2.0, is the one SDK `ThirdParty/CMakeLists.txt`
+builds without vendoring: on macOS it is fetched by CPM at the pinned tag
+(`AudioUnitSDK-1.4.0`, `DOWNLOAD_ONLY`) and compiled as the static target
+`ausdk` from its twelve `src/AudioUnitSDK/*.cpp` files, because the tag is
+stable, the license is permissive, and nothing in it is trimmed or edited. Its
+headers include `<expected>`, so the target carries C++23 PUBLIC and only the AU
+adapter and the `-AU` modules compile under it. To move to a newer release,
+change the tag.

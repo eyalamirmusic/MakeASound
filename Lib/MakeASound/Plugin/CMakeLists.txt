@@ -39,6 +39,7 @@ set_makeasound_target_settings(MakeASoundPlugin)
 add_subdirectory(UI)
 add_subdirectory(Standalone)
 add_subdirectory(VST3)
+add_subdirectory(AU)
 add_subdirectory(Validation)
 
 # makeasound_add_plugin(), for this tree's Plugins/ and for a CPM consumer's own.

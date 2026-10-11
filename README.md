@@ -9,7 +9,7 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
-On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its first two formats, a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)) and VST3 (see [VST3](#vst3)).
+On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)) and, on macOS, AU (see [AU](#au)).
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -37,6 +37,7 @@ manager.start(manager.getDefaultConfig(),
 - **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
 - **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches.
 - **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the generic editor, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
+- **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the generic editor, sample-accurate MIDI in and out and the plugin's state in the session; both examples pass `auval -strict`.
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset`, `Smoother`, `ScopedNoDenormals` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
@@ -70,7 +71,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
-| `MAKEASOUND_INSTALL_PLUGINS` | `OFF` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`). A failed copy is a warning. |
+| `MAKEASOUND_INSTALL_PLUGINS` | `OFF` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
 | `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
 
@@ -304,7 +305,7 @@ engine.start(devices.getDefaultDuplexConfig(), gain);
 
 ## Plugins
 
-`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app and VST3 are its formats (below); AU is the next stage in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
+`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app, VST3 and AU are its formats (below); CLAP and AUv3 are later stages in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
 
 ```cpp
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
@@ -439,12 +440,12 @@ One CMake call builds it:
 
 ```cmake
 makeasound_add_plugin(Gain
-        FORMATS Standalone VST3
+        FORMATS Standalone VST3 AU
         OUTPUT_NAME "MakeASound Gain"
         SOURCES GainPlugin.cpp)
 ```
 
-That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), and `Gain-VST3`, the plug-in (see [VST3](#vst3)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional, and AU will be a further format on the same call. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
+That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), `Gain-VST3`, the VST3 plug-in (see [VST3](#vst3)), and on macOS `Gain-AU`, the Audio Unit (see [AU](#au)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional. A format the machine cannot build, AU off macOS for one, is skipped with a status line, so one list of formats serves every platform. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
 
 ```bash
 open "./build/Plugins/Gain/MakeASound Gain.app"
@@ -475,11 +476,32 @@ cmake --build build
 ./build/Tools/PluginValidator/PluginValidator build/VST3   # validate every bundle there at strictness 10
 ```
 
-`PluginValidator` is an ordinary executable target, so it runs from an IDE as well as from a shell. It takes the bundles to validate, or folders of them, as arguments and depends on nothing else in the build. It downloads Tracktion's [pluginval](https://github.com/Tracktion/pluginval) the first time (and never again for the same release), validates each bundle, leaves a log per bundle (`--logs <dir>`, the system temp folder by default) and exits with the number that failed. `--skip-gui-tests` leaves out the editor tests on a machine with no display; `--strictness`, `--timeout-ms` and `--version` set the rest. CI runs it on macOS, Windows x64 and Linux. The test suite has a case that does the same through the library, run only when `MAKEASOUND_PLUGINVAL` is set (`nogui` skips the editor tests):
+`PluginValidator` is an ordinary executable target, so it runs from an IDE as well as from a shell. It takes the bundles to validate, or folders of them, as arguments and depends on nothing else in the build. It downloads Tracktion's [pluginval](https://github.com/Tracktion/pluginval) the first time (and never again for the same release), validates each bundle, leaves a log per bundle (`--logs <dir>`, the system temp folder by default) and exits with the number that failed. `--skip-gui-tests` leaves out the editor tests on a machine with no display; `--strictness`, `--timeout-ms` and `--version` set the rest. It validates `.component`s too (see [AU](#au)). CI runs it on macOS, Windows x64 and Linux. The test suite has a case that does the same through the library, run only when `MAKEASOUND_PLUGINVAL` is set (`nogui` skips the editor tests):
 
 ```bash
 MAKEASOUND_PLUGINVAL=1 ./build/Tests/MakeASoundTests --test Pluginval/exampleBundlesPassAtStrictness10
 ```
+
+## AU
+
+On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio Unit v2 bundle with identifier `<BUNDLE_ID>.component`, ad-hoc signed, exporting one symbol, `MakeASoundAUFactory`. Its `Info.plist` is written after every link by a small generator, `<Name>-AUPlistGen`, from `describeModule()`, so the module description is the only place a plugin's identity lives: one `AudioComponents` entry per plugin, the module's `manufacturerCode` as the manufacturer and each plugin's `pluginCode` as the subtype. The type follows the category: an instrument is `aumu`, a MIDI effect `aumi`, an effect with a MIDI input `aumf` and any other effect `aufx`. It is one class over `PluginWrapper`, so the plugin code is again the same code the standalone app and the VST3 run:
+
+- **Parameters** are listed by the same 31-bit host ids as in VST3, in declaration order, automatable ones only, with value strings for choices and the plugin's own text for every value. A value the host writes reaches the plugin at the next block; one the editor writes is reported back to the host as a gesture.
+- **MIDI.** Notes, CC (all-notes-off included), pitch bend, aftertouch, program change and short SysEx arrive at their sample offsets. A plugin with a MIDI output bus sends its events to the host through the MIDI output callback.
+- **State** is the plugin's session document, carried in the host's preset dictionary beside the parameter values.
+- **Reset** really resets: the host's `Reset` reaches the plugin's `reset()` at the next block.
+- **The editor** is the plugin's own `Editor`, or the generic page, in the host's window.
+
+```bash
+cmake -S . -B build -G Ninja -DMAKEASOUND_INSTALL_PLUGINS=ON   # also copy into ~/Library/Audio/Plug-Ins/Components
+cmake --build build
+./build/Tools/PluginValidator/PluginValidator build/AU          # auval -strict on every component there
+./build/Tools/PluginValidator/PluginValidator build/VST3 build/AU   # the whole sweep
+```
+
+auval only finds a component that is installed, so `PluginValidator` copies each `.component` into `~/Library/Audio/Plug-Ins/Components` (replacing the one there) and runs `auval -strict -v` on each of its plugins, with `--stress N` adding auval's stress test. No pluginval download is needed for a run that names only components. If auval cannot find a freshly installed component, the tool restarts `AudioComponentRegistrar` once and tries again. CI runs it on macOS, and with `MAKEASOUND_PLUGINVAL` set the test suite's validation case sweeps the components too.
+
+macOS caches a bundle's `AudioComponents` by its `CFBundleVersion`, which is `ModuleDescription::version`, not the CMake `VERSION` argument. Bump it whenever a plugin's codes, name, type or list change, or hosts keep seeing the old ones; during development `killall -9 AudioComponentRegistrar` clears the cache.
 
 ## The probe app
 
@@ -549,7 +571,8 @@ Lib/MakeASound/
     UI/             MakeASoundPluginUI: the generic parameter editor
     Standalone/     MakeASoundStandalone: the standalone app format
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
-    Validation/     MakeASoundPluginval: fetches and runs pluginval
+    AU/             MakeASoundAU: the AU format, its factory, Cocoa view and plist generator
+    Validation/     MakeASoundPluginval: fetches and runs pluginval, runs auval
   DSP/              MakeASoundDSP, optional: TestSynth, the instrument the Synth app and plugin share
   UI/               dropdown/toggle-list helpers for the demo apps
   Common/           EA type re-exports and audio-thread-safe algorithms
@@ -560,10 +583,10 @@ Lib/MakeASound/
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
 Plugins/            Gain, Synth: plugins built with makeasound_add_plugin
-Tools/              PluginValidator: pluginval over the .vst3s on its command line
+Tools/              PluginValidator: pluginval or auval over the bundles on its command line
 CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, ExternalFolders.cmake,
                     the plug-in install script
-ThirdParty/         the vendored VST3 SDK
+ThirdParty/         the vendored VST3 SDK, and the fetched AudioUnitSDK's build
 Tests/              NanoTest suites
 gaps.md             what the probe found, what was fixed, what is open
 ```
@@ -576,10 +599,12 @@ Miro::logJSON(manager.getDefaultConfig());
 
 ## License
 
-MIT; see [LICENSE](LICENSE). Every dependency is MIT or more permissive, and the
-VST3 SDK vendored under `ThirdParty/VST3_SDK` is MIT as of 3.8.0, its notices kept
-alongside. A plugin built on MakeASound ships those notices with it.
+MIT; see [LICENSE](LICENSE). Every dependency is MIT or more permissive but one,
+and the VST3 SDK vendored under `ThirdParty/VST3_SDK` is MIT as of 3.8.0, its
+notices kept alongside. The one is Apple's AudioUnitSDK, fetched on macOS for the
+AU format, which is Apache-2.0. A plugin built on MakeASound ships those notices
+with it.
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`.

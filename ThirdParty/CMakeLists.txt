@@ -105,3 +105,44 @@ if (MSVC)
 else ()
     target_compile_options(vst3sdk-hosting PRIVATE -w)
 endif ()
+
+# ausdk: Apple's AudioUnitSDK (Apache-2.0), fetched rather than vendored, for the
+# AU format. Its headers include <expected>, so whatever includes them is C++23.
+if (APPLE AND NOT IOS)
+    include(CPM)
+
+    CPMAddPackage(
+            NAME AudioUnitSDK
+            GITHUB_REPOSITORY apple/AudioUnitSDK
+            GIT_TAG AudioUnitSDK-1.4.0
+            DOWNLOAD_ONLY YES)
+
+    set(AUSDK_DIR "${AudioUnitSDK_SOURCE_DIR}/src/AudioUnitSDK")
+
+    add_library(ausdk STATIC
+            ${AUSDK_DIR}/AUBase.cpp
+            ${AUSDK_DIR}/AUBuffer.cpp
+            ${AUSDK_DIR}/AUBufferAllocator.cpp
+            ${AUSDK_DIR}/AUEffectBase.cpp
+            ${AUSDK_DIR}/AUInputElement.cpp
+            ${AUSDK_DIR}/AUMIDIBase.cpp
+            ${AUSDK_DIR}/AUMIDIEffectBase.cpp
+            ${AUSDK_DIR}/AUOutputElement.cpp
+            ${AUSDK_DIR}/AUPlugInDispatch.cpp
+            ${AUSDK_DIR}/AUScopeElement.cpp
+            ${AUSDK_DIR}/ComponentBase.cpp
+            ${AUSDK_DIR}/MusicDeviceBase.cpp)
+
+    target_include_directories(ausdk SYSTEM PUBLIC "${AudioUnitSDK_SOURCE_DIR}/include")
+    target_compile_features(ausdk PUBLIC cxx_std_23)
+    target_compile_options(ausdk PRIVATE -w)
+    target_link_libraries(ausdk PUBLIC
+            "-framework AudioToolbox"
+            "-framework CoreAudio"
+            "-framework CoreMIDI"
+            "-framework CoreFoundation")
+
+    set_target_properties(ausdk PROPERTIES
+            FOLDER External/AudioUnitSDK
+            UNITY_BUILD ON)
+endif ()

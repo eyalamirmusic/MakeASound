@@ -18,7 +18,7 @@ it.
 | 2 | `MakeASoundPlugin`: `Plugin`, parameters, state, description | fake-host tests drive a plugin end to end — **landed 2026-10-10** |
 | 3 | Standalone format | a `Plugin` runs in a window with device and MIDI pickers — **landed 2026-10-10** |
 | 4 | VST3 | pluginval at strictness 10 — **landed 2026-10-10** |
-| 5 | AU | auval after an install step |
+| 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
 | 6 | editors, examples, CI, docs | |
 
 ## Stage 0: `Buffer`
@@ -1505,17 +1505,465 @@ untouched.
   - a saved project reopens with its values.
 - CLAUDE.md, README and this plan describe the format as it is.
 
+## Stage 5: the AU format
+
+The second DAW format, macOS only: an Audio Unit v2 `.component` over the same
+`PluginWrapper`, built on Apple's AudioUnitSDK. The proof is `auval -strict` on both
+example bundles, on this Mac and in the macOS CI job, after an install step.
+
+Landed: `MakeASoundAUDescribe` and `MakeASoundAU` in `Plugin/AU/`, built when
+`TARGET ausdk`, which `ThirdParty/CMakeLists.txt` defines on `APPLE AND NOT IOS`
+from Apple's AudioUnitSDK through CPM; `makeasound_add_plugin` gains the `AU`
+format (`<Name>-AU`, `<Name>-AUPlistGen`, `<build>/AU/<OUTPUT_NAME>.component`,
+identifier `<BUNDLE_ID>.component`, `PkgInfo`, ad-hoc signature, the
+`Components` folder under `MAKEASOUND_INSTALL_PLUGINS`), and `Plugins/Gain` and
+`Plugins/Synth` build `FORMATS Standalone VST3 AU`. `PluginValidator build/AU`
+passes `auval -strict` on `MakeASound Gain.component` and `MakeASound
+Synth.component` on this Mac; the macOS CI job gains the `auval (Release)` step.
+`MakeASoundPluginval` validates a `.component` through auval, `PluginValidator`
+takes `--stress N` and fetches pluginval only when a `.vst3` is named, and the
+env-gated test sweeps `MAKEASOUND_AU_DIR` as well. Tests: `AU/` in `AUTests.cpp`
+over `Tests/AUTestHost.h` and `AUAllocationTests.cpp`, with the echo instrument
+as a second plugin of `PluginTests.cpp`'s module. README and CLAUDE.md describe
+the format. Where it differs from the section below:
+
+- **Reconciliation keeps two baselines**, `lastHostValue` and `lastPluginValue`
+  per exposed entry, not one. A host value that moved, on a parameter no gesture
+  holds, goes to the plugin and both baselines take the result; otherwise
+  `Globals()` is written back only when the plugin moved on its own or a held
+  parameter's host write has to be undone. Mirroring the plugin's value back on
+  every block, as the section had it, overwrote the host's value with the
+  plugin's snapped form of it: auval's "Parameter did not retain set value when
+  Initialized" sets off-grid values on a stepped parameter and reads them back.
+  `Initialize` pushes `Globals()` into the plugin before seeding both baselines,
+  so a value the host set before initializing reaches the plugin.
+- **`SetParameter` is overridden** to refuse a global id that is not an exposed
+  host id (`kAudioUnitErr_InvalidParameter`). With `Globals()` in map mode the
+  SDK would otherwise insert any id a host or auval writes.
+- **A host `SetParameter` writes the wrapper at once**, not only at the next
+  render, unless a gesture holds the parameter, and `SaveState` does not copy
+  `Globals()` into the plugin: a save between a host write and the render it
+  lands in would otherwise have to choose between the host's value and one the
+  plugin moved itself, and copying undid the plugin's own moves. On the message
+  thread `SetParameter` also checks the latency, as VST3's `setParamNormalized`
+  does. `RestoreState` with no document of ours pushes the restored `Globals()`
+  into the plugin.
+- **The factory refuses a foreign manufacturer**, and an unknown subtype, before
+  dispatching, returning null; the constructor still throws for a subtype it
+  cannot create, should the factory be bypassed.
+- **The latency `PropertyChanged` is posted on the calling thread**, not
+  marshalled to the message thread: the compare-exchange already makes only one
+  caller post, and `takeLatencyChanged` is consumed only when that caller is the
+  message thread. `performParameterEdit` and `RestoreState` check it too.
+- **The adapter property is `MakeASound::AU::adapterProperty`** (64000), a
+  namespace constant in `CocoaUI.h`, not a `kMakeASoundAUProperty_Adapter` macro.
+- **`MAKEASOUND_AU_PKGINFO`** is a property of `MakeASoundAU` that always points
+  at `../VST3/PkgInfo`, the same file, rather than reading `MakeASoundVST3`'s
+  property, so the AU format does not need the VST3 target to exist.
+- **`ausdk` is always a unity build**, as `vst3sdk` is: nothing in it is edited.
+  It is pinned to `GIT_TAG AudioUnitSDK-1.4.0`.
+- **`ValuesHaveStrings` is set only for a stepped choice or bool**, the
+  parameters that answer `GetParameterValueStrings`; every one still answers
+  `ParameterStringFromValue`, and `ParameterValueFromString` hands back the
+  current value when `textToValue` yields a non-finite number, never NaN.
+- **MIDI in is staged.** `MusicDeviceMIDIEvent`/`MusicDeviceSysEx` may arrive on
+  a host thread other than the render thread, so the `Handle*` overrides push
+  into a staging `MIDI::Buffer` of the adapter's (1024 events, reserved in
+  `PostConstructor`, dropping when full) under a `SpinLock`, as JUCE's wrapper
+  does, and `Render` starts with `clearMidi()` and moves the staged events onto
+  MIDI-in bus 0 under the same lock; there is no `clearMidi()` at the end. AU
+  delivers one MIDI stream, so only bus 0 is ever fed. The velocity-0 branch in
+  `HandleNoteOn` is gone: `AUMIDIBase::HandleMIDIEvent` already turns one into
+  `HandleNoteOff`.
+- **Outputs follow `DoRenderBus`.** With one output element bus 0 is bound from
+  its buffer list, which the SDK pointed at the host's buffers or prepared; with
+  more, every bus, bus 0 included, is `PrepareBuffer(frames)`, because the SDK
+  renders them all into its own buffers and copies each out when its bus is
+  rendered, so a host rendering bus 1 first still gets bus 0.
+- **The MIDI output callback goes through `RealtimeSwap`**, published by
+  `SetProperty` and taken by `currentForBlock()` once per render, instead of a
+  flag over a plain struct that a render could read half rewritten.
+- **The playhead's sample time is the transport's** `sampleInTimeline`, as VST3
+  reports `projectTimeSamples`; the timestamp's `mSampleTime` only when
+  `CallHostTransportState` does not answer.
+- **Nothing releases the message thread.** The `__attribute__((destructor))`
+  function in `EntryPoint.cpp` is gone: dyld registers one when the image loads,
+  so it runs after the image's function-local statics are destroyed, and once
+  `RealtimeSwap`'s reclaimer had started eacp's `callAfter` scheduler, auval
+  aborted at exit locking the scheduler's destroyed mutex. On macOS releasing
+  only stops that scheduler, which its own static destructor already does.
+- **`kAudioUnitProperty_ClassInfoFromDocument`** is answered (writable,
+  `sizeof(CFPropertyListRef)`) and routed to `RestoreState`, since the SDK does
+  not dispatch it and Logic restores a document through it. Both paths load a
+  `Session` document.
+- **`kAudioUnitProperty_BypassEffect` is not implemented.** auval warns about it
+  as a recommended property and passes; mapping it onto a `{.bypass = true}`
+  parameter, as the VST3 adapter's `kIsBypass` flag does, is left for stage 6.
+- **`HandleNonNoteEvent` also carries the program change**, which the SDK's
+  `HandleProgramChange` would deliver with no frame, and SysEx longer than
+  `MIDI::SysEx::maxBytes` (32) is dropped, as in every format.
+- **The module sets `OBJCXX_STANDARD 23`**: the view TU is Objective-C++ and
+  includes the SDK's `<expected>` too. `ausdk`'s feature is PUBLIC, so the
+  tests compile the entry and view TUs into a test-only `MakeASoundAUTestModule`
+  that links `MakeASoundAU` PRIVATE; `MakeASoundTests` stays C++20, includes no
+  adapter header and hosts the unit through the C API.
+- **The `.component` is laid out by hand**, not as a CMake `BUNDLE` target: CMake
+  rewrites a bundle target's `Info.plist` on every configure, which replaced the
+  generated one until the next relink. The module lands in `Contents/MacOS` and
+  the post-build writes the plist, `PkgInfo` and the signature, the way the
+  Windows and Linux VST3 layouts are already made.
+- **auval's verdict** is exit code 0 with `AU VALIDATION SUCCEEDED` in the output
+  (not `PASS`), and the components are read with
+  `CFBundleCopyInfoDictionaryForURL`, not through a `CFBundle`, which is cached by
+  path and showed a rebuilt bundle's old plist.
+
+### Decision
+
+There is one class per module, `MakeASound::AU::Adapter`, deriving from
+`ausdk::MusicDeviceBase` (which is `AUMIDIBase` over `AUBase`, so one class answers
+the effect, music-effect, instrument and MIDI-processor selectors alike) plus
+`HostEditListener`. It owns a `PluginWrapper` built with `PluginFormat::AU` and
+drives it in the documented order, never calling the plugin's `process`. The design
+is Plug's AU adapter mapped onto MakeASound's types and corrected where MakeASound's
+VST3 adapter already departed from Plug:
+
+- **One exported factory function per module**, `MakeASoundAUFactory`, not Plug's
+  four. It reads `desc->componentType` and dispatches to
+  `ausdk::AUBaseFactory`, `ausdk::AUMIDIEffectFactory` or
+  `ausdk::AUMusicDeviceFactory` over `Adapter`, so the right dispatch table serves
+  each type. The instance finds its `PluginDescription` through
+  `AudioComponentGetDescription` on its own component: `describeModule().plugins`
+  keyed by `pluginCode` (the subtype), so a module with several plugins ships them in
+  one bundle, as VST3 does.
+- **Component type by category** (`ComponentType.{h,cpp}`, SDK-free):
+  `Category::Instrument` → `aumu`; `Category::MidiEffect` → `aumi`; `Effect` with a
+  MIDI input bus → `aumf`; otherwise `aufx`. Subtype is `pluginCode`, manufacturer
+  is `manufacturerCode`. It constructs the plugin to read the layout, in the
+  generator and at runtime both, so a plugin constructor must be safe in a CLI.
+- **`AudioUnitParameterID` is the parameter's 31-bit host id**
+  (`ParameterList::Entry::hostId`), looked up with `indexOfHostId`, never an index:
+  an inserted parameter keeps everyone else's automation. `Globals()` therefore runs
+  in map mode, and every id is seeded in `PostConstructor` so no `SetParameterRT`
+  ever inserts on the render thread. `GetParameterList` is overridden to return the
+  exposed ids in declaration order, not map order.
+- **Only `isHostExposed` entries are listed**; `GetParameterInfo` on another id is
+  `kAudioUnitErr_InvalidParameter`. `GetParameterValueStrings` answers for a
+  `ChoiceParam` (and a `BoolParam`), `kAudioUnitProperty_ParameterStringFromValue`
+  and `ParameterValueFromString` go through `valueToText`/`textToValue`, so a
+  skewed parameter reads right in the host. Units: `Indexed` for a stepped parameter,
+  `Boolean` for a bool, `Generic` otherwise; flags readable, writable,
+  `HasCFNameString`, `CFNameRelease`, and `ValuesHaveStrings` where they do.
+- **Reconciliation.** `CanScheduleParameters()` is false (true makes the SDK
+  `push_back` on the render thread), so every host write lands in `Globals()` at
+  once and the block reads it: at the top of each render, for each entry, the
+  host's `GetParameterRT` is applied through `setParameter` when it moved since the
+  last block and no gesture holds it; otherwise the plugin's value is mirrored back
+  with `SetParameterRT`. The baseline is a per-entry `lastHostValue`.
+- **Gestures** leave through `AUEventListenerNotify`:
+  `kAudioUnitEvent_BeginParameterChangeGesture`, `ParameterValueChange` (after
+  `Globals()->SetParameter` with the plain value), `EndParameterChangeGesture`;
+  begin also `holdParameter`s and end `releaseParameter`s. `beginParameterEditGroup`/
+  `endParameterEditGroup` are no-ops. `parameterInfoChanged` posts
+  `PropertyChanged(kAudioUnitProperty_ParameterList)` and `ParameterInfo`.
+- **Latency and tail.** `GetLatency()` is `latencySamples()` over the output rate
+  and records the figure; a change reaches `PropertyChanged(kAudioUnitProperty_Latency)`
+  through the same compare-exchange on the last fetched figure the VST3 adapter
+  uses, on the message thread. `SupportsTail()` is true and `GetTailTime()` is
+  `tailSamples()` over the rate.
+- **Buses and formats.** `PostConstructor` sets every element to float32
+  non-interleaved at the declared channel count and `SetWillAllocateBuffer(true)` on
+  the outputs. `SupportedNumChannels` publishes the pairs `acceptsLayout` accepts
+  for main-bus counts 1..8 on each side (0 for a side with no bus), from a member
+  vector that outlives the call. `ValidFormat` judges the element alone, since
+  hosts set one at a time: its count must appear on that side of some published
+  pair. `Initialize()` builds the negotiated layout from each element's
+  `NumberChannels()`, runs it through `PluginWrapper::setLayout`
+  (`kAudioUnitErr_FormatNotSupported` when refused), prepares at
+  `Output(0)`'s rate (rounded, `int`) and `GetMaxFramesPerSlice()`, sizes the
+  per-bus channel-pointer tables, seeds the reconciliation baseline and resets.
+  Buffer pointers are taken per render, never in `Initialize`, because
+  `DoInitialize` reallocates after it.
+- **Render.** `Render` is overridden, not `ProcessBufferLists`. In order: consume a
+  pending reset (`wrapper.reset()`), `clearMidi()` and move the MIDI staged since
+  the last block onto MIDI-in bus 0 under its spin lock, reconcile parameters,
+  `PullInput` per bus (an unconnected bus binds empty), `setPlayhead` from the
+  host callbacks, `sortMidiInByOffset`, bind each output (with one output element
+  bus 0 is `Output(0).GetBufferList()`, which the SDK already pointed at the
+  host's buffers; with more, every bus is `PrepareBuffer(frames)`), with the input
+  of the same index as the matching input when it was valid and has the same
+  count, `process()`, then drain `midiOut()` into the MIDI output callback. MIDI
+  arrives through `MIDIEvent` before `Render`, on any thread, which is why it is
+  staged rather than pushed into the wrapper directly.
+  `DoRender` already refuses an uninitialized unit, too many frames, and installs
+  its own denormal disabler.
+- **Reset** is a real reset: `Reset()` sets an atomic flag and calls the base; the
+  next render runs `wrapper.reset()`. The SDK does not serialise `Reset` against
+  `Render`, so nothing is touched from `Reset` itself. No CC 120 is injected.
+- **MIDI in** overrides `HandleNoteOn`, `HandleNoteOff`, `HandleControlChange`,
+  `HandlePitchWheel` (14-bit, normalized), `HandleChannelPressure`,
+  `HandlePolyPressure`, `HandleProgramChange`, `HandleSysEx` and `HandleNonNoteEvent`,
+  the last because `AUMIDIBase` diverts CC 120, 121 and 123 to offset-less no-ops;
+  each stages its event under a spin lock for the next render, which pushes it to
+  MIDI-in bus 0 at its frame (AU delivers one MIDI stream). `MIDIEventList` stays
+  at the SDK default, so a host falls back to `MIDIEvent`.
+- **MIDI out** exists when the layout has a MIDI output bus:
+  `kAudioUnitProperty_MIDIOutputCallbackInfo` (a `CFArrayRef` of bus names) and
+  `kAudioUnitProperty_MIDIOutputCallback` (`AUMIDIOutputCallbackStruct`, published
+  through a `RealtimeSwap`). Each render builds a `MIDIPacketList` in a buffer
+  sized at `Initialize`, one packet per event stamped with its sample offset,
+  flushing when full, and calls the callback with the render timestamp.
+- **State** is the SDK's ClassInfo dictionary plus one key, `MakeASoundState`, a
+  `CFData` of `wrapper.saveState(StateContext::Session)`; AU has no project/preset
+  signal, so `Session` always. `RestoreState` runs the base (which checks the
+  codes and restores `Globals()`), then `wrapper.loadState(bytes, Session)`, mirrors
+  the plugin's values into `Globals()`, and checks the latency. No exception crosses
+  the ABI. Off the message thread the wrapper's save reads the published snapshot,
+  which is what made `auval -strict -stress` hang in Plug and does not here.
+- **Playhead** is read through `CallHostBeatAndTempo`,
+  `CallHostMusicalTimeLocation` and `CallHostTransportState`, the sample time
+  being the transport's timeline position, or the timestamp's when there is no
+  transport; `isValid` when any answered.
+- **The message thread.** The factory function and the constructor call
+  `adoptHostMessageThread()`, as the VST3 factory and `initialize` do. AU has no
+  module-exit hook, so `EntryPoint.cpp` releases it from a function marked
+  `__attribute__((destructor))`, which dyld runs when the bundle unloads.
+- **The view** is `kAudioUnitProperty_CocoaUI`: an `AudioUnitCocoaViewInfo` naming
+  the bundle (`[NSBundle bundleForClass:]`) and a factory class. The ObjC runtime is
+  one per process and every `.component` loaded registers its classes into it, so
+  the two classes are **named per plugin**: `CocoaUI.mm` is compiled into each
+  `<Name>-AU` module (recorded on `MakeASoundAU` as `MAKEASOUND_AU_VIEW_SOURCE`,
+  beside the entry point), with `MAKEASOUND_AU_VIEW_CLASS` defined by
+  `makeasound_add_plugin` as a C identifier from the bundle id and version. Where
+  the UI tier is not built the property names `NoCocoaUI.cpp` instead, which
+  defines the same `cocoaViewInfo()` hook as unsupported, so the choice is one
+  source file, not a registering initialiser and `WHOLE_ARCHIVE`. The factory
+  reaches the adapter through a custom global property
+  (`kMakeASoundAUProperty_Adapter`), the `Adapter*`, which is safe because the
+  class name ties the view to the binary that defined it. The `NSView` shows
+  `createEditor()` or `GenericEditor` in an `eacp::Graphics::EmbeddedView` over
+  itself, `autoresizingMask` from `isResizable()`, `onAttached()` once embedded
+  and `onRemoved()` on close. The host owns the view independently of the unit
+  (Logic disposes the unit first), so the adapter keeps a closer per open view,
+  runs them in its destructor while the wrapper still lives, and the view's
+  `dealloc` unregisters. Plug's window-moving heuristics for Logic's view service
+  are stage 6.
+- **The plist is generated at build time** by `<Name>-AUPlistGen`, a small
+  executable (`PlistGen.cpp`, recorded as `MAKEASOUND_AU_PLIST_GEN`) that links the
+  plugin core and `MakeASoundAUDescribe` (`ComponentType.cpp`, SDK-free), calls
+  `describeModule()` and writes `Info.plist`: `CFBundlePackageType` `BNDL`,
+  `CFBundleSignature` `????`, identifier, name, executable, and
+  `CFBundleVersion`/`CFBundleShortVersionString` from **`ModuleDescription::version`**,
+  as `Description.h` already promises (macOS caches a bundle's `AudioComponents`
+  keyed by `CFBundleVersion`); the CMake `VERSION` argument stays the standalone's
+  and the VST3's. `AudioComponents` holds one entry per plugin: `type`,
+  `subtype`, `manufacturer` as four-character strings, `name` `"<vendor>: <name>"`,
+  `description`, `version` as the integer `major << 16 | minor << 8 | patch` of
+  `PluginDescription::version`, `factoryFunction` `MakeASoundAUFactory`,
+  `sandboxSafe` true.
+- **The SDK** is Apple's AudioUnitSDK (Apache-2.0), fetched through CPM with
+  `DOWNLOAD_ONLY` at a pinned tag and built in `ThirdParty/CMakeLists.txt` as the
+  static target `ausdk` from its twelve sources, SYSTEM include root, frameworks
+  AudioToolbox, CoreAudio, CoreMIDI and CoreFoundation PUBLIC, the SDK's
+  warnings off, IDE folder `External/AudioUnitSDK`. Its headers include
+  `<expected>`, so `ausdk` carries `cxx_std_23` PUBLIC: `MakeASoundAU`, each
+  `<Name>-AU` module and nothing else compile as C++23, and the tests reach the
+  adapter through the C API alone. The SDK's render-safety attributes
+  (`AUSDK_RTSAFE`) are matched with plain `noexcept override`s.
+
+### Layout
+
+New directory `Lib/MakeASound/Plugin/AU/` (namespace `MakeASound::AU`, IDE folder
+`Lib/Plugin`), every TU built as Objective-C++ only where it must be:
+
+| file | what |
+| --- | --- |
+| `CMakeLists.txt` | `MakeASoundAUDescribe`, `MakeASoundAU` and the file properties |
+| `AUCommon.h` | the SDK includes (`AudioUnitSDK/MusicDeviceBase.h`, `AUMIDIEffectBase.h`), `namespace ausdk` alias |
+| `ComponentType.{h,cpp}` | `ComponentInfo componentInfoFor(const ModuleDescription&, const PluginDescription&)` → type, subtype, manufacturer, bus counts; `fourCCString`; SDK-free, AudioToolbox only |
+| `Adapter.{h,cpp}` | the unit |
+| `HostParameters.{h,cpp}` | ids, `GetParameterInfo` filling, value strings, text conversions |
+| `Conversion.{h,cpp}` | noexcept conversions: playhead from the host callbacks, MIDI bytes to `MIDI::Event` and `MIDI::Event` to packet |
+| `State.{h,cpp}` | the custom key in and out of the ClassInfo dictionary |
+| `CocoaUI.h` | `CocoaViewInfo cocoaViewInfo()` and the adapter-property id, what the adapter asks the module's view TU |
+| `CocoaUI.mm` | the factory and view classes, named by `MAKEASOUND_AU_VIEW_CLASS`; compiled into each module |
+| `NoCocoaUI.cpp` | `cocoaViewInfo()` answering none; compiled into each module where there is no UI tier |
+| `EntryPoint.cpp` | `MakeASoundAUFactory` and the unload destructor; compiled into each module |
+| `PlistGen.cpp` | the generator's `main`; compiled into each `<Name>-AUPlistGen` |
+| `AUExports.txt` | `_MakeASoundAUFactory` |
+| `PkgInfo` | shared with VST3: the VST3 target's file is reused through its property |
+
+Elsewhere: `ThirdParty/CMakeLists.txt` (the `ausdk` target, under `APPLE AND NOT
+IOS`), `CMake/MakeASoundPlugin.cmake` (`AU` format, `_makeasound_add_au`),
+`Plugin/CMakeLists.txt` (`add_subdirectory(AU)`), `Plugins/Gain` and
+`Plugins/Synth` (`FORMATS Standalone VST3 AU`), `Plugin/Validation/` and
+`Tools/PluginValidator/` (auval), `Tests/AUTests.cpp`, `Tests/AUAllocationTests.cpp`,
+`Tests/CMakeLists.txt`, `.github/workflows/ci.yml`, `CLAUDE.md`, `README.md`.
+
+**Targets:**
+
+- **`ausdk`** (STATIC, `ThirdParty/`): added with `vst3sdk` under
+  `MAKEASOUND_BUILD_PLUGIN` on `APPLE AND NOT IOS`.
+- **`MakeASoundAUDescribe`** (STATIC): `ComponentType.cpp`; links `MakeASoundPlugin`
+  PUBLIC and AudioToolbox. C++20.
+- **`MakeASoundAU`** (STATIC): added when `TARGET ausdk`; `Adapter.cpp`,
+  `HostParameters.cpp`, `Conversion.cpp`, `State.cpp`; links `MakeASoundPlugin`,
+  `MakeASoundAUDescribe` and `ausdk` PUBLIC. Properties `MAKEASOUND_AU_ENTRY`,
+  `MAKEASOUND_AU_PLIST_GEN`, `MAKEASOUND_AU_EXPORTS`, `MAKEASOUND_AU_VIEW_SOURCE`
+  (`CocoaUI.mm` with `MakeASoundPluginUI` and `eacp-graphics`, else
+  `NoCocoaUI.cpp`), and `MAKEASOUND_AU_HAS_VIEW=1` PUBLIC with the view; the view
+  TU needs `MakeASoundPluginUI`, `eacp-graphics` and Cocoa, recorded as
+  `MAKEASOUND_AU_VIEW_LIBRARIES` for the module to link. Unity build follows
+  `MAKEASOUND_UNITY_BUILD`.
+- **`<Name>-AU`** (MODULE) and **`<Name>-AUPlistGen`** (executable, IDE folder
+  `<Name>`), by `makeasound_add_plugin`.
+
+### Build
+
+`_makeasound_add_au(name)`, after `_makeasound_add_vst3`'s pattern:
+
+- `add_library(${name}-AU MODULE <entry> <view source>)`, linking `MakeASoundAU`
+  then `${name}` PRIVATE (the core defines `describeModule()`), plus the view
+  libraries; `MAKEASOUND_AU_VIEW_CLASS=MakeASoundAUView_<id>` where `<id>` is
+  `string(MAKE_C_IDENTIFIER "${ARG_BUNDLE_ID}_${ARG_VERSION}")`; `-fobjc-arc` on
+  the `.mm`.
+- `BUNDLE TRUE`, `BUNDLE_EXTENSION component`, `OUTPUT_NAME`, `PREFIX ""`,
+  `LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/AU>`, the bundle path on the
+  target as `MAKEASOUND_AU_BUNDLE`, Release LTO, `.pdb`-style separation is moot.
+- `-exported_symbols_list` `AUExports.txt` with `LINK_DEPENDS`, so `nm -gU` shows
+  exactly `_MakeASoundAUFactory`.
+- `add_executable(${name}-AUPlistGen <PlistGen.cpp>)` linking `${name}` and
+  `MakeASoundAUDescribe`, `add_dependencies(${name}-AU ${name}-AUPlistGen)`.
+- `POST_BUILD`, in order: the generator writes
+  `$<TARGET_BUNDLE_CONTENT_DIR>/Info.plist` (arguments: bundle name, `<BUNDLE_ID>.component`,
+  executable name, output path); `PkgInfo` copied in; `codesign --force --sign -`.
+- With `MAKEASOUND_INSTALL_PLUGINS`, `InstallPluginBundle.cmake` into
+  `~/Library/Audio/Plug-Ins/Components`.
+- Skipped with a status line where `MakeASoundAU` is not a target, so Windows,
+  Linux and iOS trees are untouched.
+
+### Validation
+
+`MakeASoundPluginval` gains the AU half, macOS only by TU:
+
+- `findBundles(directory)` also returns every `*.component`.
+- `validate(pluginval, bundle, options)` on a `.component` ignores the pluginval
+  path: `AUValidator-macOS.cpp` copies the bundle into
+  `~/Library/Audio/Plug-Ins/Components` (replacing the one there), reads the
+  `AudioComponents` array from the bundle's plist through `CFBundle`, and runs
+  `auval -strict -v <type> <subtype> <manufacturer>` per entry through
+  `eacp::Processes::run`, concatenating the logs; `Options::stress` (default 0) adds
+  `-stress N`. If auval answers that the component was not found, it runs
+  `killall -9 AudioComponentRegistrar` once and retries, since the registrar
+  caches the scan. `passed` is every entry exiting 0 with `PASS` in its output.
+  `AUValidator-Default.cpp` reports a `.component` as failed with "AU validation is
+  macOS only".
+- `PluginValidator` therefore takes `.component` bundles and folders of them with
+  no new flags (`--stress N` is new); `PluginValidator build/VST3 build/AU` is the
+  whole sweep. The `fetch` of pluginval still happens only when a `.vst3` is named.
+- `Tests/PluginvalTests.cpp`'s env-gated case also sweeps `MAKEASOUND_AU_DIR`.
+
+### Tests
+
+`Tests/CMakeLists.txt`: `if (TARGET MakeASoundAU)` adds `AUTests.cpp`, compiles
+`MAKEASOUND_AU_ENTRY` into the test target (the factory, defined once per binary,
+over `PluginTests.cpp`'s `describeModule()`, which gains the MIDI-echoing instrument
+as a second plugin with its own code so the subtype lookup is exercised; the VST3
+cases that count factory classes are updated), links `MakeASoundAU` and
+`MakeASoundAUDescribe`, and in the allocation branch adds `AUAllocationTests.cpp`.
+The tests never include an adapter header: they stay C++20 and host the unit
+through the C API.
+
+**`Tests/AUTestHost.h`**: `registerTestComponents()` calls `AudioComponentRegister`
+once per plugin with the exported factory cast to `AudioComponentFactoryFunction`
+(instantiating from the returned handle, never `AudioComponentFindNext`, which could
+find an installed bundle), and `UnitHost {component, instance, buffers, timestamp,
+midiOut}` that sets the stream formats, `MaxFramesPerSlice`, initializes, renders
+through `AudioUnitRender` into its own `AudioBufferList`s with a pull-input
+callback, and collects MIDI out through the callback property.
+
+**`AUTests.cpp`** (suite `AU/`), after `VST3Tests.cpp`:
+- `ComponentType`: the four categories map to their types; the fourcc strings.
+- the factory: both plugins instantiate, each unit's description matches its codes,
+  and an unknown subtype fails to instantiate.
+- channels: `SupportedNumChannels` lists what `acceptsLayout` accepts; mono is
+  reachable by setting one element; a refused pair fails `Initialize`.
+- a block in place and not: input reaches output through the gain, a bus past the
+  input's width is zeroed, a render before `Initialize` is refused; two output
+  buses both carry their block when bus 1 is rendered first at a timestamp; the
+  playhead is the transport's timeline position, the stream clock without one.
+- parameters: the list is the host ids in declaration order; info, value strings,
+  string-from-value and value-from-string (non-finite text keeps the current
+  value); a host write lands in the next block; the
+  edit gate (a held parameter's host write is dropped and mirrored back); the gesture
+  events reach an `AUEventListener`.
+- state: ClassInfo round trip including the custom key and a parameter inserted
+  mid-list, and through `ClassInfoFromDocument`; a dictionary from another subtype is refused; a save from a worker
+  thread while the main thread spins returns.
+- MIDI: `MusicDeviceMIDIEvent` notes reach the instrument at their offsets, CC 123
+  with its frame, SysEx through `MusicDeviceSysEx`, events sent from another thread
+  during renders all arrive in order; the echoed events come back
+  through the MIDI output callback with their offsets; no callback, no crash.
+- `Reset` silences a held note, before any render too.
+- latency: a change posts `kAudioUnitProperty_Latency` to a property listener.
+- `kAudioUnitProperty_CocoaUI` is answered only with the view, and names a class
+  the runtime can find.
+
+**`AUAllocationTests.cpp`**: whole `AudioUnitRender` calls with host parameter
+writes, MIDI, a held parameter and variable block sizes, the ban raised inside the
+plugin's `process`.
+
+### CI and auval
+
+The macOS job gains a step `auval (Release)` after pluginval:
+`build-Release/Tools/PluginValidator/PluginValidator --logs
+build-Release/pluginval/logs build-Release/AU`, which installs into the runner's
+user folder and runs `auval -strict -v` per component; the log upload already covers
+its folder. `PluginValidator build/VST3 build/AU` is the local sweep. No other job
+changes: `ausdk`, `MakeASoundAU` and every `-AU` target skip with a status line off
+macOS.
+
+### Fallout in this repository
+
+| place | change |
+| --- | --- |
+| `ThirdParty/CMakeLists.txt` | `ausdk` through CPM, Apple desktop only |
+| `Plugin/CMakeLists.txt` | `add_subdirectory(AU)` after `VST3` |
+| `CMake/MakeASoundPlugin.cmake` | `AU` format, `_makeasound_add_au` |
+| `Plugins/Gain`, `Plugins/Synth` | `FORMATS Standalone VST3 AU` |
+| `Plugin/Validation/`, `Tools/PluginValidator/` | `.component` through auval |
+| `Tests/` | `AUTests.cpp`, `AUAllocationTests.cpp`, `AUTestHost.h`, the second test plugin |
+| `.github/workflows/ci.yml` | the auval step on macOS |
+| `CLAUDE.md`, `README.md`, `plan.md` | the format as it is |
+
+No public API change. `MakeASoundPlugin` is untouched.
+
+### Fallout downstream
+
+None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
+
+### Done when
+
+- `PluginValidator build/AU` passes `auval -strict` on `MakeASound Gain.component`
+  and `MakeASound Synth.component` on this Mac, and the macOS CI step is green.
+- `AU/` and the AU allocation cases are green on macOS; every other job is unchanged.
+- Both bundles carry `Contents/PkgInfo`, a generated plist with the right
+  `AudioComponents`, a valid ad-hoc signature, and `nm -gU` shows exactly
+  `_MakeASoundAUFactory`.
+- Each bundle loads in Logic or Ableton on the Mac, opened by hand after
+  `-DMAKEASOUND_INSTALL_PLUGINS=ON`: the generic editor opens; automation records
+  and plays back; the synth plays from a MIDI track; a saved project reopens with
+  its values; two MakeASound AUs open in one project with editors.
+- CLAUDE.md, README and this plan describe the format as it is.
+
 ## Later stages, in brief
 
-
-- **AU**: AudioUnitSDK through CPM, `ausdk::AUBase` family factories chosen by
-  category, parameters reconciled through `GetParameterRT`, MIDI output
-  callback, `kAudioUnitProperty_CocoaUI` view factory over `EmbeddedView`,
-  `AudioComponents` plist written by a build-time generator that links the plugin
-  core and calls `describeModule()`, `auval` in CI after an install step.
 - **Editors**: on top of stage 3's `Editor` and its `view()`, size and aspect
   policy and the host resize request; a generic parameter page with no npm; a
-  React page through the same `miro_export` codegen `Apps/Synth` uses.
+  React page through the same `miro_export` codegen `Apps/Synth` uses; Plug's
+  window heuristics for Logic's AU view service.
+- **Bypass in AU**: `kAudioUnitProperty_BypassEffect` mapped onto the plugin's
+  `{.bypass = true}` parameter, as VST3's `kIsBypass` flag already does. auval
+  warns that the recommended property is missing and passes.
 - **CLAP**: the ids and the per-event MIDI path are already prepared; note ids and
   per-note expression are the remaining `MIDI::Event` gap.
 - **AUv3**: a new adapter over the same core plus app-extension packaging.
@@ -1612,3 +2060,47 @@ untouched.
   `PlugView-{macOS,Windows,Linux}.cpp`, each picked in CMake. `HostRunLoop` is the
   seam that makes the factory's and the view's run-loop hand-over the same call on
   every platform, with a null answer where there is nothing to attach to.
+- 2026-10-10: AU is one `MusicDeviceBase` class, `AU::Adapter`, for every
+  component type, behind one exported factory symbol per module,
+  `MakeASoundAUFactory`, which picks the SDK's dispatch table from the component
+  type and refuses a foreign manufacturer or an unknown subtype; Plug's four
+  factories were dropped. The instance finds its plugin by its own subtype, so a
+  module's plugins share one bundle.
+- 2026-10-10: an `AudioUnitParameterID` is the parameter's 31-bit host id, as a
+  VST3 `ParamID` is, so `Globals()` runs in map mode, seeded with every exposed id
+  in `PostConstructor` so the render thread never inserts, and `SetParameter`
+  refuses any other id. `CanScheduleParameters()` is false, because the SDK's
+  scheduled path allocates on the render thread.
+- 2026-10-10: AU parameter reconciliation keeps two baselines per exposed entry,
+  what the host and what the plugin held after the last block, and writes
+  `Globals()` back only when the plugin moved on its own or a held parameter's
+  host write is undone. A host's value is never replaced by the plugin's snapped
+  form of it, which auval's "retain set value" check requires.
+- 2026-10-10: the AU view's Objective-C classes are named per module
+  (`MakeASoundAUView_<bundle id>_<version>`) by compiling `CocoaUI.mm` into each
+  `<Name>-AU` with the name defined, and a module without a UI tier compiles
+  `NoCocoaUI.cpp` instead; the choice is which source the module compiles, not a
+  registering initialiser in the static library kept alive by `WHOLE_ARCHIVE`.
+  One ObjC runtime serves the whole host process, so two components sharing a
+  class name would share one view. The name ties the view to its own binary,
+  which is what makes handing it the `Adapter*` through a custom property safe.
+- 2026-10-10: the AU `Info.plist` is generated after each link by
+  `<Name>-AUPlistGen` from `describeModule()`, and its `CFBundleVersion` is
+  `ModuleDescription::version`, not the CMake `VERSION`: macOS caches a bundle's
+  `AudioComponents` keyed by that version, so it has to move with the plugin
+  list the module declares.
+- 2026-10-10: the AudioUnitSDK is fetched through CPM at the tag
+  `AudioUnitSDK-1.4.0` (Apache-2.0) rather than vendored, and built as `ausdk`
+  on `APPLE AND NOT IOS`. Its headers need C++23 (`<expected>`), which `ausdk`
+  carries PUBLIC, so only what links it, the AU adapter, its modules and the
+  tests' `MakeASoundAUTestModule`, compiles as C++23; `MakeASoundPlugin`, `MakeASoundAUDescribe` and
+  the plist generators stay C++20 and no adapter header is included elsewhere.
+- 2026-10-10: auval runs through `PluginValidator`, the same tool and library as
+  pluginval: a `.component` is installed into `~/Library/Audio/Plug-Ins/Components`
+  first, since auval only finds installed components, then each `AudioComponents`
+  entry runs `auval -strict -v`, the registrar restarted once if it has not seen
+  the new bundle. CI runs it on the macOS job after pluginval.
+- 2026-10-10: AU `Reset` is a real reset: it raises a flag the next render
+  consumes with `wrapper.reset()`, because the SDK does not serialise `Reset`
+  against `Render`. Plug's injected CC 120 was dropped; `Processor::reset`
+  exists for this.

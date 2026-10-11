@@ -167,6 +167,16 @@ jobs:
             "$validator" "${args[@]}"
           fi
 
+      # Both example components through auval -strict: PluginValidator installs
+      # each into the runner's ~/Library/Audio/Plug-Ins/Components first. Its logs
+      # land beside pluginval's, so the upload below covers them.
+      - name: auval (Release)
+        if: matrix.pluginval && runner.os == 'macOS'
+        shell: bash
+        run: |
+          build-Release/Tools/PluginValidator/PluginValidator \
+            --logs build-Release/pluginval/logs build-Release/AU
+
       - name: Upload pluginval logs
         if: failure() && matrix.pluginval
         uses: actions/upload-artifact@v4

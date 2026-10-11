@@ -8,8 +8,8 @@
 
 #include <string>
 
-// Tracktion's pluginval, fetched and run from C++: what the PluginValidator tool
-// and the env-gated test both drive.
+// Tracktion's pluginval for a .vst3 and Apple's auval for a .component, run from
+// C++: what the PluginValidator tool and the env-gated test both drive.
 namespace MakeASound::Pluginval
 {
 struct Options
@@ -18,6 +18,7 @@ struct Options
     bool guiTests = true;
     eacp::Time::MS timeout {120000};
     std::string version = "v1.0.4";
+    int stress = 0;
     eacp::FilePath directory = eacp::OnlineResource::defaultDirectory();
 };
 
@@ -35,10 +36,15 @@ struct Result
     double seconds = 0;
 };
 
+bool isAudioUnit(const eacp::FilePath& bundle);
+
+// A .component ignores `pluginval`: it is installed into the user's Components
+// folder and each of its AudioComponents entries runs through auval -strict, on
+// macOS only.
 Result validate(const eacp::FilePath& pluginval,
                 const eacp::FilePath& bundle,
                 const Options& options = {});
 
-// Every *.vst3 directly under `directory`, sorted by name.
+// Every *.vst3 and *.component directly under `directory`, sorted by name.
 Vector<eacp::FilePath> findBundles(const eacp::FilePath& directory);
 } // namespace MakeASound::Pluginval

@@ -30,7 +30,20 @@ ModuleDescription describeModule()
     module.plugins.add(
         {.name = "Gain",
          .pluginCode = "Gain",
-         .create = [] { return EA::makeOwned<TestPlugins::GainPlugin>(); }});
+         .create = []
+         {
+             return TestPlugins::Module::create<TestPlugins::GainPlugin>(
+                 TestPlugins::Module::gainStandIn);
+         }});
+    module.plugins.add(
+        {.name = "Echo",
+         .category = Category::Instrument,
+         .pluginCode = "Echo",
+         .create = []
+         {
+             return TestPlugins::Module::create<TestPlugins::SynthPlugin>(
+                 TestPlugins::Module::echoStandIn);
+         }});
     return module;
 }
 } // namespace MakeASound
@@ -151,10 +164,14 @@ void loadOffMessageThread(PluginWrapper& wrapper, const std::string& document)
 auto tDescribeModule = test("Plugin/theModuleCreatesItsPlugins") = []
 {
     auto module = describeModule();
-    check(module.plugins.size() == 1);
+    check(module.plugins.size() == 2);
 
-    auto wrapper = PluginWrapper(module.plugins[0].create());
-    check(wrapper.plugin().name() == "Gain");
+    auto gain = PluginWrapper(module.plugins[0].create());
+    check(gain.plugin().name() == "Gain");
+
+    auto echo = PluginWrapper(module.plugins[1].create());
+    check(echo.plugin().name() == "Synth");
+    check(Module::lastCreated == &echo.plugin());
 };
 
 auto tAcceptsDeclared = test("Plugin/theDefaultAcceptsOnlyTheDeclaredLayout") = []

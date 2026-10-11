@@ -8,11 +8,14 @@
 #         [FOLDER <ide folder>])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
-# target per format: <Name>-Standalone, an app, and <Name>-VST3, a module built
-# into the bundle <build>/VST3/<OUTPUT_NAME>.vst3. The company and display name go
+# target per format: <Name>-Standalone, an app; <Name>-VST3, a module built into
+# the bundle <build>/VST3/<OUTPUT_NAME>.vst3; and on macOS <Name>-AU, a module
+# built into <build>/AU/<OUTPUT_NAME>.component, whose Info.plist <Name>-AUPlistGen
+# writes from describeModule() after every link. The company and display name go
 # into eacp's embedded app info; the app's settings are filed under the module's
-# vendor and the plugin's name. VERSION (default 1.0.0) is the bundles' version
-# string; a VST3 host reads the version from the factory instead. Every target
+# vendor and the plugin's name. VERSION (default 1.0.0) is the app's and the
+# VST3 bundle's version string; a VST3 host reads the version from the factory
+# instead, and the AU bundle takes ModuleDescription::version. Every target
 # goes in the IDE folder <Name>, nested under CMAKE_FOLDER when the caller set
 # one, unless FOLDER names another. A format whose library was not built is
 # skipped with a status line; targets are global, so this works from a CPM
@@ -126,6 +129,13 @@ function(makeasound_add_plugin name)
             endif ()
 
             _makeasound_add_vst3(${name})
+        elseif (format STREQUAL "AU")
+            if (NOT TARGET MakeASoundAU)
+                message(STATUS "${name}: AU format skipped (MakeASoundAU not built)")
+                continue()
+            endif ()
+
+            _makeasound_add_au(${name})
         else ()
             message(FATAL_ERROR
                     "makeasound_add_plugin(${name}): unknown format '${format}'")
@@ -237,6 +247,80 @@ function(_makeasound_add_vst3 name)
     if (MAKEASOUND_INSTALL_PLUGINS)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${install_dir}"
+                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
+                VERBATIM)
+    endif ()
+endfunction()
+
+# <Name>-AU: the module, our MakeASoundAUFactory and the view classes named for
+# this bundle, laid out as the .component bundle macOS scans, with the Info.plist
+# its AudioComponents come from generated after the link. Reads the caller's ARG_*
+# variables.
+function(_makeasound_add_au name)
+    get_target_property(au_entry MakeASoundAU MAKEASOUND_AU_ENTRY)
+    get_target_property(au_plist_gen MakeASoundAU MAKEASOUND_AU_PLIST_GEN)
+    get_target_property(au_exports MakeASoundAU MAKEASOUND_AU_EXPORTS)
+    get_target_property(au_pkginfo MakeASoundAU MAKEASOUND_AU_PKGINFO)
+    get_target_property(au_view_source MakeASoundAU MAKEASOUND_AU_VIEW_SOURCE)
+    get_target_property(au_view_libraries MakeASoundAU MAKEASOUND_AU_VIEW_LIBRARIES)
+
+    set(target ${name}-AU)
+    add_library(${target} MODULE "${au_entry}" "${au_view_source}")
+    # The format first, as for the others: the core defines describeModule().
+    target_link_libraries(${target} PRIVATE MakeASoundAU ${name} ${au_view_libraries})
+
+    # The Objective-C runtime is one per process, so two components defining one
+    # class name would share whichever loaded first.
+    string(MAKE_C_IDENTIFIER "${ARG_BUNDLE_ID}_${ARG_VERSION}" view_id)
+    target_compile_definitions(${target} PRIVATE
+            MAKEASOUND_AU_VIEW_CLASS=MakeASoundAUView_${view_id})
+
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+
+    set(bundle_dir "${CMAKE_BINARY_DIR}/AU")
+    set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.component")
+
+    # Laid out by hand rather than as a BUNDLE target: CMake rewrites a bundle's
+    # Info.plist on every configure, which would undo the generated one below
+    # until the next relink. $<1:...> keeps a multi-config generator from
+    # appending a per-config folder.
+    set_target_properties(${target} PROPERTIES
+            FOLDER "${ARG_FOLDER}"
+            OUTPUT_NAME "${ARG_OUTPUT_NAME}"
+            PREFIX ""
+            SUFFIX ""
+            # The SDK's headers include <expected>, in the view's Objective-C++ too.
+            OBJCXX_STANDARD 23
+            LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle}/Contents/MacOS>"
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+            MAKEASOUND_AU_BUNDLE "${bundle}")
+
+    # Only the factory leaves the image, so nothing else can coalesce with the
+    # copy another component in the same host process carries.
+    target_link_options(${target} PRIVATE "LINKER:-exported_symbols_list,${au_exports}")
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${au_exports}")
+
+    set(plist_gen ${name}-AUPlistGen)
+    add_executable(${plist_gen} "${au_plist_gen}")
+    target_link_libraries(${plist_gen} PRIVATE MakeASoundAUDescribe ${name})
+    set_target_properties(${plist_gen} PROPERTIES
+            FOLDER "${ARG_FOLDER}"
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    add_dependencies(${target} ${plist_gen})
+
+    # The plist, then PkgInfo, then the signature over both. One identifier per
+    # format: the macOS Installer resolves a package's components by bundle id.
+    add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${plist_gen} "${ARG_OUTPUT_NAME}" "${ARG_BUNDLE_ID}.component"
+                    "${ARG_OUTPUT_NAME}" "${bundle}/Contents/Info.plist"
+            COMMAND ${CMAKE_COMMAND} -E copy "${au_pkginfo}" "${bundle}/Contents/PkgInfo"
+            COMMAND codesign --force --sign - "${bundle}"
+            VERBATIM)
+
+    if (MAKEASOUND_INSTALL_PLUGINS)
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
+                        -D "DEST_DIR=$ENV{HOME}/Library/Audio/Plug-Ins/Components"
                         -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
                 VERBATIM)
     endif ()

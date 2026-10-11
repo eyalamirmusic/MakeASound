@@ -65,7 +65,7 @@ if (PROJECT_IS_TOP_LEVEL)
     cmake_language(DEFER CALL makeasound_group_external_targets)
 endif ()
 
-# The vendored VST3 SDK, for the VST3 format; see ThirdParty/README.md.
+# The vendored VST3 SDK and, on macOS, the fetched AudioUnitSDK; see ThirdParty/README.md.
 if (MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(ThirdParty)
 endif ()

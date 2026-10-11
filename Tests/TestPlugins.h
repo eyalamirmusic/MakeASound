@@ -7,6 +7,7 @@
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
 #include <array>
+#include <functional>
 #include <string>
 
 namespace TestPlugins
@@ -190,5 +191,42 @@ struct SynthPlugin : StatePlugin<State<SynthParams>>
     int numEvents = 0;
     std::array<MIDI::Event, maxEvents> events {};
 };
+
+// What the test module (describeModule() in PluginTests.cpp) creates. A suite
+// hosting the module through a format's C API reaches the plugin behind a unit
+// through `lastCreated`, and hosts another plugin under an entry's codes by
+// setting that entry's stand-in.
+namespace Module
+{
+inline Plugin* lastCreated = nullptr;
+inline PluginCreateFn gainStandIn;
+inline PluginCreateFn echoStandIn;
+
+template <typename P>
+OwningPointer<Plugin> create(const PluginCreateFn& standIn)
+{
+    auto plugin = standIn ? standIn() : OwningPointer<Plugin>(EA::makeOwned<P>());
+    lastCreated = plugin.get();
+    return plugin;
+}
+
+// Stands P in for an entry while it lives.
+template <typename P>
+struct ScopedStandIn
+{
+    explicit ScopedStandIn(PluginCreateFn& slotToUse)
+        : slot(slotToUse)
+    {
+        slot = [] { return OwningPointer<Plugin>(EA::makeOwned<P>()); };
+    }
+
+    ~ScopedStandIn() { slot = nullptr; }
+
+    ScopedStandIn(const ScopedStandIn&) = delete;
+    ScopedStandIn& operator=(const ScopedStandIn&) = delete;
+
+    PluginCreateFn& slot;
+};
+} // namespace Module
 
 } // namespace TestPlugins
