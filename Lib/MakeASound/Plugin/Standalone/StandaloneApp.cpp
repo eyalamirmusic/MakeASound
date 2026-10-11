@@ -1,9 +1,11 @@
 #include "StandaloneApp.h"
+#include "EditorWindow.h"
 #include "../UI/GenericEditor.h"
 
 #include <eacp/Graphics/Menu/Menu.h>
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 namespace MakeASound::Standalone
@@ -16,12 +18,6 @@ void reportIfFailed(Error error)
 {
     if (error != Error::NoError)
         std::cerr << getErrorMessage(error) << '\n';
-}
-
-void removeResizable(Graphics::WindowOptions& options)
-{
-    options.flags.eraseIf([](Graphics::WindowFlags flag)
-                          { return flag == Graphics::WindowFlags::Resizable; });
 }
 
 std::optional<int> findPort(const std::string& name,
@@ -75,6 +71,17 @@ void StandaloneApp::KeyRouter::windowActivationChanged(bool isKey)
         app.typing.allNotesOff();
 }
 
+bool StandaloneApp::EditorWindowHost::resizeEditor(EditorSize size)
+{
+    auto& window = *app.editorWindow;
+    window.setSize(
+        {static_cast<float>(size.width), static_cast<float>(size.height)});
+
+    auto actual = window.getSize();
+    return std::lround(actual.x) == size.width
+           && std::lround(actual.y) == size.height;
+}
+
 StandaloneApp::StandaloneApp()
 {
     settingsFile = settingsPath(module.vendor, wrapper.plugin().name());
@@ -112,6 +119,7 @@ StandaloneApp::~StandaloneApp()
     settingsWindow->events.input.removeListener(keys);
 
     editor->onRemoved();
+    editor->setHost(nullptr);
 }
 
 void StandaloneApp::restoreMidi(const Settings& saved)
@@ -139,18 +147,13 @@ void StandaloneApp::createEditorWindow()
     if (!editor)
         editor = EA::makeOwned<GenericEditor>(wrapper.plugin());
 
-    auto size = editor->initialSize();
-    auto options = Graphics::WindowOptions {};
-    options.title = std::string(wrapper.plugin().name());
-    options.width = size.width;
-    options.height = size.height;
-
-    if (!editor->isResizable())
-        removeResizable(options);
+    auto options =
+        editorWindowOptions(*editor, std::string(wrapper.plugin().name()));
 
     editorWindow = EA::makeOwned<Graphics::Window>(options);
     editorWindow->setContentView(editor->view());
     editorWindow->events.input.addListener(keys);
+    editor->setHost(&editorHost);
     editor->onAttached();
 }
 

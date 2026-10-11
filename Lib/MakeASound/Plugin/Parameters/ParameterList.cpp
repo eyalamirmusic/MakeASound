@@ -16,6 +16,7 @@ ParameterList::ParameterList(ParameterGroup& group)
                   { add(param, id, displayName, automatable); });
 
     indexHostIds();
+    findBypass();
 }
 
 void ParameterList::add(Parameter& param,
@@ -62,6 +63,23 @@ void ParameterList::indexHostIds()
         assert(false && "two parameters share a host id");
     }
 #endif
+}
+
+void ParameterList::findBypass()
+{
+    for (auto i = 0; i < entries.size(); ++i)
+    {
+        if (!isHostExposed(i) || !entries[i].param->isBypass())
+            continue;
+
+        assert(bypass < 0 && "a plugin exposes one bypass parameter to the host");
+
+        if (bypass < 0)
+        {
+            bypass = i;
+            entries[i].bypass = true;
+        }
+    }
 }
 
 int ParameterList::indexOf(const Parameter* param) const noexcept

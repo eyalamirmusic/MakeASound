@@ -27,7 +27,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_SOURCES
             ParameterTests.cpp
             StateTests.cpp
-            PluginTests.cpp)
+            PluginTests.cpp
+            EditorTests.cpp)
 
     # eacp-core so the swap's and the wrapper's cases can pump the message loop.
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
@@ -36,6 +37,19 @@ if (MAKEASOUND_BUILD_PLUGIN)
     # The vendored VST3 SDK: compiled and linked here before any adapter needs it.
     list(APPEND MAKEASOUND_TEST_SOURCES VST3SDKTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS vst3sdk)
+
+    # The generic editor and the resize grip, and the editor every format suite
+    # can show in place of a plugin's own.
+    if (TARGET MakeASoundPluginUI)
+        list(APPEND MAKEASOUND_TEST_SOURCES PluginUITests.cpp TestEditor.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginUI)
+    endif ()
+
+    # The web editor's page API, with no WebView constructed.
+    if (TARGET MakeASoundPluginWeb)
+        list(APPEND MAKEASOUND_TEST_SOURCES WebEditorTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginWeb)
+    endif ()
 
     # The standalone format's pieces, where the format was built.
     if (TARGET MakeASoundStandalone)
@@ -72,8 +86,12 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_SOURCES AUTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUTestModule MakeASoundAUDescribe)
 
+        # The view's size policy and placement, opened through its factory class.
         if (au_view_source MATCHES "CocoaUI\\.mm$")
             set(MAKEASOUND_TEST_AU_VIEW ON)
+            list(APPEND MAKEASOUND_TEST_SOURCES AUViewTests.mm)
+            set_source_files_properties(AUViewTests.mm PROPERTIES
+                    COMPILE_OPTIONS -fobjc-arc)
         endif ()
     endif ()
 

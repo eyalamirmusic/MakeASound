@@ -1,12 +1,13 @@
-# MakeASoundPluginUI: the eacp-ui pieces every format shares, today the generic
-# parameter editor. Built wherever eacp has its UI tier.
+# MakeASoundPluginUI: the eacp-ui pieces every format shares, the generic
+# parameter editor and the resize grip. Built wherever eacp has its UI tier.
 if (NOT TARGET eacp-ui)
     message(STATUS "MakeASoundPluginUI skipped (eacp-ui not built)")
     return()
 endif ()
 
 add_library(MakeASoundPluginUI STATIC
-        GenericEditor.cpp)
+        GenericEditor.cpp
+        ResizeGrip.cpp)
 
 target_link_libraries(MakeASoundPluginUI PUBLIC MakeASoundPlugin eacp-ui)
 

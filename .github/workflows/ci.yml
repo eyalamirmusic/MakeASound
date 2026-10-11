@@ -104,6 +104,16 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
+      # The Synth example's web editor runs npm install at configure and vite in
+      # the build wherever eacp has a web runtime (macOS, Windows). Linux builds
+      # its fallback editor and runs no npm, so the step is only harmless there.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Plugins/Synth/web/package-lock.json
+
       - name: Build & test (Release, CI build)
         shell: bash
         env:
@@ -151,9 +161,10 @@ jobs:
           echo "::endgroup::"
 
       # Both example bundles at strictness 10, built by the default target above
-      # and handed over as the folder they land in. PluginValidator downloads
-      # pluginval on its first run and exits with the number of failures. Linux skips the editor tests: the runner has no
-      # display and no Vulkan device for them.
+      # and handed over as the folder they land in, every editor opened, the
+      # Synth's web page included. PluginValidator downloads pluginval on its
+      # first run and exits with the number of failures. Linux skips the editor
+      # tests: the runner has no display and no Vulkan device for them.
       - name: pluginval (Release)
         if: matrix.pluginval
         shell: bash
@@ -167,9 +178,10 @@ jobs:
             "$validator" "${args[@]}"
           fi
 
-      # Both example components through auval -strict: PluginValidator installs
-      # each into the runner's ~/Library/Audio/Plug-Ins/Components first. Its logs
-      # land beside pluginval's, so the upload below covers them.
+      # Both example components through auval -strict, Gain's bypass property
+      # answered: PluginValidator installs each into the runner's
+      # ~/Library/Audio/Plug-Ins/Components first. Its logs land beside
+      # pluginval's, so the upload below covers them.
       - name: auval (Release)
         if: matrix.pluginval && runner.os == 'macOS'
         shell: bash
@@ -215,6 +227,14 @@ jobs:
 
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
+
+      # iOS has WKWebView, so both configures build the Synth's web editor too.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Plugins/Synth/web/package-lock.json
 
       # Device slices can't be executed in CI, so this half is build-only. It is
       # still the half that catches iOS-specific compile breakage: miniaudio's

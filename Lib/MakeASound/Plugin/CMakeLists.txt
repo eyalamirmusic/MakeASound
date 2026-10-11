@@ -7,6 +7,7 @@ find_package(eacp REQUIRED)
 # eacp-core backs its message-thread marshalling, kept out of every public header.
 add_library(MakeASoundPlugin STATIC
         Core/Description.cpp
+        Core/Editor.cpp
         Core/Plugin.cpp
         Host/PluginWrapper.cpp
         Parameters/Parameter.cpp
@@ -37,6 +38,7 @@ set_makeasound_target_settings(MakeASoundPlugin)
 # flag of ours: a plugin that wants eacp-ui for its editor links MakeASoundPluginUI;
 # only a <Name>-Standalone executable ever links MakeASoundStandalone.
 add_subdirectory(UI)
+add_subdirectory(Web)
 add_subdirectory(Standalone)
 add_subdirectory(VST3)
 add_subdirectory(AU)
@@ -44,3 +46,6 @@ add_subdirectory(Validation)
 
 # makeasound_add_plugin(), for this tree's Plugins/ and for a CPM consumer's own.
 include(MakeASoundPlugin)
+
+# makeasound_add_web_editor(), a React page embedded into a plugin's static core.
+include(MakeASoundWebEditor)

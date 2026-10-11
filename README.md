@@ -36,15 +36,18 @@ manager.start(manager.getDefaultConfig(),
 - **A `Processor` run by an `Engine`.** Write `prepare`/`process`/`reset` against a `ProcessContext` of buses, and `Engine` wires it to a device stream and the open MIDI ports: the main buses refer straight into the callback's channels, MIDI arrives sorted by sample offset, and a device that cannot feed a bus channel is stood in for. The same `Processor` is what the plugin formats will host.
 - **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
 - **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches.
-- **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the generic editor, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
-- **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the generic editor, sample-accurate MIDI in and out and the plugin's state in the session; both examples pass `auval -strict`.
+- **Editors that say how they size.** A plugin's `Editor` states its minimum, maximum and aspect ratio and can ask its host for a new size; every format honours it, and a host without a resize grip of its own gets one drawn by the editor. A plugin with no editor gets a generic one.
+- **Web editors.** One more CMake call gives a plugin a React page as its editor, with typed bindings to its parameters generated from C++; the Synth example has one.
+- **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
+- **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the plugin's editor or the generic one, sample-accurate MIDI in and out, the host's bypass button and the plugin's state in the session; both examples pass `auval -strict`.
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset`, `Smoother`, `ScopedNoDenormals` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds; Linux has no web runtime, so the Synth example falls back to the generic editor there.
+- Node and npm, to configure the example plugins on macOS, Windows and iOS: the Synth's web editor runs `npm install` at configure and `vite build` in the build. `-DMAKEASOUND_BUILD_EXAMPLES=OFF` needs neither.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -70,7 +73,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
-| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
+| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). Needs Node and npm where the Synth's web editor builds. |
 | `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
 | `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
@@ -356,6 +359,63 @@ Parameters are declared in a `ParameterGroup` and registered with `add(...)` in 
 
 `PluginWrapper` is what a format adapter drives, one block at a time. By the time `process` runs, each output channel already holds its input (copied, or the same memory when the host processes in place), which is why the gain above only multiplies; after the block every bus is detached again. A host saving from its own thread gets the published snapshot without waiting on the message thread, and a load applies the parameters at once and the rest of the document on the message thread, unless a newer load overtook it. While the plugin's own editor holds a parameter in a gesture, host writes to it are dropped. Destroy the wrapper on the message thread. `Tests/PluginTests.cpp` drives it as a fake host.
 
+### Editors
+
+A plugin shows an `Editor`: one eacp view, an initial size and a size policy. `createEditor()` returns it; returning nothing gets the generic editor, a resizable list of every parameter.
+
+```cpp
+struct MyEditor : MS::Editor
+{
+    eacp::Graphics::View& view() override;   // built on first call
+
+    MS::EditorSize initialSize() const override { return {600, 400}; }
+
+    MS::EditorConstraints constraints() const override
+    {
+        return {.resizable = true,
+                .minimum = {450, 300},
+                .maximum = {1200, 800},
+                .aspectRatio = {3, 2}};
+    }
+};
+
+MS::OwningPointer<MS::Editor> MyPlugin::createEditor()
+{
+    return EA::makeOwned<MyEditor>();
+}
+```
+
+Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it. Where the host's window has no grip of its own (an AU view in Logic), the generic and web editors draw a `ResizeGrip` in their corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
+
+### Web editors
+
+An editor can be a React page instead. `makeasound_add_web_editor` builds the page with vite, embeds it into the plugin's core so every format carries it, and generates TypeScript bindings for `MakeASound::Web::ParameterApi` (and any API of your own) into the page's `src/generated`:
+
+```cmake
+makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU SOURCES SynthPlugin.cpp)
+
+makeasound_add_web_editor(SynthPlugin
+        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
+        SOURCES SynthEditor-Web.cpp          # where a web runtime exists
+        FALLBACK_SOURCES SynthEditor-None.cpp)   # elsewhere (Linux): no npm, no page
+```
+
+```cpp
+MS::OwningPointer<MS::Editor> createSynthEditor(SynthPlugin& plugin)
+{
+    auto options = MS::Web::WebEditorOptions {.category = "SynthPluginEditor",
+                                              .storageName = "MakeASound Synth",
+                                              .devServer = MAKEASOUND_WEB_DEV_SERVER,
+                                              .initialSize = {600, 400},
+                                              .constraints = {.resizable = true,
+                                                              .aspectRatio = {3, 2}}};
+
+    return EA::makeOwned<MS::Web::WebEditor>(plugin, std::move(options));
+}
+```
+
+The page calls `getParameters()`, then `beginEdit`, `edit` and `endEdit` by parameter id, and listens to the `values` event, which the editor publishes 30 times a second with whatever moved, automation included; edits reach the host as ordinary gestures. `Plugins/Synth/web/src/useParameters.ts` wraps that in one React hook. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
+
 ## Running a plugin standalone
 
 `Plugins/Gain` is a complete plugin. The header declares the parameters and the processor:
@@ -371,9 +431,10 @@ using namespace MakeASound;
 
 struct GainParams : ParameterGroup
 {
-    GainParams() { add(gain); }
+    GainParams() { add(gain, bypass); }
 
     DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
+    BoolParam bypass {"Bypass", false, {.bypass = true}};
 };
 
 struct GainPlugin : StatePlugin<State<GainParams>>
@@ -385,6 +446,8 @@ struct GainPlugin : StatePlugin<State<GainParams>>
     void prepare(const ProcessSpec& spec) override;
     void reset() noexcept override;
     void process(ProcessContext& context) noexcept override;
+
+    float targetGain() const noexcept;
 
     Smoother gain;
 };
@@ -407,12 +470,17 @@ void GainPlugin::prepare(const ProcessSpec& spec)
     reset();
 }
 
-void GainPlugin::reset() noexcept { gain.reset(params.gain.gain()); }
+void GainPlugin::reset() noexcept { gain.reset(targetGain()); }
 
 void GainPlugin::process(ProcessContext& context) noexcept
 {
-    gain.setTarget(params.gain.gain());
+    gain.setTarget(targetGain());
     gain.applyGain(context.mainOutput());
+}
+
+float GainPlugin::targetGain() const noexcept
+{
+    return params.bypass.isOn() ? 1.f : params.gain.gain();
 }
 
 } // namespace MakeASoundExamples
@@ -454,12 +522,12 @@ open "./build/Plugins/Synth/MakeASound Synth.app"   # the instrument example
 
 The app hosts the module's first plugin, run by `Engine`:
 
-- **The editor window** shows the plugin's own `Editor` when `createEditor()` returns one, and otherwise a generic page: a slider, a dropdown or a checkbox per parameter, with its value text, kept in step with the parameters while it is open. Both are eacp GPU widgets, so neither needs npm or a webview.
+- **The editor window** shows the plugin's own `Editor` when `createEditor()` returns one, and otherwise a generic page: a slider, a dropdown or a checkbox per parameter, with its value text, kept in step with the parameters while it is open. The window opens at the editor's constrained size and keeps every resize within its constraints, with no full screen for an editor locked to a ratio.
 - **Audio / MIDI Settings…** (Cmd+,) picks the output and input devices and channels, the sample rate, the block size, the MIDI inputs and, for a plugin with a MIDI output bus, the port it sends to. Rows a layout cannot use are hidden, and the lists follow devices and ports as they come and go. An instrument opens no capture side, so it asks for no microphone.
 - **The computer MIDI keyboard** (Cmd+K, on by default for a plugin with a MIDI input): `A W S E D F T G Y H U J K O L P ;` play an octave and a half from middle C, `Z` and `X` shift it an octave. Notes held when the window loses focus are released.
 - **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, with a React editor (see [Web editors](#web-editors)) wherever there is a web runtime and the generic one elsewhere. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass.
 
 ## VST3
 
@@ -468,7 +536,8 @@ The `VST3` format builds `<build>/VST3/<OUTPUT_NAME>.vst3`, a bundle any VST3 ho
 - **Parameters** are listed by their host id, the 31-bit hash of the id path, so adding a parameter in a later release moves nobody's automation. Only automatable parameters are listed; values are read live and automation is applied before each block.
 - **MIDI.** Notes, poly pressure and SysEx arrive as events. CC, channel aftertouch, pitch bend and program change arrive through hidden parameters the host maps them onto, and reach the plugin as ordinary `MIDI::Event`s at their sample offsets; a plugin's MIDI output goes back to the host the same way.
 - **State** is the plugin's document, saved as a session (session-only parameters included) unless the host marks the save as a preset.
-- **The editor** is the plugin's own `Editor`, or the generic page, embedded in the host's window.
+- **The editor** is the plugin's own `Editor`, or the generic page, embedded in the host's window. The host's own grip resizes it within the editor's constraints, and an editor's `requestResize` goes to the host as a resize of the plug-in window.
+- **Bypass.** The plugin's bypass parameter (`{.bypass = true}`) is the host's bypass.
 
 ```bash
 cmake -S . -B build -G Ninja   # -DMAKEASOUND_INSTALL_PLUGINS=OFF to skip the copy into the plug-in folder
@@ -490,7 +559,8 @@ On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio U
 - **MIDI.** Notes, CC (all-notes-off included), pitch bend, aftertouch, program change and short SysEx arrive at their sample offsets. A plugin with a MIDI output bus sends its events to the host through the MIDI output callback.
 - **State** is the plugin's session document, carried in the host's preset dictionary beside the parameter values.
 - **Reset** really resets: the host's `Reset` reaches the plugin's `reset()` at the next block.
-- **The editor** is the plugin's own `Editor`, or the generic page, in the host's window.
+- **Bypass.** A plugin with a bypass parameter answers `kAudioUnitProperty_BypassEffect`, so the host's bypass button and the parameter follow each other; one without refuses it.
+- **The editor** is the plugin's own `Editor`, or the generic page, in the host's window. AU hosts give the window no grip, so the editor draws one; a resize request resizes the view and the host's container with it. When the window opens partly off screen, as Logic's can, it is moved onto it, or the editor is shrunk once where the window will not move; `launchctl setenv MAKEASOUND_AU_VIEW_TRACE 1` before starting the host logs what happened.
 
 ```bash
 cmake -S . -B build -G Ninja   # each build also copies into ~/Library/Audio/Plug-Ins/Components
@@ -565,13 +635,14 @@ Lib/MakeASound/
   Plugin/           MakeASoundPlugin.h, the plugin core's umbrella header
     Parameters/     Parameter, FloatParam, ChoiceParam, BoolParam, ParameterGroup, ParameterList
     State/          StateContext, State
-    Core/           Description, Editor, HostEditListener, Plugin, StatePlugin
+    Core/           Description, Editor (size policy and EditorHost), HostEditListener, Plugin, StatePlugin
     Host/           PluginWrapper, the per-block pipeline every format adapter shares
     Realtime/       MessageThread, RealtimeSwap
-    UI/             MakeASoundPluginUI: the generic parameter editor
-    Standalone/     MakeASoundStandalone: the standalone app format
+    UI/             MakeASoundPluginUI: the generic parameter editor and the resize grip
+    Web/            MakeASoundPluginWeb: WebEditor and ParameterApi, a React page as an editor
+    Standalone/     MakeASoundStandalone: the standalone app format and its editor window
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
-    AU/             MakeASoundAU: the AU format, its factory, Cocoa view and plist tool
+    AU/             MakeASoundAU: the AU format, its factory, Cocoa view, view placement and plist tool
     Validation/     MakeASoundPluginval: fetches and runs pluginval, runs auval
   DSP/              MakeASoundDSP, optional: TestSynth, the instrument the Synth app and plugin share
   UI/               dropdown/toggle-list helpers for the demo apps
@@ -582,10 +653,10 @@ Lib/MakeASound/
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
-Plugins/            Gain, Synth: plugins built with makeasound_add_plugin
+Plugins/            Gain, Synth: plugins built with makeasound_add_plugin; Synth/web is its React editor
 Tools/              PluginValidator: pluginval or auval over the bundles on its command line
-CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, ExternalFolders.cmake,
-                    the plug-in install script
+CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, MakeASoundWebEditor.cmake,
+                    ExternalFolders.cmake, the plug-in install script
 ThirdParty/         the vendored VST3 SDK, and the fetched AudioUnitSDK's build
 Tests/              NanoTest suites
 gaps.md             what the probe found, what was fixed, what is open
@@ -607,4 +678,4 @@ with it.
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.

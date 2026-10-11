@@ -194,6 +194,50 @@ auto tGroupFlags = test("Parameters/aNonAutomatableGroupHidesItsParameters") = [
     check(params.hidden.level.isAutomatable());
 };
 
+struct BypassParams : ParameterGroup
+{
+    BypassParams() { add(gain, hiddenBypass, bypass); }
+
+    FloatParam gain {"Gain"};
+    BoolParam hiddenBypass {"Hidden", false, {.automatable = false, .bypass = true}};
+    BoolParam bypass {"Bypass", false, {.bypass = true}};
+};
+
+struct HiddenBypassParams : ParameterGroup
+{
+    HiddenBypassParams() { add(gain, bypass); }
+
+    FloatParam gain {"Gain"};
+    BoolParam bypass {"Bypass", false, {.automatable = false, .bypass = true}};
+};
+
+auto tBypass = test("Parameters/bypassIndexIsTheExposedBypassEntry") = []
+{
+    auto params = BypassParams {};
+    auto list = ParameterList {params};
+
+    check(list.bypassIndex() == 2);
+    check(&list[list.bypassIndex()] == &params.bypass);
+    check(list.entry(2).bypass);
+    check(!list.entry(1).bypass && !list.entry(0).bypass);
+};
+
+auto tNoBypass = test("Parameters/bypassIndexIsMinusOneWithNone") = []
+{
+    auto params = SynthParams {};
+    check(ParameterList {params}.bypassIndex() == -1);
+    check(ParameterList {}.bypassIndex() == -1);
+};
+
+auto tHiddenBypass = test("Parameters/aNonAutomatableBypassIsNoBypass") = []
+{
+    auto params = HiddenBypassParams {};
+    auto list = ParameterList {params};
+
+    check(list.bypassIndex() == -1);
+    check(!list.entry(1).bypass);
+};
+
 auto tFnv = test("Parameters/hostIdsAreFnv1aOfTheId") = []
 {
     check(hostIdFor("a") == 0x640c292cu);

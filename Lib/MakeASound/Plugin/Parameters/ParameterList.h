@@ -38,6 +38,9 @@ public:
         uint32_t hostId = 0;
         bool automatable = true;
         bool sessionOnly = false;
+
+        // True on the one entry bypassIndex() names.
+        bool bypass = false;
     };
 
     ParameterList() = default;
@@ -58,6 +61,9 @@ public:
     // Bounds-tolerant: format adapters pass host indices through unvalidated.
     bool isHostExposed(int index) const noexcept;
 
+    // The first host-exposed entry whose parameter isBypass(), -1 when none.
+    int bypassIndex() const noexcept { return bypass; }
+
     auto begin() const noexcept { return entries.begin(); }
     auto end() const noexcept { return entries.end(); }
 
@@ -73,9 +79,11 @@ private:
              std::string_view displayName,
              bool automatable);
     void indexHostIds();
+    void findBypass();
 
     Vector<Entry> entries;
     Vector<HostSlot> byHostId;
+    int bypass = -1;
 };
 
 } // namespace MakeASound

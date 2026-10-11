@@ -398,6 +398,7 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
     if (index < 0)
         return kAudioUnitErr_InvalidParameter;
 
+    auto wasBypassed = isBypassed();
     auto result =
         MusicDeviceBase::SetParameter(id, scope, element, value, bufferOffset);
 
@@ -408,10 +409,41 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
         pluginWrapper.setParameter(index, value);
 
         if (isMessageThread())
+        {
             notifyHostIfLatencyChanged();
+
+            if (isBypassed() != wasBypassed)
+                PropertyChanged(
+                    kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
+        }
     }
 
     return result;
+}
+
+bool Adapter::isBypassed() const noexcept
+{
+    const auto& list = pluginWrapper.plugin().parameters();
+    auto index = list.bypassIndex();
+    return index >= 0 && list[index].getNormalized() >= 0.5f;
+}
+
+// SetParameter's path, so a gesture holding the parameter drops the write; the
+// SDK posts the property itself once SetProperty succeeds.
+OSStatus Adapter::setBypass(bool on) noexcept
+{
+    const auto& list = plugin().parameters();
+    auto index = list.bypassIndex();
+    auto plain = list[index].toPlain(on ? 1.f : 0.f);
+    auto result = MusicDeviceBase::SetParameter(
+        list.entry(index).hostId, kAudioUnitScope_Global, 0, plain, 0);
+
+    if (result != noErr)
+        return result;
+
+    pluginWrapper.setParameter(index, plain);
+    notifyHost(index, kAudioUnitEvent_ParameterValueChange);
+    return noErr;
 }
 
 OSStatus Adapter::GetPropertyInfo(AudioUnitPropertyID id,
@@ -463,6 +495,14 @@ OSStatus Adapter::GetPropertyInfo(AudioUnitPropertyID id,
 
             case kAudioUnitProperty_ClassInfoFromDocument:
                 outDataSize = sizeof(CFPropertyListRef);
+                outWritable = true;
+                return noErr;
+
+            case kAudioUnitProperty_BypassEffect:
+                if (plugin().parameters().bypassIndex() < 0)
+                    break;
+
+                outDataSize = sizeof(UInt32);
                 outWritable = true;
                 return noErr;
 
@@ -540,6 +580,13 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
                 return noErr;
             }
 
+            case kAudioUnitProperty_BypassEffect:
+                if (plugin().parameters().bypassIndex() < 0)
+                    break;
+
+                *static_cast<UInt32*>(outData) = isBypassed() ? 1 : 0;
+                return noErr;
+
             case kAudioUnitProperty_MIDIOutputCallbackInfo:
             {
                 const auto& buses = pluginWrapper.busLayout().midiOutputs;
@@ -585,6 +632,15 @@ OSStatus Adapter::SetProperty(AudioUnitPropertyID id,
         midiOutputCallback.publish(
             *static_cast<const AUMIDIOutputCallbackStruct*>(inData));
         return noErr;
+    }
+
+    if (scope == kAudioUnitScope_Global && id == kAudioUnitProperty_BypassEffect
+        && plugin().parameters().bypassIndex() >= 0)
+    {
+        if (inData == nullptr || inDataSize < sizeof(UInt32))
+            return kAudioUnitErr_InvalidPropertyValue;
+
+        return setBypass(*static_cast<const UInt32*>(inData) != 0);
     }
 
     // The SDK does not dispatch it; Logic restores a document's state through it.
@@ -1024,6 +1080,10 @@ void Adapter::performParameterEdit(int index, float) noexcept
         std::ignore = Globals()->SetParameterOrError(
             list.entry(index).hostId, pluginWrapper.getParameter(index), true);
         notifyHost(index, kAudioUnitEvent_ParameterValueChange);
+
+        if (index == list.bypassIndex())
+            PropertyChanged(
+                kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
     }
 
     notifyHostIfLatencyChanged();

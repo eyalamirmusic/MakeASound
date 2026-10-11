@@ -1,7 +1,7 @@
 // The VST3 adapter hosted in-process: the factory, buses and arrangements, a
 // whole block, parameter info and values, the automation queue, the edit gate,
 // state through the component, MIDI in and out, CC through IMidiMapping, latency
-// reporting and the editor view.
+// reporting and the editor view with its size policy.
 
 #include "VST3TestHost.h"
 
@@ -14,6 +14,7 @@
 #if MAKEASOUND_VST3_HAS_VIEW
 #include <MakeASound/Plugin/UI/GenericEditor.h>
 #include <MakeASound/Plugin/VST3/PlugView.h>
+#include "TestEditor.h"
 #endif
 
 #include <NanoTest/NanoTest.h>
@@ -962,6 +963,207 @@ auto tView = test("VST3/theEditorViewIsTheGenericEditor") = []
 
     view = nullptr;
     check(host.adapter->createView("other") == nullptr);
+};
+
+// Points the test plugins' createEditor() at a TestEditor for its lifetime.
+struct ScopedTestEditor
+{
+    explicit ScopedTestEditor(EditorConstraints limits = {},
+                              EditorSize size = {400, 300})
+    {
+        Module::editorFactory = [this, limits, size](Plugin&)
+        {
+            auto created = EA::makeOwned<TestEditor>();
+            created->limits = limits;
+            created->size = size;
+            editor = created.get();
+            return OwningPointer<Editor>(std::move(created));
+        };
+    }
+
+    ~ScopedTestEditor() { Module::editorFactory = nullptr; }
+
+    ScopedTestEditor(const ScopedTestEditor&) = delete;
+    ScopedTestEditor& operator=(const ScopedTestEditor&) = delete;
+
+    TestEditor* editor = nullptr;
+};
+
+EditorConstraints bounded()
+{
+    return {.resizable = true, .minimum = {200, 100}, .maximum = {800, 600}};
+}
+
+EditorConstraints ratioLocked()
+{
+    return {.resizable = true,
+            .minimum = {150, 100},
+            .maximum = {1500, 1000},
+            .aspectRatio = {3, 2}};
+}
+
+struct EditorView
+{
+    explicit EditorView(AdapterHost<GainPlugin>& host)
+        : view(Steinberg::owned(host.adapter->createView(Vst::ViewType::kEditor)))
+    {
+    }
+
+    Steinberg::ViewRect size()
+    {
+        auto rect = Steinberg::ViewRect {};
+        view->getSize(&rect);
+        return rect;
+    }
+
+    Steinberg::ViewRect constrained(Steinberg::ViewRect rect)
+    {
+        check(view->checkSizeConstraint(&rect) == Steinberg::kResultTrue);
+        return rect;
+    }
+
+    Steinberg::IPtr<Steinberg::IPlugView> view;
+};
+
+bool sameSize(const Steinberg::ViewRect& rect, int width, int height)
+{
+    return rect.getWidth() == width && rect.getHeight() == height;
+}
+
+auto tCanResize = test("VST3/canResizeFollowsTheEditorsConstraints") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+
+    {
+        auto fixed = ScopedTestEditor {};
+        auto view = EditorView(host);
+        check(view.view->canResize() == Steinberg::kResultFalse);
+
+        auto rect = Steinberg::ViewRect {0, 0, 900, 900};
+        check(view.view->checkSizeConstraint(&rect) != Steinberg::kResultTrue);
+    }
+
+    auto resizable = ScopedTestEditor {bounded(), {1000, 50}};
+    auto view = EditorView(host);
+    check(view.view->canResize() == Steinberg::kResultTrue);
+    check(sameSize(view.size(), 800, 100));
+};
+
+auto tCheckSize = test("VST3/checkSizeConstraintAppliesTheEditorsPolicy") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+
+    for (auto contentScale: {1.f, 2.f})
+    {
+        auto bounds = ScopedTestEditor {bounded()};
+        auto boundsView = EditorView(host);
+        auto scaling =
+            Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(
+                boundsView.view.get());
+        check(scaling->setContentScaleFactor(contentScale) == Steinberg::kResultOk);
+
+        // Pixels per point in a ViewRect: 1 on macOS whatever the scale.
+        auto factor = boundsView.size().getWidth() / 400;
+        auto px = [factor](int points) { return points * factor; };
+
+        auto large = boundsView.constrained({0, 0, px(1000), px(50)});
+        check(sameSize(large, px(800), px(100)));
+        check(sameSize(boundsView.constrained(large), px(800), px(100)));
+
+        auto offset = boundsView.constrained({10, 20, 10 + px(500), 20 + px(400)});
+        check(offset.left == 10 && offset.top == 20);
+        check(sameSize(offset, px(500), px(400)));
+
+        auto ratio = ScopedTestEditor {ratioLocked(), {600, 400}};
+        auto ratioView = EditorView(host);
+        Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(
+            ratioView.view.get())
+            ->setContentScaleFactor(contentScale);
+
+        auto skewed = ratioView.constrained({0, 0, px(600), px(600)});
+        check(std::abs(skewed.getWidth() * 2 - skewed.getHeight() * 3)
+              <= 3 * factor);
+        check(sameSize(
+            ratioView.constrained(skewed), skewed.getWidth(), skewed.getHeight()));
+        check(sameSize(
+            ratioView.constrained({0, 0, px(900), px(600)}), px(900), px(600)));
+    }
+};
+
+auto tNoFrame = test("VST3/requestResizeWithoutAFrameIsRefused") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto scoped = ScopedTestEditor {bounded()};
+    auto view = EditorView(host);
+
+    check(!scoped.editor->requestResize({500, 500}));
+    check(sameSize(view.size(), 400, 300));
+};
+
+auto tFrame = test("VST3/requestResizeGoesThroughThePlugFrame") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto scoped = ScopedTestEditor {bounded()};
+    auto view = EditorView(host);
+    auto frame = FakePlugFrame {};
+    check(view.view->setFrame(&frame) == Steinberg::kResultOk);
+
+    check(scoped.editor->requestResize({1000, 450}));
+    check(frame.requests.size() == 1);
+    check(sameSize(frame.requests.back(), 800, 450));
+    check(sameSize(view.size(), 800, 450));
+
+    frame.callOnSize = false;
+    check(scoped.editor->requestResize({300, 50}));
+    check(sameSize(frame.requests.back(), 300, 100));
+    check(sameSize(view.size(), 300, 100));
+
+    frame.accept = false;
+    check(!scoped.editor->requestResize({600, 600}));
+    check(frame.requests.size() == 3);
+    check(sameSize(view.size(), 300, 100));
+
+    view.view->setFrame(nullptr);
+};
+
+// Records whether the view had cleared the host by the time it destroyed us.
+struct TeardownEditor final : Editor
+{
+    explicit TeardownEditor(bool& clearedToSet)
+        : cleared(clearedToSet)
+    {
+    }
+
+    ~TeardownEditor() override { cleared = host() == nullptr; }
+
+    eacp::Graphics::View& view() override { return inner.view(); }
+
+    bool& cleared;
+    TestEditor inner;
+};
+
+auto tHost = test("VST3/theViewIsTheEditorsHostForItsLifetime") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+
+    {
+        auto scoped = ScopedTestEditor {bounded()};
+        auto view = EditorView(host);
+        auto* plugView = static_cast<MakeASound::VST3::PlugView*>(view.view.get());
+
+        check(scoped.editor->host() == static_cast<EditorHost*>(plugView));
+        check(scoped.editor->host()->drawsResizeHandle());
+        check(scoped.editor->attached == 0);
+    }
+
+    auto cleared = false;
+    Module::editorFactory = [&cleared](Plugin&)
+    { return OwningPointer<Editor>(EA::makeOwned<TeardownEditor>(cleared)); };
+
+    auto view = EditorView(host);
+    Module::editorFactory = nullptr;
+    view.view = nullptr;
+    check(cleared);
 };
 #endif
 } // namespace

@@ -16,7 +16,8 @@ class EmbeddedView;
 namespace MakeASound::VST3
 {
 
-// The host's window onto a plugin's Editor, embedded through eacp. The editor
+// The host's window onto a plugin's Editor, embedded through eacp, and the
+// editor's EditorHost: a resize request goes to the host's IPlugFrame. The editor
 // lives as long as the view, the embedding only while the host has it attached.
 // The platform's half is in PlugView-<platform>.cpp: the view type the host hands
 // attached(), the currency of a ViewRect and how the content scale reaches the
@@ -24,6 +25,7 @@ namespace MakeASound::VST3
 class PlugView
     : public Steinberg::CPluginView
     , public Steinberg::IPlugViewContentScaleSupport
+    , public EditorHost
 {
 public:
     PlugView(Steinberg::IPtr<FUnknown> ownerToKeep,
@@ -41,6 +43,9 @@ public:
     tresult PLUGIN_API setFrame(Steinberg::IPlugFrame* frame) override;
     tresult PLUGIN_API setContentScaleFactor(ScaleFactor factor) override;
 
+    bool resizeEditor(EditorSize size) override;
+    bool drawsResizeHandle() const override { return true; }
+
     OBJ_METHODS(PlugView, Steinberg::CPluginView)
     DEFINE_INTERFACES
     DEF_INTERFACE(Steinberg::IPlugViewContentScaleSupport)
@@ -56,6 +61,8 @@ private:
     // Hands `scale` to the embedded view where the platform leaves that to us.
     void applyContentScale() noexcept;
     Steinberg::ViewRect rectFor(EditorSize size) const noexcept;
+    EditorSize pointsOf(const Steinberg::ViewRect& pixels) const noexcept;
+    Steinberg::ViewRect openingRect() const;
 
     Steinberg::IPtr<FUnknown> owner;
     OwningPointer<Editor> editor;
@@ -63,6 +70,7 @@ private:
     OwningPointer<HostRunLoop> frameLoop;
     float scale = 1.f;
     bool sizedByHost = false;
+    int sizeChanges = 0;
 };
 
 } // namespace MakeASound::VST3

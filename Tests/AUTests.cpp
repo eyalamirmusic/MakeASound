@@ -1254,6 +1254,7 @@ struct PropertyLog
 {
     int latency = 0;
     int parameterList = 0;
+    int bypass = 0;
 };
 
 void recordProperty(void* refCon,
@@ -1268,6 +1269,8 @@ void recordProperty(void* refCon,
         ++log.latency;
     else if (id == kAudioUnitProperty_ParameterList)
         ++log.parameterList;
+    else if (id == kAudioUnitProperty_BypassEffect)
+        ++log.bypass;
 }
 
 template <typename P>
@@ -1342,6 +1345,180 @@ auto tLatency = test("AU/aLatencyChangeIsPostedOnceTheHostHasABaseline") = []
 
     plugin.notifyHostParameterInfoChanged();
     check(log.parameterList == 1);
+};
+
+template <typename P>
+OSStatus bypassInfo(UnitHost<P>& host, UInt32& size, Boolean& writable)
+{
+    return AudioUnitGetPropertyInfo(host.unit,
+                                    kAudioUnitProperty_BypassEffect,
+                                    kAudioUnitScope_Global,
+                                    0,
+                                    &size,
+                                    &writable);
+}
+
+template <typename P>
+UInt32 readBypass(UnitHost<P>& host)
+{
+    auto value = UInt32 {7};
+    auto size = UInt32 {sizeof(value)};
+    check(AudioUnitGetProperty(host.unit,
+                               kAudioUnitProperty_BypassEffect,
+                               kAudioUnitScope_Global,
+                               0,
+                               &value,
+                               &size)
+          == noErr);
+    return value;
+}
+
+template <typename P>
+OSStatus writeBypass(UnitHost<P>& host, UInt32 value)
+{
+    return AudioUnitSetProperty(host.unit,
+                                kAudioUnitProperty_BypassEffect,
+                                kAudioUnitScope_Global,
+                                0,
+                                &value,
+                                sizeof(value));
+}
+
+template <typename P>
+void listenForBypass(UnitHost<P>& host, PropertyLog& log)
+{
+    check(AudioUnitAddPropertyListener(
+              host.unit, kAudioUnitProperty_BypassEffect, &recordProperty, &log)
+          == noErr);
+}
+
+auto tBypassAnswered = test("AU/bypassIsAnsweredOnlyWithABypassParameter") = []
+{
+    auto gain = UnitHost<GainPlugin>("Gain");
+    auto size = UInt32 {};
+    auto writable = Boolean {};
+
+    check(bypassInfo(gain, size, writable) == noErr);
+    check(size == sizeof(UInt32));
+    check(writable);
+
+    auto echo = UnitHost<SynthPlugin>("Echo");
+    check(bypassInfo(echo, size, writable) == kAudioUnitErr_InvalidProperty);
+    check(writeBypass(echo, 1) != noErr);
+};
+
+auto tBypassReads = test("AU/readingBypassFollowsTheParameter") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& bypass = host.plugin().params.bypass;
+
+    check(readBypass(host) == 0);
+
+    bypass.setValue(1.f);
+    check(readBypass(host) == 1);
+
+    bypass.setValue(0.f);
+    check(readBypass(host) == 0);
+};
+
+auto tBypassWrites = test("AU/writingBypassMovesTheParameterAndItsLane") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& bypass = host.plugin().params.bypass;
+    auto bypassId = host.hostIdOf(bypass);
+    auto log = GestureLog {};
+    auto properties = PropertyLog {};
+    listenForBypass(host, properties);
+
+    auto listener = AUEventListenerRef {};
+    check(AUEventListenerCreate(&recordGesture,
+                                &log,
+                                CFRunLoopGetCurrent(),
+                                kCFRunLoopDefaultMode,
+                                0.0,
+                                0.0,
+                                &listener)
+          == noErr);
+
+    auto event = AudioUnitEvent {};
+    event.mEventType = kAudioUnitEvent_ParameterValueChange;
+    event.mArgument.mParameter = {host.unit, bypassId, kAudioUnitScope_Global, 0};
+    check(AUEventListenerAddEventType(listener, &log, &event) == noErr);
+
+    check(writeBypass(host, 1) == noErr);
+    check(bypass.isOn());
+    check(host.hostValue(bypassId) == 1.f);
+    check(readBypass(host) == 1);
+    check(properties.bypass == 1);
+
+    check(pumpUntil([&] { return !log.types.empty(); }));
+    check(log.types[0] == kAudioUnitEvent_ParameterValueChange);
+    check(log.ids[0] == bypassId);
+    check(log.values[0] == 1.f);
+
+    check(host.render(maxBlock) == noErr);
+    check(bypass.isOn());
+    check(host.hostValue(bypassId) == 1.f);
+
+    check(writeBypass(host, 0) == noErr);
+    check(!bypass.isOn());
+    check(host.hostValue(bypassId) == 0.f);
+
+    AUListenerDispose(listener);
+};
+
+auto tBypassPosted = test("AU/aBypassMoveIsPostedToPropertyListeners") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& params = host.plugin().params;
+    auto log = PropertyLog {};
+    listenForBypass(host, log);
+
+    check(host.hostWrites(host.hostIdOf(params.bypass), 1.f) == noErr);
+    check(log.bypass == 1);
+
+    check(host.hostWrites(host.hostIdOf(params.bypass), 1.f) == noErr);
+    check(host.hostWrites(host.hostIdOf(params.gain), -6.f) == noErr);
+    check(log.bypass == 1);
+
+    auto& edits = *host.plugin().hostEditListener();
+    auto index = host.plugin().parameters().indexOf(&params.bypass);
+    edits.beginParameterEdit(index);
+    params.bypass.setValue(0.f);
+    edits.performParameterEdit(index, params.bypass.getNormalized());
+    edits.endParameterEdit(index);
+    check(log.bypass == 2);
+    check(readBypass(host) == 0);
+
+    edits.beginParameterEdit(0);
+    params.gain.setValue(-3.f);
+    edits.performParameterEdit(0, params.gain.getNormalized());
+    edits.endParameterEdit(0);
+    check(log.bypass == 2);
+};
+
+auto tBypassHeld = test("AU/aHeldBypassDropsTheWriteAndMirrorsItBack") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& bypass = host.plugin().params.bypass;
+    auto bypassId = host.hostIdOf(bypass);
+    auto& edits = *host.plugin().hostEditListener();
+    auto index = host.plugin().parameters().indexOf(&bypass);
+    check(host.render(maxBlock) == noErr);
+
+    edits.beginParameterEdit(index);
+    check(writeBypass(host, 1) == noErr);
+    check(!bypass.isOn());
+    check(readBypass(host) == 0);
+
+    check(host.render(maxBlock) == noErr);
+    check(!bypass.isOn());
+    check(host.hostValue(bypassId) == 0.f);
+
+    edits.endParameterEdit(index);
+
+    check(writeBypass(host, 1) == noErr);
+    check(bypass.isOn());
 };
 
 auto tCocoaView = test("AU/theCocoaViewIsAnsweredOnlyWithAView") = []

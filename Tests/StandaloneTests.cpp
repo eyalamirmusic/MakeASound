@@ -1,13 +1,16 @@
 // The standalone format's pieces without a window: StandaloneProcessor driven by
 // Engine with a synthetic AudioCallbackInfo, the sender thread over a virtual-port
-// loopback, the typing keyboard's mapping and the settings file.
+// loopback, the typing keyboard's mapping, the settings file and the editor
+// window's options.
 
 #include "TestPlugins.h"
+#include "TestEditor.h"
 
 #include <MakeASound/Plugin/Standalone/StandaloneProcessor.h>
 #include <MakeASound/Plugin/Standalone/MidiSender.h>
 #include <MakeASound/Plugin/Standalone/TypingKeyboard.h>
 #include <MakeASound/Plugin/Standalone/Settings.h>
+#include <MakeASound/Plugin/Standalone/EditorWindow.h>
 
 #include <NanoTest/NanoTest.h>
 
@@ -695,5 +698,87 @@ auto tResolvePorts = test("Standalone/resolvePortIdsMatchesByName") = []
     auto ids = resolvePortIds({"Pads", "Gone", "Keys"}, ports);
 
     check(ids == Vector<int> {7, 4});
+};
+
+bool hasResizableFlag(const eacp::Graphics::WindowOptions& options)
+{
+    for (auto flag: options.flags)
+        if (flag == eacp::Graphics::WindowFlags::Resizable)
+            return true;
+
+    return false;
+}
+
+eacp::Graphics::Point proposeSize(const eacp::Graphics::WindowOptions& options,
+                                  float width,
+                                  float height)
+{
+    return options.sizeConstraint(
+        {{width, height}, eacp::Graphics::ResizeAxis::Both});
+}
+
+auto tFixedEditor = test("Standalone/aFixedEditorOpensAFixedWindow") = []
+{
+    auto editor = TestEditor {};
+    editor.size = {500, 320};
+
+    auto options = editorWindowOptions(editor, "Fixed");
+
+    check(options.title == "Fixed");
+    check(!hasResizableFlag(options));
+    check(options.width == 500);
+    check(options.height == 320);
+    check(options.effectiveAllowsFullScreen());
+};
+
+auto tResizableEditor = test("Standalone/aResizableEditorConstrainsTheWindow") = []
+{
+    auto editor = TestEditor {};
+    editor.size = {100, 2000};
+    editor.limits = {
+        .resizable = true, .minimum = {300, 200}, .maximum = {900, 700}};
+
+    auto options = editorWindowOptions(editor, "Resizable");
+
+    check(hasResizableFlag(options));
+    check(options.minWidth == 300);
+    check(options.minHeight == 200);
+    check(options.width == 300);
+    check(options.height == 700);
+    check(options.effectiveAllowsFullScreen());
+
+    for (auto [width, height]: {std::pair {50, 50},
+                                std::pair {640, 480},
+                                std::pair {5000, 150},
+                                std::pair {1200, 1200}})
+    {
+        auto expected = editor.limits.constrain({width, height});
+        auto answer = proposeSize(options, (float) width, (float) height);
+
+        check(answer.x == (float) expected.width);
+        check(answer.y == (float) expected.height);
+    }
+};
+
+auto tRatioEditor = test("Standalone/aRatioLockedEditorKeepsItsShape") = []
+{
+    auto editor = TestEditor {};
+    editor.size = {640, 300};
+    editor.limits = {.resizable = true,
+                     .minimum = {200, 100},
+                     .maximum = {2000, 1000},
+                     .aspectRatio = {2, 1}};
+
+    auto options = editorWindowOptions(editor, "Ratio");
+
+    check(!options.effectiveAllowsFullScreen());
+
+    auto initial = options.effectiveInitialSize();
+    check(initial.x == 2.f * initial.y);
+    check(initial.x == (float) options.width);
+    check(initial.y == (float) options.height);
+
+    auto dragged = options.effectiveSize({900.f, 300.f});
+    check(dragged.x == 2.f * dragged.y);
 };
 } // namespace

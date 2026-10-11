@@ -70,7 +70,7 @@ void ProxyParameter::refreshInfo()
     info.unitId = Vst::kRootUnitId;
     info.flags = Vst::ParameterInfo::kCanAutomate;
 
-    if (p.isBypass())
+    if (entry.bypass)
         info.flags |= Vst::ParameterInfo::kIsBypass;
 
     if (p.stateFormat() == MakeASound::Parameter::StateFormat::Text)

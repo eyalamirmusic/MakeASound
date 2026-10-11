@@ -29,6 +29,8 @@ struct SynthPlugin : StatePlugin<State<SynthParams>>
     void reset() noexcept override;
     void process(ProcessContext& context) noexcept override;
 
+    OwningPointer<Editor> createEditor() override;
+
 private:
     DSP::TestSynth::Settings settingsFromParams() const noexcept;
 

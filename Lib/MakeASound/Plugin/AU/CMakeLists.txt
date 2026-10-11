@@ -7,8 +7,9 @@ if (NOT TARGET ausdk)
     return()
 endif ()
 
-# The component's description and plist, SDK-free and C++20.
-add_library(MakeASoundAUDescribe STATIC ComponentType.cpp Plist.cpp)
+# The component's description and plist and the view's placement geometry,
+# SDK-free and C++20.
+add_library(MakeASoundAUDescribe STATIC ComponentType.cpp Plist.cpp ViewPlacement.cpp)
 target_link_libraries(MakeASoundAUDescribe PUBLIC MakeASoundPlugin
         "-framework AudioToolbox")
 set_makeasound_target_settings(MakeASoundAUDescribe)

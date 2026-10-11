@@ -1,4 +1,5 @@
 #include "SynthPlugin.h"
+#include "SynthEditor.h"
 
 namespace MakeASoundExamples
 {
@@ -18,6 +19,11 @@ void SynthPlugin::process(ProcessContext& context) noexcept
 {
     synth.setSettings(settingsFromParams());
     synth.process(context);
+}
+
+OwningPointer<Editor> SynthPlugin::createEditor()
+{
+    return createSynthEditor(*this);
 }
 
 DSP::TestSynth::Settings SynthPlugin::settingsFromParams() const noexcept

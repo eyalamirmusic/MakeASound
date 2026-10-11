@@ -40,19 +40,33 @@ PlugView::PlugView(Steinberg::IPtr<FUnknown> ownerToKeep,
     : owner(std::move(ownerToKeep))
     , editor(std::move(editorToShow))
 {
-    setRect(rectFor(editor->initialSize()));
+    editor->setHost(this);
+    setRect(openingRect());
 }
 
 PlugView::~PlugView()
 {
     if (embedded)
         removedFromParent();
+
+    editor->setHost(nullptr);
 }
 
 Steinberg::ViewRect PlugView::rectFor(EditorSize size) const noexcept
 {
     auto factor = rectScale();
     return {0, 0, scaleBy(size.width, factor), scaleBy(size.height, factor)};
+}
+
+EditorSize PlugView::pointsOf(const Steinberg::ViewRect& pixels) const noexcept
+{
+    auto factor = 1.f / rectScale();
+    return {scaleBy(pixels.getWidth(), factor), scaleBy(pixels.getHeight(), factor)};
+}
+
+Steinberg::ViewRect PlugView::openingRect() const
+{
+    return rectFor(editor->constraints().constrain(editor->initialSize()));
 }
 
 tresult PLUGIN_API PlugView::isPlatformTypeSupported(FIDString type)
@@ -93,7 +107,7 @@ tresult PLUGIN_API PlugView::getSize(Steinberg::ViewRect* size)
         return Steinberg::kInvalidArgument;
 
     if (!sizedByHost)
-        setRect(rectFor(editor->initialSize()));
+        setRect(openingRect());
 
     return CPluginView::getSize(size);
 }
@@ -104,6 +118,7 @@ tresult PLUGIN_API PlugView::onSize(Steinberg::ViewRect* newSize)
         return Steinberg::kInvalidArgument;
 
     sizedByHost = true;
+    ++sizeChanges;
     auto result = CPluginView::onSize(newSize);
 
     if (embedded)
@@ -118,15 +133,40 @@ tresult PLUGIN_API PlugView::onSize(Steinberg::ViewRect* newSize)
 
 tresult PLUGIN_API PlugView::canResize()
 {
-    return editor->isResizable() ? Steinberg::kResultTrue : Steinberg::kResultFalse;
+    return editor->constraints().resizable ? Steinberg::kResultTrue
+                                           : Steinberg::kResultFalse;
 }
 
 tresult PLUGIN_API PlugView::checkSizeConstraint(Steinberg::ViewRect* rectToCheck)
 {
-    if (editor->isResizable())
-        return Steinberg::kResultTrue;
+    auto limits = editor->constraints();
 
-    return CPluginView::checkSizeConstraint(rectToCheck);
+    if (!limits.resizable || rectToCheck == nullptr)
+        return CPluginView::checkSizeConstraint(rectToCheck);
+
+    auto allowed = rectFor(limits.constrain(pointsOf(*rectToCheck)));
+    rectToCheck->right = rectToCheck->left + allowed.getWidth();
+    rectToCheck->bottom = rectToCheck->top + allowed.getHeight();
+    return Steinberg::kResultTrue;
+}
+
+// The SDK lets a host that accepts skip onSize when it judges the size unchanged,
+// so an accepted request it did not answer is applied here, as JUCE does.
+bool PlugView::resizeEditor(EditorSize size)
+{
+    if (!plugFrame)
+        return false;
+
+    auto requested = rectFor(size);
+    auto changesBefore = sizeChanges;
+
+    if (plugFrame->resizeView(this, &requested) != Steinberg::kResultTrue)
+        return false;
+
+    if (sizeChanges == changesBefore)
+        onSize(&requested);
+
+    return true;
 }
 
 tresult PLUGIN_API PlugView::setFrame(Steinberg::IPlugFrame* frame)

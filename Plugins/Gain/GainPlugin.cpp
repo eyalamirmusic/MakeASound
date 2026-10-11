@@ -12,13 +12,18 @@ void GainPlugin::prepare(const ProcessSpec& spec)
 
 void GainPlugin::reset() noexcept
 {
-    gain.reset(params.gain.gain());
+    gain.reset(targetGain());
 }
 
 void GainPlugin::process(ProcessContext& context) noexcept
 {
-    gain.setTarget(params.gain.gain());
+    gain.setTarget(targetGain());
     gain.applyGain(context.mainOutput());
+}
+
+float GainPlugin::targetGain() const noexcept
+{
+    return params.bypass.isOn() ? 1.f : params.gain.gain();
 }
 
 } // namespace MakeASoundExamples

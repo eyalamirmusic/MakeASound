@@ -18,6 +18,21 @@ constexpr auto blockSize = 64;
 
 using Block = std::array<float, blockSize>;
 
+namespace Module
+{
+// What the test plugins' createEditor() returns when set, so a format suite can
+// show an editor of its own through the real path.
+inline std::function<OwningPointer<Editor>(Plugin&)> editorFactory;
+} // namespace Module
+
+inline OwningPointer<Editor> createTestEditor(Plugin& plugin)
+{
+    if (Module::editorFactory)
+        return Module::editorFactory(plugin);
+
+    return {};
+}
+
 struct FilterParams : ParameterGroup
 {
     FilterParams()
@@ -75,6 +90,8 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
     std::string_view name() const override { return "Gain"; }
 
     BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    OwningPointer<Editor> createEditor() override { return createTestEditor(*this); }
 
     bool acceptsLayout(const BusLayout& proposed) const override
     {
@@ -161,6 +178,8 @@ struct SynthPlugin : StatePlugin<State<SynthParams>>
     static constexpr int maxEvents = 16;
 
     std::string_view name() const override { return "Synth"; }
+
+    OwningPointer<Editor> createEditor() override { return createTestEditor(*this); }
 
     BusLayout getBusLayout() const override
     {

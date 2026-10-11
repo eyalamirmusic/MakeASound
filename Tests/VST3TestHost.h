@@ -2,8 +2,9 @@
 
 // The VST3 adapter hosted in-process the way a DAW drives it, shared by the VST3
 // suites: a component handler that records what the plugin reports, a stream
-// that answers IStreamAttributes, and a fixture owning the host's buffers,
-// parameter queues, event lists and process data.
+// that answers IStreamAttributes, a plug frame that records resize requests, and
+// a fixture owning the host's buffers, parameter queues, event lists and process
+// data.
 
 #include <MakeASound/Plugin/VST3/VST3Common.h>
 #include <MakeASound/Plugin/VST3/Adapter.h>
@@ -12,6 +13,7 @@
 #include <public.sdk/source/common/memorystream.h>
 #include <public.sdk/source/vst/hosting/eventlist.h>
 #include <public.sdk/source/vst/hosting/parameterchanges.h>
+#include <pluginterfaces/gui/iplugview.h>
 #include <pluginterfaces/vst/ivstattributes.h>
 #include <pluginterfaces/vst/vstpresetkeys.h>
 
@@ -214,6 +216,42 @@ struct TestAttributeStream final
     }
 
     std::string stateType;
+};
+
+// Stack-owned, so its reference count is a no-op. Records each resizeView,
+// accepts or refuses it, and when accepting calls onSize back or leaves that to
+// the view, as the SDK allows either.
+struct FakePlugFrame final : Steinberg::IPlugFrame
+{
+    tresult PLUGIN_API resizeView(Steinberg::IPlugView* view,
+                                  Steinberg::ViewRect* newSize) override
+    {
+        requests.push_back(*newSize);
+
+        if (!accept)
+            return Steinberg::kResultFalse;
+
+        if (callOnSize)
+            view->onSize(newSize);
+
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID _iid,
+                                      void** obj) override
+    {
+        QUERY_INTERFACE(_iid, obj, Steinberg::FUnknown::iid, Steinberg::IPlugFrame)
+        QUERY_INTERFACE(_iid, obj, Steinberg::IPlugFrame::iid, Steinberg::IPlugFrame)
+        *obj = nullptr;
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1; }
+
+    bool accept = true;
+    bool callOnSize = true;
+    std::vector<Steinberg::ViewRect> requests;
 };
 
 constexpr auto maxBlock = TestPlugins::blockSize;

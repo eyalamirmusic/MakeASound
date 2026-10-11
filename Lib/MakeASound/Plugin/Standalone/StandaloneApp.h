@@ -47,6 +47,19 @@ private:
         StandaloneApp& app;
     };
 
+    struct EditorWindowHost : EditorHost
+    {
+        explicit EditorWindowHost(StandaloneApp& appToUse)
+            : app(appToUse)
+        {
+        }
+
+        bool resizeEditor(EditorSize size) override;
+        bool drawsResizeHandle() const override { return true; }
+
+        StandaloneApp& app;
+    };
+
     static OwningPointer<Plugin> createFirstPlugin(const ModuleDescription& module);
 
     bool hasMidiIn() const { return !wrapper.busLayout().midiInputs.empty(); }
@@ -91,6 +104,7 @@ private:
     OwningPointer<eacp::Graphics::Window> settingsWindow;
 
     KeyRouter keys {*this};
+    EditorWindowHost editorHost {*this};
 };
 
 } // namespace MakeASound::Standalone

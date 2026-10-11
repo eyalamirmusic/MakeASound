@@ -19,7 +19,7 @@ it.
 | 3 | Standalone format | a `Plugin` runs in a window with device and MIDI pickers — **landed 2026-10-10** |
 | 4 | VST3 | pluginval at strictness 10 — **landed 2026-10-10** |
 | 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
-| 6 | editors, examples, CI, docs | |
+| 6 | editor size policy and host resize in every format, Logic's view service, AU bypass, a React editor for the Synth example | pluginval 10 and `auval -strict` with the new editors; the Synth's web editor opens in all three formats — **landed 2026-10-11** (DAW hand checks pending) |
 
 ## Stage 0: `Buffer`
 
@@ -1968,15 +1968,547 @@ None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
   its values; two MakeASound AUs open in one project with editors.
 - CLAUDE.md, README and this plan describe the format as it is.
 
+## Stage 6: editors, AU bypass and a web editor example
+
+What stages 3 to 5 deferred: an editor that states its size policy and can ask its
+host for a new size, honoured by the standalone window, VST3's `PlugView` and the AU
+Cocoa view; Plug's window heuristics for Logic's AU view service;
+`kAudioUnitProperty_BypassEffect`; and a real editor beside the generic one, a React
+page in a `WebView` built through the `miro_export` codegen `Apps/Synth` uses. The
+proof is the stage 4 and 5 sweeps again with the new editors in the bundles
+(`PluginValidator build/VST3 build/AU`, pluginval at strictness 10 opening every
+editor, `auval -strict` with Gain's bypass answered), the `Editor/`, `PluginUI/`,
+`Web/` and extended format suites green on every job, and a hand check in Logic
+and Ableton listed under "Done when".
+
+Landed: `EditorConstraints`, `EditorHost` and `Editor::constraints()`/`setHost`/
+`requestResize` in `Core/Editor.{h,cpp}`; `ResizeGrip` and the generic editor's
+constraints (resizable, 320×96 to 1200×1200) in `MakeASoundPluginUI`;
+`editorWindowOptions` and `StandaloneApp::EditorWindowHost` in the standalone;
+`PlugView` as an `EditorHost`; the AU view's resize, Logic placement and
+`ViewPlacement` (in `MakeASoundAUDescribe`); `ParameterList::bypassIndex()`, VST3's
+`kIsBypass` on that entry alone and `kAudioUnitProperty_BypassEffect`, with Gain
+gaining its bypass parameter; `MakeASoundPluginWeb` (`ParameterApi`, `WebEditor`),
+`CMake/MakeASoundWebEditor.cmake` and the Synth's React editor; Node on every
+desktop CI job and the iOS one. `PluginValidator build/VST3 build/AU` passes all four bundles on
+this Mac with the web Synth, and auval answers Gain's `Bypass Effect` with no
+warning; the whole suite is green here (419 cases), the new ones in `Editor/`,
+`PluginUI/`, `Web/`, `Standalone/`, `VST3/`, `AU/` (`AUTests.cpp` and
+`AUViewTests.mm`) and `Parameters/`. Integration needed no fixes. The hand checks
+in Logic and Ableton under "Done when" are still the user's to make. Where it
+differs from the section below:
+
+- **Lists and bare ids travel inside structs on the page API.** Miro's
+  TypeScript codegen emits broken types for a command taking or returning a bare
+  `Vector` or `std::string`, so `getParameters()` returns `WebParameters
+  {parameters}`, `beginEdit`/`endEdit` take `WebParameterId {id}`, and the `values`
+  event carries `WebParameterValues {changed}`.
+- **`ParameterApi::endAllEdits()`** closes every gesture the page left open;
+  `WebEditor` calls it in `onRemoved()` and its destructor, so a page torn down
+  mid-drag never leaves the host waiting for an end.
+- **`MakeASoundPluginWeb` builds on iOS too.** eacp defines `EACP_HAS_WEBVIEW` on
+  `APPLE OR WIN32`, so the iOS configure builds the Synth's page as well, with the
+  committed `src/generated` standing in for the codegen tool a cross-compile has
+  not got; the iOS CI job therefore also runs `actions/setup-node`.
+- **eacp's window `aspectRatio` option is not set** by `editorWindowOptions`: the
+  `sizeConstraint` lambda already keeps the ratio on every path the window takes
+  a size on, and eacp's own lock would run after it with its own rounding, so the
+  two could disagree by a point.
+- **The AU bypass property is posted only on the message thread** from a host
+  `SetParameter`, and only when the value actually flipped; a `SetProperty` write
+  goes through `MusicDeviceBase::SetParameter` and the wrapper, and the SDK posts
+  the property itself once it succeeds.
+- **`MAKEASOUND_AU_VIEW_TRACE` is read from launchd's environment** in practice
+  (`launchctl setenv`), since the hosts worth tracing are sandboxed.
+
+### Decision
+
+- **`Editor` states a size policy, not a flag.** `Core/Editor.h` gains
+  `EditorConstraints {resizable, minimum, maximum, aspectRatio}` (`EditorSize`s,
+  `minimum` `{1, 1}`, `maximum` `{16384, 16384}`, `aspectRatio` `{0, 0}`, which locks
+  nothing; only the proportion is read, so `{3, 2}` and `{600, 400}` mean the same)
+  and `virtual EditorConstraints constraints() const`, default `{}` (not resizable).
+  `isResizable()` is removed rather than kept beside it: every caller in the tree
+  reads `constraints().resizable` instead. `EditorConstraints::constrain(EditorSize)
+  const noexcept` is the one rule every format applies, defined in the new
+  `Core/Editor.cpp` (`MakeASoundPlugin`, no eacp): each side clamped to
+  `[minimum, maximum]`; with a ratio, the proposal projected orthogonally onto the
+  ratio's ray (Plug's `aspectConstrained`, continuous and a pure function of the
+  proposal, so a drag that feeds each answer into the next proposal never
+  oscillates) and the scale clamped so both sides stay inside the bounds, the
+  minimum winning when the bounds and the ratio admit no size; whole points,
+  rounded. It knows no resize axis, because VST3's `checkSizeConstraint` and AU's
+  frame changes give none. A host opens an editor at
+  `constraints().constrain(initialSize())`.
+- **An editor asks its host through `EditorHost`**, an interface in `Editor.h` that
+  whatever shows the editor implements: `bool resizeEditor(EditorSize)` (true when
+  the host took the size; message thread) and `bool drawsResizeHandle() const`
+  (whether the host's window has a resize grip of its own). `Editor` gains the
+  non-virtual `setHost(EditorHost*)`, `host()`, `canRequestResize()`
+  (`constraints().resizable` and a host) and `requestResize(EditorSize)`, which
+  constrains the size and hands it to the host, false when it cannot. The contract,
+  stated in the header: every format calls `setHost(this)` before `onAttached()` and
+  `setHost(nullptr)` after `onRemoved()`, so an editor reads `host()` from
+  `onAttached()` on. Like `HostEditListener` on `Plugin`, the pointer is the
+  format's, never owned.
+- **`ResizeGrip`** (`Plugin/UI/ResizeGrip.{h,cpp}`, `MakeASoundPluginUI`) is the
+  bottom-right corner handle an editor draws for a host without one, Plug's design:
+  an `eacp::Graphics::View` added as the editor's last child, `cornerOf(bounds)`
+  placing it at 18 points, drawing and taking the mouse only while
+  `editor.canRequestResize()`, each drag step measured from the size at
+  `mouseDown` (asking is not getting, so accumulating its own requests would drift
+  off the pointer) and sent through `requestResize`. An editor shows it when
+  `canRequestResize() && !host()->drawsResizeHandle()`, which today is the AU view
+  alone.
+- **`GenericEditor` declares its policy**: `constraints()` is resizable, minimum
+  `{320, minPageHeight}`, maximum `{1200, 1200}`, no ratio (the rows sit in a
+  `ScrollPanel`, so any height lays out), and it adds a `ResizeGrip` in
+  `onAttached()` when the rule above says so. Gain shows it in every format, so the
+  unconstrained-ratio path is exercised by an example.
+- **Standalone.** The editor window's options come from a pure function,
+  `editorWindowOptions(const Editor&, std::string title)` in the new
+  `Standalone/EditorWindow.{h,cpp}`, so a test reads them without a window:
+  `width`/`height` from the constrained initial size, `minWidth`/`minHeight` from
+  `minimum`, `sizeConstraint` a lambda over `constrain` (eacp asks it on every path a
+  window takes a size on, so the window never holds a forbidden shape),
+  `WindowFlags::Resizable` removed when not resizable (what `removeResizable` does
+  today, moved here), and `allowsFullScreen` false when a ratio is set.
+  `StandaloneApp` gains a nested `EditorWindowHost : EditorHost` beside `KeyRouter`:
+  `resizeEditor` is `editorWindow->setSize`, true when `getSize()` reads back the
+  size asked for, and `drawsResizeHandle()` is true. The window's size is not
+  persisted in `Settings`; that waits for a reason.
+- **VST3.** `PlugView` implements `EditorHost`, installed in the constructor and
+  cleared in the destructor (a request needs a frame, not an attachment, so a test
+  can make one without a native parent), with `onAttached`/`onRemoved` keeping the
+  order above. `canResize()` reads `constraints().resizable`.
+  `checkSizeConstraint(rect)` converts the rect to points through `rectScale()`,
+  writes back `constrain` of it in the rect's units and returns `kResultTrue`, or
+  the base's answer when not resizable. `resizeEditor(size)` builds `rectFor(size)`
+  and calls `plugFrame->resizeView(this, &rect)`: false without a frame or when the
+  host refuses; when the host accepts without calling `onSize` back (the SDK allows
+  either), the view applies the rect through its own `onSize`, as JUCE's wrapper
+  does. `onSize` stays the host's word and is not constrained a second time.
+  `drawsResizeHandle()` is true. No per-platform TU changes: the pixel/point split
+  is already `rectScale()`.
+- **AU.** The Cocoa view opens at the constrained initial size, its
+  `autoresizingMask` from `constraints().resizable` (a host reads the mask to decide
+  whether its window gets a grip), and implements `EditorHost` through a small C++
+  member holding the view weakly. `resizeEditor` is Plug's
+  `resizeToWidth:height:`: a host sizes its plugin window from the view it
+  parented, so resizing ourselves is the request; the superview is resized too
+  when it is the host's plugin container (`isHostPluginContainer`: not the window's
+  content view, and the same size as the view), under an `applyingResize` fence
+  because both directions post the same frame-change notification, inside a
+  `CATransaction` with actions disabled, then `layoutSubtreeIfNeeded` so the editor
+  has its bounds before the drag continues. `drawsResizeHandle()` is false: Logic
+  gives an AU window no grip, so the editor's own `ResizeGrip` is the only way to
+  resize one. A host-driven resize is not constrained: AU offers no proposal to
+  answer, and snapping the frame afterwards would desynchronise the view from the
+  host's window, so an AU editor lays out at whatever size the host chose.
+- **Logic's AU view service.** Logic hosts an AU's view out of process
+  (`AUHostingServiceXPC`, the `NSView` embedded in a remote view), where
+  `self.window` is the service's stand-in and moving it does nothing. Plug's
+  heuristics move into `CocoaUI.mm`'s `viewDidMoveToWindow`, once per view: up to 12
+  attempts 50 ms apart (sizing, placing and ordering front land over several
+  run-loop turns) move the window's origin into `screen.visibleFrame`, only when the
+  window exists to hold the editor (`isEditorWindow`: chrome no more than 80 points
+  wide and 200 high); when every move was refused, the view shrinks once through
+  `requestResize`, keeping the ratio, by what hangs off the bottom, never below 240
+  points. The geometry is pure and SDK-free in `Plugin/AU/ViewPlacement.{h,cpp}`
+  (`ViewFrame {x, y, width, height}`, `isEditorWindow`, `isHostPluginContainer` on
+  sizes and a content-view flag, `containedOrigin(window, visible)`,
+  `shrinkToFit(view, overhang, minimumHeight)`), compiled into
+  `MakeASoundAUDescribe` so the C++20 tests reach it; `CocoaUI.mm` only reads frames
+  and applies answers. `MAKEASOUND_AU_VIEW_TRACE` in the host's environment logs
+  the view chain and each decision to Console, the one way to see what a remote
+  host built. Whether this is what Logic 11 still does needs a hand check; nothing
+  in CI can host a remote view.
+- **Bypass in AU.** `ParameterList::bypassIndex()` is the index of the first
+  host-exposed entry whose parameter `isBypass()`, -1 when none, computed at
+  construction; a second one asserts in debug, since both formats allow one.
+  VST3's `HostParameters.cpp` sets `kIsBypass` on that index only. The AU adapter
+  answers `kAudioUnitProperty_BypassEffect` (global, `UInt32`, writable) only when
+  `bypassIndex() >= 0`, otherwise the base's `kAudioUnitErr_InvalidProperty`: get
+  reads the parameter's `isOn()`; set writes `Globals()` and the wrapper through the
+  same path `SetParameter` takes (so a gesture holding it drops the write, as the
+  edit gate does everywhere) and notifies `kAudioUnitEvent_ParameterValueChange` so
+  an automation lane follows. A move of the bypass parameter from `SetParameter` on
+  the message thread or from `performParameterEdit` posts
+  `PropertyChanged(kAudioUnitProperty_BypassEffect)`; one made on the render thread
+  posts nothing. The adapter does not skip `process` or reset on un-bypass, as
+  `AUEffectBase` does: bypass is the plugin's to honour, the same contract VST3
+  hosts rely on. `Plugins/Gain` gains `BoolParam bypass {"Bypass", false,
+  {.bypass = true}}`, ramping its `Smoother` to unity while on, so auval's
+  recommended-property warning goes for the effect; Synth, an instrument with no
+  bypass parameter, leaves the property unanswered.
+- **A web editor library, `MakeASoundPluginWeb`** (`Plugin/Web/`, namespace
+  `MakeASound::Web`, linking `MakeASoundPluginUI` and `eacp-webview` PUBLIC), built
+  where `eacp-webview` is, which eacp defines on macOS and Windows only
+  (`EACP_HAS_WEBVIEW`). Two pieces, because every web editor needs both:
+  - `ParameterApi`, the Miro API a page drives parameters through, generic over a
+    `Plugin*` (default-constructible with a null plugin, because the schema codegen
+    tool default-constructs every API to walk `reflect()`): commands
+    `getParameters()` → `Vector<WebParameter>` (`id`, `name`, `label`,
+    `normalized`, `text`, `steps`, `choices`, `automatable`, one per entry of
+    `parameters()`), `beginEdit(id)`, `edit(WebParameterEdit {id, normalized})`,
+    `endEdit(id)`, and the event `values` (`Vector<WebParameterValue {id,
+    normalized, text}>`). An edit writes the `Parameter` and reports
+    begin/perform/end through the plugin's `HostEditListener` when there is one,
+    exactly as `GenericEditor` does; an unknown id is a no-op. `poll()` publishes
+    the entries whose normalized value moved since the last publish and nothing
+    when none did.
+  - `WebEditor : Editor`, the view: a container `View` holding an
+    `eacp::Graphics::WebView` and, last, a `ResizeGrip`, plus a `WebViewBridge`
+    with `ParameterApi` and any further API the plugin hands it through
+    `template <typename Api> void use(Api&)`. It takes `WebEditorOptions
+    {category, storageName, devServer, initialSize, constraints}`. The WebView is
+    `embeddedOptions(category)` with `acceptFirstMouse` and `forwardUnhandledKeys`
+    on (a host's spacebar and the standalone's typing keyboard keep working while
+    the page has focus), `userDataFolderSuffix` the `storageName` (WebView2 keys
+    its user-data folder on the host's executable, and two plugins registering
+    different schemes into one folder fail to create), and `preferDevServer` only
+    when `devServer` is non-empty. The view is built on the first `view()`; a 30 Hz
+    `eacp::Threads::Timer` calls `poll()` between `onAttached()` and `onRemoved()`.
+    Message thread only.
+- **Resources reach a plugin module through ResEmbed, linked into the core.**
+  `makeasound_add_web_editor(<Name> WEB_DIR <dir> SOURCES <files>
+  FALLBACK_SOURCES <files> [API <types> API_HEADER <headers>] [CATEGORY <cat>])`, in the new
+  `CMake/MakeASoundWebEditor.cmake` that `Plugin/CMakeLists.txt` includes beside
+  `MakeASoundPlugin.cmake`, runs on the static core what `eacp_add_webview_app`
+  runs on an app, minus the executable: `miro_export(<Name>EditorSchema API
+  MakeASound::Web::ParameterApi <types> ... OUTPUT_DIR <dir>/src/generated FORMATS ts backend ts-server bridge events hooks)`,
+  `eacp_webview_generate_backend`, `eacp_webview_generate_mock`,
+  `eacp_webview_generate_react_hooks`, `eacp_target_uses_schema(<Name>
+  <Name>EditorSchema)`, the codegen tool linked to `eacp-core`,
+  `eacp-webview-codegen` and `MakeASoundPluginWeb` with
+  `XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO`, and `eacp_webview_add_vite(<Name>
+  SOURCE_DIR <dir> NAMESPACE <Name>Editor CATEGORY <cat> DEPENDS
+  <Name>EditorSchema_Codegen)`, then links `MakeASoundPluginWeb` to the core and
+  adds `SOURCES`. `res_embed_add` on a static library makes its register TU an
+  INTERFACE source, so every `<Name>-Standalone`, `<Name>-VST3` and `<Name>-AU`
+  compiles it and carries the page in its own image: no file beside the bundle, no
+  bundle lookup, the same in an `.app`, a `.vst3` on three platforms and a
+  `.component`. Each module's ResEmbed registry is its own, since the exports are
+  sealed (`macexport.exp`, `AUExports.txt`, the Linux version script, a DLL's
+  default), and the category defaults to `<Name>Editor`. eacp registers its own
+  Objective-C classes at runtime under unique names (`Core/ObjC/RuntimeClass.h`),
+  so the WebView needs no per-module naming of the kind `CocoaUI.mm` has, and
+  WebView2's loader is the static `WebView2LoaderStatic.lib`, so no DLL ships beside
+  a `.vst3`. Where `eacp-webview` is not a target (Linux) the function adds
+  `FALLBACK_SOURCES` instead, with a status line, and runs no npm. Under
+  `EACP_WEBVIEW_DEV` it defines `MAKEASOUND_WEB_DEV_SERVER="http://localhost:5173"`
+  on the core, `""` otherwise, which the plugin passes as `devServer`: a shipping
+  plugin never probes localhost. This is a function of its own rather than a
+  `WEB_DIR` argument to `makeasound_add_plugin` (Plug's shape), so the plugin
+  function keeps one job and a plugin with a native editor never sees npm.
+- **`Plugins/Synth` gets the web editor**, not a new example: it is the instrument
+  `Apps/Synth` already gives a React page, so its `web/` starts from that one; its
+  five parameters cover a choice, a bool and three skewed floats; and Gain keeps
+  proving the `GenericEditor` fallback, so both `createEditor()` paths stay covered
+  by an example in every format with no third bundle for pluginval and auval to
+  sweep. `SynthEditor.h` declares `OwningPointer<Editor>
+  createSynthEditor(SynthPlugin&)` and `SynthPlugin::createEditor()` returns it;
+  `SynthEditor-Web.cpp` builds a `WebEditor` (category `SynthPluginEditor`,
+  storage `"MakeASound Synth"`, initial size `{600, 400}`, resizable at a fixed
+  `{3, 2}` ratio from `{450, 300}` to `{1200, 800}`, so the ratio path is
+  exercised by an example) and returns null when
+  `WebView::isRuntimeAvailable()` is false (a Windows machine without the WebView2
+  runtime gets the generic editor instead of a blank one); `SynthEditor-None.cpp`
+  returns null. The page (`Plugins/Synth/web/`, React and Vite, `package.json` and
+  `package-lock.json` committed, `src/generated/` committed as `Apps/Synth` does so
+  a cross-compiling configure still builds) shows the waveform as three buttons,
+  attack, release and level as knobs with the parameters' own text, and legato as a
+  toggle, through the generated hooks; `npm run dev` in that folder with
+  `EACP_WEBVIEW_DEV` serves it live.
+- **Not in this stage**: persisting an editor's size (in the standalone's
+  `Settings` or a format's state), a host-driven content scale beyond what
+  `PlugView` already forwards, a generic React parameter page shipped by the
+  library, and CLAP and AUv3.
+
+### Layout
+
+| file | what |
+| --- | --- |
+| `Plugin/Core/Editor.h` | `EditorConstraints`, `EditorHost`, `Editor::constraints()`, `setHost`/`host`/`canRequestResize`/`requestResize`; `isResizable()` gone |
+| `Plugin/Core/Editor.cpp` | `EditorConstraints::constrain`, `Editor::requestResize`; new TU in `MakeASoundPlugin` |
+| `Plugin/UI/ResizeGrip.{h,cpp}` | the corner handle |
+| `Plugin/UI/GenericEditor.{h,cpp}` | `constraints()`, the grip |
+| `Plugin/Standalone/EditorWindow.{h,cpp}` | `editorWindowOptions` |
+| `Plugin/Standalone/StandaloneApp.{h,cpp}` | `EditorWindowHost`, the options from `EditorWindow` |
+| `Plugin/VST3/PlugView.{h,cpp}` | `EditorHost`, `checkSizeConstraint`, `resizeView` |
+| `Plugin/AU/CocoaUI.mm` | `EditorHost`, `resizeToWidth:height:`, the view-service heuristics |
+| `Plugin/AU/ViewPlacement.{h,cpp}` | the pure geometry, in `MakeASoundAUDescribe` |
+| `Plugin/AU/Adapter.{h,cpp}` | `kAudioUnitProperty_BypassEffect` |
+| `Plugin/Parameters/ParameterList.{h,cpp}` | `bypassIndex()` |
+| `Plugin/VST3/HostParameters.cpp` | `kIsBypass` on `bypassIndex()` only |
+| `Plugin/Web/CMakeLists.txt` | `MakeASoundPluginWeb`, gated on `TARGET eacp-webview` |
+| `Plugin/Web/ParameterApi.{h,cpp}` | the generic page API and its reflected types |
+| `Plugin/Web/WebEditor.{h,cpp}` | the `Editor` over a `WebView` |
+| `CMake/MakeASoundWebEditor.cmake` | `makeasound_add_web_editor` |
+| `Plugins/Synth/SynthEditor.h`, `SynthEditor-Web.cpp`, `SynthEditor-None.cpp` | the example's editor and its fallback |
+| `Plugins/Synth/web/` | the React page |
+| `Plugins/Gain/GainPlugin.{h,cpp}` | the bypass parameter |
+
+**Targets:**
+
+- **`MakeASoundPluginWeb`** (STATIC, IDE folder `Lib/Plugin`): `ParameterApi.cpp`,
+  `WebEditor.cpp`; links `MakeASoundPluginUI` and `eacp-webview` PUBLIC; added by
+  `Plugin/CMakeLists.txt` after `UI`, skipped with a status line where
+  `eacp-webview` is not a target. Unity under `MAKEASOUND_UNITY_BUILD`. No header of
+  `MakeASoundPlugin` or `MakeASoundPluginUI` includes one of its headers.
+- **`<Name>EditorSchema`** (INTERFACE) and **`<Name>EditorSchema_Codegen`**
+  (host tool), by `makeasound_add_web_editor`, IDE folder `<Name>`.
+- `MakeASoundAUDescribe` gains `ViewPlacement.cpp`; `MakeASoundPlugin` gains
+  `Core/Editor.cpp`; `MakeASoundPluginUI` gains `ResizeGrip.cpp`;
+  `MakeASoundStandalone` gains `EditorWindow.cpp`.
+
+### API
+
+```cpp
+struct EditorConstraints
+{
+    bool resizable = false;
+    EditorSize minimum {1, 1};
+    EditorSize maximum {16384, 16384};
+    EditorSize aspectRatio {0, 0};
+
+    EditorSize constrain(EditorSize proposed) const noexcept;
+};
+
+class EditorHost
+{
+public:
+    virtual ~EditorHost() = default;
+
+    virtual bool resizeEditor(EditorSize size) = 0;
+    virtual bool drawsResizeHandle() const = 0;
+};
+
+class Editor
+{
+public:
+    virtual eacp::Graphics::View& view() = 0;
+    virtual EditorSize initialSize() const { return {}; }
+    virtual EditorConstraints constraints() const { return {}; }
+    virtual void onAttached() {}
+    virtual void onRemoved() {}
+
+    void setHost(EditorHost* hostToUse) noexcept;
+    EditorHost* host() const noexcept;
+    bool canRequestResize() const;
+    bool requestResize(EditorSize size);
+};
+```
+
+```cmake
+makeasound_add_web_editor(SynthPlugin
+        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
+        SOURCES SynthEditor-Web.cpp
+        FALLBACK_SOURCES SynthEditor-None.cpp)
+```
+
+`ParameterApi` is always in the schema: the function reads its header from the
+target property `MAKEASOUND_WEB_API_HEADER` on `MakeASoundPluginWeb`, because a CPM
+consumer's directory cannot see our variables. `API` and `API_HEADER` name a
+plugin's own further APIs, bound with `WebEditor::use`.
+
+### Build
+
+- `Plugin/CMakeLists.txt`: `Core/Editor.cpp`; `add_subdirectory(Web)` after `UI`;
+  `include(MakeASoundWebEditor)` after `include(MakeASoundPlugin)`.
+- `Plugin/UI/CMakeLists.txt`: `ResizeGrip.cpp`. `Plugin/Standalone/CMakeLists.txt`:
+  `EditorWindow.cpp`. `Plugin/AU/CMakeLists.txt`: `ViewPlacement.cpp` into
+  `MakeASoundAUDescribe`.
+- `Plugins/Synth/CMakeLists.txt` calls `makeasound_add_web_editor` after
+  `makeasound_add_plugin`. The vite build runs in the build, not at configure,
+  except the first `npm install`, which `eacp_webview_add_vite` runs at configure
+  when `node_modules` is missing; Node and npm are therefore needed to configure a
+  tree with the examples on macOS and Windows. `MAKEASOUND_BUILD_EXAMPLES=OFF`
+  keeps a plugin-core build free of them.
+- Nothing changes in `makeasound_add_plugin`: the page rides in the core.
+
+### Tests
+
+New sources in `Tests/CMakeLists.txt`: `EditorTests.cpp` with the plugin core,
+`PluginUITests.cpp` when `TARGET MakeASoundPluginUI`, `WebEditorTests.cpp` when
+`TARGET MakeASoundPluginWeb`, `AUViewTests.mm` when the AU view is built (with
+`-fobjc-arc`, Cocoa, C++20; it includes no adapter header and reaches the view
+through `kAudioUnitProperty_CocoaUI` and the runtime, as the existing CocoaUI case
+does), and `TestEditor.{h,cpp}` when `TARGET MakeASoundPluginUI`: a `TestEditor`
+with settable `EditorConstraints` and initial size, a lazily built plain
+`eacp::Graphics::View`, and a record of attach, remove and host. `TestPlugins.h`
+gains `Module::editorFactory`, a `std::function<OwningPointer<Editor>(Plugin&)>`
+the test plugins' `createEditor()` call when set, so a format suite can show a
+`TestEditor` through the real `createEditor()` path; the header still includes no
+eacp header.
+
+**`EditorTests.cpp`** (suite `Editor/`, plugin core only):
+- `constrain`: each side clamped to the bounds; a ratio snaps a proposal onto it;
+  constraining a constrained size moves it by at most a point on each side; nearby
+  proposals give nearby answers (no jump along a drag); a ratio with a zero side
+  locks nothing; a ratio whose bounds admit no size takes the minimum.
+- `requestResize`: false with no host, false when not resizable, the constrained
+  size reaches a recording `EditorHost`, and the host's answer is returned.
+
+**`PluginUITests.cpp`** (suite `PluginUI/`): `GenericEditor::constraints()` is
+resizable within its bounds and its initial size satisfies them; the grip is added
+on `onAttached()` for a host that draws no handle and not for one that does, and
+not for a non-resizable editor; a grip drag of `(dx, dy)` from `mouseDown` asks for
+the size at drag start plus `(dx, dy)`, constrained, however many steps came
+before.
+
+**`StandaloneTests.cpp`**: `editorWindowOptions` for a fixed editor (no
+`Resizable` flag, the initial size), a resizable one (minimum as
+`minWidth`/`minHeight`, `sizeConstraint` answering `constrain`) and a ratio-locked
+one (`allowsFullScreen` false, `effectiveInitialSize()` on the ratio).
+
+**`VST3Tests.cpp`**, in the view case's existing `MAKEASOUND_VST3_HAS_VIEW` block,
+with `Module::editorFactory` showing a `TestEditor`: `canResize` follows
+`constraints().resizable`; `checkSizeConstraint` rewrites an out-of-bounds rect to
+the bounds and an off-ratio rect onto the ratio, and leaves a conforming one alone,
+at content scale 1 and, idempotently, at 2; `requestResize` with no frame is false;
+with a `FakePlugFrame` (`Tests/VST3TestHost.h`, recording `resizeView` and calling
+`onSize` back or not, per test) the constrained rect reaches the frame and
+`getSize` reads it back either way, and a refusing frame leaves the size alone; the
+editor's host is installed before its `onAttached` would run and cleared after
+the view goes.
+
+**`AUTests.cpp`**, bypass: the gain test plugin answers
+`kAudioUnitProperty_BypassEffect` and the echo instrument does not; reading follows
+the parameter; writing 1 turns it on in the plugin and in `AudioUnitGetParameter`
+and reaches an `AUEventListener` as a value change; a host `SetParameter` on the
+bypass id posts the property to a property listener; a write while a gesture holds
+the parameter is dropped and mirrored back.
+
+**`AUViewTests.mm`** (suite `AU/`): `ViewPlacement`, pure: a window with an
+editor's chrome is an editor window and a host's main window is not; a container
+the view's size that is not a content view is the plugin container;
+`containedOrigin` moves a window hanging off any edge inside the visible frame and
+leaves one inside alone; `shrinkToFit` keeps the ratio and declines below the
+floor. Then the view, through the test module's factory class: it opens at the
+constrained initial size with the mask from `resizable`; `requestResize` resizes
+the view and a same-size container superview, and leaves a window's content view
+alone; a host-driven frame change reaches the editor unconstrained; closing the
+unit before the view still closes the editor.
+
+**`ParameterTests.cpp`**: `bypassIndex()` is the bypass entry's index, -1 with none,
+and -1 when the only bypass parameter is not automatable.
+
+**`WebEditorTests.cpp`** (suite `Web/`, no `WebView` constructed, so it runs on a
+runner without a display or a WebView2 runtime): `getParameters()` lists every
+entry with id, name, steps and choices; `edit` writes the parameter and reports
+begin, perform and end, in order, to a recording `HostEditListener`, and works
+with none; an unknown id changes nothing; `poll()` publishes only what moved, a
+value moved by the host included, and nothing when nothing did; a
+default-constructed `ParameterApi` reflects, as the codegen tool needs.
+
+No allocation suite changes: nothing here touches the audio thread, and the
+bypass property writes through the parameter path `AUAllocationTests.cpp` already
+covers.
+
+### CI
+
+- Every desktop job gains `actions/setup-node@v4` (`node-version: 22`, `cache:
+  npm`, `cache-dependency-path: Plugins/Synth/web/package-lock.json`) before the
+  configure, so the Synth page's `npm install` and vite build run on macOS and the
+  four Windows entries; Linux builds `SynthEditor-None.cpp` and runs no npm, and
+  the step is harmless there. `MAKEASOUND_BUILD_APPS` stays off: the examples, not
+  `Apps/`, carry the web build in CI.
+- pluginval already opens every editor at strictness 10 on macOS and Windows x64,
+  so the web editor is under it there; Linux keeps `--skip-gui-tests`. The macOS
+  auval step is unchanged and now sees Gain's bypass.
+- Should npm or vite flake, the fix is retrying the install, never committing a
+  `dist/`.
+
+### Fallout in this repository
+
+| place | change |
+| --- | --- |
+| `Plugin/Core/` | `Editor.h` reshaped, `Editor.cpp` new |
+| `Plugin/UI/` | `ResizeGrip`, `GenericEditor` constraints and grip |
+| `Plugin/Standalone/` | `EditorWindow`, `StandaloneApp`'s host |
+| `Plugin/VST3/` | `PlugView` as an `EditorHost`, `kIsBypass` on one parameter |
+| `Plugin/AU/` | the view's resize and placement, `ViewPlacement`, bypass |
+| `Plugin/Parameters/ParameterList.*` | `bypassIndex()` |
+| `Plugin/Web/`, `CMake/MakeASoundWebEditor.cmake` | new |
+| `Plugin/CMakeLists.txt` | `Core/Editor.cpp`, `Web`, the include |
+| `Plugins/Gain` | the bypass parameter |
+| `Plugins/Synth` | the web editor and its page |
+| `Tests/` | `EditorTests.cpp`, `PluginUITests.cpp`, `WebEditorTests.cpp`, `AUViewTests.mm`, `TestEditor.{h,cpp}`, the format suites, `TestPlugins.h`, `VST3TestHost.h` |
+| `.github/workflows/ci.yml` | Node on every desktop job |
+| `CLAUDE.md`, `README.md`, `plan.md` | the editors, the web library and bypass as they are |
+
+Public API: `Editor::isResizable()` is gone in favour of `constraints()`, a
+breaking change with no shim; every override in the tree (`GenericEditor`) moves.
+
+### Fallout downstream
+
+None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web, and nothing in the
+device library changes.
+
+### Done when
+
+- `PluginValidator build/VST3 build/AU` passes on this Mac with the web Synth and
+  Gain's bypass, and the pluginval and auval CI steps stay green; auval no longer
+  warns about `BypassEffect` for Gain.
+- `Editor/`, `PluginUI/`, `Web/` and the new format cases are green on every job
+  that builds them; every desktop job builds `SynthPlugin` with its editor where
+  `eacp-webview` exists and with the fallback on Linux.
+- *Pending the user's hand check.* By hand on this Mac: the Synth's React editor opens in `MakeASound Synth.app`,
+  in Ableton (VST3 and AU) and in Logic (AU); its knobs move the parameters, a
+  host automation lane moves the knobs, and the typing keyboard plays while the
+  page has focus. Dragging the corner grip resizes both AU editors in Logic, the
+  Synth's keeping 3:2; a host's own grip does the same for VST3 in Ableton.
+- *Pending the user's hand check.* By hand in Logic (the view service): an editor opened near the bottom of the
+  screen ends up whole on it, moved where Logic allows and shrunk once where it
+  does not, with `MAKEASOUND_AU_VIEW_TRACE` showing which; Gain's bypass button in
+  Logic's plugin header follows the parameter both ways.
+- *Pending the user's hand check.* By hand on Windows: the Synth's web editor opens in the standalone and in a VST3
+  host, and on a machine without the WebView2 runtime the generic editor opens
+  instead.
+- CLAUDE.md, README and this plan describe it as it is.
+
+### Work packages
+
+The packages share no file except where ordered. WP1 lands first, because every
+format reads the reshaped `Editor.h` and WP1 has to keep the tree building through
+it; WP2, WP3, WP4 and WP6 then run in parallel; WP5 is independent of all of them
+and can start at once; WP7 is last.
+
+- **WP1, the editor policy.** `Plugin/Core/Editor.h`, `Plugin/Core/Editor.cpp`,
+  `Plugin/CMakeLists.txt` (`Core/Editor.cpp` only), `Plugin/UI/ResizeGrip.{h,cpp}`,
+  `Plugin/UI/GenericEditor.{h,cpp}`, `Plugin/UI/CMakeLists.txt`,
+  `Tests/EditorTests.cpp`, `Tests/PluginUITests.cpp`, `Tests/TestEditor.{h,cpp}`,
+  `Tests/TestPlugins.h` (`Module::editorFactory`), and `Tests/CMakeLists.txt` with
+  the guarded entries for its own files and for `WebEditorTests.cpp` (inert until
+  `MakeASoundPluginWeb` exists). The one-line `isResizable()` →
+  `constraints().resizable` edits in `StandaloneApp.cpp`, `PlugView.cpp` and
+  `CocoaUI.mm` are WP1's, made before WP2 to WP4 branch.
+- **WP2, the standalone window.** `Plugin/Standalone/EditorWindow.{h,cpp}`,
+  `Plugin/Standalone/StandaloneApp.{h,cpp}`, `Plugin/Standalone/CMakeLists.txt`,
+  `Tests/StandaloneTests.cpp`. After WP1.
+- **WP3, the VST3 view.** `Plugin/VST3/PlugView.{h,cpp}`, `Tests/VST3Tests.cpp`,
+  `Tests/VST3TestHost.h`. After WP1.
+- **WP4, the AU view and Logic's view service.** `Plugin/AU/CocoaUI.mm`,
+  `Plugin/AU/ViewPlacement.{h,cpp}`, `Plugin/AU/CMakeLists.txt`,
+  `Tests/AUViewTests.mm` (the `ViewPlacement` cases too, so `AUTests.cpp` stays
+  WP5's), and the `AUViewTests.mm` entry in `Tests/CMakeLists.txt`, which no other
+  package edits after WP1. After WP1. The Logic hand check is WP4's.
+- **WP5, bypass.** `Plugin/Parameters/ParameterList.{h,cpp}`,
+  `Plugin/VST3/HostParameters.cpp`, `Plugin/AU/Adapter.{h,cpp}`,
+  `Plugins/Gain/GainPlugin.{h,cpp}`, `Tests/ParameterTests.cpp`,
+  `Tests/AUTests.cpp`. Independent; start at once.
+- **WP6, the web editor.** `Plugin/Web/` (all of it),
+  `CMake/MakeASoundWebEditor.cmake`, `Plugin/CMakeLists.txt` (`add_subdirectory(Web)`
+  and the include, after WP1's edit there), `Plugins/Synth/` (all of it),
+  `Tests/WebEditorTests.cpp`. After WP1, since `WebEditor` is an `Editor` with a
+  `ResizeGrip`; the vite and codegen plumbing and the React page can start before.
+- **WP7, docs and CI.** `.github/workflows/ci.yml`, `CLAUDE.md`, `README.md`,
+  `plan.md` (this section's "Landed" paragraph, the stage table, the decisions
+  log). After the rest, once the hand checks have been made.
+
 ## Later stages, in brief
 
-- **Editors**: on top of stage 3's `Editor` and its `view()`, size and aspect
-  policy and the host resize request; a generic parameter page with no npm; a
-  React page through the same `miro_export` codegen `Apps/Synth` uses; Plug's
-  window heuristics for Logic's AU view service.
-- **Bypass in AU**: `kAudioUnitProperty_BypassEffect` mapped onto the plugin's
-  `{.bypass = true}` parameter, as VST3's `kIsBypass` flag already does. auval
-  warns that the recommended property is missing and passes.
 - **CLAP**: the ids and the per-event MIDI path are already prepared; note ids and
   per-note expression are the remaining `MIDI::Event` gap.
 - **AUv3**: a new adapter over the same core plus app-extension packaging.
@@ -2117,3 +2649,29 @@ None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
   consumes with `wrapper.reset()`, because the SDK does not serialise `Reset`
   against `Render`. Plug's injected CC 120 was dropped; `Processor::reset`
   exists for this.
+
+- 2026-10-11: an editor states a size policy, `EditorConstraints {resizable,
+  minimum, maximum, aspectRatio}`, and one function, `constrain`, applies it in
+  every format; `Editor::isResizable()` is gone with no shim. An editor asks for a
+  size through `requestResize`, which its `EditorHost` (the standalone window, the
+  VST3 `PlugView`, the AU view) answers; a host whose window has no grip, the AU
+  view, gets a `ResizeGrip` drawn by the editor.
+- 2026-10-11: the AU view follows Plug's heuristics for Logic's view service: it
+  resizes a same-size container with itself, never a window's content view, and
+  on opening moves its window on screen over up to 12 attempts, then shrinks
+  once keeping its proportions. The geometry lives in `ViewPlacement`, pure and
+  tested without a window.
+- 2026-10-11: AU bypass is `kAudioUnitProperty_BypassEffect` over the plugin's one
+  exposed bypass parameter (`ParameterList::bypassIndex()`), written through the
+  parameter path so a held gesture drops it; a plugin with none refuses the
+  property. VST3 flags only that entry `kIsBypass`.
+- 2026-10-11: a web editor is a library, `MakeASoundPluginWeb`, and a CMake
+  function of its own, `makeasound_add_web_editor`, rather than a `WEB_DIR` on
+  `makeasound_add_plugin`; the page is embedded into the plugin's static core
+  through ResEmbed, so every format carries it. Lists and ids cross the bridge
+  inside structs, because Miro's TypeScript codegen cannot type a bare `Vector`
+  or string argument. The Synth example carries the page; Gain keeps the generic
+  editor.
+- 2026-10-11: CI sets up Node 22 on every desktop job and the iOS one, because the
+  Synth's page runs `npm install` at configure and vite in the build wherever eacp
+  has a web runtime, iOS included; Linux builds the fallback editor.

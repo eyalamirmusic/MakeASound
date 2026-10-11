@@ -1,4 +1,5 @@
 #include "GenericEditor.h"
+#include "ResizeGrip.h"
 #include "../Parameters/BoolParam.h"
 #include "../Parameters/ChoiceParam.h"
 
@@ -23,6 +24,8 @@ constexpr auto nameWidth = 130.f;
 constexpr auto valueWidth = 90.f;
 constexpr auto refreshHz = 30;
 constexpr auto pageWidth = 420;
+constexpr auto minPageWidth = 320;
+constexpr auto maxPageSide = 1200;
 constexpr auto minPageHeight = 96;
 constexpr auto maxPageHeight = 720;
 
@@ -267,6 +270,8 @@ struct GenericEditor::Page final : Widgets::ComponentHost
         setRootComponent(root);
     }
 
+    ~Page() override { hideGrip(); }
+
     void startRefreshing()
     {
         root.rows.pull();
@@ -275,8 +280,36 @@ struct GenericEditor::Page final : Widgets::ComponentHost
 
     void stopRefreshing() { timer.reset(); }
 
+    void showGrip(Editor& editor)
+    {
+        grip.emplace(editor);
+        addSubview(*grip);
+        placeGrip();
+    }
+
+    void hideGrip()
+    {
+        if (grip)
+            removeSubview(*grip);
+
+        grip.reset();
+    }
+
+    void resized() override
+    {
+        ComponentHost::resized();
+        placeGrip();
+    }
+
+    void placeGrip()
+    {
+        if (grip)
+            grip->setBounds(ResizeGrip::cornerOf(getLocalBounds()));
+    }
+
     Root root;
     std::optional<eacp::Threads::Timer> timer;
+    std::optional<ResizeGrip> grip;
 };
 
 GenericEditor::GenericEditor(Plugin& pluginToUse)
@@ -302,16 +335,29 @@ EditorSize GenericEditor::initialSize() const
     return {pageWidth, std::clamp(height, minPageHeight, maxPageHeight)};
 }
 
+EditorConstraints GenericEditor::constraints() const
+{
+    return {.resizable = true,
+            .minimum = {minPageWidth, minPageHeight},
+            .maximum = {maxPageSide, maxPageSide}};
+}
+
 void GenericEditor::onAttached()
 {
     view();
     page->startRefreshing();
+
+    if (ResizeGrip::isWantedBy(*this))
+        page->showGrip(*this);
 }
 
 void GenericEditor::onRemoved()
 {
-    if (page != nullptr)
-        page->stopRefreshing();
+    if (page == nullptr)
+        return;
+
+    page->stopRefreshing();
+    page->hideGrip();
 }
 
 } // namespace MakeASound

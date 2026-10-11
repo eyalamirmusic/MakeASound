@@ -150,6 +150,8 @@ private:
     BusLayout negotiatedLayout();
     bool isPublishedCount(bool input, int channels) const noexcept;
     int indexOfExposed(AudioUnitParameterID id) const noexcept;
+    bool isBypassed() const noexcept;
+    OSStatus setBypass(bool on) noexcept;
 
     void pushParametersToPlugin();
     void mirrorParametersToHost();

@@ -19,9 +19,11 @@ public:
     eacp::Graphics::View& view() override;
 
     EditorSize initialSize() const override;
-    bool isResizable() const override { return true; }
+    // Resizable within bounds at any ratio, since the rows scroll.
+    EditorConstraints constraints() const override;
 
-    // The values are pulled from the parameters at 30 Hz while attached.
+    // The values are pulled from the parameters at 30 Hz while attached, and a
+    // ResizeGrip is shown for a host without a grip of its own.
     void onAttached() override;
     void onRemoved() override;
 

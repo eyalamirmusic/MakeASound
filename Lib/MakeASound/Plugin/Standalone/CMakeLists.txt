@@ -14,6 +14,7 @@ add_library(MakeASoundStandalone STATIC
         TypingKeyboard.cpp
         Settings.cpp
         SettingsPanel.cpp
+        EditorWindow.cpp
         StandaloneApp.cpp)
 
 target_link_libraries(MakeASoundStandalone PUBLIC MakeASoundPluginUI eacp-graphics)
