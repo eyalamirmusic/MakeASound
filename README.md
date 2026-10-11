@@ -71,7 +71,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
-| `MAKEASOUND_INSTALL_PLUGINS` | `OFF` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
+| `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
 | `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
 
@@ -471,7 +471,7 @@ The `VST3` format builds `<build>/VST3/<OUTPUT_NAME>.vst3`, a bundle any VST3 ho
 - **The editor** is the plugin's own `Editor`, or the generic page, embedded in the host's window.
 
 ```bash
-cmake -S . -B build -G Ninja -DMAKEASOUND_INSTALL_PLUGINS=ON   # also copy into the plug-in folder
+cmake -S . -B build -G Ninja   # -DMAKEASOUND_INSTALL_PLUGINS=OFF to skip the copy into the plug-in folder
 cmake --build build
 ./build/Tools/PluginValidator/PluginValidator build/VST3   # validate every bundle there at strictness 10
 ```
@@ -493,7 +493,7 @@ On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio U
 - **The editor** is the plugin's own `Editor`, or the generic page, in the host's window.
 
 ```bash
-cmake -S . -B build -G Ninja -DMAKEASOUND_INSTALL_PLUGINS=ON   # also copy into ~/Library/Audio/Plug-Ins/Components
+cmake -S . -B build -G Ninja   # each build also copies into ~/Library/Audio/Plug-Ins/Components
 cmake --build build
 ./build/Tools/PluginValidator/PluginValidator build/AU          # auval -strict on every component there
 ./build/Tools/PluginValidator/PluginValidator build/VST3 build/AU   # the whole sweep

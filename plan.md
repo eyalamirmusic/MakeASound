@@ -679,7 +679,7 @@ Elsewhere:
 | `CMake/InstallPluginBundle.cmake` | the best-effort `cmake -P` copy into the user's plug-in folder |
 | `Lib/MakeASound/Plugin/Validation/` | the `MakeASoundPluginval` target: `Pluginval.{h,cpp}` (`fetch`, `validate`, `findBundles`), `PluginvalPlatform.h` and `Pluginval-{macOS,Windows,Linux}.cpp` (the release asset, the binary inside it, the chmod) |
 | `Tools/PluginValidator/` | `Main.cpp` and `CMakeLists.txt`: the `PluginValidator` executable |
-| `CMakeLists.txt` (top) | option `MAKEASOUND_INSTALL_PLUGINS` (OFF); `add_subdirectory(Tools)` beside `Plugins` |
+| `CMakeLists.txt` (top) | option `MAKEASOUND_INSTALL_PLUGINS` (ON); `add_subdirectory(Tools)` beside `Plugins` |
 | `Tests/PluginvalTests.cpp` | the env-gated case over the example bundles |
 | `Plugins/Gain/CMakeLists.txt`, `Plugins/Synth/CMakeLists.txt` | `FORMATS Standalone VST3` |
 | `ThirdParty/VST3_SDK/public.sdk/source/vst/hosting/{parameterchanges,eventlist}.{h,cpp}` | vendored host helpers, for the tests only |
@@ -1497,8 +1497,8 @@ untouched.
 - On macOS, both bundles carry `Contents/PkgInfo` (`BNDL????`), a `BNDL` plist with
   `<BUNDLE_ID>.vst3`, a valid ad-hoc signature (`codesign -v`), and `nm -gU` shows
   exactly the three exports. On Linux, `nm -D --defined-only` shows exactly three.
-- Each bundle loads in a real DAW on the Mac, opened by hand after
-  `-DMAKEASOUND_INSTALL_PLUGINS=ON`:
+- Each bundle loads in a real DAW on the Mac, opened by hand after a build (the
+  default `MAKEASOUND_INSTALL_PLUGINS` copies it into the plug-in folder):
   - the generic editor opens, resizes and drives automation;
   - automation plays back;
   - the synth plays from a MIDI track and answers the mod wheel and CC 123;
@@ -1949,8 +1949,8 @@ None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
 - Both bundles carry `Contents/PkgInfo`, a generated plist with the right
   `AudioComponents`, a valid ad-hoc signature, and `nm -gU` shows exactly
   `_MakeASoundAUFactory`.
-- Each bundle loads in Logic or Ableton on the Mac, opened by hand after
-  `-DMAKEASOUND_INSTALL_PLUGINS=ON`: the generic editor opens; automation records
+- Each bundle loads in Logic or Ableton on the Mac, opened by hand after a build
+  (installed by default): the generic editor opens; automation records
   and plays back; the synth plays from a MIDI track; a saved project reopens with
   its values; two MakeASound AUs open in one project with editors.
 - CLAUDE.md, README and this plan describe the format as it is.
