@@ -252,13 +252,12 @@ function(_makeasound_add_vst3 name)
     endif ()
 endfunction()
 
-# <Name>-AU: the module, our MakeASoundAUFactory and the view classes named for
-# this bundle, laid out as the .component bundle macOS scans, with the Info.plist
-# its AudioComponents come from generated after the link. Reads the caller's ARG_*
-# variables.
+# <Name>-AU: the module, our MakeASoundAUFactory and MakeASoundAUWritePlist and the
+# view classes named for this bundle, laid out as the .component bundle macOS
+# scans. After the link MakeASoundAUPlistGen loads the module and has it write the
+# Info.plist its AudioComponents come from. Reads the caller's ARG_* variables.
 function(_makeasound_add_au name)
     get_target_property(au_entry MakeASoundAU MAKEASOUND_AU_ENTRY)
-    get_target_property(au_plist_gen MakeASoundAU MAKEASOUND_AU_PLIST_GEN)
     get_target_property(au_exports MakeASoundAU MAKEASOUND_AU_EXPORTS)
     get_target_property(au_pkginfo MakeASoundAU MAKEASOUND_AU_PKGINFO)
     get_target_property(au_view_source MakeASoundAU MAKEASOUND_AU_VIEW_SOURCE)
@@ -295,23 +294,18 @@ function(_makeasound_add_au name)
             INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
             MAKEASOUND_AU_BUNDLE "${bundle}")
 
-    # Only the factory leaves the image, so nothing else can coalesce with the
-    # copy another component in the same host process carries.
+    # Only the factory and the plist writer leave the image, so nothing else can
+    # coalesce with the copy another component in the same host process carries.
     target_link_options(${target} PRIVATE "LINKER:-exported_symbols_list,${au_exports}")
     set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${au_exports}")
 
-    set(plist_gen ${name}-AUPlistGen)
-    add_executable(${plist_gen} "${au_plist_gen}")
-    target_link_libraries(${plist_gen} PRIVATE MakeASoundAUDescribe ${name})
-    set_target_properties(${plist_gen} PROPERTIES
-            FOLDER "${ARG_FOLDER}"
-            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-    add_dependencies(${target} ${plist_gen})
+    add_dependencies(${target} MakeASoundAUPlistGen)
 
     # The plist, then PkgInfo, then the signature over both. One identifier per
     # format: the macOS Installer resolves a package's components by bundle id.
     add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${plist_gen} "${ARG_OUTPUT_NAME}" "${ARG_BUNDLE_ID}.component"
+            COMMAND $<TARGET_FILE:MakeASoundAUPlistGen> "$<TARGET_FILE:${target}>"
+                    "${ARG_OUTPUT_NAME}" "${ARG_BUNDLE_ID}.component"
                     "${ARG_OUTPUT_NAME}" "${bundle}/Contents/Info.plist"
             COMMAND ${CMAKE_COMMAND} -E copy "${au_pkginfo}" "${bundle}/Contents/PkgInfo"
             COMMAND codesign --force --sign - "${bundle}"

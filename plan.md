@@ -1514,7 +1514,7 @@ example bundles, on this Mac and in the macOS CI job, after an install step.
 Landed: `MakeASoundAUDescribe` and `MakeASoundAU` in `Plugin/AU/`, built when
 `TARGET ausdk`, which `ThirdParty/CMakeLists.txt` defines on `APPLE AND NOT IOS`
 from Apple's AudioUnitSDK through CPM; `makeasound_add_plugin` gains the `AU`
-format (`<Name>-AU`, `<Name>-AUPlistGen`, `<build>/AU/<OUTPUT_NAME>.component`,
+format (`<Name>-AU`, `<build>/AU/<OUTPUT_NAME>.component`,
 identifier `<BUNDLE_ID>.component`, `PkgInfo`, ad-hoc signature, the
 `Components` folder under `MAKEASOUND_INSTALL_PLUGINS`), and `Plugins/Gain` and
 `Plugins/Synth` build `FORMATS Standalone VST3 AU`. `PluginValidator build/AU`
@@ -1612,6 +1612,15 @@ the format. Where it differs from the section below:
   generated one until the next relink. The module lands in `Contents/MacOS` and
   the post-build writes the plist, `PkgInfo` and the signature, the way the
   Windows and Linux VST3 layouts are already made.
+- **One plist tool, not one per plugin.** The module exports a second C function,
+  `MakeASoundAUWritePlist`, beside the factory; it calls
+  `writeAudioComponentsPlist` (`Plist.{h,cpp}` in `MakeASoundAUDescribe`) with the
+  module's own `describeModule()`. A single executable, `MakeASoundAUPlistGen`,
+  built with `MakeASoundAU`, `dlopen`s the module the post-build hands it and
+  calls that function. The per-plugin `<Name>-AUPlistGen` and the
+  `MAKEASOUND_AU_PLIST_GEN` property are gone: no generator target per plugin, no
+  second link of each core into an executable, and the plist comes from the very
+  binary it describes.
 - **auval's verdict** is exit code 0 with `AU VALIDATION SUCCEEDED` in the output
   (not `PASS`), and the components are read with
   `CFBundleCopyInfoDictionaryForURL`, not through a `CFBundle`, which is cached by
@@ -1747,10 +1756,11 @@ VST3 adapter already departed from Plug:
   runs them in its destructor while the wrapper still lives, and the view's
   `dealloc` unregisters. Plug's window-moving heuristics for Logic's view service
   are stage 6.
-- **The plist is generated at build time** by `<Name>-AUPlistGen`, a small
-  executable (`PlistGen.cpp`, recorded as `MAKEASOUND_AU_PLIST_GEN`) that links the
-  plugin core and `MakeASoundAUDescribe` (`ComponentType.cpp`, SDK-free), calls
-  `describeModule()` and writes `Info.plist`: `CFBundlePackageType` `BNDL`,
+- **The plist is generated at build time** by `MakeASoundAUPlistGen`, one
+  executable (`PlistGen.cpp`) that `dlopen`s the module just linked and calls its
+  exported `MakeASoundAUWritePlist`, which hands `describeModule()` to
+  `writeAudioComponentsPlist` (`Plist.cpp` in the SDK-free `MakeASoundAUDescribe`)
+  to write `Info.plist`: `CFBundlePackageType` `BNDL`,
   `CFBundleSignature` `????`, identifier, name, executable, and
   `CFBundleVersion`/`CFBundleShortVersionString` from **`ModuleDescription::version`**,
   as `Description.h` already promises (macOS caches a bundle's `AudioComponents`
@@ -1777,9 +1787,10 @@ New directory `Lib/MakeASound/Plugin/AU/` (namespace `MakeASound::AU`, IDE folde
 
 | file | what |
 | --- | --- |
-| `CMakeLists.txt` | `MakeASoundAUDescribe`, `MakeASoundAU` and the file properties |
+| `CMakeLists.txt` | `MakeASoundAUDescribe`, `MakeASoundAU`, `MakeASoundAUPlistGen` and the file properties |
 | `AUCommon.h` | the SDK includes (`AudioUnitSDK/MusicDeviceBase.h`, `AUMIDIEffectBase.h`), `namespace ausdk` alias |
 | `ComponentType.{h,cpp}` | `ComponentInfo componentInfoFor(const ModuleDescription&, const PluginDescription&)` → type, subtype, manufacturer, bus counts; `fourCCString`; SDK-free, AudioToolbox only |
+| `Plist.{h,cpp}` | `writeAudioComponentsPlist(module, bundle name, bundle id, executable, output)`; SDK-free |
 | `Adapter.{h,cpp}` | the unit |
 | `HostParameters.{h,cpp}` | ids, `GetParameterInfo` filling, value strings, text conversions |
 | `Conversion.{h,cpp}` | noexcept conversions: playhead from the host callbacks, MIDI bytes to `MIDI::Event` and `MIDI::Event` to packet |
@@ -1787,9 +1798,9 @@ New directory `Lib/MakeASound/Plugin/AU/` (namespace `MakeASound::AU`, IDE folde
 | `CocoaUI.h` | `CocoaViewInfo cocoaViewInfo()` and the adapter-property id, what the adapter asks the module's view TU |
 | `CocoaUI.mm` | the factory and view classes, named by `MAKEASOUND_AU_VIEW_CLASS`; compiled into each module |
 | `NoCocoaUI.cpp` | `cocoaViewInfo()` answering none; compiled into each module where there is no UI tier |
-| `EntryPoint.cpp` | `MakeASoundAUFactory` and the unload destructor; compiled into each module |
-| `PlistGen.cpp` | the generator's `main`; compiled into each `<Name>-AUPlistGen` |
-| `AUExports.txt` | `_MakeASoundAUFactory` |
+| `EntryPoint.cpp` | `MakeASoundAUFactory` and `MakeASoundAUWritePlist`; compiled into each module |
+| `PlistGen.cpp` | `MakeASoundAUPlistGen`'s `main`: `dlopen`s a module and calls its `MakeASoundAUWritePlist` |
+| `AUExports.txt` | `_MakeASoundAUFactory`, `_MakeASoundAUWritePlist` |
 | `PkgInfo` | shared with VST3: the VST3 target's file is reused through its property |
 
 Elsewhere: `ThirdParty/CMakeLists.txt` (the `ausdk` target, under `APPLE AND NOT
@@ -1803,19 +1814,20 @@ IOS`), `CMake/MakeASoundPlugin.cmake` (`AU` format, `_makeasound_add_au`),
 
 - **`ausdk`** (STATIC, `ThirdParty/`): added with `vst3sdk` under
   `MAKEASOUND_BUILD_PLUGIN` on `APPLE AND NOT IOS`.
-- **`MakeASoundAUDescribe`** (STATIC): `ComponentType.cpp`; links `MakeASoundPlugin`
-  PUBLIC and AudioToolbox. C++20.
+- **`MakeASoundAUDescribe`** (STATIC): `ComponentType.cpp`, `Plist.cpp`; links
+  `MakeASoundPlugin` PUBLIC and AudioToolbox. C++20.
 - **`MakeASoundAU`** (STATIC): added when `TARGET ausdk`; `Adapter.cpp`,
   `HostParameters.cpp`, `Conversion.cpp`, `State.cpp`; links `MakeASoundPlugin`,
   `MakeASoundAUDescribe` and `ausdk` PUBLIC. Properties `MAKEASOUND_AU_ENTRY`,
-  `MAKEASOUND_AU_PLIST_GEN`, `MAKEASOUND_AU_EXPORTS`, `MAKEASOUND_AU_VIEW_SOURCE`
+  `MAKEASOUND_AU_EXPORTS`, `MAKEASOUND_AU_PKGINFO`, `MAKEASOUND_AU_VIEW_SOURCE`
   (`CocoaUI.mm` with `MakeASoundPluginUI` and `eacp-graphics`, else
   `NoCocoaUI.cpp`), and `MAKEASOUND_AU_HAS_VIEW=1` PUBLIC with the view; the view
   TU needs `MakeASoundPluginUI`, `eacp-graphics` and Cocoa, recorded as
   `MAKEASOUND_AU_VIEW_LIBRARIES` for the module to link. Unity build follows
   `MAKEASOUND_UNITY_BUILD`.
-- **`<Name>-AU`** (MODULE) and **`<Name>-AUPlistGen`** (executable, IDE folder
-  `<Name>`), by `makeasound_add_plugin`.
+- **`MakeASoundAUPlistGen`** (executable, IDE folder `Lib/Plugin`): `PlistGen.cpp`,
+  linking nothing of ours; built whenever `MakeASoundAU` is.
+- **`<Name>-AU`** (MODULE, IDE folder `<Name>`), by `makeasound_add_plugin`.
 
 ### Build
 
@@ -1830,12 +1842,13 @@ IOS`), `CMake/MakeASoundPlugin.cmake` (`AU` format, `_makeasound_add_au`),
   `LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/AU>`, the bundle path on the
   target as `MAKEASOUND_AU_BUNDLE`, Release LTO, `.pdb`-style separation is moot.
 - `-exported_symbols_list` `AUExports.txt` with `LINK_DEPENDS`, so `nm -gU` shows
-  exactly `_MakeASoundAUFactory`.
-- `add_executable(${name}-AUPlistGen <PlistGen.cpp>)` linking `${name}` and
-  `MakeASoundAUDescribe`, `add_dependencies(${name}-AU ${name}-AUPlistGen)`.
-- `POST_BUILD`, in order: the generator writes
-  `$<TARGET_BUNDLE_CONTENT_DIR>/Info.plist` (arguments: bundle name, `<BUNDLE_ID>.component`,
-  executable name, output path); `PkgInfo` copied in; `codesign --force --sign -`.
+  exactly `_MakeASoundAUFactory` and `_MakeASoundAUWritePlist`.
+- `add_dependencies(${name}-AU MakeASoundAUPlistGen)`; targets are global, so a
+  CPM consumer's directory can name it.
+- `POST_BUILD`, in order: `$<TARGET_FILE:MakeASoundAUPlistGen>` loads
+  `$<TARGET_FILE:${name}-AU>` and writes `Contents/Info.plist` (arguments: module
+  binary, bundle name, `<BUNDLE_ID>.component`, executable name, output path);
+  `PkgInfo` copied in; `codesign --force --sign -`.
 - With `MAKEASOUND_INSTALL_PLUGINS`, `InstallPluginBundle.cmake` into
   `~/Library/Audio/Plug-Ins/Components`.
 - Skipped with a status line where `MakeASoundAU` is not a target, so Windows,
@@ -1948,7 +1961,7 @@ None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
 - `AU/` and the AU allocation cases are green on macOS; every other job is unchanged.
 - Both bundles carry `Contents/PkgInfo`, a generated plist with the right
   `AudioComponents`, a valid ad-hoc signature, and `nm -gU` shows exactly
-  `_MakeASoundAUFactory`.
+  `_MakeASoundAUFactory` and `_MakeASoundAUWritePlist`.
 - Each bundle loads in Logic or Ableton on the Mac, opened by hand after a build
   (installed by default): the generic editor opens; automation records
   and plays back; the synth plays from a MIDI track; a saved project reopens with
@@ -2085,7 +2098,7 @@ None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
   class name would share one view. The name ties the view to its own binary,
   which is what makes handing it the `Adapter*` through a custom property safe.
 - 2026-10-10: the AU `Info.plist` is generated after each link by
-  `<Name>-AUPlistGen` from `describeModule()`, and its `CFBundleVersion` is
+  `MakeASoundAUPlistGen` from the module's `describeModule()`, and its `CFBundleVersion` is
   `ModuleDescription::version`, not the CMake `VERSION`: macOS caches a bundle's
   `AudioComponents` keyed by that version, so it has to move with the plugin
   list the module declares.
@@ -2094,7 +2107,7 @@ None: `MAKEASOUND_BUILD_PLUGIN` is off in Plug and tamber-web.
   on `APPLE AND NOT IOS`. Its headers need C++23 (`<expected>`), which `ausdk`
   carries PUBLIC, so only what links it, the AU adapter, its modules and the
   tests' `MakeASoundAUTestModule`, compiles as C++23; `MakeASoundPlugin`, `MakeASoundAUDescribe` and
-  the plist generators stay C++20 and no adapter header is included elsewhere.
+  the plist tool stay C++20 and no adapter header is included elsewhere.
 - 2026-10-10: auval runs through `PluginValidator`, the same tool and library as
   pluginval: a `.component` is installed into `~/Library/Audio/Plug-Ins/Components`
   first, since auval only finds installed components, then each `AudioComponents`

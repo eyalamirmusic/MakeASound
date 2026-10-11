@@ -484,7 +484,7 @@ MAKEASOUND_PLUGINVAL=1 ./build/Tests/MakeASoundTests --test Pluginval/exampleBun
 
 ## AU
 
-On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio Unit v2 bundle with identifier `<BUNDLE_ID>.component`, ad-hoc signed, exporting one symbol, `MakeASoundAUFactory`. Its `Info.plist` is written after every link by a small generator, `<Name>-AUPlistGen`, from `describeModule()`, so the module description is the only place a plugin's identity lives: one `AudioComponents` entry per plugin, the module's `manufacturerCode` as the manufacturer and each plugin's `pluginCode` as the subtype. The type follows the category: an instrument is `aumu`, a MIDI effect `aumi`, an effect with a MIDI input `aumf` and any other effect `aufx`. It is one class over `PluginWrapper`, so the plugin code is again the same code the standalone app and the VST3 run:
+On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio Unit v2 bundle with identifier `<BUNDLE_ID>.component`, ad-hoc signed, exporting two symbols: `MakeASoundAUFactory`, which every component names, and `MakeASoundAUWritePlist`. Its `Info.plist` is written after every link by `MakeASoundAUPlistGen`, one tool shared by every plugin, which loads the module it was given and calls that second function with the module's own `describeModule()`, so the module description is the only place a plugin's identity lives: one `AudioComponents` entry per plugin, the module's `manufacturerCode` as the manufacturer and each plugin's `pluginCode` as the subtype. The type follows the category: an instrument is `aumu`, a MIDI effect `aumi`, an effect with a MIDI input `aumf` and any other effect `aufx`. It is one class over `PluginWrapper`, so the plugin code is again the same code the standalone app and the VST3 run:
 
 - **Parameters** are listed by the same 31-bit host ids as in VST3, in declaration order, automatable ones only, with value strings for choices and the plugin's own text for every value. A value the host writes reaches the plugin at the next block; one the editor writes is reported back to the host as a gesture.
 - **MIDI.** Notes, CC (all-notes-off included), pitch bend, aftertouch, program change and short SysEx arrive at their sample offsets. A plugin with a MIDI output bus sends its events to the host through the MIDI output callback.
@@ -571,7 +571,7 @@ Lib/MakeASound/
     UI/             MakeASoundPluginUI: the generic parameter editor
     Standalone/     MakeASoundStandalone: the standalone app format
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
-    AU/             MakeASoundAU: the AU format, its factory, Cocoa view and plist generator
+    AU/             MakeASoundAU: the AU format, its factory, Cocoa view and plist tool
     Validation/     MakeASoundPluginval: fetches and runs pluginval, runs auval
   DSP/              MakeASoundDSP, optional: TestSynth, the instrument the Synth app and plugin share
   UI/               dropdown/toggle-list helpers for the demo apps

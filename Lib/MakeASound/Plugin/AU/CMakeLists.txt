@@ -7,8 +7,8 @@ if (NOT TARGET ausdk)
     return()
 endif ()
 
-# What the plist generator needs, SDK-free and C++20.
-add_library(MakeASoundAUDescribe STATIC ComponentType.cpp)
+# The component's description and plist, SDK-free and C++20.
+add_library(MakeASoundAUDescribe STATIC ComponentType.cpp Plist.cpp)
 target_link_libraries(MakeASoundAUDescribe PUBLIC MakeASoundPlugin
         "-framework AudioToolbox")
 set_makeasound_target_settings(MakeASoundAUDescribe)
@@ -34,11 +34,15 @@ endif ()
 
 set_target_properties(MakeASoundAU PROPERTIES
         MAKEASOUND_AU_ENTRY "${CMAKE_CURRENT_LIST_DIR}/EntryPoint.cpp"
-        MAKEASOUND_AU_PLIST_GEN "${CMAKE_CURRENT_LIST_DIR}/PlistGen.cpp"
         MAKEASOUND_AU_EXPORTS "${CMAKE_CURRENT_LIST_DIR}/AUExports.txt"
         MAKEASOUND_AU_PKGINFO "${CMAKE_CURRENT_LIST_DIR}/../VST3/PkgInfo"
         MAKEASOUND_AU_VIEW_SOURCE "${view_source}"
         MAKEASOUND_AU_VIEW_LIBRARIES "${view_libraries}")
+
+# One tool for every module: it loads the module it is given and calls the
+# MakeASoundAUWritePlist the module exports.
+add_executable(MakeASoundAUPlistGen PlistGen.cpp)
+set_makeasound_target_settings(MakeASoundAUPlistGen)
 
 if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundAU MakeASoundAUDescribe PROPERTIES UNITY_BUILD ON)
