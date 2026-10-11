@@ -1,5 +1,5 @@
 eacp_add_webview_app(Synth
-        SOURCES     Main.cpp Synth.h AudioProcessor.h Types.h
+        SOURCES     Main.cpp Synth.h SynthHost.h Types.h
         API         Api::SynthApi
         API_HEADER  Types.h
         WEB_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/web
@@ -8,6 +8,6 @@ eacp_add_webview_app(Synth
         CATEGORY    SynthWeb
         REACT)
 
-target_link_libraries(Synth PRIVATE MakeASound)
-target_link_libraries(SynthSchema_Codegen PRIVATE MakeASound)
-set_makeasound_warnings(Synth)
+target_link_libraries(Synth PRIVATE MakeASoundDSP)
+target_link_libraries(SynthSchema_Codegen PRIVATE MakeASoundDSP)
+set_makeasound_target_settings(Synth)

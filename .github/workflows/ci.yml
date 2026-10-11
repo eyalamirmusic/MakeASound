@@ -6,11 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Every job configures the same dependency set more than once (Debug then
-# Release, device then simulator). Pointing CPM at one cache directory means
-# each archive is fetched once per job instead of once per configure, which
-# keeps a flaky download from taking out the second half of a job that has
-# already downloaded everything it needs.
+# Release only, everywhere: a Debug build of the same tree doubles a job for a
+# configuration nothing ships, and the checks that need a Debug CRT or
+# assertions are the local developer's. The iOS job still configures twice
+# (device then simulator); pointing CPM at one cache directory means each
+# archive is fetched once per job instead of once per configure, which keeps a
+# flaky download from taking out the second half of a job that has already
+# downloaded everything it needs.
 env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
 
@@ -26,18 +28,21 @@ jobs:
             os: macos-latest
             osx_archs: "arm64;x86_64"
             deployment_target: "11.0"
+            pluginval: true
 
           - name: Windows MSVC (x64)
             os: windows-latest
             cc: cl
             cxx: cl
             msvc_arch: x64
+            pluginval: true
 
           - name: Windows Clang (x64)
             os: windows-latest
             cc: clang-cl
             cxx: clang-cl
             msvc_arch: x64
+            pluginval: true
 
           # Native ARM64 runners, so the tests below run on real hardware
           # rather than being cross-compiled and skipped.
@@ -57,6 +62,7 @@ jobs:
             os: ubuntu-latest
             cc: gcc
             cxx: g++
+            pluginval: true
 
           - name: Linux Clang
             os: ubuntu-latest
@@ -68,11 +74,22 @@ jobs:
 
       # The library's own ALSA sequencer MIDI backend needs the ALSA dev headers.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
-      - name: Install Linux audio dev packages
+      # The plugin core links eacp, whose Linux graphics tier links Wayland,
+      # xkbcommon, libdecor, xcb, FreeType, HarfBuzz and fontconfig and generates
+      # its protocol bindings with wayland-scanner: eacp's own CI list. libcurl
+      # is eacp-network's transport, which PluginValidator fetches with, and xvfb
+      # is for pluginval, whose JUCE host wants an X server even headless.
+      - name: Install Linux dev packages
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev xvfb \
+            libwayland-dev wayland-protocols libwayland-bin libxkbcommon-dev \
+            libdecor-0-dev pkg-config \
+            libxcb1-dev libxcb-xkb-dev libxkbcommon-x11-dev \
+            libxcb-randr0-dev libxcb-xfixes0-dev libxcb-cursor-dev \
+            libxcb-icccm4-dev libxcb-xinput-dev libxcb-xtest0-dev \
+            libfreetype-dev libharfbuzz-dev libfontconfig-dev
 
       # Puts cl.exe / clang-cl.exe and the matching Windows SDK on
       # PATH/INCLUDE/LIB for the target architecture.
@@ -87,7 +104,7 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Build & test (Debug & Release, unity ON)
+      - name: Build & test (Release, CI build)
         shell: bash
         env:
           CC_COMPILER: ${{ matrix.cc }}
@@ -96,42 +113,77 @@ jobs:
           DEPLOY: ${{ matrix.deployment_target }}
         run: |
           set -euo pipefail
-          for bt in Debug Release; do
-            args=( -S . -B "build-$bt" -G Ninja
-                   -DCMAKE_BUILD_TYPE="$bt"
-                   -DMAKEASOUND_UNITY_BUILD=ON
-                   -DMAKEASOUND_BUILD_APPS=OFF
-                   -DMAKEASOUND_BUILD_TESTS=ON )
+          args=( -S . -B build-Release -G Ninja
+                 -DCMAKE_BUILD_TYPE=Release
+                 -DMAKEASOUND_CI_BUILD=ON
+                 -DMAKEASOUND_BUILD_APPS=OFF
+                 -DMAKEASOUND_BUILD_TESTS=ON )
 
-            # Compiler selection (empty for macOS -> default AppleClang).
-            if [ -n "$CC_COMPILER" ]; then
-              args+=( -DCMAKE_C_COMPILER="$CC_COMPILER"
-                      -DCMAKE_CXX_COMPILER="$CXX_COMPILER" )
-            fi
+          # Compiler selection (empty for macOS -> default AppleClang).
+          if [ -n "$CC_COMPILER" ]; then
+            args+=( -DCMAKE_C_COMPILER="$CC_COMPILER"
+                    -DCMAKE_CXX_COMPILER="$CXX_COMPILER" )
+          fi
 
-            # macOS universal slices + deployment target. Passing the arch list
-            # as a single array element keeps the embedded ';' intact.
-            if [ -n "$OSX_ARCHS" ]; then
-              args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
-                      -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
-            fi
+          # macOS universal slices + deployment target. Passing the arch list
+          # as a single array element keeps the embedded ';' intact.
+          if [ -n "$OSX_ARCHS" ]; then
+            args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
+                    -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
+          fi
 
-            echo "::group::Configure $bt"
-            cmake "${args[@]}"
-            echo "::endgroup::"
+          echo "::group::Configure"
+          cmake "${args[@]}"
+          echo "::endgroup::"
 
-            # Default target: the library plus the test executable (apps are off).
-            echo "::group::Build $bt"
-            cmake --build "build-$bt"
-            echo "::endgroup::"
+          # Default target: the library plus the test executable (apps are off).
+          echo "::group::Build"
+          cmake --build build-Release
+          echo "::endgroup::"
 
-            # --no-tests=error so a job that stops producing tests fails loudly
-            # instead of passing vacuously.
-            echo "::group::Test $bt"
-            ctest --test-dir "build-$bt" --build-config "$bt" \
-                  --output-on-failure --no-tests=error
-            echo "::endgroup::"
-          done
+          # --no-tests=error so a job that stops producing tests fails loudly
+          # instead of passing vacuously; --timeout so a case that hangs (a
+          # Windows assertion dialog, a wait that never ends) fails in two
+          # minutes rather than ctest's default twenty-five.
+          echo "::group::Test"
+          ctest --test-dir build-Release --build-config Release \
+                --output-on-failure --no-tests=error --timeout 120
+          echo "::endgroup::"
+
+      # Both example bundles at strictness 10, built by the default target above
+      # and handed over as the folder they land in. PluginValidator downloads
+      # pluginval on its first run and exits with the number of failures. Linux skips the editor tests: the runner has no
+      # display and no Vulkan device for them.
+      - name: pluginval (Release)
+        if: matrix.pluginval
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=build-Release/Tools/PluginValidator/PluginValidator
+          args=(--logs build-Release/pluginval/logs build-Release/VST3)
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a "$validator" --skip-gui-tests "${args[@]}"
+          else
+            "$validator" "${args[@]}"
+          fi
+
+      # Both example components through auval -strict: PluginValidator installs
+      # each into the runner's ~/Library/Audio/Plug-Ins/Components first. Its logs
+      # land beside pluginval's, so the upload below covers them.
+      - name: auval (Release)
+        if: matrix.pluginval && runner.os == 'macOS'
+        shell: bash
+        run: |
+          build-Release/Tools/PluginValidator/PluginValidator \
+            --logs build-Release/pluginval/logs build-Release/AU
+
+      - name: Upload pluginval logs
+        if: failure() && matrix.pluginval
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-logs-${{ matrix.name }}
+          path: build-Release/pluginval/logs/
+          if-no-files-found: ignore
 
       # Prove requirement #1: the archive is a real fat binary and every slice
       # is built against the macOS 11.0 minimum.
@@ -168,27 +220,25 @@ jobs:
       # still the half that catches iOS-specific compile breakage: miniaudio's
       # Objective-C implementation TU and the macOS-only CoreAudio HAL that
       # BlockSizes.mm uses.
-      - name: Build for iOS device (Debug & Release, unity ON)
+      - name: Build for iOS device (Release, CI build)
         shell: bash
         run: |
           set -euo pipefail
-          for bt in Debug Release; do
-            echo "::group::Configure $bt (device)"
-            cmake -S . -B "build-ios-$bt" -G Ninja \
-                  -DCMAKE_BUILD_TYPE="$bt" \
-                  -DCMAKE_SYSTEM_NAME=iOS \
-                  -DCMAKE_OSX_SYSROOT=iphoneos \
-                  -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
-                  -DMAKEASOUND_UNITY_BUILD=ON \
-                  -DMAKEASOUND_BUILD_APPS=OFF \
-                  -DMAKEASOUND_BUILD_TESTS=OFF
-            echo "::endgroup::"
+          echo "::group::Configure (device)"
+          cmake -S . -B build-ios-Release -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_SYSTEM_NAME=iOS \
+                -DCMAKE_OSX_SYSROOT=iphoneos \
+                -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
+                -DMAKEASOUND_BUILD_APPS=OFF \
+                -DMAKEASOUND_BUILD_TESTS=OFF
+          echo "::endgroup::"
 
-            echo "::group::Build $bt (device)"
-            cmake --build "build-ios-$bt"
-            echo "::endgroup::"
-          done
+          echo "::group::Build (device)"
+          cmake --build build-ios-Release
+          echo "::endgroup::"
 
       - name: Verify the device slice really is iOS
         shell: bash
@@ -244,11 +294,12 @@ jobs:
           # The simulator slice has to match the runner's own architecture,
           # otherwise the built binary can't be spawned on it.
           cmake -S . -B build-ios-sim -G Ninja \
-                -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_SYSTEM_NAME=iOS \
                 -DCMAKE_OSX_SYSROOT=iphonesimulator \
                 -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=ON \
                 -DCMAKE_CROSSCOMPILING_EMULATOR="xcrun;simctl;spawn;${{ steps.sim.outputs.udid }}"
@@ -262,5 +313,5 @@ jobs:
           # single ctest entry that runs the whole binary through the simulator.
           # A failing case still propagates out as a non-zero exit.
           echo "::group::Test (simulator)"
-          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error
+          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
           echo "::endgroup::"

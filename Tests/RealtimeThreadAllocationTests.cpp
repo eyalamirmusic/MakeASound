@@ -137,7 +137,7 @@ auto tAudioThread = test("Allocations/theAudioCallbackThreadStaysOffTheHeap") = 
     auto error = manager.start(config,
                                [&probe](AudioCallbackInfo& info)
                                {
-                                   for (auto channel: info.getOutput().channels())
+                                   for (auto channel: info.getOutput())
                                        channel.fill(0.f);
 
                                    probe.mark();
@@ -173,9 +173,8 @@ auto tMidiInputThread = test("Allocations/theMidiInputThreadStaysOffTheHeap") = 
 
     // Callback mode: the platform hands the message straight to us on its MIDI
     // thread, which is the thread this test is about.
-    auto portId = midi.openVirtualInput(probePortName,
-                                        [&probe](const MidiMessage&)
-                                        { probe.mark(); });
+    auto portId = midi.openVirtualInput(
+        probePortName, [&probe](const MidiMessage&) { probe.mark(); });
 
     if (!portId.has_value())
         return;
@@ -222,9 +221,8 @@ auto tMidiSysEx = test("Allocations/aLongSysExOnTheMidiThreadStaysOffTheHeap") =
     // dumps need is asked for before that and never again.
     midi.setMaxSysExBytes(8192);
 
-    auto portId = midi.openVirtualInput(probePortName,
-                                        [&probe](const MidiMessage&)
-                                        { probe.mark(); });
+    auto portId = midi.openVirtualInput(
+        probePortName, [&probe](const MidiMessage&) { probe.mark(); });
 
     if (!portId.has_value())
         return;
@@ -276,9 +274,8 @@ auto tQueuedSysEx = test("Allocations/theOversizeSysExDropTouchesNothing") = []
     // per port this would measure less, never something untrue.
     auto queuePort = midi.openVirtualInput(queuePortName);
 
-    auto markPort = midi.openVirtualInput(probePortName,
-                                          [&probe](const MidiMessage&)
-                                          { probe.mark(); });
+    auto markPort = midi.openVirtualInput(
+        probePortName, [&probe](const MidiMessage&) { probe.mark(); });
 
     if (!queuePort.has_value() || !markPort.has_value())
         return;

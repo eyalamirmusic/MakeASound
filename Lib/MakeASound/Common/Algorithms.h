@@ -1,5 +1,7 @@
 #pragma once
 
+#include <iterator>
+
 namespace MakeASound::Algorithms
 {
 
@@ -12,7 +14,12 @@ void stableInsertionSort(Container& c, Compare less) noexcept
     auto first = c.begin();
     auto last = c.end();
 
-    for (auto it = first + 1; it < last; ++it)
+    // Not first + 1: on an empty container that is past the end, which a
+    // checked iterator refuses.
+    if (first == last)
+        return;
+
+    for (auto it = std::next(first); it != last; ++it)
     {
         auto key = *it;
         auto slot = it;

@@ -10,13 +10,19 @@ namespace
 constexpr auto padding = 12.f;
 
 bool onPhone()
-{ return eacp::Platform::isIOS(); }
+{
+    return eacp::Platform::isIOS();
+}
 
 float rowHeight()
-{ return onPhone() ? 58.f : 46.f; }
+{
+    return onPhone() ? 58.f : 46.f;
+}
 
 float smallText()
-{ return onPhone() ? 12.f : 11.f; }
+{
+    return onPhone() ? 12.f : 11.f;
+}
 
 UI::Color statusColour(ProbeStatus status)
 {
@@ -34,13 +40,19 @@ UI::Color statusColour(ProbeStatus status)
 }
 
 float toneToHertz(float knob)
-{ return 40.f * std::pow(2.f, knob * 7.f); }
+{
+    return 40.f * std::pow(2.f, knob * 7.f);
+}
 
 float hertzToTone(float hertz)
-{ return std::log2(std::max(hertz, 40.f) / 40.f) / 7.f; }
+{
+    return std::log2(std::max(hertz, 40.f) / 40.f) / 7.f;
+}
 
 std::string wholeNumber(float value)
-{ return std::to_string(static_cast<int>(std::lround(value))); }
+{
+    return std::to_string(static_cast<int>(std::lround(value)));
+}
 } // namespace
 
 ProbeRoot::ProbeRoot(AudioEngine& engineToUse, ProbeSet& probesToUse)
@@ -232,7 +244,9 @@ void ProbeRoot::refresh(bool rebuildDevices)
 }
 
 int ProbeRoot::getNumRows()
-{ return probes.all().size(); }
+{
+    return probes.all().size();
+}
 
 void ProbeRoot::paintRow(UI::Graphics& g,
                          int row,
@@ -305,7 +319,9 @@ std::string
 }
 
 void ProbeRoot::selectedRowChanged(int row)
-{ showDetail(row); }
+{
+    showDetail(row);
+}
 
 void ProbeRoot::showDetail(int row)
 {
@@ -321,7 +337,9 @@ void ProbeRoot::showDetail(int row)
 }
 
 void ProbeRoot::paint(UI::Graphics& g)
-{ g.fillAll(UI::defaultTheme().background); }
+{
+    g.fillAll(UI::defaultTheme().background);
+}
 
 void ProbeRoot::resized()
 {

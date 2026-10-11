@@ -13,31 +13,21 @@
 
 struct AudioControls
 {
-    MIRO_REFLECT(playing, gain)
-
     bool playing {};
     double gain {};
+
+    MIRO_REFLECT(playing, gain)
 };
 
 struct MeterState
 {
-    MIRO_REFLECT(inputLevel)
-
     double inputLevel {};
+
+    MIRO_REFLECT(inputLevel)
 };
 
 struct UIState
 {
-    MIRO_REFLECT(status,
-                 blockSize,
-                 drivers,
-                 devices,
-                 inputDevices,
-                 outputChannels,
-                 inputChannels,
-                 sampleRates,
-                 midiPorts)
-
     // Why there is no audio; empty while it is running.
     std::string status;
     int blockSize {};
@@ -49,21 +39,31 @@ struct UIState
     MakeASound::UI::DropdownInfo inputChannels;
     MakeASound::UI::DropdownInfo sampleRates;
     MakeASound::UI::ToggleListInfo midiPorts;
+
+    MIRO_REFLECT(status,
+                 blockSize,
+                 drivers,
+                 devices,
+                 inputDevices,
+                 outputChannels,
+                 inputChannels,
+                 sampleRates,
+                 midiPorts)
 };
 
 struct MidiPortToggleRequest
 {
-    MIRO_REFLECT(id, on)
-
     int id {};
     bool on {};
+
+    MIRO_REFLECT(id, on)
 };
 
 struct MidiLogEntry
 {
-    MIRO_REFLECT(text)
-
     std::string text;
+
+    MIRO_REFLECT(text)
 };
 
 namespace Api
@@ -263,7 +263,7 @@ private:
     {
         auto peak = 0.0f;
 
-        for (auto channel: info.getInput().channels())
+        for (auto channel: info.getInput())
             for (auto sample: channel)
                 peak = std::max(peak, std::abs(sample));
 
@@ -272,7 +272,7 @@ private:
         auto on = playing.load(std::memory_order_relaxed);
         auto g = gainValue.load(std::memory_order_relaxed);
 
-        for (auto channel: info.getOutput().channels())
+        for (auto channel: info.getOutput())
         {
             if (!on)
             {
@@ -376,7 +376,9 @@ private:
     }
 
     MeterState makeMeter() const
-    { return {.inputLevel = static_cast<double>(inputLevelValue.load())}; }
+    {
+        return {.inputLevel = static_cast<double>(inputLevelValue.load())};
+    }
 
     UIState makeUi()
     {

@@ -162,9 +162,20 @@ Vector<Backend> probeAvailableBackends()
 
 Vector<int> collectSampleRates(const ma_device_info& info)
 {
-    static constexpr int standardRates[] = {
-        8000, 11025, 16000, 22050, 24000, 32000,
-        44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
+    static constexpr int standardRates[] = {8000,
+                                            11025,
+                                            16000,
+                                            22050,
+                                            24000,
+                                            32000,
+                                            44100,
+                                            48000,
+                                            88200,
+                                            96000,
+                                            176400,
+                                            192000,
+                                            352800,
+                                            384000};
 
     auto rates = Vector<int> {};
 

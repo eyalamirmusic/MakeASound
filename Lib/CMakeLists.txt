@@ -1,7 +1,12 @@
+set(CMAKE_FOLDER Lib)
+
 add_library(MakeASound STATIC
+        MakeASound/Audio/Buffer.cpp
+        MakeASound/Audio/ProcessContext.cpp
         MakeASound/Devices/DeviceInfo.cpp
         MakeASound/Devices/DeviceManager.cpp
         MakeASound/Devices/AudioSession.cpp
+        MakeASound/Devices/Engine.cpp
         MakeASound/MiniAudio/MiniAudio-Backend.cpp
         MakeASound/MiniAudio/MiniAudioDeviceManager.cpp
         MakeASound/MIDI/MidiInfo.cpp
@@ -75,4 +80,12 @@ if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASound PROPERTIES UNITY_BUILD ON)
 endif ()
 
-set_makeasound_warnings(MakeASound)
+set_makeasound_target_settings(MakeASound)
+
+# The optional DSP library, always built and linked only by what asks for it.
+add_subdirectory(MakeASound/DSP)
+
+# The plugin core and its drawing tiers live in their own directory.
+if (MAKEASOUND_BUILD_PLUGIN)
+    add_subdirectory(MakeASound/Plugin)
+endif ()

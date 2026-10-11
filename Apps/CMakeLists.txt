@@ -1,3 +1,5 @@
+set(CMAKE_FOLDER Apps)
+
 find_package(eacp REQUIRED)
 
 # eacp draws on Apple and Windows only - its Graphics, GPU and WebView modules sit

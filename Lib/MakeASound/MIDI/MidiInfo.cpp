@@ -40,20 +40,20 @@ std::string formatMessage(const MidiMessage& message)
     auto oss = std::ostringstream {};
 
     if (status == 0x80)
-        oss << "Note Off    ch:" << channel << " note:" << data1
-            << " vel:" << data2 << "  " << dump;
+        oss << "Note Off    ch:" << channel << " note:" << data1 << " vel:" << data2
+            << "  " << dump;
     else if (status == 0x90 && data2 == 0)
-        oss << "Note Off    ch:" << channel << " note:" << data1
-            << "        " << dump;
+        oss << "Note Off    ch:" << channel << " note:" << data1 << "        "
+            << dump;
     else if (status == 0x90)
-        oss << "Note On     ch:" << channel << " note:" << data1
-            << " vel:" << data2 << "  " << dump;
+        oss << "Note On     ch:" << channel << " note:" << data1 << " vel:" << data2
+            << "  " << dump;
     else if (status == 0xA0)
-        oss << "Polytouch   ch:" << channel << " note:" << data1
-            << " val:" << data2 << "  " << dump;
+        oss << "Polytouch   ch:" << channel << " note:" << data1 << " val:" << data2
+            << "  " << dump;
     else if (status == 0xB0)
-        oss << "CC          ch:" << channel << " cc:" << data1
-            << " val:" << data2 << "    " << dump;
+        oss << "CC          ch:" << channel << " cc:" << data1 << " val:" << data2
+            << "    " << dump;
     else if (status == 0xC0)
         oss << "Program     ch:" << channel << " prog:" << data1 << "             "
             << dump;

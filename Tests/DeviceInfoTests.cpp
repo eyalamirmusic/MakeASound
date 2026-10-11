@@ -148,8 +148,8 @@ auto tSupportsRate = test("DeviceInfo/reportsWhichSampleRatesItSupports") = []
     check(!MakeASound::deviceSupportsSampleRate(device, 96000));
 };
 
-auto tPrefersCurrent = test("DeviceInfo/sampleRatePrefersWhatTheDeviceIsAlreadyOn") =
-    []
+auto tPrefersCurrent =
+    test("DeviceInfo/sampleRatePrefersWhatTheDeviceIsAlreadyOn") = []
 {
     // Re-clocking a shared device moves it under every other app on it, so a rate it
     // already runs beats the one it would have preferred.
@@ -200,8 +200,8 @@ auto tHighestCommon = test("DeviceInfo/sampleRateFallsBackToHighestCommon") = []
     check(MakeASound::pickCompatibleSampleRate(output, input) == 48000);
 };
 
-auto tNoCommon = test("DeviceInfo/sampleRateFallsBackToOutputWhenNothingIsShared") =
-    []
+auto tNoCommon =
+    test("DeviceInfo/sampleRateFallsBackToOutputWhenNothingIsShared") = []
 {
     // Nothing in common: the output is what actually has to run, so it wins.
     auto output = makeDevice({96000}, 96000, 2);
@@ -219,8 +219,8 @@ auto tNoCommonNoPreferred =
     check(MakeASound::pickCompatibleSampleRate(output, input) == 96000);
 };
 
-auto tNothingKnown = test("DeviceInfo/sampleRateFallsBackTo44100WhenNothingIsKnown") =
-    []
+auto tNothingKnown =
+    test("DeviceInfo/sampleRateFallsBackTo44100WhenNothingIsKnown") = []
 {
     auto output = DeviceInfo {};
     auto input = DeviceInfo {};
@@ -228,7 +228,8 @@ auto tNothingKnown = test("DeviceInfo/sampleRateFallsBackTo44100WhenNothingIsKno
     check(MakeASound::pickCompatibleSampleRate(output, input) == 44100);
 };
 
-auto tInputOnly = test("DeviceInfo/sampleRateFollowsTheInputWhenThereIsNoOutput") = []
+auto tInputOnly =
+    test("DeviceInfo/sampleRateFollowsTheInputWhenThereIsNoOutput") = []
 {
     // An input-only machine: with no output to negotiate against, the input's own
     // preference is the only informed answer left.
@@ -284,13 +285,15 @@ auto tCallbackBuffers = test("AudioCallbackInfo/handsOutCorrectlyShapedBuffers")
 {
     auto outputSamples = std::array<float, 8> {};
     auto inputSamples = std::array<float, 4> {};
+    float* outputTable[] = {outputSamples.data(), outputSamples.data() + 4};
+    float* inputTable[] = {inputSamples.data()};
 
     auto info = AudioCallbackInfo {};
     info.numOutputs = 2;
     info.numInputs = 1;
     info.numSamples = 4;
-    info.outputBuffer = outputSamples.data();
-    info.inputBuffer = inputSamples.data();
+    info.outputChannels = outputTable;
+    info.inputChannels = inputTable;
 
     auto output = info.getOutput();
     check(output.getNumChannels() == 2);
@@ -323,7 +326,8 @@ auto tEqualityShape = test("AudioCallbackInfo/comparesOnlyTheStreamShape") = []
     check(!(first != second));
 };
 
-auto tEqualityDetectsChange = test("AudioCallbackInfo/detectsAStreamShapeChange") = []
+auto tEqualityDetectsChange =
+    test("AudioCallbackInfo/detectsAStreamShapeChange") = []
 {
     auto first = AudioCallbackInfo {};
     first.numInputs = 2;

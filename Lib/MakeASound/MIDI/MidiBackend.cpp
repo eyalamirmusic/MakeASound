@@ -11,7 +11,7 @@ constexpr auto kMaxPendingNotifications = 64;
 // Room for a status byte and two data bytes, so the callback's buffer is never
 // too small for the shortest message even when a host asks for nothing.
 constexpr auto kMinSysExBytes = 8;
-}
+} // namespace
 
 MidiBackend::MidiBackend()
 {
