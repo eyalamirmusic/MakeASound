@@ -20,6 +20,8 @@ it.
 | 4 | VST3 | pluginval at strictness 10 — **landed 2026-10-10** |
 | 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
 | 6 | editor size policy and host resize in every format, Logic's view service, AU bypass, a React editor for the Synth example | pluginval 10 and `auval -strict` with the new editors; the Synth's web editor opens in all three formats — **landed 2026-10-11** (DAW hand checks pending) |
+| 7 | `StandaloneHost` without a window, a plugin's own standalone app, the standalone on iOS | desktop standalones unchanged, a custom-app example builds, both examples run as iOS standalones in the simulator |
+| 8 | AUv3, shipped on iOS inside the standalone | `AUv3/` suites on macOS and the iOS simulator, Ninja and Xcode iOS builds in CI, a hand check in AUM and GarageBand |
 
 ## Stage 0: `Buffer`
 
@@ -2507,11 +2509,181 @@ and can start at once; WP7 is last.
   `plan.md` (this section's "Landed" paragraph, the stage table, the decisions
   log). After the rest, once the hand checks have been made.
 
+## Stage 7: a replaceable standalone, on the desktop and on iOS
+
+The standalone stops being one fixed app. What runs a plugin without a host
+(devices, MIDI, the wrapper, `Engine`, the settings file) becomes a library with no
+window in it, the default app is one client of that library, and a plugin can bring
+an app of its own in its place. The same library and the same eacp-ui widgets then
+run the plugin on iOS, which stage 8 needs: an AUv3 extension ships inside an app,
+and on iOS that app is the plugin's full standalone. The UI stays eacp-ui GPU
+widgets in a `ComponentHost` on every platform, as `SettingsPanel` already is; no
+WebView enters the standalone. The proof is the desktop standalones unchanged
+(their suites and the allocation tests green), a custom-app example building, and
+both examples running as iOS standalones in the simulator.
+
+- **WP7.1, the host without a window.** Everything in `StandaloneApp` that is not
+  UI moves into `StandaloneHost`: `devices`, `midi`, `sender`, `wrapper`,
+  `processor`, `engine`, the settings path, the captured default `Preset`, the
+  fallback config, the open MIDI output's id, loading and saving `Settings`,
+  re-opening MIDI ports by name, `resolveConfig` on start, and the two resets. The
+  target splits: `MakeASoundStandaloneCore` (`StandaloneHost`, `StandaloneProcessor`,
+  `MidiSender`, `Settings`; links `MakeASoundPlugin` and `eacp-core`) builds
+  wherever the plugin core does, Linux and iOS included; `MakeASoundStandalone`
+  keeps `SettingsPanel`, `EditorWindow`, `TypingKeyboard` and the default
+  `StandaloneApp` over it. Destruction order stays the one `PluginWrapper` asserts:
+  UI first, then the stream, then the wrapper, on the main thread.
+- **WP7.2, a plugin's own app.** `makeasound_add_plugin(... STANDALONE_SOURCES
+  <files> [STANDALONE_LIBRARIES <targets>])` builds `<Name>-Standalone` from those
+  sources instead of `StandaloneMain.cpp`; the app class and its `main` are the
+  plugin's, composing `StandaloneHost` and, if it wants them, `SettingsPanel`,
+  `GenericEditor` and `editorWindowOptions`. Bundle, plist, microphone string,
+  signing and (on iOS) the AUv3 embedding stay the function's, so a custom app
+  loses none of the packaging. `StandaloneHost`'s header is a documented public API
+  from here on. A small example under `Tests/` or `Plugins/` proves the path builds.
+- **WP7.3, the iOS standalone.** `MakeASoundStandalone`'s gate becomes `TARGET
+  MakeASoundPluginUI AND TARGET eacp-graphics` on Apple and Windows, iOS included.
+  iOS has no menu bar and one window, so the default app there is one screen: the
+  editor, with `SettingsPanel` presented as a screen of its own from a button, rows
+  sized for touch. The menu's items (reset plugin, reset audio/MIDI) move into
+  that screen. The typing keyboard is desktop only; an on-screen keyboard is
+  deferred, as is Bluetooth MIDI pairing (`CABTMIDICentralViewController`). The plist
+  gains `UIBackgroundModes` `audio`, and `NSMicrophoneUsageDescription` only for a
+  layout with an input bus. The audio session follows the `StreamConfig` as it
+  already does; interruptions and route changes are checked against
+  `DeviceManager`'s recovery path, and anything missing there is a device-library
+  fix, not a standalone one.
+- **WP7.4, tests and CI.** The standalone suites run against
+  `MakeASoundStandaloneCore` on every platform that builds it; the iOS simulator
+  job builds both examples' `-Standalone` apps and runs the suite.
+- **WP7.5, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
+
+## Stage 8: AUv3, shipped on iOS
+
+An `AUAudioUnit` adapter over the same `PluginWrapper`, packaged as an app extension
+inside the plugin's iOS standalone. macOS keeps the v2 `.component` from stage 5 as
+its AU and ships no AUv3: two registrations of one plugin on a Mac are a source of
+duplicate entries and ambiguous sessions for no gain. The adapter itself is plain
+AudioToolbox and CoreAudioKit in Objective-C++, with no SDK (AudioUnitSDK is v2
+only), so it is C++20, and it is built and tested on macOS too, where the
+allocation tests and a faster loop exist; only its packaging is iOS's. The proof is
+the `AUv3/` suites green on macOS and in the iOS simulator, both generators building
+the iOS tree in CI, and a hand check of both examples in AUM and GarageBand on a
+device, the Synth's web editor opening in both.
+
+- **WP8.0, spikes, before anything else is fixed.**
+  1. *The framework.* The container app and the appex share one
+     `<Name>.framework` holding the plugin core, the adapter and eacp, so the code
+     is in the app once. eacp in a framework answers `Platform::isDLL()` true, and
+     `Apps::run` would then schedule onto a host loop the standalone does not have;
+     find out whether eacp needs a way to say "this framework's process owns the
+     loop", and add it there if so.
+  2. *Registration in process.* `[AUAudioUnit registerSubclass:asComponentDescription:
+     name:version:]` in the iOS simulator and on macOS, then
+     `instantiateWithComponentDescription:options:`, as the test host's route, the
+     way `registerTestComponents()` is the v2 one.
+  3. *Both generators.* A Ninja tree laid out by hand (`.app` → `PlugIns/<Out>.appex`
+     + `Frameworks/<Name>.framework`, signed inside out) that installs and loads in
+     the simulator, and the same tree under the Xcode generator.
+- **WP8.1, describing the component on every Apple platform.**
+  `MakeASoundAUDescribe` is gated on `APPLE` rather than `TARGET ausdk`
+  (`ViewPlacement` stays with it; it is pure geometry), and the plist writer learns
+  the appex form: `NSExtension` with `NSExtensionPointIdentifier`
+  `com.apple.AudioUnit-UI` (with a view) or `com.apple.AudioUnit`, the principal
+  class, and `NSExtensionAttributes` → `AudioComponents` with the same
+  type/subtype/manufacturer/name/version entries less `factoryFunction`, plus
+  `tags` and `sandboxSafe`. The plist generator runs on the host against a module
+  built for the host, since an iOS binary cannot be `dlopen`ed by a macOS tool; how
+  it reads `describeModule()` for a cross build is part of this package.
+- **WP8.2, the adapter.** `Plugin/AUv3/`, target `MakeASoundAUv3`, namespace
+  `MakeASound::AUv3`, `-fobjc-arc`. An `AUAudioUnit` subclass owning a
+  `PluginWrapper` built with a new `PluginFormat::AUv3`, driving it in the
+  documented order and never calling the plugin's `process`. Its Objective-C class
+  names carry the per-module suffix stage 5 uses for the view
+  (`MAKEASOUND_AU_VIEW_CLASS`), since several of our extensions may load into one
+  host process.
+  - *Buses.* `AUAudioUnitBusArray`s from the declared layout; `channelCapabilities`
+    from `acceptsLayout` over 1..8 per side, as the v2 adapter publishes;
+    `shouldChangeToFormat:forBus:` judges a bus alone.
+  - *Prepare.* `allocateRenderResourcesAndReturnError:` runs `setLayout`, prepares
+    at the output bus's rate (rounded) and `maximumFramesToRender`, sizes the
+    channel-pointer tables and our own output buffers (a host may hand null
+    `mData`), and captures the host blocks; `deallocateRenderResources` releases.
+  - *Render.* `internalRenderBlock` captures C++ state only: no Objective-C
+    message, no allocation, no lock but the MIDI one. In order: a pending reset,
+    `clearMidi`, `pullInputBlock` per input bus, the `AURenderEvent` list
+    (parameter and ramp events written before the block, as every adapter does;
+    MIDI and SysEx at their sample offsets), the playhead from
+    `musicalContextBlock` and `transportStateBlock`, `sortMidiInByOffset`, bind,
+    `process()`, MIDI out through `MIDIOutputEventBlock` with `MIDIOutputNames`.
+    MIDI 1.0 bytes only; `MIDIEventList`/UMP is later.
+  - *Properties.* `latency` and `tailTime` from the plugin, a change posted by KVO
+    through the compare-exchange the v2 adapter uses; `shouldBypassEffect` over
+    `bypassIndex()`, refused for a plugin with none; `reset` raising the atomic
+    flag the next render answers.
+- **WP8.3, parameters.** An `AUParameterTree` from the `ParameterGroup`: each named
+  group an `AUParameterGroup`, each host-exposed leaf an `AUParameter` in
+  declaration order, address its 31-bit host id, plain range and default, unit and
+  flags and value strings as `HostParameters` chooses them for v2.
+  `implementorValueObserver`, `implementorValueProvider`,
+  `implementorStringFromValueCallback` and `implementorValueFromStringCallback` go
+  through the `Parameter`; a held gesture drops the host's write. Editor gestures
+  leave as `setValue:originator:atHostTime:eventType:` with `Touch`, `Value` and
+  `Release` around `holdParameter`/`releaseParameter`; `parameterInfoChanged`
+  rebuilds the tree and posts its KVO.
+- **WP8.4, state.** `fullState` is a `Preset` and `fullStateForDocument` a
+  `Session`, so AUv3, unlike v2, says which one the host wants. Both are the
+  ClassInfo-shaped dictionary (type, subtype, manufacturer, version) plus
+  `MakeASoundState`, the wrapper's document as `NSData`; a load applies through
+  `loadState` and mirrors the values into the tree. `factoryPresets` empty and
+  `supportsUserPresets` NO for now; `currentPreset` kept. No exception crosses
+  into Objective-C.
+- **WP8.5, the view.** eacp gains `EmbeddedView-iOS.mm` (a `UIView` host), the
+  per-platform TU its other three platforms have. An `AUViewController
+  <AUAudioUnitFactory>` subclass is the appex's principal class, one TU per
+  platform (`AUv3View-iOS.mm`, and `AUv3View-macOS.mm` for the macOS tests),
+  showing `createEditor()` or `GenericEditor` with `setHost` and `onAttached()`
+  once embedded. `preferredContentSize` is `constrain(initialSize())`,
+  `requestResize` moves it, a host resize arrives through
+  `viewWillTransitionToSize:` / `viewDidLayoutSubviews` unconstrained, and
+  `supportedViewConfigurations:` answers from `constraints()`. `drawsResizeHandle()`
+  is false; an iOS host offers no grip and the editor's `ResizeGrip` rule decides.
+  The view outlives the unit or not as the host pleases, so it closes through the
+  same weak closer the v2 view registers.
+- **WP8.6, packaging, `FORMATS AUv3`.** iOS only (a status line elsewhere), and it
+  requires `Standalone` in the same call, since the appex rides inside it:
+  `<Name>-Standalone.app/PlugIns/<OUTPUT_NAME>.appex` and
+  `<Name>-Standalone.app/Frameworks/<Name>.framework`, the appex's executable a
+  stub over `NSExtensionMain`, bundle id `<BUNDLE_ID>.auv3`. Both generators:
+  - *Ninja* lays the bundles out by hand, as stage 5 does the `.component`, and
+    signs inside out: ad hoc for the simulator, unsigned for a device build.
+  - *Xcode* uses `XCODE_EMBED_APP_EXTENSIONS`/`XCODE_EMBED_FRAMEWORKS` and
+    automatic signing with `MAKEASOUND_IOS_TEAM`, the route to a signed device
+    build.
+  A custom standalone from stage 7 gets the same embedding.
+- **WP8.7, tests and CI.** `AUv3Tests.mm` (suite `AUv3/`) registers the subclass in
+  process and follows `AUTests.cpp`: buses and capabilities, a block in place and
+  not, events at their offsets, the parameter tree and its conversions, gestures,
+  both state forms, latency, bypass, reset, MIDI out, and the view's size policy.
+  It runs on macOS and in the simulator. `AUv3AllocationTests.cpp` drives
+  `internalRenderBlock` with parameter events, MIDI in and out and a held
+  parameter under the ban. CI adds an Xcode-generator iOS job, build only and
+  unsigned, beside the Ninja one; the simulator job runs the suite.
+- **WP8.8, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
+
+Risks: eacp inside a framework (WP8.0.1); the iOS extension memory limit with
+eacp's Metal drawing beside a `WKWebView` in the Synth; an Objective-C message
+slipping into the render block, which the allocation tests do not see, so it is a
+review rule; and two generators, each of which stays working only while CI builds
+it.
+
 ## Later stages, in brief
 
 - **CLAP**: the ids and the per-event MIDI path are already prepared; note ids and
   per-note expression are the remaining `MIDI::Event` gap.
-- **AUv3**: a new adapter over the same core plus app-extension packaging.
+- **AUv3 on macOS**: stage 8's adapter already builds and is tested there;
+  shipping it would need a macOS container app and a decision on coexisting with
+  the v2 `.component`.
 
 ## Decisions log
 
@@ -2675,3 +2847,15 @@ and can start at once; WP7 is last.
 - 2026-10-11: CI sets up Node 22 on every desktop job and the iOS one, because the
   Synth's page runs `npm install` at configure and vite in the build wherever eacp
   has a web runtime, iOS included; Linux builds the fallback editor.
+- 2026-10-12: AUv3 ships on iOS only; macOS keeps the v2 `.component` as its AU.
+  The adapter still builds and is tested on macOS, where the allocation tests run.
+- 2026-10-12: the iOS AUv3 ships inside the plugin's full iOS standalone, not a
+  placeholder container, and the app and the extension share one framework so
+  the code is in the bundle once.
+- 2026-10-12: the standalone's UI stays eacp-ui widgets on every platform, iOS
+  included; no WebView enters it. What is not UI moves into `StandaloneHost`, and
+  a plugin may replace the app entirely (`STANDALONE_SOURCES`) while keeping the
+  packaging.
+- 2026-10-12: AUv3 packaging works under both Ninja (bundles laid out by hand,
+  as the `.component` is) and the Xcode generator (embedding and automatic
+  signing, for signed device builds); CI builds both.
