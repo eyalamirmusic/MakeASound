@@ -31,14 +31,14 @@ main
     height: 100%;
     display: grid;
     grid-template-rows: auto auto 1fr auto;
-    gap: 4vh;
-    padding: 5vh 5vw;
+    gap: min(4vh, 32px);
+    padding: min(5vh, 40px) 5vw;
 }
 
 h1
 {
     margin: 0;
-    font-size: 5vh;
+    font-size: clamp(16px, min(5vh, 7vw), 40px);
     font-weight: 600;
 }
 
@@ -49,7 +49,7 @@ button
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 6px;
-    padding: 1.5vh 3vw;
+    padding: max(1.5vh, 6px) 3vw;
     cursor: pointer;
 }
 
@@ -75,6 +75,8 @@ button.on
 .knobs
 {
     display: flex;
+    flex-wrap: wrap;
+    gap: 2vw;
     justify-content: space-around;
     align-items: center;
 }
@@ -89,8 +91,9 @@ button.on
 
 .dial
 {
-    width: 22vh;
-    height: 22vh;
+    /* As tall as the page allows, but three to a row in a phone's portrait. */
+    width: min(22vh, 27vw);
+    height: min(22vh, 27vw);
     cursor: ns-resize;
     touch-action: none;
 }

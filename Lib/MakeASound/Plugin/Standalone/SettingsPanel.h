@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <optional>
+#include <string>
 
 namespace MakeASound::Standalone
 {
@@ -18,6 +19,9 @@ struct SettingsPanelOptions
     bool showInput = true;
     bool showMidiInputs = true;
     bool showMidiOutput = false;
+
+    // Rows tall enough for a finger and a larger font: the iOS app's.
+    bool touch = false;
 
     static SettingsPanelOptions forLayout(const BusLayout& layout);
 };
@@ -48,6 +52,10 @@ public:
     // Re-reads devices and ports and rebuilds every list, firing no callback.
     // A 2 Hz timer of the panel's own calls it when either list changed.
     void refresh();
+
+    // A full-width button below the rows, in the order added: the iOS app's
+    // resets, which a desktop app keeps in its menu bar.
+    void addAction(std::string label, std::function<void()> onClick);
 
     int preferredWidth() const;
     int preferredHeight() const;

@@ -20,7 +20,7 @@ it.
 | 4 | VST3 | pluginval at strictness 10 — **landed 2026-10-10** |
 | 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
 | 6 | editor size policy and host resize in every format, Logic's view service, AU bypass, a React editor for the Synth example | pluginval 10 and `auval -strict` with the new editors; the Synth's web editor opens in all three formats — **landed 2026-10-11** (DAW hand checks pending) |
-| 7 | `StandaloneHost` without a window, a plugin's own standalone app, the standalone on iOS | desktop standalones unchanged, a custom-app example builds, both examples run as iOS standalones in the simulator |
+| 7 | `StandaloneHost` without a window, a plugin's own standalone app, the standalone on iOS | desktop standalones unchanged, a custom-app example builds, both examples run as iOS standalones in the simulator — **landed 2026-10-12** |
 | 8 | AUv3, shipped on iOS inside the standalone | `AUv3/` suites on macOS and the iOS simulator, Ninja and Xcode iOS builds in CI, a hand check in AUM and GarageBand |
 
 ## Stage 0: `Buffer`
@@ -2522,6 +2522,56 @@ WebView enters the standalone. The proof is the desktop standalones unchanged
 (their suites and the allocation tests green), a custom-app example building, and
 both examples running as iOS standalones in the simulator.
 
+Landed: `StandaloneHost` in `MakeASoundStandaloneCore` (`StandaloneHost`,
+`StandaloneProcessor`, `MidiSender`, `Settings`; `MakeASoundPlugin` and
+`eacp-core`), built wherever the plugin core is, Linux included; `MakeASoundStandalone`
+over it on `APPLE OR WIN32`, iOS included, with `StandaloneApp` split into the
+shared part (`StandaloneApp.cpp`: the editor, the settings wiring, the audio/MIDI
+reset) and a `Shell` per platform, `StandaloneApp-Desktop.cpp` (the stage 3 windows,
+menu bar and typing keyboard, unchanged in behaviour) and `StandaloneApp-iOS.cpp`
+(one screen: a bar over the editor or the settings panel, inside the safe area);
+`SettingsPanelOptions::touch` and `SettingsPanel::addAction`; the umbrella
+`MakeASoundStandalone.h`; `makeasound_add_plugin`'s `STANDALONE_SOURCES`,
+`STANDALONE_LIBRARIES` and `NO_AUDIO_INPUT`, and `UIBackgroundModes` `audio` on iOS;
+`Plugins/GainApp`, Gain in a desktop app of its own with its own settings file;
+`StandaloneTests.cpp` split into the windowless suite (now with `StandaloneHost`
+over a temporary settings file) and `StandaloneUITests.cpp`; and the iOS CI job
+launching both examples' apps in the simulator after `ctest`. The suite is green
+on macOS (425 cases) and in the iOS simulator (326, the standalone suites
+included); both examples run in the simulator, the Synth's web page in WKWebView,
+and the Synth's editor was made to fit a phone (below). Where it differs from the
+plan below:
+
+- **`StandaloneHost::start()` is a separate call.** Construction loads the plugin's
+  session from the settings file; `start()` opens the saved MIDI ports and the
+  stream. A UI can then be built before any audio runs, and a save before
+  `start()` writes the file's own stream and ports back rather than the empty
+  ones the host has not opened yet.
+- **`NO_AUDIO_INPUT` on `makeasound_add_plugin`** decides the microphone string.
+  The plan wanted `NSMicrophoneUsageDescription` "only for a layout with an input
+  bus", but the layout is known only at run time; the flag is the caller's to keep
+  true. The Synth passes it.
+- **One shell per platform, not `#if`.** The plan said "the default app there is
+  one screen"; it became a pimpl `StandaloneApp::Shell` defined by
+  `StandaloneApp-Desktop.cpp` or `StandaloneApp-iOS.cpp`, chosen in CMake, with
+  what both share left in `StandaloneApp.cpp`.
+- **`Plugins/GainApp` is desktop only**: it opens a second window and sets a menu
+  bar, which iOS has neither of. The iOS path is proved by the default app.
+- **The Synth's editor fits a phone.** At 450×300 and 3:2 its right edge was
+  clipped on an iPhone in portrait (402 points wide); it is now 360×240 to
+  1200×800 at any ratio, which fills the portrait screen, and the page sizes its
+  title, knobs and gaps from `min()` of both viewport axes, so it reflows from a
+  phone's portrait to a wide desktop window. The ratio path keeps its coverage in
+  the `Editor/`, `Standalone/`, `VST3/` and `AU/` suites through `TestEditor`.
+- **Audio session interruptions** needed no new code: miniaudio stops the device
+  on `InterruptionBegan` and recovery re-opens it every 250 ms until the session
+  activates again. Two gaps are left as follow-ups for the device library: it
+  retries through the interruption instead of waiting for
+  `InterruptionEnded`, and that notification's should-resume option is ignored.
+- **Not verified by hand**: the `Settings` button in the simulator (CI and the
+  checks here launch the apps and screenshot them; nothing taps through the
+  settings screen), and anything on a device.
+
 - **WP7.1, the host without a window.** Everything in `StandaloneApp` that is not
   UI moves into `StandaloneHost`: `devices`, `midi`, `sender`, `wrapper`,
   `processor`, `engine`, the settings path, the captured default `Preset`, the
@@ -2856,6 +2906,23 @@ it.
   included; no WebView enters it. What is not UI moves into `StandaloneHost`, and
   a plugin may replace the app entirely (`STANDALONE_SOURCES`) while keeping the
   packaging.
+- 2026-10-12: `StandaloneHost` is constructed and started in two steps: the
+  constructor loads state, `start()` opens ports and the stream, and a save before
+  `start()` keeps the file's stream and ports, so an app builds its UI first and
+  never overwrites the user's devices with nothing.
+- 2026-10-12: the default standalone is one class with a per-platform `Shell`
+  (`StandaloneApp-Desktop.cpp`, `StandaloneApp-iOS.cpp`), not a second app class
+  for iOS: the editor creation, the settings wiring and the reset are shared, and
+  the platform split is by TU, as everywhere else.
+- 2026-10-12: the microphone string is a caller's flag, `NO_AUDIO_INPUT`, since a
+  plugin's layout is only known at run time and the plist is written at build
+  time.
+- 2026-10-12: a custom app still links `MakeASoundStandalone`, so its pieces are
+  there to take and the default app's unreferenced objects stay out of the link;
+  the packaging is `makeasound_add_plugin`'s either way.
+- 2026-10-12: the Synth example's editor drops its 3:2 lock (360×240 to
+  1200×800, any ratio): on a phone the screen's shape is the device's, a locked
+  editor leaves most of a portrait screen empty, and the page reflows instead.
 - 2026-10-12: AUv3 packaging works under both Ninja (bundles laid out by hand,
   as the `.component` is) and the Xcode generator (embedding and automatic
   signing, for signed device builds); CI builds both.

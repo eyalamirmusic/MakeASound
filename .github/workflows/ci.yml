@@ -304,6 +304,8 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
 
       # The simulator is the only place the suite can actually execute for iOS.
+      # Both configures build the examples' -Standalone apps too (the default
+      # app's iOS shell), and the suite includes the standalone ones.
       # Left non-unity on purpose: between this and the device build above, both
       # the unity and per-TU compile paths get exercised on iOS.
       - name: Build & test on the iOS simulator
@@ -335,3 +337,31 @@ jobs:
           echo "::group::Test (simulator)"
           ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
           echo "::endgroup::"
+
+      # Each example's standalone app installed and launched in the simulator, and
+      # still running a few seconds later: the scene, the window, the editor (the
+      # Synth's web page in WKWebView) and the stream all came up.
+      - name: Launch the standalone apps on the iOS simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            bundle="build-ios-sim/Plugins/${app}.app"
+            id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$bundle/Info.plist")
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$bundle/Info.plist" | grep -qx audio
+
+            xcrun simctl install "$udid" "$bundle"
+            pid=$(xcrun simctl launch "$udid" "$id" | awk '{print $NF}')
+            sleep 5
+
+            # A live app is listed with its pid; a crashed one with "-" or not at all.
+            if ! xcrun simctl spawn "$udid" launchctl list \
+                 | awk -v id="$id" '$1 != "-" && index($3, id)' | grep -q .; then
+              echo "ERROR: $id (pid $pid) did not stay up"; exit 1
+            fi
+
+            xcrun simctl terminate "$udid" "$id"
+            echo "$id launched and stayed up"
+          done

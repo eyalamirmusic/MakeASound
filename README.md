@@ -35,7 +35,7 @@ manager.start(manager.getDefaultConfig(),
 - **Block-aligned MIDI.** `MidiBlockSync` resolves arrival times into sample offsets inside the current audio block.
 - **A `Processor` run by an `Engine`.** Write `prepare`/`process`/`reset` against a `ProcessContext` of buses, and `Engine` wires it to a device stream and the open MIDI ports: the main buses refer straight into the callback's channels, MIDI arrives sorted by sample offset, and a device that cannot feed a bus channel is stood in for. The same `Processor` is what the plugin formats will host.
 - **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
-- **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches.
+- **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches, on macOS, Windows and iOS. The host underneath has no window, so a plugin can bring an app of its own instead.
 - **Editors that say how they size.** A plugin's `Editor` states its minimum, maximum and aspect ratio and can ask its host for a new size; every format honours it, and a host without a resize grip of its own gets one drawn by the editor. A plugin with no editor gets a generic one.
 - **Web editors.** One more CMake call gives a plugin a React page as its editor, with typed bindings to its parameters generated from C++; the Synth example has one.
 - **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
@@ -72,7 +72,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | --- | --- | --- |
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
-| `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on a desktop (macOS, Windows), also the standalone format. |
+| `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on macOS, Windows and iOS, also the standalone format's app (the windowless `StandaloneHost` builds everywhere). |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). Needs Node and npm where the Synth's web editor builds. |
 | `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
@@ -518,6 +518,7 @@ That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the a
 ```bash
 open "./build/Plugins/Gain/MakeASound Gain.app"
 open "./build/Plugins/Synth/MakeASound Synth.app"   # the instrument example
+open "./build/Plugins/GainApp/MakeASound Gain App.app"   # Gain in an app of its own
 ```
 
 The app hosts the module's first plugin, run by `Engine`:
@@ -526,6 +527,22 @@ The app hosts the module's first plugin, run by `Engine`:
 - **Audio / MIDI Settings…** (Cmd+,) picks the output and input devices and channels, the sample rate, the block size, the MIDI inputs and, for a plugin with a MIDI output bus, the port it sends to. Rows a layout cannot use are hidden, and the lists follow devices and ports as they come and go. An instrument opens no capture side, so it asks for no microphone.
 - **The computer MIDI keyboard** (Cmd+K, on by default for a plugin with a MIDI input): `A W S E D F T G Y H U J K O L P ;` play an octave and a half from middle C, `Z` and `X` shift it an octave. Notes held when the window loses focus are released.
 - **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
+
+On iOS the same target is one screen: the editor, fitted to the safe area, under a bar whose `Settings` button swaps it for the device and MIDI settings, with rows sized for a finger and the two resets at the bottom. The app keeps playing in the background (`UIBackgroundModes` `audio`). There is no typing keyboard there yet. Pass `NO_AUDIO_INPUT` for a plugin with no input bus, as the Synth does, and the app's plist carries no microphone string.
+
+### A standalone app of your own
+
+What runs the plugin, the devices, the MIDI ports, `Engine` and the settings file, is `StandaloneHost`, with no window in it. To replace the default app, hand `makeasound_add_plugin` your own app's sources; the bundle, plist and signing stay the same:
+
+```cmake
+makeasound_add_plugin(GainApp
+        FORMATS Standalone
+        OUTPUT_NAME "MakeASound Gain App"
+        SOURCES ../Gain/GainPlugin.cpp
+        STANDALONE_SOURCES GainApp.cpp)   # [STANDALONE_LIBRARIES <targets>...]
+```
+
+The app includes `<MakeASound/Plugin/Standalone/MakeASoundStandalone.h>`, holds a `StandaloneHost` as its first member and its UI after it, calls `host.start()` in its constructor, and defines `main()` as `return eacp::Apps::run<MyApp>();`. `SettingsPanel`, `GenericEditor` and `editorWindowOptions` are there to reuse. `Plugins/GainApp` is the example: one window with a toolbar of its own above the generic editor.
 
 A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, with a React editor (see [Web editors](#web-editors)) wherever there is a web runtime and the generic one elsewhere. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass.
 
@@ -640,7 +657,8 @@ Lib/MakeASound/
     Realtime/       MessageThread, RealtimeSwap
     UI/             MakeASoundPluginUI: the generic parameter editor and the resize grip
     Web/            MakeASoundPluginWeb: WebEditor and ParameterApi, a React page as an editor
-    Standalone/     MakeASoundStandalone: the standalone app format and its editor window
+    Standalone/     MakeASoundStandaloneCore (StandaloneHost, no window) and MakeASoundStandalone,
+                    the default app: desktop windows and menu bar, or one iOS screen
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
     AU/             MakeASoundAU: the AU format, its factory, Cocoa view, view placement and plist tool
     Validation/     MakeASoundPluginval: fetches and runs pluginval, runs auval
@@ -653,7 +671,8 @@ Lib/MakeASound/
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
-Plugins/            Gain, Synth: plugins built with makeasound_add_plugin; Synth/web is its React editor
+Plugins/            Gain, Synth: plugins built with makeasound_add_plugin; Synth/web is its React editor;
+                    GainApp: Gain in a standalone app of its own
 Tools/              PluginValidator: pluginval or auval over the bundles on its command line
 CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, MakeASoundWebEditor.cmake,
                     ExternalFolders.cmake, the plug-in install script

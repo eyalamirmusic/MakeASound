@@ -51,9 +51,15 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginWeb)
     endif ()
 
-    # The standalone format's pieces, where the format was built.
-    if (TARGET MakeASoundStandalone)
+    # The standalone core, wherever the plugin core builds, and the default app's
+    # window-tier pieces where the app was built.
+    if (TARGET MakeASoundStandaloneCore)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandaloneCore)
+    endif ()
+
+    if (TARGET MakeASoundStandalone)
+        list(APPEND MAKEASOUND_TEST_SOURCES StandaloneUITests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
     endif ()
 
@@ -143,7 +149,7 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND MAKEASOUND_TEST_SOURCES PluginAllocationTests.cpp)
     endif ()
 
-    if (TARGET MakeASoundStandalone)
+    if (TARGET MakeASoundStandaloneCore)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneAllocationTests.cpp)
     endif ()
 

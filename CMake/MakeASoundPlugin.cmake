@@ -5,7 +5,9 @@
 #         [BUNDLE_ID <reverse.dns.id>]
 #         [COMPANY <vendor>]
 #         [VERSION <x.y.z>]
-#         [FOLDER <ide folder>])
+#         [FOLDER <ide folder>]
+#         [NO_AUDIO_INPUT]
+#         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
 # target per format: <Name>-Standalone, an app; <Name>-VST3, a module built into
@@ -21,10 +23,26 @@
 # skipped with a status line; targets are global, so this works from a CPM
 # consumer's directory too. With MAKEASOUND_INSTALL_PLUGINS on, each plug-in
 # bundle is also copied into the user's plug-in folder after every build.
+#
+# On Apple the app's plist carries NSMicrophoneUsageDescription, which the
+# standalone needs the moment a user picks an input, unless NO_AUDIO_INPUT says
+# the plugin declares no input bus (an instrument), whose settings then offer no
+# input and which never asks for the microphone. The layout is only known at run
+# time, so the flag is the caller's to keep true. On iOS the plist also gains
+# UIBackgroundModes audio, so the plugin keeps playing behind another app.
+#
+# STANDALONE_SOURCES replaces the default app's main with the plugin's own: the
+# sources define main() and the app class, composing StandaloneHost and any of
+# the pieces in <MakeASound/Plugin/Standalone/MakeASoundStandalone.h>, and
+# STANDALONE_LIBRARIES is whatever else they link. The executable still links
+# MakeASoundStandalone, so the pieces are there to take and the default app's
+# objects, unreferenced, stay out of it; the bundle, plist, microphone string and
+# signing are the same as the default app's.
 
 function(makeasound_add_plugin name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG ""
-            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;FOLDER" "FORMATS;SOURCES")
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT"
+            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;FOLDER"
+            "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
 
     if (NOT ARG_SOURCES)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): no SOURCES")
@@ -32,6 +50,17 @@ function(makeasound_add_plugin name)
 
     if (NOT ARG_FORMATS)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): no FORMATS")
+    endif ()
+
+    if ((ARG_STANDALONE_SOURCES OR ARG_STANDALONE_LIBRARIES)
+            AND NOT "Standalone" IN_LIST ARG_FORMATS)
+        message(FATAL_ERROR "makeasound_add_plugin(${name}): STANDALONE_SOURCES "
+                "or STANDALONE_LIBRARIES without the Standalone format")
+    endif ()
+
+    if (ARG_STANDALONE_LIBRARIES AND NOT ARG_STANDALONE_SOURCES)
+        message(FATAL_ERROR "makeasound_add_plugin(${name}): STANDALONE_LIBRARIES "
+                "without STANDALONE_SOURCES")
     endif ()
 
     if (NOT ARG_OUTPUT_NAME)
@@ -86,14 +115,19 @@ function(makeasound_add_plugin name)
                 continue()
             endif ()
 
-            get_target_property(standalone_main MakeASoundStandalone
-                    MAKEASOUND_STANDALONE_MAIN)
+            if (ARG_STANDALONE_SOURCES)
+                set(standalone_sources ${ARG_STANDALONE_SOURCES})
+            else ()
+                get_target_property(standalone_sources MakeASoundStandalone
+                        MAKEASOUND_STANDALONE_MAIN)
+            endif ()
 
             set(target ${name}-Standalone)
-            add_executable(${target} "${standalone_main}")
+            add_executable(${target} ${standalone_sources})
             # The format before the core: the core defines describeModule(), which the
             # format references, and a single-pass linker resolves left to right.
-            target_link_libraries(${target} PRIVATE MakeASoundStandalone ${name})
+            target_link_libraries(${target} PRIVATE
+                    MakeASoundStandalone ${ARG_STANDALONE_LIBRARIES} ${name})
 
             # Set before eacp_set_gui_subsystem, which reads both into AppInfo.
             set_target_properties(${target} PROPERTIES
@@ -114,10 +148,19 @@ function(makeasound_add_plugin name)
             eacp_set_gui_subsystem(${target})
             set_default_target_setting(${target})
 
-            if (APPLE)
+            if (APPLE AND NOT ARG_NO_AUDIO_INPUT)
                 eacp_add_plist_entries(${target} NSMicrophoneUsageDescription
                         "${ARG_OUTPUT_NAME} processes audio from the input you pick.")
+            endif ()
 
+            # An array even with one item, which eacp_add_plist_entries cannot write.
+            if (IOS)
+                eacp_plist_array(modes audio)
+                eacp_append_plist_xml(${target}
+                        "\t<key>UIBackgroundModes</key>\n\t${modes}\n")
+            endif ()
+
+            if (APPLE)
                 add_custom_command(TARGET ${target} POST_BUILD
                         COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:${target}>"
                         VERBATIM)
