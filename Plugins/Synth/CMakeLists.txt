@@ -3,6 +3,7 @@ makeasound_add_plugin(SynthPlugin
         FORMATS Standalone VST3 AU AAX
         OUTPUT_NAME "MakeASound Synth"
         BUNDLE_ID com.makeasound.synth
+        AAX_WCGUID 71CFFAB0-C668-11F1-B096-005056920FF7
         SOURCES SynthPlugin.cpp)
 
 target_link_libraries(SynthPlugin PUBLIC MakeASoundDSP)

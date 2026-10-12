@@ -5,6 +5,7 @@
 #         [BUNDLE_ID <reverse.dns.id>]
 #         [COMPANY <vendor>]
 #         [VERSION <x.y.z>]
+#         [AAX_WCGUID <PACE wrap configuration guid>]
 #         [FOLDER <ide folder>])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
@@ -22,10 +23,13 @@
 # skipped with a status line; targets are global, so this works from a CPM
 # consumer's directory too. With MAKEASOUND_INSTALL_PLUGINS on, each plug-in
 # bundle is also copied into the user's plug-in folder after every build.
+# AAX_WCGUID, with MAKEASOUND_PACE_SIGN_ID set and wraptool at
+# MAKEASOUND_PACE_WRAPTOOL, has PACE sign the AAX bundle after the build, as
+# MAKEASOUND_PACE_ACCOUNT or wraptool's default account.
 
 function(makeasound_add_plugin name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG ""
-            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;FOLDER" "FORMATS;SOURCES")
+            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;AAX_WCGUID;FOLDER" "FORMATS;SOURCES")
 
     if (NOT ARG_SOURCES)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): no SOURCES")
@@ -382,6 +386,22 @@ function(_makeasound_add_aax name)
             COMMAND ${CMAKE_COMMAND} -E copy "${aax_pkginfo}" "${bundle}/Contents/PkgInfo"
             COMMAND codesign --force --sign - "${bundle}"
             VERBATIM)
+
+    if (ARG_AAX_WCGUID AND MAKEASOUND_PACE_SIGN_ID AND EXISTS "${MAKEASOUND_PACE_WRAPTOOL}")
+        message(STATUS "${name}: AAX bundle signed by PACE's wraptool")
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                        -D "WRAPTOOL=${MAKEASOUND_PACE_WRAPTOOL}"
+                        -D "ACCOUNT=${MAKEASOUND_PACE_ACCOUNT}"
+                        -D "SIGN_ID=${MAKEASOUND_PACE_SIGN_ID}"
+                        -D "WCGUID=${ARG_AAX_WCGUID}"
+                        -D "BUNDLE=${bundle}"
+                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SignAAXBundle.cmake"
+                VERBATIM)
+    elseif (ARG_AAX_WCGUID)
+        message(STATUS "${name}: AAX bundle not PACE signed "
+                "(needs wraptool and MAKEASOUND_PACE_SIGN_ID)")
+    endif ()
 
     if (MAKEASOUND_INSTALL_PLUGINS)
         add_custom_command(TARGET ${target} POST_BUILD
