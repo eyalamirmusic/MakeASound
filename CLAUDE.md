@@ -200,3 +200,4 @@ When `MakeASoundAU` is a target (macOS) the test target also links it and `MakeA
 - platform-specific code goes in per-platform TUs (`Name-macOS.cpp`, `Name-iOS.mm`, `Name-Windows.cpp`, `Name-Linux.cpp`, `Name-Default.cpp`) selected in CMake, the way eacp and `AudioSession-*`/`DeviceQueries*` do, never under `#if` in a shared TU or header
 - use modern RAII code whenever possible
 - never `git commit` or `git push` without the user's explicit confirmation in that conversation: finish and verify the work, say what is ready to commit, and wait
+- branches: `main` takes pull requests from `develop` alone, and `develop` takes pull requests from feature branches; neither is pushed to directly. Cut a feature branch from `develop` and open its pull request against `develop`. GitHub rulesets on both branches enforce it, and `.github/workflows/branch-policy.yml` is the check, required on `main`, that refuses a pull request into `main` from anywhere else.
