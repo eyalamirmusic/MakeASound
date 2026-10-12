@@ -1,4 +1,5 @@
 #include "Pluginval.h"
+#include "AAXValidator.h"
 #include "AUValidator.h"
 #include "PluginvalPlatform.h"
 
@@ -49,12 +50,20 @@ bool isAudioUnit(const eacp::FilePath& bundle)
     return bundlePath(bundle).extension() == ".component";
 }
 
+bool isAAX(const eacp::FilePath& bundle)
+{
+    return bundlePath(bundle).extension() == ".aaxplugin";
+}
+
 Result validate(const eacp::FilePath& pluginval,
                 const eacp::FilePath& bundle,
                 const Options& options)
 {
     if (isAudioUnit(bundle))
         return validateAudioUnit(bundle, options);
+
+    if (isAAX(bundle))
+        return validateAAX(bundle, options);
 
     auto arguments = Vector<std::string> {"--strictness-level",
                                           std::to_string(options.strictness),
@@ -95,9 +104,10 @@ Vector<eacp::FilePath> findBundles(const eacp::FilePath& directory)
 
     for (const auto& entry:
          fs::directory_iterator(eacp::toStdPath(directory), error))
-        if (auto extension = entry.path().extension();
-            extension == ".vst3" || extension == ".component")
-            bundles.emplace_back(entry.path());
+        if (auto bundle = eacp::FilePath {entry.path()};
+            isAudioUnit(bundle) || isAAX(bundle)
+            || entry.path().extension() == ".vst3")
+            bundles.push_back(std::move(bundle));
 
     std::sort(bundles.begin(),
               bundles.end(),

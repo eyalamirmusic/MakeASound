@@ -31,6 +31,19 @@ option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core
        ${PROJECT_IS_TOP_LEVEL})
 option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" ON)
+option(MAKEASOUND_BUILD_AAX
+       "Fetch Avid's AAX SDK and build the AAX format (macOS; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
+
+# PACE signing of each AAX bundle after it builds, on when wraptool is there, the
+# identity is set and the plugin names its AAX_WCGUID. No password is passed:
+# wraptool reads it from the keychain, where one sync with it saved it, and an empty
+# account means wraptool's default, the last one that sync saw.
+set(MAKEASOUND_PACE_WRAPTOOL "/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool"
+    CACHE FILEPATH "PACE's wraptool, used to sign AAX bundles")
+set(MAKEASOUND_PACE_ACCOUNT "" CACHE STRING
+    "The iLok account that signs AAX bundles (empty: wraptool's default)")
+set(MAKEASOUND_PACE_SIGN_ID "" CACHE STRING
+    "The Developer ID Application identity wraptool signs AAX bundles with")
 
 # A .vst3 is a shared module on Linux, and every static archive linked into it,
 # ours and the dependencies' alike, has to be position independent for that.

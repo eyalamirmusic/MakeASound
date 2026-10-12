@@ -29,6 +29,10 @@ jobs:
             osx_archs: "arm64;x86_64"
             deployment_target: "11.0"
             pluginval: true
+            # Fetches the AAX SDK (the audiosdk/aax fork) and builds both
+            # .aaxplugin bundles and the AAX/ cases. Never validated or signed
+            # here: aaxval and PACE's tools are the user's NDA copies.
+            aax: true
 
           - name: Windows MSVC (x64)
             os: windows-latest
@@ -121,6 +125,7 @@ jobs:
           CXX_COMPILER: ${{ matrix.cxx }}
           OSX_ARCHS: ${{ matrix.osx_archs }}
           DEPLOY: ${{ matrix.deployment_target }}
+          AAX: ${{ matrix.aax }}
         run: |
           set -euo pipefail
           args=( -S . -B build-Release -G Ninja
@@ -140,6 +145,13 @@ jobs:
           if [ -n "$OSX_ARCHS" ]; then
             args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
                     -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
+          fi
+
+          # The AAX bundles' install into Avid's system folder fails on a
+          # runner (no write access) and is only a warning, like every
+          # format's best-effort install.
+          if [ "$AAX" = "true" ]; then
+            args+=( -DMAKEASOUND_BUILD_AAX=ON )
           fi
 
           echo "::group::Configure"
@@ -196,6 +208,35 @@ jobs:
           name: pluginval-logs-${{ matrix.name }}
           path: build-Release/pluginval/logs/
           if-no-files-found: ignore
+
+      # What a host checks before it loads one: every slice of the universal
+      # build, exactly the seven ACF entry points exported, PkgInfo TDMwPTul and
+      # the ad-hoc signature over the bundle.
+      - name: Verify AAX bundles
+        if: matrix.aax
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(sort Lib/MakeASound/Plugin/AAX/AAXExports.txt)
+          found=0
+          for bundle in build-Release/AAX/*.aaxplugin; do
+            found=$((found + 1))
+            name=$(basename "$bundle" .aaxplugin)
+            binary="$bundle/Contents/MacOS/$name"
+            echo "$bundle: $(lipo -archs "$binary")"
+            lipo -archs "$binary" | grep -q x86_64
+            lipo -archs "$binary" | grep -q arm64
+            for arch in $(lipo -archs "$binary"); do
+              exported=$(nm -gUj -arch "$arch" "$binary" | sort -u)
+              if [ "$exported" != "$expected" ]; then
+                echo "ERROR: $name ($arch) exports:"; echo "$exported"; exit 1
+              fi
+            done
+            [ "$(cat "$bundle/Contents/PkgInfo")" = "TDMwPTul" ]
+            plutil -lint "$bundle/Contents/Info.plist"
+            codesign --verify --strict "$bundle"
+          done
+          [ "$found" -eq 2 ] || { echo "ERROR: expected 2 bundles, found $found"; exit 1; }
 
       # Prove requirement #1: the archive is a real fat binary and every slice
       # is built against the macOS 11.0 minimum.
