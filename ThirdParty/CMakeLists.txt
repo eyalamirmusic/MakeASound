@@ -146,3 +146,65 @@ if (APPLE AND NOT IOS)
             FOLDER External/AudioUnitSDK
             UNITY_BUILD ON)
 endif ()
+
+# aaxsdk: Avid's AAX SDK 2.8.1 from the audiosdk/aax fork, fetched only with
+# MAKEASOUND_BUILD_AAX, so a default build compiles no Avid code. Dual-licensed:
+# Avid's AAX SDK License Agreement or GPLv3. Both ACF glue files belong to each
+# module, so they stay out of the archive: AAX_Init.cpp is included by the module's
+# EntryPoint.cpp, its shutdown renamed, and AAX_Exports.cpp is compiled beside it.
+if (MAKEASOUND_BUILD_AAX AND APPLE AND NOT IOS)
+    include(CPM)
+
+    CPMAddPackage(
+            NAME AAXSDK
+            VERSION 2.8.1
+            GITHUB_REPOSITORY audiosdk/aax
+            GIT_TAG faf5d8e2c339b1c6053d86501465e5679b16314e
+            DOWNLOAD_ONLY YES)
+
+    set(AAX_SDK_DIR "${AAXSDK_SOURCE_DIR}")
+
+    if (NOT EXISTS "${AAX_SDK_DIR}/Interfaces/AAX.h")
+        message(FATAL_ERROR "aaxsdk: no Interfaces/AAX.h under '${AAX_SDK_DIR}'; "
+                "CPM_AAXSDK_SOURCE must name the root of an AAX SDK")
+    endif ()
+
+    message(STATUS "aaxsdk: the AAX SDK is fetched from the audiosdk/aax fork. "
+            "An AAX binary built with it is GPLv3 unless its author holds "
+            "Avid's AAX SDK License Agreement.")
+
+    set(AAX_LIB_DIR "${AAX_SDK_DIR}/Libs/AAXLibrary/source")
+
+    file(GLOB aax_library_sources CONFIGURE_DEPENDS "${AAX_LIB_DIR}/*.cpp")
+    list(REMOVE_ITEM aax_library_sources
+            "${AAX_LIB_DIR}/AAX_Init.cpp"
+            "${AAX_LIB_DIR}/AAX_CAutoreleasePool.Win.cpp")
+
+    add_library(aaxsdk STATIC
+            ${aax_library_sources}
+            ${AAX_LIB_DIR}/AAX_CAutoreleasePool.OSX.mm
+            ${AAX_SDK_DIR}/Interfaces/ACF/CACFClassFactory.cpp)
+
+    target_include_directories(aaxsdk SYSTEM PUBLIC
+            "${AAX_SDK_DIR}/Interfaces"
+            "${AAX_SDK_DIR}/Interfaces/ACF"
+            "${AAX_SDK_DIR}/Libs"
+            "${AAX_SDK_DIR}/Libs/AAXLibrary/include"
+            "${AAX_SDK_DIR}/Extensions")
+
+    target_compile_features(aaxsdk PUBLIC cxx_std_20)
+    target_compile_options(aaxsdk PRIVATE -w)
+    target_link_libraries(aaxsdk PUBLIC
+            "-framework Foundation"
+            "-framework CoreFoundation")
+
+    # AAX_CUIDs.cpp defines INITACFIDS before the headers that declare every uid,
+    # so it must be the first to include them: an object of its own.
+    set_source_files_properties("${AAX_LIB_DIR}/AAX_CUIDs.cpp"
+            PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+
+    set_target_properties(aaxsdk PROPERTIES
+            FOLDER External/AAX_SDK
+            UNITY_BUILD ON
+            MAKEASOUND_AAX_SDK_EXPORTS "${AAX_SDK_DIR}/Interfaces/AAX_Exports.cpp")
+endif ()

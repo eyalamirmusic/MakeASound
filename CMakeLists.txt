@@ -31,6 +31,8 @@ option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core
        ${PROJECT_IS_TOP_LEVEL})
 option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" ON)
+option(MAKEASOUND_BUILD_AAX
+       "Fetch Avid's AAX SDK and build the AAX format (macOS; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
 
 # A .vst3 is a shared module on Linux, and every static archive linked into it,
 # ours and the dependencies' alike, has to be position independent for that.

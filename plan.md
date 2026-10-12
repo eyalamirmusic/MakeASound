@@ -1,7 +1,7 @@
 # Plan: a plugin framework on MakeASound
 
 MakeASound grows from a device library into a write-once plugin framework: one
-`Plugin` compiled to VST3, AU and a standalone app, later CLAP and AUv3. The design
+`Plugin` compiled to VST3, AU, AAX and a standalone app, later CLAP and AUv3. The design
 follows Plug (the format-neutral core, thin per-format adapters, eacp for
 windows and editors, Miro for state and UI schemas), re-homed on MakeASound so the
 standalone format and the device library are one code base rather than two.
@@ -20,6 +20,7 @@ it.
 | 4 | VST3 | pluginval at strictness 10 — **landed 2026-10-10** |
 | 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
 | 6 | editor size policy and host resize in every format, Logic's view service, AU bypass, a React editor for the Synth example | pluginval 10 and `auval -strict` with the new editors; the Synth's web editor opens in all three formats — **landed 2026-10-11** (DAW hand checks pending) |
+| 7 | AAX (macOS), the SDK fetched only under `MAKEASOUND_BUILD_AAX` | the AAX Validator on both examples, `AAX/` green in CI, a Pro Tools Developer hand check — **landed 2026-10-12** (Pro Tools hand check pending) |
 
 ## Stage 0: `Buffer`
 
@@ -2507,11 +2508,481 @@ and can start at once; WP7 is last.
   `plan.md` (this section's "Landed" paragraph, the stage table, the decisions
   log). After the rest, once the hand checks have been made.
 
+## Stage 7: the AAX format
+
+The third DAW format: an AAX Native `.aaxplugin` for Pro Tools over the same
+`PluginWrapper`, macOS first (universal), Windows (MSVC x64) a later stage. The
+SDK is never in this repository: it is fetched only when `MAKEASOUND_BUILD_AAX` is
+on, so a default build compiles no Avid code and the repository stays MIT. The
+proof is Avid's AAX Validator (`aaxval` in DigiShell, from the user's own copy of
+the developer tools) passing both example bundles on this Mac, the `AAX/` suite
+green on the macOS CI job, and a hand check in Pro Tools Developer. Signing (PACE
+`wraptool`) is out of scope: retail Pro Tools loads only signed plugins, and
+signing helpers come separately, since the tools cannot be shipped publicly.
+
+Branch: `aax`, cut from `develop`, its pull request into `develop`.
+
+Landed: `aaxsdk` in `ThirdParty/` (only under `MAKEASOUND_BUILD_AAX`, on macOS),
+`MakeASoundAAX` in `Plugin/AAX/` (`Adapter`, `Conversion`, `Describe`,
+`Parameters`, `State`, and the view in `View.cpp` and `View-macOS.mm` or
+`NoView.cpp`), `_makeasound_add_aax` and Avid's install folder in the CMake
+helpers, `PluginFormat::AAX` and `AAXCategory`/`aaxCategory`, `FORMATS Standalone
+VST3 AU AAX` on both examples, the AAX half of `MakeASoundPluginval`
+(`AAXValidator.{h,cpp}`, `AAXValidator-{macOS,Default}.cpp`) and `--aax-tools` /
+`MAKEASOUND_AAX_TOOLS` in `PluginValidator`, `AAXTests.cpp`, `AAXViewTests.cpp`,
+`AAXAllocationTests.cpp` and `AAXTestHost.h`, and the flag on the macOS CI job with
+a step verifying both bundles' slices, exports, `PkgInfo`, plist and signature.
+`PluginValidator --aax-tools <validator> build/AAX` passes `MakeASound
+Gain.aaxplugin` and `MakeASound Synth.aaxplugin` on this Mac against the 2024.6.0
+validator: every test but the two skipped by id passes or reports not applicable,
+with no warning. Both bundles carry the plist, `PkgInfo` `TDMwPTul` and an ad-hoc
+signature, and `nm -gU` shows exactly the seven `ACF*` symbols. The 34 `AAX/` cases,
+the three AAX allocation cases and the AAX half of `Pluginval/` are green here. The
+universal (arm64 + x86_64) build of the SDK and the bundles is first proven by the
+macOS CI job; this Mac builds arm64 only. The Pro Tools Developer hand check is
+still the user's to make (the list ends this paragraph). Where it differs from the
+section below:
+
+- **`AAX_Init.cpp` is included, not compiled.** `EntryPoint.cpp` includes it with
+  `AAXShutdown` renamed, so the module compiles only the entry and
+  `Interfaces/AAX_Exports.cpp`; `MAKEASOUND_AAX_SDK_INIT` was recorded on `aaxsdk`
+  and never read, and is gone. `aaxsdk` also needs
+  `Interfaces/ACF/CACFClassFactory.cpp` and the include root
+  `Libs/AAXLibrary/include`, and keeps `AAX_CUIDs.cpp` out of the unity chunks:
+  it defines `INITACFIDS` before the headers that declare every uid, so it must be
+  the first to include them.
+- **The SDK's namespace is `::AAX::`** inside `MakeASound::AAX`
+  (`::AAX::Exception::ResultError`).
+- **The package name** comes from `MAKEASOUND_AAX_PACKAGE_NAME` (`OUTPUT_NAME`),
+  defined beside `MAKEASOUND_AAX_BUNDLE_ID`, so `describeEffects` takes it as a
+  fourth argument; it also sets the manufacturer name from `vendor` and the
+  package version from `ModuleDescription::version`. Each effect adds its name and
+  its 31-, 15-, 7- and 4-character truncations, which Pro Tools picks from.
+- **The maximum block is 1024** (`1 << AAX_eAudioBufferLengthNative_Max`), the
+  SDK's ceiling for a Native process call. A larger host block is rendered in
+  slices of 1024 rather than trusted, each slice with its own `clearMidi`, the
+  staged MIDI shifted to its start and the playhead advanced to it.
+- **An unused MIDI field gets a placeholder private-data port**, as Avid's
+  monolithic template does: a field with no port fails the description with
+  "Algorithm context contains gaps", so `midiIn` and `midiOut` are nodes only
+  where the layout has that MIDI bus. The context struct is otherwise as planned.
+- **The validator runs test by test.** dsh is driven over stdin twice: `load_dish
+  aaxval` and `listtests {detail: min, stringformat: yaml}`, then `load_dish
+  aaxval` and one `runtest {test, path, stringformat: yaml, runmode: serial}` per
+  listed test, not one `runtests`. `E_COMPLETED_PASS` passes and `E_CANCELED` is
+  not applicable (`N/A`). A dsh silent for 10 minutes is killed with what it
+  forked, since one can hang after a failed command. dsh listens on a fixed port,
+  so two must never run at once. Two tests fail outright rather than reporting
+  `E_CANCELED` and are skipped by id, each logged with its reason:
+  `test.cycle_counts` (HDX only: it loads the DAE dish and acquires a deck, which
+  without HDX ends `E_LOST` about as often as `E_CANCELED`) and
+  `test.page_table.load` ("Failed to load page tables library" for a plugin that
+  ships no page table). The bundle is not installed; aaxval takes its path.
+- **The view's file is `View-macOS.mm`**, not `.cpp`, since it touches AppKit. The
+  editor lives from `Initialize` (the SDK's `CreateViewContents`) to
+  `Uninitialize`, and the host is set only while embedded. eacp's surface is
+  pinned to the container's top-left by an autoresizing mask on eacp's view,
+  because Pro Tools sizes the container after `GetViewSize` and filling it would
+  grow the editor; a top-left option on eacp's `EmbeddedView` would be cleaner
+  later. `View::Initialize` adopts the message thread too. A container of a
+  foreign type embeds nothing.
+- **Parameters.** The `AAX_CParameter` keeps the host's value, and
+  `TimerWakeup` pushes only values the plugin moved on its own since the last
+  look on parameters no gesture holds, so a host value the plugin snapped is
+  never written back. A stepped parameter has `numSteps + 1` steps.
+- **`CompareActiveChunk`** compares the `params` objects of the two documents with
+  the bypass entry left out, as the SDK leaves the master bypass out of its own
+  compare, and answers equal for a chunk of another id so it never lights the
+  compare light.
+- **Transport:** `barStartPpq` and `isRecording` are not mapped.
+- **The tests** follow `VST3Tests.cpp` rather than `AUTests.cpp`: the SDK is C++20,
+  so they include the adapter's headers. The fixture's controller is a fake that is
+  also the automation delegate and echoes set-value requests back, as Pro Tools
+  does, rather than no controller. The view cases are a file of their own,
+  `AAXViewTests.cpp`, over a fake view container and a `View` whose `findPlugin()`
+  the test overrides.
+- **CI** also verifies each `.aaxplugin`. The AAX install into
+  `/Library/Application Support/Avid/Audio/Plug-Ins` warns on the runner and never
+  fails it. `InstallPluginBundle.cmake` now runs every step through `cmake -E`,
+  because `file()` stopped the script on a folder it could not write.
+
+Open for the Pro Tools hand check: the validator reports `category: None` for
+`AAX_EPlugInCategory_Effect` (Gain's default), and its `s6_feature` test shows
+`master_bypass support: 0`, which may mean Pro Tools wants the bypass parameter
+flagged as the category bypass too; whether Pro Tools' bypass button drives Gain's
+bypass parameter is what decides it. The hand check, in Pro Tools Developer:
+
+- both plugins appear under their categories (Effect for Gain: see above);
+- the generic editor (Gain) and the web editor (Synth) open at the top-left of the
+  window at their right size, the grip resizes them, and the Synth keeps 3:2;
+- closing and reopening an editor, and removing the plugin with its window open,
+  do not crash;
+- automation records and plays back, and the editor's values follow it;
+- the Synth's web page takes keyboard focus for its fields while Pro Tools'
+  shortcuts still work outside it;
+- the synth plays from a MIDI track;
+- a saved session reopens with its values;
+- Gain's bypass follows the parameter and Pro Tools' bypass button;
+- the view finds its plugin, i.e. the `dynamic_cast` of `GetEffectParameters()`
+  to `Adapter` succeeds in Pro Tools' process (an editor at all proves it).
+
+### Licensing
+
+- The AAX SDK is dual-licensed: Avid's commercial AAX SDK License Agreement, or
+  GPLv3. Every source file under `Interfaces/`, `Libs/AAXLibrary/` and
+  `Extensions/` carries that notice, which is what lets anyone redistribute it;
+  JUCE vendors it on the same terms (`JUCE.spdx.json`: `LicenseRef-Avid-AAX OR
+  GPL-3.0-only`), and clap-wrapper fetches it.
+- MakeASound neither vendors nor copies any AAX file. With `MAKEASOUND_BUILD_AAX`
+  on, `ThirdParty/CMakeLists.txt` fetches the SDK through CPM, so the repository's
+  own sources stay MIT and a build with the flag off never sees Avid's code.
+- An AAX binary built from it is the plugin author's to license: GPLv3, or under
+  Avid's agreement, which shipping AAX needs anyway for signing. The configure
+  prints that once when the flag is on, and README says it beside the formats.
+- The AAX Validator, DigiShell and the developer tools are NDA-confidential
+  (their readme says so) and carry no GPL option: they are only ever run from a
+  path the user names, never fetched, copied, committed or run in CI.
+
+### Decision
+
+There is one class per module, `MakeASound::AAX::Adapter`, deriving from
+`AAX_CEffectParameters` (the data model) plus `HostEditListener`, owning a
+`PluginWrapper` built with `PluginFormat::AAX` and driving it in the documented
+order, never calling the plugin's `process`. A second class, `AAX::View`
+(`AAX_CEffectGUI`), shows the editor. The design follows JUCE's and clap-wrapper's
+AAX wrappers mapped onto MakeASound's types:
+
+- **The SDK** is `github.com/audiosdk/aax`, a public fork of AAX SDK 2.8.1 with the
+  examples and docs removed and the sources untouched (two commits: Avid's import,
+  then deletions and four README lines). It is pinned to the commit
+  `faf5d8e2c339b1c6053d86501465e5679b16314e`, not the movable tag `2.8.1-slim`,
+  with `CPM_AAXSDK_SOURCE` for a local copy (the user's 2.10.0). The adapter is
+  written against the 2.8.1 API alone, so it builds against either and no
+  `#if` on the SDK version is ever needed. A mirror of our own replaces the fork
+  later if it moves or disappears; nothing but the CPM line changes. 2.8.1 lacks
+  2.9's GUI minimum size, 2.10's `UpdateScalingFactor` (Windows display scaling),
+  parameter roles, default automation state, bounce notifications and Avid's
+  mocks; none is needed here, and the tests carry their own fakes.
+- **Topology is monolithic native**: `AAX_eConstraintTopology_Monolithic`,
+  `AAX_eConstraintLocationMask_DataModel`, one `AddProcessProc_Native` per
+  component over our context struct, `AAX::AlgorithmContext`: audio inputs and
+  outputs, the sample count, the clock, the local MIDI input and output nodes,
+  the transport node and a private-data field holding the `Adapter*`, which
+  `ResetFieldData` fills with `this`. The process procedure walks its instances
+  and calls `adapter->render(context)` on each, so the algorithm is the adapter's
+  member code, as in JUCE. No packet dispatcher, coefficient generation, DSP or
+  HDX path.
+- **Stem formats.** Each component is one main-bus pair; for this stage the pairs
+  are Mono→Mono, Mono→Stereo, Stereo→Stereo, and for a layout with no input bus
+  None→Mono and None→Stereo, each offered when `acceptsLayout` accepts it.
+  `BusLayout` carries channel counts, not channel roles, and AAX's surround
+  orders differ from VST3's, so surround waits for a stage that gives a bus its
+  roles. A side-chain input is a later stage too (`AddSideChainIn` from a
+  non-main input bus).
+- **Ids.** `AAX_eProperty_ManufacturerID` is `manufacturerCode`,
+  `AAX_eProperty_ProductID` is `pluginCode`, and each component's
+  `AAX_eProperty_PlugInID_Native` is `pluginCode` plus the stem pair's index in
+  the fixed list above, JUCE's derivation, so a plugin moved from a JUCE build
+  with the same codes keeps its Pro Tools sessions. The list is append-only and
+  the ids never change once shipped. The effect id given to `AddEffect` is
+  `<BUNDLE_ID>.<pluginCode>`, the bundle id reaching the module as
+  `MAKEASOUND_AAX_BUNDLE_ID`. A test asserts every native id in a module is
+  unique.
+- **Category.** `PluginDescription` gains `aaxCategory`, an SDK-free
+  `AAXCategory` enum in `Description.h` mirroring Pro Tools' list (`EQ`,
+  `Dynamics`, `PitchShift`, `Reverb`, `Delay`, `Modulation`, `Harmonic`,
+  `NoiseReduction`, `Dither`, `SoundField`, `Effect`, `Instrument`, and `Default`),
+  where `Default` means `Instrument` (`AAX_ePlugInCategory_SWGenerators`) for
+  `Category::Instrument` and `Effect` (`AAX_EPlugInCategory_Effect`) otherwise. A
+  `MidiEffect` ships as an instrument, as in VST3.
+- **Parameters.** Only `isHostExposed` entries are registered, each as an
+  `AAX_CParameter<float>` in normalized units with a linear 0..1 taper, the
+  number of steps and discrete type from `numSteps`, automatable from the entry,
+  and an `AAX::DisplayDelegate` (`Parameters.{h,cpp}`) that formats and parses
+  through the MakeASound `Parameter` (`valueToText`/`textToValue`), so a skewed
+  parameter reads right. `AAX_CParamID` is the 31-bit host id as eight lowercase
+  hex digits, so an inserted or renamed parameter keeps everyone's automation.
+  A host write arrives through `UpdateParameterNormalizedValue` and goes straight
+  into the wrapper (`setNormalizedParameter`) unless a gesture holds it, as AU's
+  `SetParameter` does: the values are atomics, the block reads them, and the
+  last write before a block wins, as in every format.
+- **Bypass.** With a `bypassIndex()` entry, `AAX_eProperty_CanBypass` is true and
+  `GetMasterBypassParameter` names that entry's id; the plugin does the
+  bypassing, as Gain does. A plugin with none declares no bypass. Whether Pro
+  Tools then bypasses it host-side or greys the button out is checked in Pro
+  Tools Developer before the stage lands; if the button must work, the adapter
+  gains a hidden master bypass that copies input to output.
+- **Gestures.** `beginParameterEdit` holds the parameter and calls
+  `TouchParameter`, `performParameterEdit` calls `SetParameterNormalizedValue`
+  with the plugin's normalized value (the host's echo of it lands on a held
+  parameter and drops, harmlessly), and `endParameterEdit` calls
+  `ReleaseParameter` and releases. Edit groups are no-ops. `parameterInfoChanged`
+  has no AAX counterpart in 2.8.1 and is ignored.
+- **State** is one chunk, id `'MkaS'`: `GetNumberOfChunks` 1,
+  `GetChunkSize` saves the wrapper's `Session` document into a member and
+  answers its size, `GetChunk` copies that member (the SDK pairs each size call
+  with a chunk call), `SetChunk` loads it as a `Session`, and
+  `CompareActiveChunk` compares the parameters a chunk holds with the live ones,
+  which is what drives Pro Tools' compare light. Pro Tools gives no preset signal,
+  so every save is a `Session`, as in AU. No exception crosses the ABI.
+  `AAX_eProperty_RequiresChunkCallsOnMainThread` stays false: the wrapper's
+  off-thread save reads the published snapshot.
+- **Render**, per instance, in order: `clearMidi()`, the input node's packets
+  onto MIDI-in bus 0 at their `mTimestamp` (through a `MidiParser` so a SysEx
+  split across packets is assembled; Pro Tools delivers one MIDI stream),
+  `setPlayhead` from the transport node (`GetCurrentTempo`, `GetCurrentMeter`,
+  `IsTransportPlaying`, `GetCurrentNativeSampleLocation`,
+  `GetCurrentTickPosition` over 960000 ticks per quarter, loop points from
+  `GetCurrentLoopPosition`), `sortMidiInByOffset`, `bindInput`/`bindOutput` over
+  the context's channel tables for the component's stem counts, `process()`, and
+  MIDI out bus 0 into the output node with `PostMIDIPacket`, channel-voice
+  messages only (Pro Tools routes no plugin SysEx). Denormals are the wrapper's
+  `ScopedNoDenormals`. Allocation-free and `noexcept`.
+- **Latency.** `SetSignalLatency(latencySamples())` from `EffectInit` and, on the
+  message thread, when the latency moves: `latencyChanged` and `TimerWakeup`
+  check it through the same compare-exchange on the last reported figure the
+  other adapters use. AAX has no tail query in 2.8.1; `tailSamples()` is unused.
+- **The message thread.** `GetEffectDescriptions`, the adapter's `Initialize`
+  and the view's `Initialize` call `adoptHostMessageThread()`. `EntryPoint.cpp` includes the SDK's
+  `AAX_Init.cpp` with `AAXShutdown` renamed, clap-wrapper's trick,
+  and defines its own `AAXShutdown` that calls `releaseHostMessageThread()` and
+  then the SDK's: unlike AU, AAX has a module-exit hook, and a host unloads the
+  module after it.
+- **The view.** `AAX::View::CreateViewContainer` takes the native view from
+  `GetViewContainerPtr()` (`NSView` on macOS) and embeds `createEditor()` or
+  `GenericEditor` in an `eacp::Graphics::EmbeddedView` at
+  `constrain(initialSize())`, `setHost` then `onAttached()`;
+  `DeleteViewContainer` reverses it. `GetViewSize` answers the editor's size.
+  The view is the editor's `EditorHost`: `resizeEditor` constrains the size and
+  hands it to `GetViewContainer()->SetViewSize`, true when the host took it, and
+  `drawsResizeHandle()` is false, since a Pro Tools plugin window has no grip, so
+  the editor draws its `ResizeGrip`. The view holds the adapter through
+  `GetEffectParameters()`, which the host keeps alive longer than the view.
+  `createAAXView` is defined twice, by `View.cpp` where the UI tier exists and by
+  `NoView.cpp` (null: no `kAAX_ProcPtrID_Create_EffectGUI` registered, so Pro
+  Tools shows its generic controls) where it does not, the choice made at link
+  time as in VST3. Which native type `CreateViewContainer` accepts is per
+  platform by TU: `View-macOS.mm` now, `View-Windows.cpp` with Windows.
+- **Not this stage:** Windows, surround and side-chain stems, AudioSuite, DSP/HDX,
+  page tables and control-surface support, PTSL, meters, signing.
+
+### Layout
+
+New directory `Lib/MakeASound/Plugin/AAX/` (namespace `MakeASound::AAX`, IDE
+folder `Lib/Plugin`):
+
+| file | what |
+| --- | --- |
+| `CMakeLists.txt` | `MakeASoundAAX` and its file properties |
+| `AAXCommon.h` | the SDK includes every adapter TU takes first |
+| `Describe.{h,cpp}` | the stem list, `nativePluginId`, the category mapping, `layoutFor`, `effectIdFor`/`findPlugin`, and `describeEffects(AAX_ICollection&, const ModuleDescription&, bundleId, packageName)` |
+| `Adapter.{h,cpp}` | the data model and `render` |
+| `AlgorithmContext.h` | the context struct, packed with the SDK's alignment headers, and the process procedure's declaration |
+| `Parameters.{h,cpp}` | host id ⇄ `AAX_CParamID`, the display delegate, parameter registration |
+| `Conversion.{h,cpp}` | noexcept: MIDI packets ⇄ `MIDI::Event`, the transport into a `Playhead` |
+| `State.{h,cpp}` | the chunk id, size, copy and compare |
+| `View.{h,cpp}`, `View-macOS.mm`, `NoView.cpp` | the `AAX_CEffectGUI` |
+| `EntryPoint.cpp` | `GetEffectDescriptions`, the renamed `AAX_Init.cpp`, `AAXShutdown`; compiled into each module |
+| `AAXExports.txt` | `_ACFRegisterPlugin`, `_ACFRegisterComponent`, `_ACFGetClassFactory`, `_ACFCanUnloadNow`, `_ACFStartup`, `_ACFShutdown`, `_ACFGetSDKVersion` |
+| `AAXInfo.plist.in` | `CFBundlePackageType` `TDMw`, `CFBundleSignature` `PTul`, identifier `<BUNDLE_ID>.aaxplugin`, name, executable, `VERSION` |
+| `PkgInfo` | the 8 bytes `TDMwPTul` |
+
+Elsewhere: `CMakeLists.txt` (`MAKEASOUND_BUILD_AAX`), `ThirdParty/CMakeLists.txt`
+(`aaxsdk`), `Plugin/CMakeLists.txt` (`add_subdirectory(AAX)`),
+`Plugin/Core/Plugin.h` (`PluginFormat::AAX`), `Plugin/Core/Description.h`
+(`AAXCategory`, `aaxCategory`), `CMake/MakeASoundPlugin.cmake` (`AAX` format,
+`_makeasound_add_aax`), `CMake/InstallPluginBundle.cmake` (the Avid folder),
+`Plugins/Gain` and `Plugins/Synth` (`FORMATS Standalone VST3 AU AAX`),
+`Plugin/Validation/` and `Tools/PluginValidator/` (`.aaxplugin` through aaxval),
+`Tests/`, `.github/workflows/ci.yml`, `CLAUDE.md`, `README.md`.
+
+**Targets:**
+
+- **`aaxsdk`** (STATIC, `ThirdParty/`): only under `MAKEASOUND_BUILD_AAX`, on
+  `APPLE AND NOT IOS` this stage. CPM `NAME AAXSDK`, `GITHUB_REPOSITORY
+  audiosdk/aax`, the pinned commit, `DOWNLOAD_ONLY`; a configure error when
+  `Interfaces/AAX.h` is missing, so a wrong `CPM_AAXSDK_SOURCE` says so. Every
+  `Libs/AAXLibrary/source/*.cpp` except `AAX_Init.cpp` (the module's) and the
+  Windows autorelease pool, plus `AAX_CAutoreleasePool.OSX.mm` and
+  `Interfaces/ACF/CACFClassFactory.cpp`; SYSTEM include roots `Interfaces`,
+  `Interfaces/ACF`, `Libs`, `Libs/AAXLibrary/include` and `Extensions`; warnings
+  off (`-w`); Foundation and CoreFoundation PUBLIC; IDE folder `External/AAX_SDK`;
+  a unity build with `AAX_CUIDs.cpp` kept out of the chunks. The path of
+  `Interfaces/AAX_Exports.cpp` is recorded as `MAKEASOUND_AAX_SDK_EXPORTS`, since it
+  must be compiled into the module itself; `AAX_Init.cpp` is included by the
+  module's `EntryPoint.cpp`. C++20, like everything but the AU side.
+- **`MakeASoundAAX`** (STATIC): added when `TARGET aaxsdk`; links
+  `MakeASoundPlugin` and `aaxsdk` PUBLIC, and with the view `MakeASoundPluginUI`
+  and `eacp-graphics` PRIVATE. Properties `MAKEASOUND_AAX_ENTRY`,
+  `MAKEASOUND_AAX_EXPORTS`, `MAKEASOUND_AAX_PLIST`, `MAKEASOUND_AAX_PKGINFO`;
+  `MAKEASOUND_AAX_HAS_VIEW=1` PUBLIC with the view. Unity under
+  `MAKEASOUND_UNITY_BUILD`.
+- **`<Name>-AAX`** (MODULE, IDE folder `<Name>`), by `makeasound_add_plugin`.
+
+### Build
+
+- `option(MAKEASOUND_BUILD_AAX ... OFF)`, top-level and CPM consumers alike,
+  meaningful only with `MAKEASOUND_BUILD_PLUGIN`. With it on, configure prints
+  that the SDK is fetched from the audiosdk/aax fork and that AAX binaries are
+  GPLv3 unless their author holds Avid's agreement.
+- `_makeasound_add_aax(name)`, after `_makeasound_add_au`'s pattern:
+  `add_library(${name}-AAX MODULE <entry> <SDK exports>)`, linking
+  `MakeASoundAAX` then the core; `MAKEASOUND_AAX_BUNDLE_ID="<BUNDLE_ID>"` and
+  `MAKEASOUND_AAX_PACKAGE_NAME="<OUTPUT_NAME>"`; Release LTO. The bundle `<build>/AAX/<OUTPUT_NAME>.aaxplugin` is laid out by hand, as
+  the `.component` is (the module in `Contents/MacOS`, the output directory in
+  `$<1:...>`), with the plist configured at configure time from the CMake
+  arguments: AAX hosts read identity from `GetEffectDescriptions`, not the plist,
+  so nothing is generated after the link. `PkgInfo` copied into `Contents/`, an
+  ad-hoc signature over the bundle (Pro Tools Developer loads unsigned plugins;
+  PACE signing, when it comes, re-signs). The bundle path is
+  `MAKEASOUND_AAX_BUNDLE`.
+- `-exported_symbols_list AAXExports.txt` with `LINK_DEPENDS`, so `nm -gU` shows
+  exactly the seven `ACF*` entry points.
+- With `MAKEASOUND_INSTALL_PLUGINS`, `InstallPluginBundle.cmake` copies into
+  `/Library/Application Support/Avid/Audio/Plug-Ins`, which usually needs admin
+  rights: the copy is best effort as for every format, and a failure is a
+  warning saying so.
+- Skipped with a status line where `MakeASoundAAX` is not a target, so every tree
+  with the flag off is untouched.
+
+### Validation
+
+`MakeASoundPluginval` gains the AAX half, by TU:
+
+- `isAAX(bundle)` is the `.aaxplugin` extension; `findBundles` also returns them.
+- `validate` hands an AAX bundle to `validateAAX` (`AAXValidator.h`):
+  `AAXValidator-macOS.cpp` runs `<tools>/CommandLineTools/dsh` through
+  an `eacp::Processes::Process`, a script on its stdin: `load_dish aaxval` and
+  `listtests`, then one `runtest` per listed test on the bundle's absolute path
+  (as landed; see above). `E_COMPLETED_PASS` passes, `E_CANCELED` is not
+  applicable, anything else fails, pinned against the 2024.6.0 validator. `AAXValidator-Default.cpp` fails an AAX
+  bundle with "AAX validation is macOS only" for now.
+- `Options::aaxTools` is the validator folder, from `--aax-tools <dir>` or the
+  environment variable `MAKEASOUND_AAX_TOOLS`; with neither, an AAX bundle fails
+  with "AAX validation needs --aax-tools". The validator's readme asks for
+  `xattr -dr com.apple.quarantine <folder>` once after unpacking; the error for a
+  quarantined `dsh` says so.
+- Tests that need a page table or HDX hardware (`test.page_table.*`,
+  `test.cycle_counts`) are expected to report not applicable; any that fail
+  outright for a plugin without a page table are listed in the stage's landed
+  notes and skipped by id, not hidden: `test.cycle_counts` and
+  `test.page_table.load`, as landed.
+- `PluginValidator build/AAX --aax-tools <dir>` is the sweep. pluginval is never
+  fetched for it, and nothing about it runs in CI.
+
+### Tests
+
+`Tests/CMakeLists.txt`: `if (TARGET MakeASoundAAX)` links it and adds
+`AAXTests.cpp`, `AAXViewTests.cpp` where the view is built, and, in the allocation
+branch, `AAXAllocationTests.cpp`. The SDK
+compiles as C++20, so the tests include the adapter's headers directly.
+
+**`Tests/AAXTestHost.h`**: recording fakes of the SDK's abstract description
+interfaces (`AAX_ICollection`, `AAX_IEffectDescriptor`, `AAX_IComponentDescriptor`,
+`AAX_IPropertyMap`), and of `AAX_IMIDINode` and `AAX_ITransport` for the render
+context; a controller fake that is also the automation delegate and echoes a
+set-value request back as Pro Tools does; an `AdapterHost` that constructs the
+adapter, initializes it through that controller, builds an `AlgorithmContext` with its own
+channel tables and nodes, and calls the process procedure.
+
+**`AAXTests.cpp`** (suite `AAX/`), after `AUTests.cpp`:
+- describe: the effect per plugin with its id, name and category; the stem pairs
+  `acceptsLayout` accepts and no other, for the effect and the instrument; the
+  manufacturer, product and native ids; every native id unique; the private data,
+  MIDI and transport fields.
+- the category default for each `Category` and an explicit `aaxCategory`.
+- a block in place and not, a bus past the input's width zeroed, Mono→Stereo, an
+  instrument with no input.
+- parameters: the AAX ids are the host ids in hex, in declaration order; the
+  display delegate's text both ways, non-finite text keeping the value; steps and
+  automatable; a host write landing in the next block; a held parameter's host
+  write dropped; begin/perform/end reaching the controller fake.
+- bypass: named only for the gain plugin.
+- state: chunk size then chunk round trip, a parameter inserted mid-list, a save
+  from a worker thread while the main thread spins, `CompareActiveChunk`.
+- MIDI: notes at their timestamps, a SysEx split across packets assembled, the
+  echo leaving through the output node, channel-voice only.
+- the playhead from the transport fake.
+- latency: a change reaching `SetSignalLatency`.
+- where the view is built, in `AAXViewTests.cpp`: the size the view answers,
+  `requestResize` through a view-container fake, the view the editor's host while
+  embedded.
+
+**`AAXAllocationTests.cpp`**: whole process-procedure calls with host parameter
+writes, MIDI in and out, a held parameter and varying block sizes, under the ban.
+
+### CI
+
+The macOS job configures with `-DMAKEASOUND_BUILD_AAX=ON`, so CPM fetches the
+fork, and builds both `.aaxplugin` bundles and the `AAX/` cases. No validator, no
+signing: both need the user's NDA tools. Every other job keeps the flag off and
+is unchanged.
+
+### Fallout in this repository
+
+| place | change |
+| --- | --- |
+| `CMakeLists.txt` | `MAKEASOUND_BUILD_AAX` |
+| `ThirdParty/CMakeLists.txt` | `aaxsdk` through CPM, under the flag |
+| `Plugin/CMakeLists.txt` | `add_subdirectory(AAX)` after `AU` |
+| `Plugin/Core/Plugin.h`, `Description.h` | `PluginFormat::AAX`; `AAXCategory`, `aaxCategory` |
+| `CMake/MakeASoundPlugin.cmake`, `InstallPluginBundle.cmake` | `AAX` format, the Avid folder |
+| `Plugins/Gain`, `Plugins/Synth` | `FORMATS Standalone VST3 AU AAX` |
+| `Plugin/Validation/`, `Tools/PluginValidator/` | `.aaxplugin` through aaxval, `--aax-tools` |
+| `Tests/` | `AAXTests.cpp`, `AAXViewTests.cpp`, `AAXAllocationTests.cpp`, `AAXTestHost.h` |
+| `.github/workflows/ci.yml` | the flag on the macOS job, and a step verifying both `.aaxplugin`s |
+| `CLAUDE.md`, `README.md`, `plan.md` | the format as it is, and its licensing |
+
+Public API: `PluginFormat` gains an enumerator and `PluginDescription` a field
+with a default; no other change.
+
+### Fallout downstream
+
+None: the flag is off by default, and `MAKEASOUND_BUILD_PLUGIN` is off in Plug and
+tamber-web.
+
+### Done when
+
+- `PluginValidator build/AAX --aax-tools <validator>` passes `MakeASound
+  Gain.aaxplugin` and `MakeASound Synth.aaxplugin` on this Mac, any test skipped
+  by id listed with its reason.
+- `AAX/` and the AAX allocation cases are green on macOS here and in CI; every job
+  with the flag off is unchanged.
+- Both bundles carry the plist, `PkgInfo` and an ad-hoc signature, and `nm -gU`
+  shows exactly the seven `ACF*` symbols.
+- *The user's hand check, in Pro Tools Developer* (retail Pro Tools loads no
+  unsigned plugin): both plugins appear under their categories; the generic and
+  the web editor open; automation records and plays back; the synth plays from a
+  MIDI track; a saved session reopens with its values; Gain's bypass follows the
+  parameter, and a plugin without one behaves as decided above.
+- CLAUDE.md, README and this plan describe the format and its licensing as they
+  are.
+
+### Work packages
+
+- **WP1, the SDK and the empty format.** The flag, `aaxsdk`, `MakeASoundAAX` with
+  `Describe` and an adapter that renders silence, `_makeasound_add_aax`, the
+  bundle layout, the examples' `FORMATS`, `PluginFormat::AAX`, `aaxCategory`.
+  Done when both bundles build and the validator loads them.
+- **WP2, render, parameters, state, MIDI, latency.** `Adapter`, `Parameters`,
+  `Conversion`, `State`, `AAXTests.cpp`, `AAXTestHost.h`,
+  `AAXAllocationTests.cpp`. After WP1.
+- **WP3, the view.** `View*.cpp`, `NoView.cpp`, the view cases. After WP1, beside
+  WP2.
+- **WP4, validation.** `Plugin/Validation/` and `Tools/PluginValidator/`. After
+  WP1, beside WP2 and WP3.
+- **WP5, docs and CI.** `.github/workflows/ci.yml`, `CLAUDE.md`, `README.md`,
+  this section's landed notes, the stage table, the decisions log. Last.
+
 ## Later stages, in brief
 
 - **CLAP**: the ids and the per-event MIDI path are already prepared; note ids and
   per-note expression are the remaining `MIDI::Event` gap.
 - **AUv3**: a new adapter over the same core plus app-extension packaging.
+- **AAX on Windows** (MSVC x64; clap-wrapper and Pro Tools rule out ARM64 and
+  clang-cl), then surround and side-chain stems once a bus carries channel roles,
+  and AudioSuite. Signing helpers for PACE's `wraptool`, kept out of the
+  repository's tools.
 
 ## Decisions log
 
@@ -2675,3 +3146,48 @@ and can start at once; WP7 is last.
 - 2026-10-11: CI sets up Node 22 on every desktop job and the iOS one, because the
   Synth's page runs `npm install` at configure and vite in the build wherever eacp
   has a web runtime, iOS included; Linux builds the fallback editor.
+- 2026-10-12: AAX is fetched, never vendored: `MAKEASOUND_BUILD_AAX` (off by
+  default) has CPM fetch `github.com/audiosdk/aax`, a public GPLv3-option fork of
+  SDK 2.8.1 with only deletions on top, pinned to commit `faf5d8e`, with
+  `CPM_AAXSDK_SOURCE` for a local copy. The repository stays MIT and a default
+  build compiles no Avid code; an AAX binary is GPLv3 unless its author holds
+  Avid's agreement. JUCE vendors the SDK on the same GPLv3 option; vendoring
+  would have put a GPL component in an MIT tree. The validator and developer
+  tools are NDA-confidential and only ever run from the user's path.
+- 2026-10-12: AAX is one monolithic native `AAX_CEffectParameters` per plugin,
+  the algorithm a member call reached through a private-data field, as in JUCE
+  and clap-wrapper; one component per accepted Mono/Stereo stem pair, native id
+  `pluginCode + stem index` (JUCE's derivation), parameter ids the 31-bit host id
+  in hex. Host parameter writes go straight into the wrapper, so there is no
+  packet dispatcher.
+- 2026-10-12: the AAX module includes the SDK's `AAX_Init.cpp` with `AAXShutdown`
+  renamed and defines its own, which releases eacp's message thread before the
+  SDK's shutdown, because Pro Tools unloads the module right after it; nothing of
+  eacp's may outlive the code it calls into, as pluginval's cold reload showed for
+  VST3 on Windows.
+- 2026-10-12: an AAX Native block is at most 1024 samples, the SDK's own ceiling;
+  the adapter prepares for that and renders a larger host block in slices of it,
+  MIDI and playhead per slice, rather than trusting the host never to exceed it.
+- 2026-10-12: an AAX component gives every context field a port, a placeholder
+  private-data block where a MIDI node is not wanted, because a gap in the
+  algorithm context fails the description; the field order of `AlgorithmContext`
+  is ABI and only ever appended to.
+- 2026-10-12: AAX parameter values flow one way each: a host write goes into the
+  wrapper and the `AAX_CParameter` keeps the host's value as written, and the
+  timer mirrors to the host only what the plugin moved itself on parameters no
+  gesture holds, so a value the plugin snaps is never written back over the host's.
+- 2026-10-12: aaxval is driven over DigiShell's stdin, one `runtest` per listed
+  test rather than `runtests`, so each test gets its own verdict and an
+  inapplicable one (`E_CANCELED`) is told apart from a failure;
+  `test.cycle_counts` and `test.page_table.load`, which fail outright for a native
+  plugin with no page table, are skipped by id with their reasons in the log. The
+  validator is the user's NDA copy, so nothing runs it but `PluginValidator`, and
+  never two at once.
+- 2026-10-12: the AAX view pins eacp's surface to the container's top-left with
+  an autoresizing mask rather than filling the container, since Pro Tools sizes
+  the container after asking `GetViewSize`; a top-left option on eacp's
+  `EmbeddedView` would replace it.
+- 2026-10-12: CI builds the AAX format on the macOS job only and verifies the
+  bundles' slices, exports, `PkgInfo`, plist and signature, but neither validates
+  nor signs them; installing into Avid's system folder stays best effort there,
+  as everywhere.
