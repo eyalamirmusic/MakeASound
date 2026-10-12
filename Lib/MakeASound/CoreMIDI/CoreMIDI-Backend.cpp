@@ -12,8 +12,8 @@ namespace
 {
 // What one list carries once its own header and the packet's timestamp and
 // length are paid for. Exactly what MIDIPacketListAdd accepts: 4082 bytes here.
-constexpr auto listOverhead = static_cast<int>(offsetof(MIDIPacketList, packet)
-                                               + offsetof(MIDIPacket, data));
+constexpr auto listOverhead =
+    static_cast<int>(offsetof(MIDIPacketList, packet) + offsetof(MIDIPacket, data));
 
 constexpr auto maxListPayload = PacketListBuffer::bytes - listOverhead;
 

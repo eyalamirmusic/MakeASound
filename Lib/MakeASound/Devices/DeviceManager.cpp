@@ -52,7 +52,8 @@ Error DeviceManager::setBackend(Backend backendToUse)
     return error;
 }
 
-StreamConfig DeviceManager::makeDefaultConfig(bool wantsOutput, bool wantsInput) const
+StreamConfig DeviceManager::makeDefaultConfig(bool wantsOutput,
+                                              bool wantsInput) const
 {
     auto defaultConfig = StreamConfig();
 

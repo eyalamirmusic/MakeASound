@@ -1,0 +1,132 @@
+:root
+{
+    color-scheme: dark;
+    --background: #16181d;
+    --panel: #20232b;
+    --line: #3a3f4b;
+    --text: #e6e8ee;
+    --dim: #9198a8;
+    --accent: #5fb3ff;
+}
+
+*
+{
+    box-sizing: border-box;
+}
+
+html, body, #app
+{
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--text);
+    font: 14px -apple-system, "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+main
+{
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 4vh;
+    padding: 5vh 5vw;
+}
+
+h1
+{
+    margin: 0;
+    font-size: 5vh;
+    font-weight: 600;
+}
+
+button
+{
+    font: inherit;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1.5vh 3vw;
+    cursor: pointer;
+}
+
+button.on
+{
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0b1220;
+}
+
+.choice
+{
+    display: flex;
+    gap: 2vw;
+    justify-content: center;
+}
+
+.choice button
+{
+    flex: 1;
+}
+
+.knobs
+{
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.knob
+{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8vh;
+}
+
+.dial
+{
+    width: 22vh;
+    height: 22vh;
+    cursor: ns-resize;
+    touch-action: none;
+}
+
+.dial svg
+{
+    width: 100%;
+    height: 100%;
+}
+
+.track
+{
+    fill: var(--panel);
+    stroke: var(--line);
+    stroke-width: 3;
+}
+
+.pointer
+{
+    stroke: var(--accent);
+    stroke-width: 5;
+    stroke-linecap: round;
+}
+
+.name
+{
+    color: var(--dim);
+}
+
+.text
+{
+    font-variant-numeric: tabular-nums;
+}
+
+.legato
+{
+    display: flex;
+    justify-content: center;
+}

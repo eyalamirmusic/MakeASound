@@ -19,7 +19,7 @@ float nextNoiseSample()
 
 void renderNoise(MS::AudioCallbackInfo& info)
 {
-    for (auto channel: info.getOutput().channels())
+    for (auto channel: info.getOutput())
         for (auto& sample: channel)
             sample = nextNoiseSample();
 }

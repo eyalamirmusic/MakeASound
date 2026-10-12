@@ -127,8 +127,9 @@ ProbeSet::ProbeSet(AudioEngine& engineToUse)
     probes.add(makeProbe("callback/dirty-on-shape-change",
                          "the first block of a new stream shape reports dirty"));
 
-    probes.add(makeProbe("stream/hardware-rate",
-                         "the rate the stream reports is the rate the hardware runs"));
+    probes.add(
+        makeProbe("stream/hardware-rate",
+                  "the rate the stream reports is the rate the hardware runs"));
 
     probes.add(makeProbe("callback/status-reported",
                          "a block that missed its deadline says so in its status"));
@@ -201,8 +202,8 @@ void ProbeSet::refreshSession()
     {
         owned.status = ProbeStatus::Pass;
         owned.actual = "the constructor left the session on " + name(after)
-                       + "; opening a playback-only stream set it to " + name(running)
-                       + ", and setSessionConfig() overrides that";
+                       + "; opening a playback-only stream set it to "
+                       + name(running) + ", and setSessionConfig() overrides that";
     }
 
     auto claimsCapture = running.category == MS::SessionCategory::Record
@@ -332,7 +333,8 @@ void ProbeSet::refreshStream()
         block.actual = "asked for " + std::to_string(engine.getRequestedBlockSize())
                        + ", getStreamBlockSize() says " + std::to_string(reported)
                        + " and the callback says " + std::to_string(stats.blockSize)
-                       + " (last block " + std::to_string(stats.lastNumSamples) + ")";
+                       + " (last block " + std::to_string(stats.lastNumSamples)
+                       + ")";
 
         if (stats.firstBlockDirty)
         {
@@ -430,11 +432,10 @@ void ProbeSet::refreshCallbackStatus()
     probe.status = reported > 0 ? ProbeStatus::Pass : ProbeStatus::Gap;
     probe.actual =
         "a callback was held three block durations past its deadline and "
-        + (reported > 0
-               ? std::to_string(reported) + " block(s) came back non-OK ("
-                     + std::to_string(stats.underflows) + " underflow, "
-                     + std::to_string(stats.overflows) + " overflow)"
-               : std::string {"every block since still reported OK"});
+        + (reported > 0 ? std::to_string(reported) + " block(s) came back non-OK ("
+                              + std::to_string(stats.underflows) + " underflow, "
+                              + std::to_string(stats.overflows) + " overflow)"
+                        : std::string {"every block since still reported OK"});
 }
 
 void ProbeSet::refreshMidi()
@@ -463,7 +464,7 @@ void ProbeSet::refreshMidi()
 void ProbeSet::observe(const DeviceEvent& event)
 {
     lastNotification = toString(event.type)
-                       + (event.viaQueue ? " (drained)"
+                       + (event.viaQueue       ? " (drained)"
                           : event.onMainThread ? " (callback, main thread)"
                                                : " (callback, audio thread)");
 

@@ -5,7 +5,8 @@
 namespace MakeASound
 {
 
-// A non-owning view over a single channel's samples.
+// Non-owning views over a single channel's samples; what a Buffer hands out.
 using Channel = Span<float>;
+using ConstChannel = Span<const float>;
 
 } // namespace MakeASound

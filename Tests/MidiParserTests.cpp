@@ -46,15 +46,15 @@ struct Recorder
     {
         auto buffer = Bytes(bytes);
 
-        parser.feed(Span<const std::uint8_t>(buffer.data(), (int) buffer.size()),
-                    at(milliseconds),
-                    [this](const MidiMessageView& message)
-                    {
-                        messages.emplace_back(message.bytes.begin(),
-                                              message.bytes.end());
-                        timestamps.push_back(message.timestamp);
-                    },
-                    [this](int numBytes) { dropped.push_back(numBytes); });
+        parser.feed(
+            Span<const std::uint8_t>(buffer.data(), (int) buffer.size()),
+            at(milliseconds),
+            [this](const MidiMessageView& message)
+            {
+                messages.emplace_back(message.bytes.begin(), message.bytes.end());
+                timestamps.push_back(message.timestamp);
+            },
+            [this](int numBytes) { dropped.push_back(numBytes); });
     }
 
     bool is(int index, std::initializer_list<std::uint8_t> expected) const
@@ -173,7 +173,8 @@ auto tSystemCommon = test("MidiParser/parsesSystemCommonLengths") = []
     auto f = Fixture {};
 
     f.recorder.feed(
-        f.parser, {0xF2, 0x10, 0x20, 0xF3, 0x05, 0xF1, 0x21, 0xF6, 0x90, 0x3C, 0x64});
+        f.parser,
+        {0xF2, 0x10, 0x20, 0xF3, 0x05, 0xF1, 0x21, 0xF6, 0x90, 0x3C, 0x64});
 
     check(f.recorder.count() == 5);
     check(f.recorder.is(0, {0xF2, 0x10, 0x20}));

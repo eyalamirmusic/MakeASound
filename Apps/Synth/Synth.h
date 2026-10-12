@@ -1,159 +1,108 @@
 #pragma once
 
-#include <MakeASound/MakeASound.h>
-#include <numbers>
+#include <MakeASound/DSP/MakeASoundDSP.h>
+#include <eacp/Core/Core.h>
+
+#include <algorithm>
+#include <atomic>
+#include <functional>
 
 namespace MS = MakeASound;
 namespace MIDI = MS::MIDI;
 
 struct AudioControls
 {
-    MIRO_REFLECT(playing, gain, note, frequency, velocity)
-
     bool playing {};
     double gain {};
     int note {-1};
     double frequency {};
     double velocity {};
+
+    MIRO_REFLECT(playing, gain, note, frequency, velocity)
 };
 
-struct Synth
+// The TestSynth with the UI's gain, its MIDI log and what it shows as playing.
+struct Synth : MS::Processor
 {
-    static constexpr float twoPi = 2.0f * std::numbers::pi_v<float>;
+    using MidiAppliedCallback = std::function<void(const MIDI::Event&)>;
 
-    Synth() { heldNotes.reserve(120); }
+    MS::BusLayout getBusLayout() const override { return synth.getBusLayout(); }
 
-    static float midiNoteToFrequency(int noteToConvert)
+    void prepare(const MS::ProcessSpec& spec) override { synth.prepare(spec); }
+    void reset() noexcept override { synth.reset(); }
+
+    void process(MS::ProcessContext& ctx) noexcept override
     {
-        return 440.0f
-               * std::pow(2.0f, static_cast<float>(noteToConvert - 69) / 12.0f);
-    }
+        if (releaseRequested.exchange(false))
+            synth.allNotesOff();
 
-    struct SineVoice
-    {
-        float renderSample(float increment)
+        auto settings = synth.getSettings();
+        settings.gain = gain.load();
+        synth.setSettings(settings);
+
+        auto& output = ctx.mainOutput();
+        auto cursor = 0;
+
+        for (auto& event: ctx.mainMidiIn())
         {
-            auto value = std::sin(phase);
-            phase += increment;
-
-            if (phase >= twoPi)
-                phase -= twoPi;
-
-            return value;
+            auto offset =
+                std::clamp(event.sampleOffset, cursor, output.getNumSamples());
+            auto block = output.getSubBuffer(cursor, offset - cursor);
+            synth.render(block);
+            applyMidiOnAudioThread(event);
+            cursor = offset;
         }
 
-        float phase {0.0f};
-    };
+        auto tail = output.getSubBuffer(cursor);
+        synth.render(tail);
 
-    void reset() { voice.phase = 0.0f; }
-
-    void render(MS::AudioCallbackInfo& info, int startSample, int endSample)
-    {
-        auto output = info.getOutput();
-
-        if (startSample >= endSample || output.getNumChannels() <= 0)
-            return;
-
-        auto noteValue = note.load();
-        auto velocityValue = velocity.load();
-        auto gainValue = gain.load();
-
-        auto first = output.getChannel(0);
-
-        if (noteValue < 0)
-        {
-            std::fill(first.begin() + startSample, first.begin() + endSample, 0.0f);
-        }
-        else
-        {
-            auto frequency = midiNoteToFrequency(noteValue);
-            auto increment = twoPi * frequency / static_cast<float>(info.sampleRate);
-            auto amplitude = gainValue * velocityValue;
-
-            for (auto i = static_cast<std::size_t>(startSample);
-                 i < static_cast<std::size_t>(endSample);
-                 ++i)
-                first[i] = voice.renderSample(increment) * amplitude;
-        }
-
-        for (auto channel = 1; channel < output.getNumChannels(); ++channel)
-        {
-            auto out = output.getChannel(channel);
-            std::copy(first.begin() + startSample,
-                      first.begin() + endSample,
-                      out.begin() + startSample);
-        }
+        note.store(synth.getCurrentNote());
+        velocity.store(synth.getVelocity());
     }
 
-    // Called on the audio thread.
-    void applyMidiEvent(const MIDI::Event& event)
+    // The UI's MIDI log; the callAsync is the demo's marshalling, not the
+    // library's, and allocates on the audio thread.
+    void applyMidiOnAudioThread(const MIDI::Event& midiEvent)
     {
-        event.visit(MIDI::overloaded {
-            [&](const MIDI::NoteOn& n) { noteOn(n.pitch, n.velocity); },
-            [&](const MIDI::NoteOff& n) { noteOff(n.pitch); },
-            [&](const MIDI::ControlChange& cc)
-            {
-                if (cc.controller == 123) // all notes off
-                    releaseAllNotes();
-                else if (cc.controller == 7) // channel volume
-                    gain.store(cc.value);
-            },
-            [&](const auto&) {},
-        });
+        synth.handleEvent(midiEvent);
+
+        if (auto* cc = midiEvent.asControlChange();
+            cc != nullptr && cc->controller == 7)
+            gain.store(cc->value);
+
+        if (midiAppliedCb)
+            eacp::Threads::callAsync([midiEvent, cb = midiAppliedCb]
+                                     { cb(midiEvent); });
     }
 
-    void noteOn(int noteToPlay, float velocityToUse)
-    {
-        std::erase(heldNotes, noteToPlay);
-        heldNotes.push_back(noteToPlay);
-        note.store(noteToPlay);
-        velocity.store(velocityToUse);
-    }
-
-    void noteOff(int noteToStop)
-    {
-        std::erase(heldNotes, noteToStop);
-
-        if (heldNotes.empty())
-        {
-            note.store(-1);
-            velocity.store(0.0f);
-        }
-        else
-        {
-            note.store(heldNotes.back());
-        }
-    }
-
-    void releaseAllNotes()
-    {
-        heldNotes.clear();
-        note.store(-1);
-        velocity.store(0.0f);
-    }
+    // Any thread: applied at the start of the next block.
+    void releaseAllNotes() { releaseRequested.store(true); }
 
     void setGain(float gainToUse) { gain.store(gainToUse); }
 
     AudioControls makeControls() const
     {
         auto noteValue = note.load();
-        auto velocityValue = velocity.load();
 
         auto controls = AudioControls {};
         controls.playing = noteValue >= 0;
         controls.gain = static_cast<double>(gain.load());
         controls.note = noteValue;
-        controls.velocity = static_cast<double>(velocityValue);
+        controls.velocity = static_cast<double>(velocity.load());
         controls.frequency =
-            noteValue >= 0 ? static_cast<double>(midiNoteToFrequency(noteValue))
-                           : 0.0;
+            noteValue >= 0
+                ? static_cast<double>(MS::DSP::TestSynth::noteToFrequency(noteValue))
+                : 0.0;
         return controls;
     }
+
+    MidiAppliedCallback midiAppliedCb;
+
+private:
+    MS::DSP::TestSynth synth;
 
     std::atomic<int> note {-1};
     std::atomic<float> velocity {0.0f};
     std::atomic<float> gain {0.5f};
-
-    SineVoice voice;
-    std::vector<int> heldNotes;
+    std::atomic<bool> releaseRequested {false};
 };

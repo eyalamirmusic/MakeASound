@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AudioProcessor.h"
+#include "SynthHost.h"
 
 #include <MakeASound/MakeASound.h>
 #include <Miro/Miro.h>
@@ -10,27 +10,27 @@
 
 struct UIState
 {
-    MIRO_REFLECT(devices, sampleRates, blockSizes, midiPorts)
-
     MakeASound::UI::DropdownInfo devices;
     MakeASound::UI::DropdownInfo sampleRates;
     MakeASound::UI::DropdownInfo blockSizes;
     MakeASound::UI::ToggleListInfo midiPorts;
+
+    MIRO_REFLECT(devices, sampleRates, blockSizes, midiPorts)
 };
 
 struct MidiPortToggleRequest
 {
-    MIRO_REFLECT(id, on)
-
     int id {};
     bool on {};
+
+    MIRO_REFLECT(id, on)
 };
 
 struct MidiLogEntry
 {
-    MIRO_REFLECT(text)
-
     std::string text;
+
+    MIRO_REFLECT(text)
 };
 
 namespace Api
@@ -39,12 +39,6 @@ namespace Api
 class SynthApi
 {
 public:
-    SynthApi()
-    {
-        processor.setMidiAppliedCallback(
-            [this](const MIDI::Event& event) { onMidiApplied(event); });
-    }
-
     void reflect(Miro::ApiReflector& r)
     {
         using T = SynthApi;
@@ -62,43 +56,43 @@ public:
     }
 
     UIState getUi() { return makeUi(); }
-    AudioControls getAudio() const { return processor.getSynth().makeControls(); }
+    AudioControls getAudio() const { return host.synth.makeControls(); }
 
     void setGain(const double& value)
     {
-        processor.getSynth().setGain(static_cast<float>(value));
-        audio.publish(processor.getSynth().makeControls());
+        host.synth.setGain(static_cast<float>(value));
+        audio.publish(host.synth.makeControls());
     }
 
     void setSampleRate(const int& value)
     {
-        processor.applySampleRate(value);
+        host.applySampleRate(value);
         ui.publish(makeUi());
     }
 
     void setBlockSize(const int& value)
     {
-        processor.applyBlockSize(value);
+        host.applyBlockSize(value);
         ui.publish(makeUi());
     }
 
     void setDevice(const int& id)
     {
-        if (processor.applyDevice(id))
+        if (host.applyDevice(id))
             ui.publish(makeUi());
     }
 
     void midiPortToggle(const MidiPortToggleRequest& req)
     {
-        processor.applyMidiPortToggle(req.id, req.on);
+        host.applyMidiPortToggle(req.id, req.on);
         ui.publish(makeUi());
     }
 
-    void allNotesOff() { processor.getSynth().releaseAllNotes(); }
+    void allNotesOff() { host.synth.releaseAllNotes(); }
 
     void pollMidiPorts()
     {
-        auto current = processor.midi.getInputPorts();
+        auto current = host.midi.getInputPorts();
 
         if (current == lastInputPorts)
             return;
@@ -115,12 +109,12 @@ private:
     void onMidiApplied(const MIDI::Event& event)
     {
         midi.publish({MIDI::toString(event)});
-        audio.publish(processor.getSynth().makeControls());
+        audio.publish(host.synth.makeControls());
     }
 
     UIState makeUi()
     {
-        auto& config = processor.getStreamConfig();
+        auto& config = host.config;
         auto state = UIState {};
 
         auto currentDeviceId = config.output ? config.output->device.id : 0;
@@ -130,18 +124,18 @@ private:
         {
             state.sampleRates =
                 uiDevices.makeSampleRateDropdown(currentDeviceId, config.sampleRate);
-            state.blockSizes =
-                uiDevices.makeBlockSizeDropdown(currentDeviceId, config.maxBlockSize);
+            state.blockSizes = uiDevices.makeBlockSizeDropdown(currentDeviceId,
+                                                               config.maxBlockSize);
         }
 
-        lastInputPorts = processor.midi.getInputPorts();
+        lastInputPorts = host.midi.getInputPorts();
         state.midiPorts = uiMidi.makeInputPortToggleList();
         return state;
     }
 
-    AudioProcessor processor;
-    MS::UIDeviceManager uiDevices {processor.manager};
-    MS::UIMidiManager uiMidi {processor.midi};
+    SynthHost host {[this](const MIDI::Event& event) { onMidiApplied(event); }};
+    MS::UIDeviceManager uiDevices {host.manager};
+    MS::UIMidiManager uiMidi {host.midi};
     MS::Vector<MS::MidiPortInfo> lastInputPorts;
 };
 

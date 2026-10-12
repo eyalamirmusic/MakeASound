@@ -282,9 +282,7 @@ RawBytes toBytes(const Event& event) noexcept
         [&](const PitchBend& pb)
         {
             auto raw = std::clamp(
-                static_cast<int>(std::lround(pb.value * 8192.f)) + 8192,
-                0,
-                16383);
+                static_cast<int>(std::lround(pb.value * 8192.f)) + 8192, 0, 16383);
             push(statusByte(0xE0, event.channel));
             push(static_cast<std::uint8_t>(raw & 0x7F));
             push(static_cast<std::uint8_t>((raw >> 7) & 0x7F));

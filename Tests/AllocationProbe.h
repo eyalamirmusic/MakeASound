@@ -44,11 +44,17 @@ int allocationsIn(Fn&& fn)
 // until after the thread is gone: the handler is a plain global.
 struct ThreadProbe
 {
-    ThreadProbe() { EA::Allocations::setViolationHandler([this] { ++violations; }); }
+    ThreadProbe()
+    {
+        EA::Allocations::setViolationHandler([this] { ++violations; });
+    }
 
     // A no-op rather than the asserting default: a thread that stopped calling back
     // is still carrying our ban, and its teardown must not abort the suite.
-    ~ThreadProbe() { EA::Allocations::setViolationHandler([] {}); }
+    ~ThreadProbe()
+    {
+        EA::Allocations::setViolationHandler([] {});
+    }
 
     ThreadProbe(const ThreadProbe&) = delete;
     ThreadProbe& operator=(const ThreadProbe&) = delete;

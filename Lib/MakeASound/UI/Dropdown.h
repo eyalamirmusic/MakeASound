@@ -13,34 +13,34 @@ namespace MakeASound::UI
 
 struct DropdownItem
 {
-    MIRO_REFLECT(id, label)
-
     int id {};
     std::string label;
+
+    MIRO_REFLECT(id, label)
 };
 
 struct DropdownInfo
 {
-    MIRO_REFLECT(items, currentId)
-
     Vector<DropdownItem> items;
     int currentId {};
+
+    MIRO_REFLECT(items, currentId)
 };
 
 struct ToggleListItem
 {
-    MIRO_REFLECT(id, label, selected)
-
     int id {};
     std::string label;
     bool selected {};
+
+    MIRO_REFLECT(id, label, selected)
 };
 
 struct ToggleListInfo
 {
-    MIRO_REFLECT(items)
-
     Vector<ToggleListItem> items;
+
+    MIRO_REFLECT(items)
 };
 
 // Item ids are the Backend enumerator's value, so a selected id casts back.
@@ -68,13 +68,11 @@ int encodeChannelSelection(int firstChannel, int count);
 ChannelSelection decodeChannelSelection(int encoded);
 
 // Lists single channels and stereo pairs: 1, 2, 1/2, 3, 4, 3/4, ...
-DropdownInfo makeInputChannelDropdown(const DeviceInfo& device,
-                                      int firstChannel,
-                                      int count);
+DropdownInfo
+    makeInputChannelDropdown(const DeviceInfo& device, int firstChannel, int count);
 
-DropdownInfo makeOutputChannelDropdown(const DeviceInfo& device,
-                                       int firstChannel,
-                                       int count);
+DropdownInfo
+    makeOutputChannelDropdown(const DeviceInfo& device, int firstChannel, int count);
 
 ToggleListInfo makeMidiPortToggleList(const Vector<MidiPortInfo>& ports,
                                       const Vector<int>& openPortIds);

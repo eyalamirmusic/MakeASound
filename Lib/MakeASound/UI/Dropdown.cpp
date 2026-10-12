@@ -109,16 +109,14 @@ ChannelSelection decodeChannelSelection(int encoded)
     return {encoded / channelIdShift, encoded % channelIdShift};
 }
 
-DropdownInfo makeInputChannelDropdown(const DeviceInfo& device,
-                                      int firstChannel,
-                                      int count)
+DropdownInfo
+    makeInputChannelDropdown(const DeviceInfo& device, int firstChannel, int count)
 {
     return makeChannelDropdown(device.inputChannels, firstChannel, count);
 }
 
-DropdownInfo makeOutputChannelDropdown(const DeviceInfo& device,
-                                       int firstChannel,
-                                       int count)
+DropdownInfo
+    makeOutputChannelDropdown(const DeviceInfo& device, int firstChannel, int count)
 {
     return makeChannelDropdown(device.outputChannels, firstChannel, count);
 }

@@ -7,114 +7,254 @@
 namespace MakeASound
 {
 
-// A non-owning view over a planar (channel-major) audio block: all samples of
-// channel 0, then all samples of channel 1, and so on. Channel c starts
-// c * getChannelStride() samples after channel 0; the stride equals the
-// channel length unless the buffer is a sub-range of a larger block.
+// A planar block of float samples that either owns its storage or refers to
+// storage owned by someone else: a host's channel array, another Buffer, the
+// backend's scratch. Every access goes through a table of per-channel pointers
+// plus a start offset, so a sub-range or a channel subset is another Buffer
+// over the same table with no storage of its own and no channel cap.
+//
+// Move-only. A copy would have to decide between aliasing and allocating, and
+// neither is right on an audio thread, so copying is spelled out: copyOf() for
+// a deep copy, getSubBuffer(0) for an alias. Everything that does not allocate
+// is noexcept; the four members that can allocate are the two owning
+// constructors, setSize and copyOf.
+//
+// Constness lives in the reference: a const Buffer hands out ConstChannels and
+// cannot be sliced, since the slice would be writable.
 class Buffer
 {
 public:
+    template <typename T>
+    class ChannelIterator;
+
+    using Iterator = ChannelIterator<float>;
+    using ConstIterator = ChannelIterator<const float>;
+
     Buffer() noexcept = default;
 
-    // Splits one flat planar block evenly between the channels.
-    Buffer(Span<float> dataToUse, int numChannelsToUse) noexcept
-        : view(dataToUse, numChannelsToUse)
-    {
-    }
+    // Owning, zeroed.
+    Buffer(int numChannelsToUse, int numSamplesToUse);
 
-    Buffer(float* dataToUse, int numChannelsToUse, int numSamplesToUse) noexcept
-        : view(dataToUse, numChannelsToUse, numSamplesToUse)
-    {
-    }
-
-    Buffer(float* dataToUse,
+    // Referring: channel c is channelsToUse[c] + startSampleToUse.
+    Buffer(float* const* channelsToUse,
            int numChannelsToUse,
            int numSamplesToUse,
-           int channelStrideToUse) noexcept
-        : view(dataToUse, numChannelsToUse, numSamplesToUse, channelStrideToUse)
+           int startSampleToUse = 0) noexcept
+        : channels(channelsToUse)
+        , startSample(startSampleToUse)
+        , numChannels(numChannelsToUse)
+        , numSamples(numSamplesToUse)
     {
     }
 
-    int getNumChannels() const noexcept { return view.getNumChannels(); }
+    Buffer(Buffer&& other) noexcept { moveFrom(other); }
 
-    // Samples per channel.
-    int getNumSamples() const noexcept { return view.getNumSamples(); }
-
-    // Samples from the start of one channel to the start of the next.
-    int getChannelStride() const noexcept { return view.getChannelStride(); }
-
-    bool isContiguous() const noexcept { return view.isContiguous(); }
-
-    bool isEmpty() const noexcept { return view.empty(); }
-
-    Channel getChannel(int channel) const noexcept
+    Buffer& operator=(Buffer&& other) noexcept
     {
-        return view.getChannel(channel);
+        if (this != &other)
+            moveFrom(other);
+
+        return *this;
     }
 
-    float* getChannelPointer(int channel) const noexcept
+    Buffer(const Buffer&) = delete;
+    Buffer& operator=(const Buffer&) = delete;
+
+    static Buffer copyOf(const Buffer& source);
+
+    // Gives the buffer storage of its own, zeroed, dropping anything it referred
+    // to. Capacity is never released, so after one call at the largest shape every
+    // equal-or-smaller call is allocation-free.
+    void setSize(int numChannelsToUse, int numSamplesToUse);
+
+    // Drops owned storage and refers instead.
+    void referTo(float* const* channelsToUse,
+                 int numChannelsToUse,
+                 int numSamplesToUse,
+                 int startSampleToUse = 0) noexcept;
+
+    bool isOwning() const noexcept { return owning; }
+    bool isEmpty() const noexcept { return numChannels <= 0 || numSamples <= 0; }
+    int getNumChannels() const noexcept { return numChannels; }
+    int getNumSamples() const noexcept { return numSamples; }
+
+    Channel getChannel(int channel) noexcept
     {
-        return view.getChannelPointer(channel);
+        return {channels[channel] + startSample, numSamples};
     }
 
-    Channel operator[](int channel) const noexcept { return view[channel]; }
-
-    // Samples [offset, offset + numSamples) of every channel, clamped to this
-    // buffer's length.
-    Buffer subBuffer(int offset, int numSamplesToUse) const noexcept
+    ConstChannel getChannel(int channel) const noexcept
     {
-        return Buffer(view.subView(offset, numSamplesToUse));
+        return {channels[channel] + startSample, numSamples};
     }
 
-    void clear() const noexcept { fill(0.0f); }
+    Channel operator[](int channel) noexcept { return getChannel(channel); }
 
-    void fill(float value) const noexcept { view.fill(value); }
-
-    // Copies the channels and samples both buffers have; the rest of this
-    // buffer is left as it was.
-    void copyFrom(const Buffer& other) const noexcept
+    ConstChannel operator[](int channel) const noexcept
     {
-        forEachSharedSample(other,
-                            [](float& target, float source) { target = source; });
+        return getChannel(channel);
     }
 
-    // Mixes the channels and samples both buffers have into this one.
-    void addFrom(const Buffer& other) const noexcept
+    float* getChannelPointer(int channel) noexcept
     {
-        forEachSharedSample(other,
-                            [](float& target, float source) { target += source; });
+        return channels[channel] + startSample;
     }
 
-    // Returned by value, not by reference to the Buffer, so it survives
-    // iterating a temporary: `for (auto ch : info.getOutput().channels())`.
-    PlanarView<float> channels() const noexcept { return view; }
+    const float* getChannelPointer(int channel) const noexcept
+    {
+        return channels[channel] + startSample;
+    }
 
-    PlanarView<float>::Iterator begin() const noexcept { return view.begin(); }
-    PlanarView<float>::Iterator end() const noexcept { return view.end(); }
+    // The table the channels are read through, with the offset reported beside
+    // it rather than applied: a buffer over sample 0 of its table (every owning
+    // buffer, and anything a host handed over) can pass this straight to a C API.
+    float* const* getChannelPointers() const noexcept { return channels; }
+    int getStartSample() const noexcept { return startSample; }
+
+    // Referring buffers over part of this one, clamped to its shape.
+    Buffer getSubBuffer(int start, int numSamplesToUse) noexcept
+    {
+        auto first = std::clamp(start, 0, numSamples);
+        auto length = std::clamp(numSamplesToUse, 0, numSamples - first);
+        return {channels, numChannels, length, startSample + first};
+    }
+
+    Buffer getSubBuffer(int start) noexcept
+    {
+        return getSubBuffer(start, numSamples - start);
+    }
+
+    Buffer getChannelSubset(int firstChannel, int numChannelsToUse) noexcept
+    {
+        auto first = std::clamp(firstChannel, 0, numChannels);
+        auto count = std::clamp(numChannelsToUse, 0, numChannels - first);
+        return {channels + first, count, numSamples, startSample};
+    }
+
+    Buffer getSingleChannel(int channel) noexcept
+    {
+        return getChannelSubset(channel, 1);
+    }
+
+    void clear() noexcept { fill(0.0f); }
+
+    void fill(float value) noexcept
+    {
+        for (auto channel: *this)
+            channel.fill(value);
+    }
+
+    // Copies the channels and samples both buffers have; the rest is left as it was.
+    void copyFrom(const Buffer& other) noexcept
+    {
+        forEachSharedChannel(
+            other,
+            [](Channel target, ConstChannel source, int count)
+            { std::copy_n(source.begin(), count, target.begin()); });
+    }
+
+    void addFrom(const Buffer& other, float gain = 1.0f) noexcept
+    {
+        forEachSharedChannel(other,
+                             [gain](Channel target, ConstChannel source, int count)
+                             {
+                                 for (auto i = 0; i < count; ++i)
+                                     target[i] += source[i] * gain;
+                             });
+    }
+
+    void applyGain(float gain) noexcept
+    {
+        for (auto channel: *this)
+            for (auto& sample: channel)
+                sample *= gain;
+    }
+
+    Iterator begin() noexcept { return {channels, startSample, numSamples, 0}; }
+
+    Iterator end() noexcept
+    {
+        return {channels, startSample, numSamples, numChannels};
+    }
+
+    ConstIterator begin() const noexcept
+    {
+        return {channels, startSample, numSamples, 0};
+    }
+
+    ConstIterator end() const noexcept
+    {
+        return {channels, startSample, numSamples, numChannels};
+    }
+
+    // Yields a Span per channel. The shape is held by value rather than through a
+    // pointer back to the Buffer, so an iterator stays valid once the Buffer it
+    // came from is gone: `for (auto channel: info.getOutput())` is safe.
+    template <typename T>
+    class ChannelIterator
+    {
+    public:
+        ChannelIterator(T* const* channelsToUse,
+                        int startSampleToUse,
+                        int numSamplesToUse,
+                        int channelToUse) noexcept
+            : channels(channelsToUse)
+            , startSample(startSampleToUse)
+            , numSamples(numSamplesToUse)
+            , channel(channelToUse)
+        {
+        }
+
+        Span<T> operator*() const noexcept
+        {
+            return {channels[channel] + startSample, numSamples};
+        }
+
+        ChannelIterator& operator++() noexcept
+        {
+            ++channel;
+            return *this;
+        }
+
+        bool operator==(const ChannelIterator& other) const noexcept
+        {
+            return channel == other.channel;
+        }
+
+        bool operator!=(const ChannelIterator& other) const noexcept
+        {
+            return channel != other.channel;
+        }
+
+    private:
+        T* const* channels;
+        int startSample;
+        int numSamples;
+        int channel;
+    };
 
 private:
-    explicit Buffer(PlanarView<float> viewToUse) noexcept
-        : view(viewToUse)
-    {
-    }
+    void moveFrom(Buffer& other) noexcept;
+    void releaseStorage() noexcept;
 
     template <typename Operation>
-    void forEachSharedSample(const Buffer& other, Operation operation) const noexcept
+    void forEachSharedChannel(const Buffer& other, Operation operation) noexcept
     {
-        auto numChannels = std::min(getNumChannels(), other.getNumChannels());
-        auto numSamples = std::min(getNumSamples(), other.getNumSamples());
+        auto count = std::min(numChannels, other.numChannels);
+        auto length = std::min(numSamples, other.numSamples);
 
-        for (auto channel = 0; channel < numChannels; ++channel)
-        {
-            auto target = getChannel(channel);
-            auto source = other.getChannel(channel);
-
-            for (auto sample = 0; sample < numSamples; ++sample)
-                operation(target[sample], source[sample]);
-        }
+        for (auto channel = 0; channel < count; ++channel)
+            operation(getChannel(channel), other.getChannel(channel), length);
     }
 
-    PlanarView<float> view;
+    float* const* channels = nullptr;
+    int startSample = 0;
+    int numChannels = 0;
+    int numSamples = 0;
+
+    Vector<float> samples;
+    Vector<float*> table;
+    bool owning = false;
 };
 
 } // namespace MakeASound

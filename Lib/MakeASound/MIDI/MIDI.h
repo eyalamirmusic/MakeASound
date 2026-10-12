@@ -166,9 +166,8 @@ struct Buffer : Vector<Event>
 
 // nullopt for messages that don't map (SysEx, MTC, song-position, undersized
 // payloads). Allocation-free — callable from any real-time thread.
-std::optional<Event> convertMidi(const std::uint8_t* bytes,
-                                 int size,
-                                 int sampleOffset = 0) noexcept;
+std::optional<Event>
+    convertMidi(const std::uint8_t* bytes, int size, int sampleOffset = 0) noexcept;
 
 struct RawBytes
 {

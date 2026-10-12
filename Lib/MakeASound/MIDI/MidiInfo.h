@@ -17,17 +17,16 @@ using MidiTimePoint = std::chrono::steady_clock::time_point;
 
 struct MidiPortInfo
 {
-    MIRO_REFLECT(id, name)
     bool operator==(const MidiPortInfo&) const = default;
 
     int id {};
     std::string name;
+
+    MIRO_REFLECT(id, name)
 };
 
 struct MidiMessage
 {
-    MIRO_REFLECT(timestamp, bytes)
-
     // Seconds since the MidiManager was created, taken from the packet's own
     // hardware stamp on MidiManager::now()'s clock — so two messages can be
     // subtracted for the interval between them, at the platform's resolution
@@ -38,6 +37,8 @@ struct MidiMessage
     // and 0xF7. The buffer belongs to the port and the next message refills it,
     // so copy what you keep.
     std::vector<std::uint8_t> bytes;
+
+    MIRO_REFLECT(timestamp, bytes)
 };
 
 struct MidiInputEvent
