@@ -14,7 +14,7 @@ option(MAKEASOUND_CI_BUILD
        "Mirror the flag set CI builds with: unity builds here and in every dependency, eacp's own CI set" OFF)
 
 # A cold build of the plugin core compiles all of eacp and the VST3 SDK, so CI
-# compiles everything as unity builds with eacp's precompiled header. Off by
+# compiles everything as unity builds, under ccache (see ci.yml). Off by
 # default: a unity build rebuilds a whole chunk per edit, the wrong trade for an
 # edit-compile loop. Cache entries, because the dependencies read them when CPM
 # configures them.
