@@ -26,15 +26,20 @@ add_library(MakeASoundHosting STATIC
         Scan/ScanCoordinator.cpp
         Scan/Scanner.cpp
         Scan/ScanSession.cpp
-        Scan/ScanWorker.cpp)
+        Scan/ScanWorker.cpp
+        VST3/VST3Format.cpp)
 
 # One TU per platform for what differs; CMake picks it, no #if does.
 if (APPLE)
     target_sources(MakeASoundHosting PRIVATE
-            Scan/ExecutablePath-macOS.cpp)
+            DefaultFormats-macOS.cpp
+            Scan/ExecutablePath-macOS.cpp
+            VST3/VST3Folders-macOS.cpp)
 else ()
     target_sources(MakeASoundHosting PRIVATE
-            Scan/ExecutablePath-Windows.cpp)
+            DefaultFormats-Windows.cpp
+            Scan/ExecutablePath-Windows.cpp
+            VST3/VST3Folders-Windows.cpp)
 
     # On the target, so windows.h leaves no min/max macros in a unity chunk.
     target_compile_definitions(MakeASoundHosting PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

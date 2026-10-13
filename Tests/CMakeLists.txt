@@ -183,9 +183,16 @@ if (MAKEASOUND_BUILD_PLUGIN)
         # A stand-in scan worker whose misbehaviour the command line picks
         # (crash, abort, hang, garbage, the old marker), for the scan suites.
         add_executable(FakeScanWorker FakeScanWorker.cpp)
-        target_link_libraries(FakeScanWorker PRIVATE MakeASoundHosting)
+        makeasound_enable_hosting(FakeScanWorker)
         set_makeasound_target_settings(FakeScanWorker)
         set(MAKEASOUND_TEST_FAKE_SCAN_WORKER ON)
+
+        # Real VST3 modules to scan: the fixtures, built beside the suite.
+        if (TARGET MakeASoundVST3)
+            add_subdirectory(HostFixtures)
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp)
+            set(MAKEASOUND_TEST_HOST_FIXTURES ON)
+        endif ()
     endif ()
 
     # pluginval and auval over the example bundles, run only when MAKEASOUND_PLUGINVAL
@@ -280,6 +287,14 @@ if (MAKEASOUND_TEST_FAKE_SCAN_WORKER)
     add_dependencies(MakeASoundTests FakeScanWorker)
     target_compile_definitions(MakeASoundTests PRIVATE
             MAKEASOUND_FAKE_SCAN_WORKER="$<TARGET_FILE:FakeScanWorker>")
+endif ()
+
+if (MAKEASOUND_TEST_HOST_FIXTURES)
+    add_dependencies(MakeASoundTests
+            HostFixtureEffect-VST3 HostFixtureInstrument-VST3
+            HostFixtureScanCrash-VST3 HostFixtureScanHang-VST3)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_HOST_FIXTURE_VST3_DIR="${MAKEASOUND_HOST_FIXTURE_VST3_DIR}")
 endif ()
 
 if (MAKEASOUND_TEST_AU_VIEW)

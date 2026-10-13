@@ -7,7 +7,9 @@
 #         [VERSION <x.y.z>]
 #         [AAX_WCGUID <PACE wrap configuration guid>]
 #         [FOLDER <ide folder>]
+#         [BUNDLE_DIRECTORY <dir>]
 #         [NO_AUDIO_INPUT]
+#         [NO_INSTALL]
 #         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
@@ -24,7 +26,12 @@
 # one, unless FOLDER names another. A format whose library was not built is
 # skipped with a status line; targets are global, so this works from a CPM
 # consumer's directory too. With MAKEASOUND_INSTALL_PLUGINS on, each plug-in
-# bundle is also copied into the user's plug-in folder after every build.
+# bundle is also copied into the user's plug-in folder after every build, unless
+# NO_INSTALL keeps this plugin's bundles in the build tree whatever the option
+# says. BUNDLE_DIRECTORY replaces <build> as the folder the VST3, AU and AAX
+# folders are made in, for bundles that must stay out of <build>/VST3 and
+# <build>/AU (the hosting tests' fixtures, which a validator sweep of those
+# folders must not see).
 # AAX_WCGUID, with MAKEASOUND_PACE_SIGN_ID set and wraptool at
 # MAKEASOUND_PACE_WRAPTOOL, has PACE sign the AAX bundle after the build, as
 # MAKEASOUND_PACE_ACCOUNT or wraptool's default account.
@@ -67,8 +74,8 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
         "Extra configure arguments for an iOS tree's host build of the AUv3 plist tools")
 
 function(makeasound_add_plugin name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT"
-            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;AAX_WCGUID;FOLDER"
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL"
+            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;AAX_WCGUID;FOLDER;BUNDLE_DIRECTORY"
             "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
 
     if (NOT ARG_SOURCES)
@@ -109,6 +116,17 @@ function(makeasound_add_plugin name)
 
     if (NOT ARG_VERSION)
         set(ARG_VERSION "1.0.0")
+    endif ()
+
+    if (NOT ARG_BUNDLE_DIRECTORY)
+        set(ARG_BUNDLE_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif ()
+
+    # Read by the format helpers below, which see this function's ARG_* variables.
+    if (MAKEASOUND_INSTALL_PLUGINS AND NOT ARG_NO_INSTALL)
+        set(install_bundles ON)
+    else ()
+        set(install_bundles OFF)
     endif ()
 
     if (NOT ARG_FOLDER)
@@ -265,7 +283,7 @@ function(_makeasound_add_vst3 name)
     set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
     # Every bundle in one folder, to hand PluginValidator as a whole.
-    set(bundle_dir "${CMAKE_BINARY_DIR}/VST3")
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/VST3")
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.vst3")
 
     # $<1:...> keeps a multi-config generator from appending a per-config folder;
@@ -353,7 +371,7 @@ function(_makeasound_add_vst3 name)
         set(install_dir "$ENV{HOME}/.vst3")
     endif ()
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
+    if (install_bundles)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${install_dir}"
                         -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
@@ -385,7 +403,7 @@ function(_makeasound_add_au name)
 
     target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 
-    set(bundle_dir "${CMAKE_BINARY_DIR}/AU")
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/AU")
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.component")
 
     # Laid out by hand rather than as a BUNDLE target: CMake rewrites a bundle's
@@ -420,7 +438,7 @@ function(_makeasound_add_au name)
             COMMAND codesign --force --sign - "${bundle}"
             VERBATIM)
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
+    if (install_bundles)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
                         -D "DEST_DIR=$ENV{HOME}/Library/Audio/Plug-Ins/Components"
@@ -767,7 +785,7 @@ function(_makeasound_add_aax name)
             MAKEASOUND_AAX_BUNDLE_ID="${ARG_BUNDLE_ID}"
             MAKEASOUND_AAX_PACKAGE_NAME="${ARG_OUTPUT_NAME}")
 
-    set(bundle_dir "${CMAKE_BINARY_DIR}/AAX")
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/AAX")
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.aaxplugin")
 
     # Laid out by hand, as the .component is; $<1:...> keeps a multi-config
@@ -819,7 +837,7 @@ function(_makeasound_add_aax name)
                 "(needs wraptool and MAKEASOUND_PACE_SIGN_ID)")
     endif ()
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
+    if (install_bundles)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
                         -D "DEST_DIR=/Library/Application Support/Avid/Audio/Plug-Ins"

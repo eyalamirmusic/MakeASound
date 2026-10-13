@@ -7,6 +7,8 @@
 //   ok        prints plugin-like noise around a valid result line, exits 0
 //   worker    the real worker, runScanWorkerIfRequested over a stub format
 //             (needs --makeasound-scan before the target)
+//   formats   the real worker over this platform's real formats, for the
+//             fixture plugins (needs --makeasound-scan before the target)
 //   old       answers with Tamber Plug's TAMBERPLUG_SCAN: marker, exits 0
 //   garbage   prints junk and no result line, exits 0
 //   crash     prints to stderr and exits 3
@@ -53,10 +55,14 @@ int main(int argc, char** argv)
     if (!delay.empty())
         std::this_thread::sleep_for(std::chrono::milliseconds(std::stoi(delay)));
 
-    if (mode == "worker")
+    if (mode == "worker" || mode == "formats")
     {
         auto formats = FormatManager();
-        formats.add(EA::makeOwned<StubFileFormat>());
+
+        if (mode == "formats")
+            formats.addDefaultFormats();
+        else
+            formats.add(EA::makeOwned<StubFileFormat>());
 
         std::printf("[StubPlugin] chatter before the answer");
 

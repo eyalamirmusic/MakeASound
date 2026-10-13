@@ -13,3 +13,4 @@
 #include "Scan/ScanWorker.h"
 #include "Scan/ScanCoordinator.h"
 #include "Scan/ScanSession.h"
+#include "VST3/VST3Format.h"

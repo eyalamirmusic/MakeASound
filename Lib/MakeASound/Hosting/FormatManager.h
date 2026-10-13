@@ -32,6 +32,9 @@ struct TargetScan
 // passes the manager, so what a binary can host is decided by what it adds here
 // rather than by which object files the linker kept.
 //
+//     auto formats = FormatManager();
+//     formats.addDefaultFormats();   // VST3, plus Audio Units on macOS
+//
 // Message thread. The manager must outlive whatever it is handed to.
 class FormatManager
 {
@@ -45,6 +48,10 @@ public:
     // Adds a format. One per PluginFormat: a second one for the same format
     // replaces the first, keeping the first one's place in the claiming order.
     void add(OwningPointer<HostFormat> formatToAdd);
+
+    // Every format this platform hosts, in claiming order. Defined per platform
+    // (DefaultFormats-<os>.cpp).
+    void addDefaultFormats();
 
     int size() const noexcept;
     const HostFormat& operator[](int index) const noexcept;
