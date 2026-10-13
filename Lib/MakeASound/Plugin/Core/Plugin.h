@@ -114,6 +114,12 @@ public:
     // out bus of the same index, and clears every other output. Audio thread.
     virtual void processBypassed(ProcessContext& context) noexcept;
 
+    // Whether PluginWrapper adds its bypass when the plugin declares none. A
+    // plugin with no use for one says false: a hosted plugin, whose parameters
+    // are the foreign plugin's own, or anything that must not gain a parameter
+    // the host would show. Asked once, when the wrapper is built.
+    virtual bool wantsHostBypass() const { return true; }
+
     // True once each time latencySamples() moved on its own since the last ask.
     // Message thread.
     virtual bool takeLatencyChanged() noexcept { return false; }

@@ -47,7 +47,7 @@ PluginWrapper::~PluginWrapper()
 bool PluginWrapper::addsBypass(const Plugin& plugin)
 {
     return plugin.parameters().bypassIndex() < 0
-           && !plugin.getBusLayout().inputs.empty();
+           && !plugin.getBusLayout().inputs.empty() && plugin.wantsHostBypass();
 }
 
 // Decided once, on the declared layout, so the parameter list a host reads at
@@ -56,7 +56,8 @@ int PluginWrapper::addBypassAndCount(Plugin& plugin,
                                      const BusLayout& declared,
                                      ParameterIdentity identity)
 {
-    if (plugin.parameters().bypassIndex() < 0 && !declared.inputs.empty())
+    if (plugin.parameters().bypassIndex() < 0 && !declared.inputs.empty()
+        && plugin.wantsHostBypass())
         plugin.addHostBypass();
 
     // After the bypass, so it takes its scheme's id too.

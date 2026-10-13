@@ -967,6 +967,26 @@ auto tNoAddedBypass = test("Plugin/aPluginWithABypassOrNoInputGetsNoneAdded") = 
     check(!PluginWrapper::addsBypass(synth.plugin()));
 };
 
+// An effect that declines the added bypass.
+struct NoHostBypassEffect : LatentEffect
+{
+    bool wantsHostBypass() const override { return false; }
+};
+
+auto tBypassOptOut = test("Plugin/anEffectCanDeclineTheAddedBypass") = []
+{
+    auto fresh = NoHostBypassEffect {};
+    check(!PluginWrapper::addsBypass(fresh));
+
+    auto wrapper = makeWrapper<NoHostBypassEffect>();
+    const auto& list = wrapper.plugin().parameters();
+
+    check(list.size() == 1);
+    check(list.bypassIndex() < 0);
+    check(list.indexOf("__bypass") < 0);
+    check(!contains(wrapper.saveState(StateContext::Session), "__bypass"));
+};
+
 auto tBypassDelayed = test("Plugin/theAddedBypassDelaysTheInputByTheLatency") = []
 {
     auto wrapper = makeWrapper<LatentEffect>();
