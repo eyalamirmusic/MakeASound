@@ -698,6 +698,26 @@ auto tPluginMoves = test("AUv3/aValueThePluginMovesReachesTheTree") = []
     check(near(gain.getValue(), -4.f));
 };
 
+auto tBulkValues = test("AUv3/manyValuesChangedReachTheTreeAtOnce") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& params = host.plugin().params;
+    auto* gain = host.parameterFor(params.gain);
+    auto* mode = host.parameterFor(params.mode);
+
+    // No tick in between: the call itself syncs the tree.
+    params.gain.setValue(-14.f);
+    params.mode.setValue(2.f);
+    host.plugin().notifyHostParameterValuesChanged();
+    check(near(gain.value, -14.f));
+    check(mode.value == 2.f);
+
+    // An AUAudioUnit has no dirty signal; marking the state changed is harmless.
+    host.plugin().state.preset = "Edited";
+    host.plugin().state.markChanged();
+    check(host.render(maxBlock) == noErr);
+};
+
 auto tEditGate = test("AUv3/aHeldParameterDropsTheTreeWrite") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");
@@ -790,7 +810,10 @@ auto tStateForms = test("AUv3/fullStateIsAPresetAndTheDocumentsASession") = []
     check([preset[@"type"] unsignedIntValue] == expected.componentType);
     check([preset[@"subtype"] unsignedIntValue] == FourCC("Gain").toUint32());
     check([preset[@"manufacturer"] unsignedIntValue] == FourCC("MaSo").toUint32());
-    check([preset[@"version"] unsignedIntValue] == 0x010000);
+    // The saved-state format's version, which the AudioUnitSDK reads only at 0.
+    check([preset[@"version"] isKindOfClass:[NSNumber class]]);
+    check([preset[@"version"] intValue] == 0);
+    check([source.unit.fullStateForDocument[@"version"] intValue] == 0);
     check([preset[@"MakeASoundState"] isKindOfClass:[NSData class]]);
 
     auto target = UnitHost<GainPlugin>("Gain");
@@ -1131,5 +1154,35 @@ auto tBypassHeld = test("AUv3/aHeldBypassDropsTheWriteAndMirrorsItBack") = []
 
     host.unit.shouldBypassEffect = YES;
     check(bypass.isOn());
+};
+
+// An effect with no bypass parameter answers shouldBypassEffect through the one
+// the wrapper adds, and the host's bypass reaches the audio.
+auto tAddedBypass = test("AUv3/theWrappersBypassAnswersShouldBypassEffect") = []
+{
+    auto standIn = ScopedStandIn<UnbypassedGainPlugin>(Module::gainStandIn);
+    auto host = UnitHost<UnbypassedGainPlugin>("Gain");
+    const auto& list = host.plugin().parameters();
+    auto index = list.bypassIndex();
+
+    check(index >= 0 && list.entry(index).id == "__bypass");
+    check(!host.unit.shouldBypassEffect);
+
+    host.plugin().params.gain.setValue(6.f);
+    host.inputs[0].fill(0.5f);
+
+    host.unit.shouldBypassEffect = YES;
+    check(host.unit.shouldBypassEffect);
+    check(list[index].getValue() == 1.f);
+
+    // Past the 480-sample crossfade.
+    for (auto b = 0; b < 10; ++b)
+        host.render(blockSize);
+
+    check(host.renderedSample(0, 0) == 0.5f);
+    check(host.renderedSample(1, blockSize - 1) == 0.5f);
+
+    host.unit.shouldBypassEffect = NO;
+    check(list[index].getValue() == 0.f);
 };
 } // namespace

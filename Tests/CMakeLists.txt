@@ -134,6 +134,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
                     AUv3ViewTests.mm ${auv3_view_host})
         endif ()
 
+        # The AUv3's saved state restored by the v2 component, where both exist.
+        if (TARGET MakeASoundAU)
+            list(APPEND MAKEASOUND_TEST_AUV3_SOURCES AUStateInteropTests.mm)
+        endif ()
+
         list(APPEND MAKEASOUND_TEST_SOURCES ${MAKEASOUND_TEST_AUV3_SOURCES})
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUv3 ${auv3_view_libraries})
     endif ()

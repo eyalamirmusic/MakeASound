@@ -92,6 +92,9 @@ public:
     void endParameterEdit(int index) noexcept override;
     void latencyChanged() noexcept override;
     void parameterInfoChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+
+    // stateChanged() keeps the default: an AUAudioUnit has no dirty signal.
 
 private:
     struct Render;
@@ -151,9 +154,6 @@ private:
 
     __weak AUAudioUnit* unit = nil;
     AudioComponentDescription description {};
-
-    // The plugin's version as AudioComponents counts it, saved in its state.
-    UInt32 version = 0;
 
     PluginWrapper pluginWrapper;
 

@@ -6,6 +6,7 @@ find_package(eacp REQUIRED)
 # MakeASoundPlugin: the SDK-free plugin core; format adapters add their SDK on top.
 # eacp-core backs its message-thread marshalling, kept out of every public header.
 add_library(MakeASoundPlugin STATIC
+        Core/BypassDelay.cpp
         Core/Description.cpp
         Core/Editor.cpp
         Core/Plugin.cpp

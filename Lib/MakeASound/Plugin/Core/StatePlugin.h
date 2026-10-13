@@ -35,12 +35,14 @@ public:
 
     void loadState(std::string_view data, StateContext context) override
     {
+        auto scope = LoadScope {loading};
         state.deserialize(data, context);
     }
 
     void loadStateExceptParameters(std::string_view data,
                                    StateContext context) override
     {
+        auto scope = LoadScope {loading};
         state.deserializeExceptParams(data, context);
     }
 
@@ -63,9 +65,38 @@ public:
     ParamsType& params = state.params;
 
 private:
+    // A load the host asked for marks nothing modified: the host knows.
+    struct LoadScope
+    {
+        explicit LoadScope(bool& flagToUse)
+            : flag(flagToUse)
+            , previous(flagToUse)
+        {
+            flag = true;
+        }
+
+        ~LoadScope() { flag = previous; }
+
+        LoadScope(const LoadScope&) = delete;
+        LoadScope& operator=(const LoadScope&) = delete;
+
+        bool& flag;
+        bool previous;
+    };
+
+    void stateMarkedChanged()
+    {
+        state.publish();
+
+        if (!loading)
+            this->notifyHostStateChanged();
+    }
+
+    bool loading = false;
+
     // Last, so it binds to a constructed state and lets go before it.
     EA::Listener republish {state.stateChanged(),
-                            [this] { state.publish(); },
+                            [this] { stateMarkedChanged(); },
                             EA::Listener::Modes::TriggerOnEvent};
 };
 

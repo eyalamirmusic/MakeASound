@@ -171,7 +171,9 @@ bool describeEffect(AAX_ICollection& collection,
     addNames(*effect, plugin.name);
     checked = effect->AddCategory(categoryFor(plugin));
 
-    auto canBypass = instance->parameters().bypassIndex() >= 0;
+    // The adapter's wrapper adds a bypass to an effect that has none.
+    auto canBypass = instance->parameters().bypassIndex() >= 0
+                     || PluginWrapper::addsBypass(*instance);
 
     for (auto& [index, layout]: accepted)
         describeComponent(*effect, module, plugin, layout, index, canBypass);

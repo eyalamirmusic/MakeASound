@@ -25,6 +25,15 @@ public:
 
     // A parameter's name, range or text changed: the host should re-read them.
     virtual void parameterInfoChanged() noexcept {}
+
+    // Many parameter values moved at once outside any gesture (a preset picked in
+    // the plugin's own browser, a randomize): the host should re-read them all.
+    // A single value the plugin moves reaches the host without this.
+    virtual void parameterValuesChanged() noexcept {}
+
+    // Something saved besides the parameters changed: the host should mark its
+    // document as modified. Never raised for a load the host asked for.
+    virtual void stateChanged() noexcept {}
 };
 
 } // namespace MakeASound

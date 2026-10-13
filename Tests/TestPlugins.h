@@ -164,6 +164,67 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
 using GainPlugin = GainPluginOf<GainParams>;
 using NewerGainPlugin = GainPluginOf<NewerGainParams>;
 
+// The gain effect with no bypass parameter, which PluginWrapper gives one of its
+// own; a format suite stands it in under the gain's codes.
+struct UnbypassedGainParams : ParameterGroup
+{
+    UnbypassedGainParams() { add(gain, filter, mode, width); }
+
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
+    FilterParams filter;
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0};
+    FloatParam width {"Width", 0.f, 1.f, 0.5f, {.sessionOnly = true}};
+};
+
+using UnbypassedGainPlugin = GainPluginOf<UnbypassedGainParams>;
+
+struct LatentParams : ParameterGroup
+{
+    LatentParams() { add(gain); }
+
+    FloatParam gain {"Gain", 0.f, 4.f, 2.f};
+};
+
+// An effect with no bypass parameter and everything the added bypass must
+// handle: a settable latency, a second output bus and a MIDI bus each way. Its
+// main output is the input times `gain`, its aux output 7, and it sends no MIDI.
+struct LatentEffect : StatePlugin<State<LatentParams>>
+{
+    std::string_view name() const override { return "Latent"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+        layout.outputs.add({"Aux", 2, false});
+        layout.midiInputs.add({"MIDI In"});
+        layout.midiOutputs.add({"MIDI Out"});
+        return layout;
+    }
+
+    int latencySamples() const noexcept override { return latency; }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        ++processed;
+        context.mainOutput().applyGain(params.gain.get());
+
+        for (auto bus = 1; bus < context.outputs.size(); ++bus)
+            context.outputs[bus].fill(7.f);
+    }
+
+    void processBypassed(ProcessContext& context) noexcept override
+    {
+        ++bypassed;
+        Plugin::processBypassed(context);
+    }
+
+    int latency = 0;
+    int processed = 0;
+    int bypassed = 0;
+};
+
 struct SynthParams : ParameterGroup
 {
     SynthParams() { add(level); }

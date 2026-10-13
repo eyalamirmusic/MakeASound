@@ -26,6 +26,16 @@ Adapter::Adapter(OwningPointer<Plugin> plugin)
 {
     this->plugin().setHostEditListener(this);
 
+    const auto& list = this->plugin().parameters();
+    lastPluginValue = std::make_unique<std::atomic<float>[]>(
+        static_cast<size_t>(std::max(0, list.size())));
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isHostExposed(i))
+            exposed.add(i);
+
+    takeAllAsBaseline();
+
     processContextRequirements.needTransportState()
         .needTempo()
         .needTimeSignature()
@@ -187,6 +197,10 @@ tresult PLUGIN_API Adapter::setState(IBStream* state)
     try
     {
         pluginWrapper.loadState(readAll(*state), stateContextOf(state));
+
+        // The host re-reads every value, so the next block sends none of them.
+        takeAllAsBaseline();
+        notifyHostParamValuesChanged();
         notifyHostIfLatencyChanged();
     }
     catch (...)
@@ -279,7 +293,7 @@ void Adapter::notifyHostIfLatencyChanged()
         return;
     }
 
-    plugin().takeLatencyChanged();
+    pluginWrapper.takeLatencyChanged();
 
     if (!componentHandler)
         return;
@@ -296,6 +310,48 @@ void Adapter::notifyHostIfLatencyChanged()
     } while (!lastReportedLatency.compare_exchange_weak(previous, reported));
 
     componentHandler->restartComponent(Vst::kLatencyChanged);
+}
+
+void Adapter::notifyHostParamValuesChanged()
+{
+    if (!isMessageThread())
+    {
+        callOnMessageThread([self = Steinberg::IPtr<Adapter>(this)]
+                            { self->notifyHostParamValuesChanged(); });
+        return;
+    }
+
+    if (componentHandler)
+        componentHandler->restartComponent(Vst::kParamValuesChanged);
+}
+
+void Adapter::markHostDirty()
+{
+    if (!isMessageThread())
+    {
+        callOnMessageThread([self = Steinberg::IPtr<Adapter>(this)]
+                            { self->markHostDirty(); });
+        return;
+    }
+
+    if (!componentHandler)
+        return;
+
+    if (auto handler =
+            Steinberg::FUnknownPtr<Vst::IComponentHandler2>(componentHandler))
+        handler->setDirty(true);
+}
+
+void Adapter::takeAsBaseline(int index) noexcept
+{
+    lastPluginValue[static_cast<size_t>(index)].store(
+        pluginWrapper.getNormalizedParameter(index), std::memory_order_relaxed);
+}
+
+void Adapter::takeAllAsBaseline() noexcept
+{
+    for (auto index: exposed)
+        takeAsBaseline(index);
 }
 
 tresult PLUGIN_API Adapter::process(Vst::ProcessData& data) noexcept
@@ -334,19 +390,52 @@ tresult PLUGIN_API Adapter::process(Vst::ProcessData& data) noexcept
 
     pluginWrapper.sortMidiInByOffset();
 
-    if (data.numSamples == 0)
-        return Steinberg::kResultOk;
+    if (data.numSamples > 0)
+    {
+        bindBuses(data);
+        pluginWrapper.process();
 
-    bindBuses(data);
-    pluginWrapper.process();
+        for (auto bus = 0; bus < data.numOutputs; ++bus)
+            data.outputs[bus].silenceFlags = 0;
 
-    for (auto bus = 0; bus < data.numOutputs; ++bus)
-        data.outputs[bus].silenceFlags = 0;
+        if (data.outputEvents != nullptr)
+            emitEvents(*data.outputEvents);
+    }
 
-    if (data.outputEvents != nullptr)
-        emitEvents(*data.outputEvents);
+    // A zero-sample flush carries them too, so a stopped host still hears them.
+    if (data.outputParameterChanges != nullptr)
+        emitParameterChanges(*data.outputParameterChanges);
 
     return Steinberg::kResultOk;
+}
+
+// One point at offset 0 per exposed parameter that moved since the host last
+// heard of it: a preset the plugin loaded itself, a randomize, a MIDI learn. A
+// held parameter is the editor's gesture, which performEdit already reports.
+void Adapter::emitParameterChanges(Vst::IParameterChanges& changes) noexcept
+{
+    const auto& list = plugin().parameters();
+
+    for (auto index: exposed)
+    {
+        auto value = pluginWrapper.getNormalizedParameter(index);
+        auto& last = lastPluginValue[static_cast<size_t>(index)];
+
+        if (value == last.load(std::memory_order_relaxed))
+            continue;
+
+        last.store(value, std::memory_order_relaxed);
+
+        if (pluginWrapper.isParameterHeld(index))
+            continue;
+
+        auto queueIndex = int32 {};
+        auto pointIndex = int32 {};
+
+        if (auto* queue =
+                changes.addParameterData(list.entry(index).hostId, queueIndex))
+            queue->addPoint(0, value, pointIndex);
+    }
 }
 
 void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
@@ -371,8 +460,14 @@ void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
             if (numPoints > 0
                 && queue->getPoint(numPoints - 1, offset, value)
                        == Steinberg::kResultOk)
+            {
                 pluginWrapper.setNormalizedParameter(index,
                                                      static_cast<float>(value));
+
+                // Not echoed back; a held parameter that dropped the write is
+                // the gesture's to report.
+                takeAsBaseline(index);
+            }
 
             continue;
         }
@@ -488,6 +583,7 @@ tresult PLUGIN_API Adapter::setParamNormalized(Vst::ParamID id,
     if (auto index = plugin().parameters().indexOfHostId(id); index >= 0)
     {
         pluginWrapper.setNormalizedParameter(index, static_cast<float>(value));
+        takeAsBaseline(index);
         notifyHostIfLatencyChanged();
         return Steinberg::kResultTrue;
     }
@@ -536,7 +632,10 @@ void Adapter::performParameterEdit(int index, float normalized) noexcept
     const auto& list = plugin().parameters();
 
     if (list.isHostExposed(index))
+    {
         performEdit(list.entry(index).hostId, normalized);
+        takeAsBaseline(index);
+    }
 
     notifyHostIfLatencyChanged();
 }
@@ -577,6 +676,18 @@ void Adapter::parameterInfoChanged() noexcept
 
     if (componentHandler)
         componentHandler->restartComponent(Vst::kParamTitlesChanged);
+}
+
+void Adapter::parameterValuesChanged() noexcept
+{
+    takeAllAsBaseline();
+    notifyHostParamValuesChanged();
+    notifyHostIfLatencyChanged();
+}
+
+void Adapter::stateChanged() noexcept
+{
+    markHostDirty();
 }
 
 tresult PLUGIN_API Adapter::queryInterface(const Steinberg::TUID _iid, void** obj)

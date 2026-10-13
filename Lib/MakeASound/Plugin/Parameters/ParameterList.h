@@ -57,6 +57,11 @@ public:
 
     explicit ParameterList(ParameterGroup& group);
 
+    // The bypass PluginWrapper adds for an effect that declares none: one more
+    // exposed entry, last, so no other index moves, under no group and with its
+    // own id's host id. A no-op when the list already has a bypass.
+    void addHostBypass(Parameter& param);
+
     int size() const noexcept { return entries.size(); }
     bool empty() const noexcept { return entries.empty(); }
 

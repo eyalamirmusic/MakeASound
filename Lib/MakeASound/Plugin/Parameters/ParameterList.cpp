@@ -20,6 +20,18 @@ ParameterList::ParameterList(ParameterGroup& group)
     findBypass();
 }
 
+void ParameterList::addHostBypass(Parameter& param)
+{
+    if (bypass >= 0)
+        return;
+
+    add(param, param.id(), param.name(), true, {});
+    indexHostIds();
+
+    bypass = entries.size() - 1;
+    entries[bypass].bypass = true;
+}
+
 void ParameterList::add(Parameter& param,
                         std::string_view id,
                         std::string_view displayName,

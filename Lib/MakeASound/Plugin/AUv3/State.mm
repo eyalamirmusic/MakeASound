@@ -7,6 +7,9 @@ namespace
 {
 NSString* const stateKey = @"MakeASoundState";
 
+// kAUPresetVersionKey's value: the ClassInfo format, which the SDK reads only at 0.
+constexpr auto savedStateVersion = 0;
+
 // A key the dictionary lacks says nothing against it; one that disagrees does.
 bool agrees(NSDictionary<NSString*, id>* state, NSString* key, OSType expected)
 {
@@ -21,14 +24,13 @@ bool agrees(NSDictionary<NSString*, id>* state, NSString* key, OSType expected)
 } // namespace
 
 NSDictionary<NSString*, id>* makeState(const AudioComponentDescription& description,
-                                       UInt32 version,
                                        std::string_view document)
 {
     return @{
         @"type" : @(description.componentType),
         @"subtype" : @(description.componentSubType),
         @"manufacturer" : @(description.componentManufacturer),
-        @"version" : @(version),
+        @"version" : @(savedStateVersion),
         stateKey : [NSData dataWithBytes:document.data() length:document.size()]
     };
 }

@@ -943,6 +943,150 @@ auto tInfoChanged = test("VST3/parameterInfoChangedRestartsTitles") = []
     check(host.handler.restartsWith(Vst::kParamTitlesChanged) == 1);
 };
 
+// One block of `numSamples` with nothing from the host, whose output changes the
+// cases read.
+void runQuietBlock(AdapterHost<GainPlugin>& host, int numSamples = blockSize)
+{
+    host.clearQueues();
+    host.fillBlock(numSamples);
+    host.run();
+}
+
+auto tPluginMoves = test("VST3/aPluginSideMoveLeavesAnOutputPoint") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto& params = host.plugin().params;
+    auto gainId = host.hostIdOf(params.gain);
+    auto modeId = host.hostIdOf(params.mode);
+
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    params.gain.setValue(-7.f);
+    runQuietBlock(host);
+
+    auto points = outputPoints(host.outputChanges, gainId);
+    check(points.size() == 1);
+    check(points[0].first == 0);
+    check(near(points[0].second, params.gain.getNormalized()));
+    check(host.outputChanges.getParameterCount() == 1);
+
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    // A zero-sample flush carries it too.
+    params.mode.setValue(1.f);
+    runQuietBlock(host, 0);
+    check(outputPoints(host.outputChanges, modeId).size() == 1);
+};
+
+auto tHostWritesNotEchoed = test("VST3/aHostWriteIsNotEchoedBack") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto gainId = host.hostIdOf(host.plugin().params.gain);
+
+    host.clearQueues();
+    host.addPoint(gainId, 0, 0.3);
+    host.fillBlock(blockSize);
+    host.run();
+    check(host.outputChanges.getParameterCount() == 0);
+
+    host.adapter->setParamNormalized(gainId, 0.6);
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    // A choice snaps the host's value; the snapped form is not sent back either.
+    auto modeId = host.hostIdOf(host.plugin().params.mode);
+    host.adapter->setParamNormalized(modeId, 0.4);
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+};
+
+auto tHeldNoOutput = test("VST3/aHeldParameterLeavesNoOutputPoint") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto& gain = host.plugin().params.gain;
+    auto& listener = *host.plugin().hostEditListener();
+
+    listener.beginParameterEdit(0);
+    gain.setValue(-20.f);
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    listener.performParameterEdit(0, gain.getNormalized());
+    gain.setValue(-25.f);
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    listener.performParameterEdit(0, gain.getNormalized());
+    listener.endParameterEdit(0);
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+};
+
+auto tBulkValues = test("VST3/manyValuesChangedRestartsParamValues") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    moveEveryParameter(host.plugin().params);
+    host.plugin().notifyHostParameterValuesChanged();
+
+    check(host.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+
+    // The host re-reads every value, so no block repeats them.
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+};
+
+auto tSetStateRestarts = test("VST3/setStateRestartsParamValues") = []
+{
+    auto source = AdapterHost<GainPlugin> {};
+    moveEveryParameter(source.plugin().params);
+
+    auto stream = Steinberg::MemoryStream {};
+    source.adapter->getState(&stream);
+    rewind(stream);
+
+    auto target = AdapterHost<GainPlugin> {};
+    check(target.adapter->setState(&stream) == Steinberg::kResultOk);
+    check(target.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+
+    runQuietBlock(target);
+    check(target.outputChanges.getParameterCount() == 0);
+
+    // From a worker the restart is marshalled to the message thread.
+    rewind(stream);
+    auto loader = std::thread([&] { target.adapter->setState(&stream); });
+    loader.join();
+
+    check(pumpUntil(
+        [&] { return target.handler.restartsWith(Vst::kParamValuesChanged) == 2; }));
+};
+
+auto tDirty = test("VST3/markChangedSetsTheHostDirty") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+
+    host.plugin().state.preset = "Edited";
+    host.plugin().state.markChanged();
+    check(host.handler.dirtyCalls == 1);
+
+    // A parameter alone is the host's to notice, and a load the host's own doing.
+    host.plugin().params.gain.setValue(-3.f);
+    check(host.handler.dirtyCalls == 1);
+
+    auto other = AdapterHost<GainPlugin> {};
+    other.plugin().state.preset = "Other";
+    other.plugin().state.markChanged();
+
+    auto stream = Steinberg::MemoryStream {};
+    other.adapter->getState(&stream);
+    rewind(stream);
+    host.adapter->setState(&stream);
+
+    check(pumpUntil([&] { return host.plugin().state.preset == "Other"; }));
+    check(host.handler.dirtyCalls == 1);
+};
+
 #if MAKEASOUND_VST3_HAS_VIEW
 auto tView = test("VST3/theEditorViewIsTheGenericEditor") = []
 {
@@ -1166,4 +1310,101 @@ auto tHost = test("VST3/theViewIsTheEditorsHostForItsLifetime") = []
     check(cleared);
 };
 #endif
+
+// An effect with no bypass parameter: the wrapper's is the one kIsBypass entry,
+// and the host's bypass reaches it.
+auto tAddedBypass = test("VST3/theWrappersBypassIsTheHostsBypass") = []
+{
+    auto host = AdapterHost<UnbypassedGainPlugin> {};
+    auto& adapter = *host.adapter;
+    auto bypasses = 0;
+    auto bypassId = Vst::ParamID {};
+
+    for (auto i = 0; i < adapter.getParameterCount(); ++i)
+    {
+        auto info = Vst::ParameterInfo {};
+        adapter.getParameterInfo(i, info);
+
+        if ((info.flags & Vst::ParameterInfo::kIsBypass) != 0)
+        {
+            ++bypasses;
+            bypassId = info.id;
+        }
+    }
+
+    check(bypasses == 1);
+    check(bypassId == MakeASound::hostIdFor("__bypass"));
+
+    host.plugin().params.gain.setValue(6.f);
+
+    for (auto& channel: host.inputs[0].storage)
+        std::fill(channel.begin(), channel.end(), 0.5f);
+
+    host.addPoint(bypassId, 0, 1.0);
+
+    // Past the 480-sample crossfade.
+    for (auto b = 0; b < 10; ++b)
+    {
+        host.fillBlock(blockSize);
+        host.run();
+        host.clearQueues();
+    }
+
+    check(adapter.getParamNormalized(bypassId) == 1.0);
+
+    for (auto& channel: host.outputs[0].storage)
+        for (auto s = 0; s < blockSize; ++s)
+            check(channel[static_cast<size_t>(s)] == 0.5f);
+};
+
+// The latency follows a parameter: once the host's write has run the adapter's
+// latency check, the bypassed output lines up with the new latency, with no
+// prepare in between.
+auto tAddedBypassLatency =
+    test("VST3/theWrappersBypassFollowsALatencyParameter") = []
+{
+    auto host = AdapterHost<LatencyPlugin> {};
+    auto& adapter = *host.adapter;
+    const auto& list = adapter.plugin().parameters();
+    auto bypassId = list.entry(list.bypassIndex()).hostId;
+    auto latencyId = host.hostIdOf(host.plugin().params.latency);
+
+    check(adapter.getLatencySamples() == 0);
+    adapter.setParamNormalized(bypassId, 1.0);
+
+    auto& input = host.inputs[0].storage[0];
+    auto& output = host.outputs[0].storage[0];
+    auto heard = std::vector<float> {};
+
+    auto runBlock = [&](int index)
+    {
+        for (auto s = 0; s < blockSize; ++s)
+            input[static_cast<size_t>(s)] =
+                static_cast<float>(1 + index * blockSize + s);
+
+        host.fillBlock(blockSize);
+        host.run();
+        heard.insert(heard.end(), output.begin(), output.begin() + blockSize);
+    };
+
+    // Past the crossfade into bypass, at no latency.
+    for (auto b = 0; b < 10; ++b)
+        runBlock(b);
+
+    check(heard.back() == static_cast<float>(10 * blockSize));
+
+    adapter.setParamNormalized(latencyId, 0.2);
+    check(adapter.getLatencySamples() == 200);
+    check(host.handler.restartsWith(Vst::kLatencyChanged) == 1);
+
+    heard.clear();
+
+    for (auto b = 0; b < 6; ++b)
+        runBlock(10 + b);
+
+    auto first = 1 + 10 * blockSize;
+
+    for (auto k = 200; k < static_cast<int>(heard.size()); ++k)
+        check(heard[static_cast<size_t>(k)] == static_cast<float>(first + k - 200));
+};
 } // namespace

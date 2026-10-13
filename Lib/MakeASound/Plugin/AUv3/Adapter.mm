@@ -134,9 +134,7 @@ OwningPointer<Adapter> Adapter::create(AUAudioUnit* unit,
         return {};
     }
 
-    auto* adapter = new Adapter(unit, description, std::move(created));
-    adapter->version = AU::versionNumber(plugin->version);
-    return adapter;
+    return new Adapter(unit, description, std::move(created));
 }
 
 Adapter::Adapter(AUAudioUnit* unitToUse,
@@ -833,7 +831,7 @@ void Adapter::notifyKeyChanged(NSString* key) const
 void Adapter::notifyHostIfLatencyChanged()
 {
     if (isMessageThread())
-        plugin().takeLatencyChanged();
+        pluginWrapper.takeLatencyChanged();
 
     auto reported = std::max(0, plugin().latencySamples());
     auto previous = lastReportedLatency.load();
@@ -880,7 +878,7 @@ NSDictionary<NSString*, id>* Adapter::fullState(StateContext context)
 {
     try
     {
-        return makeState(description, version, pluginWrapper.saveState(context));
+        return makeState(description, pluginWrapper.saveState(context));
     }
     catch (...)
     {
@@ -954,6 +952,17 @@ void Adapter::endParameterEdit(int index) noexcept
 
 void Adapter::latencyChanged() noexcept
 {
+    notifyHostIfLatencyChanged();
+}
+
+// The tree hears of each value that moved now rather than at the next tick.
+void Adapter::parameterValuesChanged() noexcept
+{
+    syncTreeFromPlugin();
+
+    if (plugin().parameters().bypassIndex() >= 0)
+        notifyKeyChanged(@"shouldBypassEffect");
+
     notifyHostIfLatencyChanged();
 }
 

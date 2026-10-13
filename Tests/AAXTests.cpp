@@ -364,9 +364,10 @@ auto tParamInfo = test("AAX/onlyExposedParametersWithTheirSteps") = []
     auto host = AdapterHost<MixedPlugin>("Gain");
     const auto& params = host.plugin().params;
 
+    // Shown and steps, and the bypass the wrapper adds to an effect with none.
     auto count = int32_t {};
     host.adapter->GetNumberOfParameters(&count);
-    check(count == 2);
+    check(count == 3);
 
     auto steps = int32_t {};
     auto type = AAX_EParameterType {};
@@ -785,5 +786,86 @@ auto tMirror = test("AAX/aValueThePluginMovesReachesTheHostOnTheTimer") = []
     host.hostWrites(mode, 0.4);
     host.adapter->TimerWakeup();
     check(near(host.hostValue(mode), 0.4));
+};
+
+auto tBulkValues = test("AAX/manyValuesChangedMirrorsEveryValueAtOnce") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    auto& params = host.plugin().params;
+
+    // Even one the host wrote and the plugin snapped: the plugin says all moved.
+    host.hostWrites(params.mode, 0.4);
+    moveEveryParameter(params);
+    params.mode.setValue(1.f);
+    host.plugin().notifyHostParameterValuesChanged();
+
+    check(near(host.hostValue(params.gain), params.gain.getNormalized()));
+    check(near(host.hostValue(params.filter.cutoff),
+               params.filter.cutoff.getNormalized()));
+    check(near(host.hostValue(params.mode), 0.5));
+};
+
+int32_t numberOfChanges(AdapterHost<GainPlugin>& host)
+{
+    auto count = int32_t {-1};
+    check(host.adapter->GetNumberOfChanges(&count) == AAX_SUCCESS);
+    return count;
+}
+
+auto tStateChanges = test("AAX/markChangedCountsAsAChangeToTheSession") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    auto before = numberOfChanges(host);
+
+    host.plugin().state.preset = "Edited";
+    host.plugin().state.markChanged();
+    check(numberOfChanges(host) == before + 1);
+
+    host.plugin().state.markChanged();
+    check(numberOfChanges(host) == before + 2);
+
+    // A chunk the host loads is not a change of the plugin's, and with the
+    // parameters as they are it moves no parameter either.
+    auto source = AdapterHost<GainPlugin>("Gain");
+    source.plugin().state.preset = "Other";
+    source.plugin().state.markChanged();
+    pumpUntil([&] { return source.plugin().isStateSnapshotCurrent(); });
+    auto chunk = saveChunk(source);
+
+    check(host.adapter->SetChunk(Format::chunkId, &chunk.get()) == AAX_SUCCESS);
+    check(pumpUntil([&] { return host.plugin().state.preset == "Other"; }));
+    check(numberOfChanges(host) == before + 2);
+};
+
+// An effect with no bypass parameter: the description says it can bypass, the
+// wrapper's bypass is the master bypass, and the host's write reaches the audio.
+auto tAddedBypass = test("AAX/theWrappersBypassIsTheMasterBypass") = []
+{
+    auto standIn = ScopedStandIn<UnbypassedGainPlugin>(Module::gainStandIn);
+    auto collection = describeTestModule();
+
+    for (auto* component: collection.effect("com.makeasound.tests.Gain")->components)
+        check(component->property(AAX_eProperty_CanBypass) != 0);
+
+    auto host = AdapterHost<UnbypassedGainPlugin>("Gain");
+    const auto& list = host.plugin().parameters();
+    auto& bypass = list[list.bypassIndex()];
+    check(list.entry(list.bypassIndex()).id == "__bypass");
+
+    auto id = AAX_CString {};
+    check(host.adapter->GetMasterBypassParameter(&id) == AAX_SUCCESS);
+    check(id.StdString() == std::string(host.idOf(bypass).data()));
+
+    host.plugin().params.gain.setValue(6.f);
+    host.fillInputs(0.5f);
+    check(host.hostWrites(bypass, 1.0) == AAX_SUCCESS);
+    check(bypass.getValue() == 1.f);
+
+    // Past the 480-sample crossfade.
+    for (auto b = 0; b < 10; ++b)
+        host.render(blockSize);
+
+    check(host.output(0, 0) == 0.5f);
+    check(host.output(1, blockSize - 1) == 0.5f);
 };
 } // namespace

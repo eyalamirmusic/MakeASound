@@ -63,6 +63,10 @@ public:
     AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* chunk,
                                   AAX_CBoolean* isEqual) const override;
 
+    // The base's parameter changes plus every stateChanged(), so Pro Tools marks
+    // the session modified for state that is not a parameter.
+    AAX_Result GetNumberOfChanges(int32_t* numChanges) const override;
+
     // Message thread: the latency and the values the plugin moved on its own.
     AAX_Result TimerWakeup() override;
 
@@ -74,6 +78,8 @@ public:
     void performParameterEdit(int index, float normalized) noexcept override;
     void endParameterEdit(int index) noexcept override;
     void latencyChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+    void stateChanged() noexcept override;
 
 private:
     AAX_Result createWrapper();
@@ -116,6 +122,9 @@ private:
 
     // What the host was last told.
     std::atomic<int> lastReportedLatency {-1};
+
+    // How many times the plugin marked its non-parameter state changed.
+    std::atomic<int32_t> stateChanges {0};
 };
 
 } // namespace MakeASound::AAX

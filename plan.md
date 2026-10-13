@@ -104,10 +104,12 @@ state paths found five correctness gaps, three choices that break saved automati
 if changed after a plugin ships, a set of cheap adapter features, some later work,
 and what a JUCE plugin ported here would need to keep its users' sessions. JUCE
 paths below are relative to `~/Code/JUCE/modules/`, MakeASound paths to
-`Lib/MakeASound/Plugin/`; line numbers are approximate. The packages run in the
-order given: A fixes what is wrong today, B settles what cannot change once a
-plugin ships, C is cheap adapter work, D is later, and E, JUCE compatibility, is a
-separate opt-in that nothing else waits for. The proof is the format suites
+`Lib/MakeASound/Plugin/`; line numbers are approximate. A fixed what was wrong and
+is done; B settles what cannot change once a plugin ships, C is cheap adapter work,
+D is later, and E is JUCE compatibility. A JUCE plugin ported here keeps no
+sessions today, and E needs B's WP10.7 (ranges equal to JUCE's `NormalisableRange`,
+skew included) and WP10.6, so the recommended order is now B, then E, then C. The
+proof is the format suites
 covering each fix, pluginval 10, `auval -strict` and aaxval green on both examples,
 and a hand check that a host lane follows a plugin-side change in Logic, Ableton
 and Pro Tools.
@@ -120,65 +122,42 @@ load ordering; message-thread-only listeners; gesture-held parameters dropping
 host writes; VST3 edit groups and `kIsList`; the RT-safe AUv3 tree sync; collision
 asserts on host ids.
 
-### A. Correctness fixes
+### A. Correctness fixes (done)
 
-- **WP10.1, plugin-side parameter changes reach VST3 and AU v2 hosts.** A preset
-  loaded in the plugin's own browser, a randomize, a MIDI-learn or a dependent
-  parameter moves the plugin and tells no host. JUCE's `setValueNotifyingHost`
-  (`juce_audio_processors_headless/.../juce_AudioProcessorParameter.cpp:59-63`)
-  reaches VST3 through `CachedParamValues`, flushed off the message thread into
-  `data.outputParameterChanges` in the next process
-  (`juce_audio_plugin_client_VST3.cpp:574-585, 1472-1488, 3736-3747`), and AU
-  through `AUEventListenerNotify(kAudioUnitEvent_ParameterValueChange)`
-  (`juce_audio_plugin_client_AU_1.mm:1320-1338`). MakeASound's VST3 adapter sends
-  nothing (`VST3/Adapter.cpp` restarts only for latency and titles), and the AU
-  reconcile writes `Globals()` silently (`AU/Adapter.cpp` ~778-786), so
-  `AUParameterListener`s (Logic's generic view, automation) miss it. AAX
-  (`TimerWakeup`) and AUv3 (the 30 Hz tree sync) already do this.
-  - *VST3*: a per-parameter baseline like AU's; after `pluginWrapper.process()`
-    one point at offset 0 in `outputParameterChanges` for each exposed parameter
-    no gesture holds that moved.
-  - *AU v2*: the reconcile sets an atomic moved bit per slot, and a
-    message-thread timer posts `kAudioUnitEvent_ParameterValueChange` for each.
-    Never from the render thread, which JUCE does and which is not RT-safe.
-  - *Bulk*: `Plugin::notifyHostParameterValuesChanged()` (message thread) for a
-    change to many: VST3 `restartComponent(kParamValuesChanged)`, AU a value event
-    per exposed parameter, AAX mirror all, AUv3 `syncTreeFromPlugin`.
-- **WP10.2, VST3 `setState` sends `kParamValuesChanged`.** JUCE does after every
-  load (`VST3.cpp:1194-1226`); `VST3/Adapter.cpp` ~182-197 only checks the latency.
-  One call, marshalled to the message thread as the latency notification is.
-- **WP10.3, a dirty signal for state that is not a parameter.** JUCE's
-  `ChangeDetails::nonParameterStateChanged` becomes VST3
-  `IComponentHandler2::setDirty(true)` (`VST3.cpp:1555, 1614-1619`), AU
-  `PropertyChanged(kAudioUnitProperty_ClassInfo)` (`AU_1.mm:1991`) and AAX
-  `numSetDirtyCalls` added in `GetNumberOfChanges` (`AAX.cpp:990-993, 1285-1286`).
-  `State::markChanged()` only republishes. `HostEditListener` gains
-  `stateChanged() noexcept {}`, raised by `StatePlugin` on `markChanged` (message
-  thread) and mapped as above in each adapter; AUv3 has no counterpart and ignores
-  it.
-- **WP10.4, the AUv3 state's `version` is 0.** `AUv3/State.mm` writes `version` as
-  `versionNumber(PluginDescription::version)`, but in a ClassInfo dictionary
-  `version` (`kAUPresetVersionKey`) is the state format's version and the
-  AudioUnitSDK requires 0 (`AUBase.cpp:1818-1824`), so a session saved by our AUv3
-  (iPad Logic) fails in our own v2 component on a Mac with
-  `kAudioUnitErr_InvalidPropertyValue`. Write 0. The v2 `RestoreState` also
-  normalises a `version` of 1 to 0 before the base call, as JUCE does
-  (`AU_1.mm:863-923`), since that is what an `AUAudioUnit`'s own state carries.
-  Nothing has shipped, so no saved state carries the old value.
-- **WP10.5, a bypass for every effect.** AUv3 answers `shouldBypassEffect` NO and
-  ignores the write, and AAX has no master bypass, for a plugin with no bypass
-  parameter. JUCE synthesises one: VST3 `"byps"` (`VST3.cpp:678-713`), AAX Master
-  Bypass (`AAX.cpp:1724-1737`), and a default `processBlockBypassed` that clears
-  the extra outputs and asserts a latency of 0
-  (`juce_audio_processors_headless/.../juce_AudioProcessor.cpp:590-603`). When
-  `bypassIndex() < 0` and the layout has a main input, `PluginWrapper` registers a
-  `BoolParam` of its own (`.id = "__bypass"`, `.bypass = true`) as one more exposed
-  entry; while it is on, `process()` skips the plugin and runs `virtual void
-  Plugin::processBypassed(ProcessContext&) noexcept`, whose default copies the main
-  input to the main output through a `latencySamples()` delay (the vendored SDK's
-  `public.sdk/source/vst/vstbypassprocessor.h` is a reference) and passes MIDI
-  through. Every adapter already maps `Entry::bypass`, so the formats get it with
-  no change, latency-compensated, which JUCE's is not.
+Landed with its cases in the format and allocation suites, `Tests/AUStateInteropTests.mm`
+new; the full suite (AAX on), pluginval 10 and `auval -strict` green on both
+examples. What remains of it is under "Done when".
+
+- **WP10.1, plugin-side parameter changes reach every host.** VST3: a baseline per
+  exposed parameter, and after `process()` one point at the block's end in
+  `outputParameterChanges` for each that moved, never echoing a host write, a
+  value the plugin snapped or a held parameter. AU v2: the reconcile sets an atomic
+  moved bit per slot, and a 30 Hz main-queue dispatch timer posts
+  `kAudioUnitEvent_ParameterValueChange` for each, never from the render thread
+  (JUCE does, `AU_1.mm:1320-1338`). Bulk:
+  `Plugin::notifyHostParameterValuesChanged()` (`HostEditListener::
+  parameterValuesChanged`): VST3 `restartComponent(kParamValuesChanged)`, AU an
+  event per exposed parameter, AAX mirror all, AUv3 `syncTreeFromPlugin`.
+- **WP10.2, VST3 `setState`** re-baselines and sends `kParamValuesChanged` on the
+  message thread.
+- **WP10.3, a dirty signal.** `HostEditListener::stateChanged()`, raised through
+  `Plugin::notifyHostStateChanged()` by `StatePlugin` on `markChanged` and not
+  during a load: VST3 `IComponentHandler2::setDirty(true)`, AU
+  `PropertyChanged(kAudioUnitProperty_ClassInfo)`, AAX a count added in
+  `GetNumberOfChanges`; AUv3 ignores it.
+- **WP10.4, ClassInfo `version` 0.** The AUv3 writes 0, and the v2 `RestoreState`
+  maps 1 to 0 before the base call, so an AUv3 session loads in the v2 component.
+- **WP10.5, a bypass for every effect.** `PluginWrapper` adds a `BoolParam`
+  `__bypass` (host id `0x54D1526F`) for an effect with a main input and no bypass
+  of its own, decided once at construction from the declared layout. It is
+  session-only, saved as a top-level `"__bypass"` key the wrapper strips before
+  the plugin sees the document. While on, `process()` runs `virtual
+  Plugin::processBypassed`, whose default delays the main input by
+  `latencySamples()` through `Core/BypassDelay.{h,cpp}` and passes MIDI through;
+  the delay grows in `fitBypassDelay`, from `notifyHostLatencyChanged` and from
+  `PluginWrapper::takeLatencyChanged`, which every adapter's latency check now
+  calls. A toggle crossfades over 10 ms. `PluginWrapper::addsBypass` feeds AAX
+  `CanBypass`.
 
 ### B. Settle before anything ships
 
@@ -310,7 +289,9 @@ landed before one is.
 
 The goal: a JUCE plugin ported to MakeASound keeps its users' sessions, automation
 and presets. Today it keeps nothing in any format. This is a separate opt-in per
-module or plugin; nothing in A to D depends on it.
+module or plugin; nothing in A to D depends on it, but it depends on WP10.7 and
+WP10.6, so it follows B. Its details depend on the target plugin's `JucePlugin_*`
+settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 
 - **WP10.19, identity: parameter ids.** A per module or plugin `IdScheme
   {MakeASound, JUCE, JUCELegacyIndex}`, plus `juceStudioOneMask` (default true);
@@ -412,12 +393,17 @@ module or plugin; nothing in A to D depends on it.
 
 - A to C are in, each with its cases in the format suites (`VST3/`, `AU/`, `AUv3/`,
   `AAX/`, `Parameters/`, `State/`, `PluginUI/`, `Web/`) and the allocation suites
-  covering every new audio-thread path (the VST3 output points, the AU moved bits,
-  the wrapper's bypass delay).
-- pluginval 10, `auval -strict` and aaxval stay green on both examples.
-- By hand: a plugin-side change moves a host lane in Logic (AU), Ableton (VST3) and
-  Pro Tools (AAX); a session saved by the AUv3 on an iPad loads in the v2 component
-  on a Mac; Gain without its bypass parameter bypasses from each host's button.
+  covering every new audio-thread path. A is in, with them.
+- pluginval 10, `auval -strict` and aaxval stay green on both examples. After A:
+  aaxval not yet run on both examples.
+- By hand, open from A: a plugin-side change moves a host lane in Logic (AU),
+  Ableton (VST3) and Pro Tools (AAX); a session saved by the AUv3 on an iPad loads
+  in the v2 component on a Mac; an effect without its own bypass parameter
+  bypasses from each host's button.
+- Known limits of A: the AU v2 moved bits are set in the render, so a plugin-side
+  change is posted only while the host renders; a latency change detected off the
+  message thread leaves the bypass delay clamped at its old length until the next
+  message-thread latency check.
 - E, when it is taken up, has a JUCE build of one example and the MakeASound build
   of it opening each other's sessions in every format the JUCE build shipped.
 - CLAUDE.md, README and this plan describe it as it is, CLAUDE.md's AAX

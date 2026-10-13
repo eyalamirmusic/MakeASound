@@ -1,8 +1,10 @@
 #pragma once
 
 #include "../../Audio/Processor.h"
+#include "BypassDelay.h"
 #include "Editor.h"
 #include "HostEditListener.h"
+#include "../Parameters/BoolParam.h"
 #include "../Parameters/ParameterList.h"
 #include "../State/StateContext.h"
 
@@ -50,6 +52,14 @@ public:
     // How long the output rings after the input goes silent; 0 for none.
     virtual int tailSamples() const noexcept { return 0; }
 
+    // Runs in place of process() while the bypass PluginWrapper adds for an effect
+    // that declares none is on (a plugin with a bypass parameter of its own
+    // bypasses itself, and this is never called for it). The default puts the
+    // main input on the main output delayed by latencySamples(), so the bypassed
+    // signal lines up with the processed one, copies each MIDI in bus to the MIDI
+    // out bus of the same index, and clears every other output. Audio thread.
+    virtual void processBypassed(ProcessContext& context) noexcept;
+
     // True once each time latencySamples() moved on its own since the last ask.
     // Message thread.
     virtual bool takeLatencyChanged() noexcept { return false; }
@@ -92,12 +102,33 @@ public:
     void notifyHostLatencyChanged() noexcept;
     void notifyHostParameterInfoChanged() noexcept;
 
+    // Message thread. Many values moved at once: the host re-reads them all.
+    void notifyHostParameterValuesChanged() noexcept;
+
+    // Message thread. State besides the parameters changed; StatePlugin raises
+    // it on every markChanged() that is not a load.
+    void notifyHostStateChanged() noexcept;
+
 protected:
-    // Before the wrapper is built: it sizes itself to the list.
-    void setParameters(ParameterList list) { parameterList = std::move(list); }
+    // Before the wrapper is built: it sizes itself to the list. A list set again
+    // later gets the wrapper's bypass back unless it brings a bypass of its own.
+    void setParameters(ParameterList list);
 
 private:
+    friend class PluginWrapper;
+
+    // The wrapper's half of the added bypass: it decides, at construction, and
+    // sizes the delay in prepare(). Null when the plugin has a bypass of its own.
+    void addHostBypass();
+    BoolParam* activeHostBypass() const noexcept;
+
+    // Message thread: grows the added bypass's delay to latencySamples().
+    void fitBypassDelay() noexcept;
+
+    // Before the list, which points at it.
+    OwningPointer<BoolParam> hostBypass;
     ParameterList parameterList;
+    BypassDelay bypassDelay;
     PluginFormat pluginFormat = PluginFormat::Unknown;
     HostEditListener* editListener = nullptr;
 };

@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 
 namespace MakeASound::AU
 {
@@ -136,6 +137,12 @@ public:
     void endParameterEdit(int index) noexcept override;
     void latencyChanged() noexcept override;
     void parameterInfoChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+    void stateChanged() noexcept override;
+
+    // Message thread: a value event for each parameter the render thread found
+    // the plugin had moved on its own. The value timer runs it at 30 Hz.
+    void postMovedParameters() noexcept;
 
 private:
     Adapter(AudioComponentInstance instance, OwningPointer<Plugin> plugin);
@@ -145,6 +152,10 @@ private:
         void* key = nullptr;
         std::function<void()> close;
     };
+
+    // A main-queue timer calling postMovedParameters(), defined in Adapter.cpp
+    // so no dispatch type reaches an Objective-C++ TU including this header.
+    class ValueTimer;
 
     double outputSampleRate();
     BusLayout negotiatedLayout();
@@ -175,6 +186,11 @@ private:
     Vector<int> exposed;
     Vector<float> lastHostValue;
     Vector<float> lastPluginValue;
+
+    // Per slot, raised by the render thread when it wrote a value the plugin
+    // moved on its own into Globals(), taken by postMovedParameters().
+    std::unique_ptr<std::atomic<bool>[]> movedByPlugin;
+    std::unique_ptr<ValueTimer> valueTimer;
 
     // Handed to the host by SupportedNumChannels, so it outlives the call.
     Vector<AUChannelInfo> channelInfos;

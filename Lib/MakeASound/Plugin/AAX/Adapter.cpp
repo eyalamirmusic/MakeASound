@@ -351,7 +351,7 @@ void Adapter::notifyHostIfLatencyChanged() noexcept
     auto& plugin = pluginWrapper->plugin();
 
     if (isMessageThread())
-        plugin.takeLatencyChanged();
+        pluginWrapper->takeLatencyChanged();
 
     auto reported = std::max(0, plugin.latencySamples());
     auto previous = lastReportedLatency.load();
@@ -503,6 +503,37 @@ void Adapter::latencyChanged() noexcept
 {
     if (pluginWrapper)
         notifyHostIfLatencyChanged();
+}
+
+void Adapter::parameterValuesChanged() noexcept
+{
+    if (!pluginWrapper)
+        return;
+
+    try
+    {
+        mirrorParametersToHost(true);
+    }
+    catch (...)
+    {
+    }
+
+    notifyHostIfLatencyChanged();
+}
+
+void Adapter::stateChanged() noexcept
+{
+    stateChanges.fetch_add(1, std::memory_order_relaxed);
+}
+
+AAX_Result Adapter::GetNumberOfChanges(int32_t* numChanges) const
+{
+    auto result = AAX_CEffectParameters::GetNumberOfChanges(numChanges);
+
+    if (result == AAX_SUCCESS && numChanges != nullptr)
+        *numChanges += stateChanges.load(std::memory_order_relaxed);
+
+    return result;
 }
 
 void AAX_CALLBACK processProc(AlgorithmContext* const instancesBegin[],

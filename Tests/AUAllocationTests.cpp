@@ -149,4 +149,27 @@ auto tHeldRender = test("Allocations/auHeldParameterRenderIsOffTheHeap") = []
     checkHeldRenderIsOffTheHeap<GainPlugin>("Gain");
     checkHeldRenderIsOffTheHeap<SynthPlugin>("Echo");
 };
+
+// The plugin moves every parameter itself between renders, so each render writes
+// Globals() and raises a moved bit per parameter for the message thread.
+auto tPluginSideMoves = test("Allocations/auPluginSideMovesAreOffTheHeap") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto ids = exposedIds(host);
+    const auto& list = host.plugin().parameters();
+    auto count = 0;
+    auto status = OSStatus {noErr};
+
+    for (auto block = 0; block < 6; ++block)
+    {
+        for (auto id: ids)
+            list[list.indexOfHostId(id)].setNormalized(block % 2 == 0 ? 0.1f : 0.9f);
+
+        count += allocationsIn([&] { status |= host.render(maxBlock); });
+    }
+
+    check(status == noErr);
+    check(count == 0);
+    check(host.hostValue(ids[0]) == host.plugin().params.gain.getValue());
+};
 } // namespace

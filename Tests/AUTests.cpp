@@ -13,6 +13,7 @@
 
 #include <objc/runtime.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -1255,6 +1256,7 @@ struct PropertyLog
     int latency = 0;
     int parameterList = 0;
     int bypass = 0;
+    int classInfo = 0;
 };
 
 void recordProperty(void* refCon,
@@ -1271,6 +1273,8 @@ void recordProperty(void* refCon,
         ++log.parameterList;
     else if (id == kAudioUnitProperty_BypassEffect)
         ++log.bypass;
+    else if (id == kAudioUnitProperty_ClassInfo)
+        ++log.classInfo;
 }
 
 template <typename P>
@@ -1571,5 +1575,223 @@ auto tCocoaView = test("AU/theCocoaViewIsAnsweredOnlyWithAView") = []
                                &size)
           == noErr);
     check(adapter != nullptr);
+};
+
+void pumpFor(int milliseconds)
+{
+    eacp::Threads::runEventLoopUntil([] { return false; },
+                                     eacp::Time::MS {milliseconds});
+}
+
+// An event listener on the run loop for every value change of `ids`.
+template <typename P>
+AUEventListenerRef listenForValues(UnitHost<P>& host,
+                                   GestureLog& log,
+                                   const std::vector<AudioUnitParameterID>& ids)
+{
+    auto listener = AUEventListenerRef {};
+    check(AUEventListenerCreate(&recordGesture,
+                                &log,
+                                CFRunLoopGetCurrent(),
+                                kCFRunLoopDefaultMode,
+                                0.0,
+                                0.0,
+                                &listener)
+          == noErr);
+
+    for (auto id: ids)
+    {
+        auto event = AudioUnitEvent {};
+        event.mEventType = kAudioUnitEvent_ParameterValueChange;
+        event.mArgument.mParameter = {host.unit, id, kAudioUnitScope_Global, 0};
+        check(AUEventListenerAddEventType(listener, &log, &event) == noErr);
+    }
+
+    return listener;
+}
+
+auto tPluginMovePosted = test("AU/aPluginSideMoveReachesAnEventListener") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& gain = host.plugin().params.gain;
+    auto gainId = host.hostIdOf(gain);
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, {gainId});
+
+    // The render finds the move and raises a bit; the timer posts it.
+    gain.setValue(-7.f);
+    check(host.render(maxBlock) == noErr);
+    check(pumpUntil([&] { return !log.types.empty(); }));
+    check(log.types.size() == 1);
+    check(log.ids[0] == gainId);
+    check(near(log.values[0], -7.f));
+
+    // Once: a further render with nothing moved posts nothing.
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.size() == 1);
+
+    // A host write is the host's own news.
+    check(host.hostWrites(gainId, -2.f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.size() == 1);
+
+    AUListenerDispose(listener);
+};
+
+auto tHeldMoveNotPosted = test("AU/aHeldParameterIsLeftToItsGesture") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& gain = host.plugin().params.gain;
+    auto gainId = host.hostIdOf(gain);
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, {gainId});
+    auto& edits = *host.plugin().hostEditListener();
+
+    edits.beginParameterEdit(0);
+    gain.setValue(-18.f);
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.empty());
+    check(near(host.hostValue(gainId), -18.f));
+
+    edits.performParameterEdit(0, gain.getNormalized());
+    edits.endParameterEdit(0);
+    check(pumpUntil([&] { return !log.types.empty(); }));
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.size() == 1);
+
+    AUListenerDispose(listener);
+};
+
+auto tBulkPosted = test("AU/manyValuesChangedPostsAnEventPerParameter") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& params = host.plugin().params;
+    const auto& list = host.plugin().parameters();
+    auto ids = std::vector<AudioUnitParameterID> {};
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isHostExposed(i))
+            ids.push_back(list.entry(i).hostId);
+
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, ids);
+    auto properties = PropertyLog {};
+    listenForBypass(host, properties);
+
+    moveEveryParameter(params);
+    host.plugin().notifyHostParameterValuesChanged();
+
+    // Globals() holds them at once, before any render.
+    check(near(host.hostValue(host.hostIdOf(params.gain)), -12.f));
+    check(near(host.hostValue(host.hostIdOf(params.mode)), 2.f));
+    check(properties.bypass == 1);
+
+    check(pumpUntil([&] { return log.types.size() >= ids.size(); }));
+    check(
+        std::all_of(log.ids.begin(),
+                    log.ids.end(),
+                    [&](auto id)
+                    { return std::find(ids.begin(), ids.end(), id) != ids.end(); }));
+
+    // The next render takes them as the host's and posts nothing more.
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.size() == ids.size());
+    check(near(params.gain.getValue(), -12.f));
+
+    AUListenerDispose(listener);
+};
+
+auto tClassInfoPosted = test("AU/markChangedPostsClassInfo") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto log = PropertyLog {};
+    check(AudioUnitAddPropertyListener(
+              host.unit, kAudioUnitProperty_ClassInfo, &recordProperty, &log)
+          == noErr);
+
+    host.plugin().state.preset = "Edited";
+    host.plugin().state.markChanged();
+    check(log.classInfo == 1);
+
+    // A restore is the host's own doing.
+    auto source = UnitHost<GainPlugin>("Gain");
+    source.plugin().state.preset = "Other";
+    source.plugin().state.markChanged();
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    check(restoreClassInfo(host, info.value) == noErr);
+    check(pumpUntil([&] { return host.plugin().state.preset == "Other"; }));
+    check(log.classInfo == 1);
+};
+
+// ClassInfo with its `version` replaced, as an AUAudioUnit's own state has it.
+CFOwned<CFPropertyListRef> withVersion(CFPropertyListRef info, SInt32 version)
+{
+    auto* copy = CFDictionaryCreateMutableCopy(
+        kCFAllocatorDefault, 0, static_cast<CFDictionaryRef>(info));
+    auto number =
+        CFOwned<CFNumberRef>(CFNumberCreate(nullptr, kCFNumberSInt32Type, &version));
+    CFDictionarySetValue(copy, CFSTR("version"), number.value);
+    return CFOwned<CFPropertyListRef>(copy);
+}
+
+auto tVersionOne = test("AU/classInfoOfVersionOneRestoresAsZero") = []
+{
+    auto source = UnitHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+
+    auto one = withVersion(info.value, 1);
+    auto target = UnitHost<GainPlugin>("Gain");
+    check(restoreClassInfo(target, one.value) == noErr);
+    check(near(target.plugin().params.gain.getValue(), -12.f));
+    check(target.plugin().params.mode.getIndex() == 2);
+
+    // The caller's dictionary is left as it was.
+    auto* version = static_cast<CFNumberRef>(CFDictionaryGetValue(
+        static_cast<CFDictionaryRef>(one.value), CFSTR("version")));
+    auto value = SInt32 {};
+    CFNumberGetValue(version, kCFNumberSInt32Type, &value);
+    check(value == 1);
+
+    auto two = withVersion(info.value, 2);
+    auto other = UnitHost<GainPlugin>("Gain");
+    check(restoreClassInfo(other, two.value) == kAudioUnitErr_InvalidPropertyValue);
+    check(near(other.plugin().params.gain.getValue(), 0.f));
+};
+
+// An effect with no bypass parameter answers BypassEffect through the one the
+// wrapper adds, and the host's bypass reaches the audio.
+auto tAddedBypass = test("AU/theWrappersBypassAnswersBypassEffect") = []
+{
+    auto standIn = ScopedStandIn<UnbypassedGainPlugin>(Module::gainStandIn);
+    auto host = UnitHost<UnbypassedGainPlugin>("Gain");
+    const auto& list = host.plugin().parameters();
+    auto bypassId = list.entry(list.bypassIndex()).hostId;
+    auto size = UInt32 {};
+    auto writable = Boolean {};
+
+    check(bypassId == MakeASound::hostIdFor("__bypass"));
+    check(bypassInfo(host, size, writable) == noErr);
+    check(writable);
+    check(readBypass(host) == 0);
+
+    host.plugin().params.gain.setValue(6.f);
+    host.inputs[0].fill(0.5f);
+
+    check(writeBypass(host, 1) == noErr);
+    check(readBypass(host) == 1);
+    check(host.hostValue(bypassId) == 1.f);
+
+    // Past the 480-sample crossfade.
+    for (auto b = 0; b < 10; ++b)
+        check(host.render(blockSize) == noErr);
+
+    check(host.renderedSample(0, 0) == 0.5f);
+    check(host.renderedSample(1, blockSize - 1) == 0.5f);
 };
 } // namespace

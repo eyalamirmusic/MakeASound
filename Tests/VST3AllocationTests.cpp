@@ -165,6 +165,44 @@ auto tSetParamNormalized =
     check(instrument.adapter->getParamNormalized(shadow) == 0.75);
 };
 
+// The plugin moves every parameter itself between blocks (a preset of its own),
+// and each block leaves a point per parameter in the output changes.
+auto tPluginSideChanges =
+    test("Allocations/vst3PluginSideChangesLeaveOffTheHeap") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto ids = exposedIds(*host.adapter);
+    const auto& list = host.plugin().parameters();
+    auto& wrapper = host.adapter->wrapper();
+    auto count = 0;
+    auto block = 0;
+
+    auto moveEveryParameter = [&]
+    {
+        host.clearQueues();
+
+        for (auto id: ids)
+            wrapper.setNormalizedParameter(list.indexOfHostId(id),
+                                           block % 2 == 0 ? 0.1f : 0.9f);
+    };
+
+    moveEveryParameter();
+    host.fillBlock(maxBlock);
+    host.run();
+
+    for (auto size: {64, 17, 1, 0, 63})
+    {
+        ++block;
+        moveEveryParameter();
+        host.fillBlock(std::min(size, maxBlock));
+        count += allocationsIn([&] { host.run(); });
+        check(host.outputChanges.getParameterCount()
+              == static_cast<Steinberg::int32>(ids.size()));
+    }
+
+    check(count == 0);
+};
+
 auto tHeldPath = test("Allocations/vst3HeldParameterPathIsOffTheHeap") = []
 {
     auto host = AdapterHost<GainPlugin> {};

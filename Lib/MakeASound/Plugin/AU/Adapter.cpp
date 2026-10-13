@@ -6,8 +6,12 @@
 #include "State.h"
 #include "../Realtime/MessageThread.h"
 
+#include <dispatch/dispatch.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <mutex>
 #include <utility>
 
 namespace MakeASound::AU
@@ -73,7 +77,76 @@ bool hasCocoaView()
 
     return present;
 }
+
+constexpr auto valueTimerInterval = static_cast<int64_t>(NSEC_PER_SEC / 30);
 } // namespace
+
+class Adapter::ValueTimer
+{
+public:
+    explicit ValueTimer(Adapter& owner)
+        : source(dispatch_source_create(
+              DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue()))
+    {
+        if (source == nullptr)
+            return;
+
+        auto shared = std::make_unique<Target>();
+        shared->adapter = &owner;
+        target = shared.release();
+
+        // The cancel handler owns the target from here, so a handler already
+        // queued when the timer is cancelled still finds it.
+        dispatch_set_context(source, target);
+        dispatch_source_set_event_handler_f(source, &fire);
+        dispatch_source_set_cancel_handler_f(
+            source, [](void* context) { delete static_cast<Target*>(context); });
+        dispatch_source_set_timer(
+            source,
+            dispatch_time(DISPATCH_TIME_NOW, valueTimerInterval),
+            static_cast<uint64_t>(valueTimerInterval),
+            static_cast<uint64_t>(valueTimerInterval / 10));
+        dispatch_resume(source);
+    }
+
+    // The adapter is let go under the lock, so a handler running on the main
+    // queue while another thread disposes the unit finishes first.
+    ~ValueTimer()
+    {
+        if (source == nullptr)
+            return;
+
+        {
+            auto lock = std::lock_guard {target->lock};
+            target->adapter = nullptr;
+        }
+
+        dispatch_source_cancel(source);
+        dispatch_release(source);
+    }
+
+    ValueTimer(const ValueTimer&) = delete;
+    ValueTimer& operator=(const ValueTimer&) = delete;
+
+private:
+    struct Target
+    {
+        std::mutex lock;
+        Adapter* adapter = nullptr;
+    };
+
+    static void fire(void* context)
+    {
+        auto* shared = static_cast<Target*>(context);
+        auto lock = std::lock_guard {shared->lock};
+
+        if (shared->adapter != nullptr)
+            shared->adapter->postMovedParameters();
+    }
+
+    dispatch_source_t source = nullptr;
+    Target* target = nullptr;
+};
 
 Adapter::Adapter(AudioComponentInstance instance)
     : Adapter(instance, createPluginFor(instance))
@@ -95,6 +168,11 @@ Adapter::Adapter(AudioComponentInstance instance, OwningPointer<Plugin> plugin)
 
     lastHostValue.resize(exposed.size());
     lastPluginValue.resize(exposed.size());
+    movedByPlugin =
+        std::make_unique<std::atomic<bool>[]>(static_cast<size_t>(exposed.size()));
+
+    if (!exposed.empty())
+        valueTimer = std::make_unique<ValueTimer>(*this);
 
     const auto& layout = pluginWrapper.busLayout();
     auto counts = [](bool hasBus)
@@ -131,6 +209,8 @@ Adapter::Adapter(AudioComponentInstance instance, OwningPointer<Plugin> plugin)
 
 Adapter::~Adapter()
 {
+    valueTimer.reset();
+
     auto closers = std::move(viewClosers);
     viewClosers.clear();
 
@@ -672,7 +752,7 @@ Float64 Adapter::GetTailTime() noexcept
 void Adapter::notifyHostIfLatencyChanged()
 {
     if (isMessageThread())
-        plugin().takeLatencyChanged();
+        pluginWrapper.takeLatencyChanged();
 
     auto reported = std::max(0, plugin().latencySamples());
     auto previous = lastReportedLatency.load();
@@ -726,6 +806,12 @@ OSStatus Adapter::SaveState(CFPropertyListRef* outData)
 
 OSStatus Adapter::RestoreState(CFPropertyListRef plist)
 {
+    // An AUAudioUnit's own state (the AUv3's on an iPad) carries version 1.
+    auto normalized = copyWithStateVersionZero(plist);
+
+    if (normalized)
+        plist = normalized.get();
+
     auto result = MusicDeviceBase::RestoreState(plist);
 
     if (result != noErr)
@@ -780,8 +866,15 @@ void Adapter::reconcileParameters() noexcept
 
         if (hostMoved || value != lastPluginValue[slot])
         {
+            // Listeners hear of it from the message thread; a held parameter is
+            // the editor's gesture, which reports its own values.
             if (value != *host)
+            {
                 std::ignore = Globals()->SetParameterOrError(id, value);
+
+                if (!pluginWrapper.isParameterHeld(index))
+                    movedByPlugin[slot].store(true, std::memory_order_relaxed);
+            }
 
             lastHostValue[slot] = value;
         }
@@ -1106,6 +1199,51 @@ void Adapter::parameterInfoChanged() noexcept
 {
     PropertyChanged(kAudioUnitProperty_ParameterList, kAudioUnitScope_Global, 0);
     PropertyChanged(kAudioUnitProperty_ParameterInfo, kAudioUnitScope_Global, 0);
+}
+
+void Adapter::postMovedParameters() noexcept
+{
+    const auto bypass = plugin().parameters().bypassIndex();
+    auto any = false;
+
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+    {
+        if (!movedByPlugin[slot].exchange(false, std::memory_order_relaxed))
+            continue;
+
+        any = true;
+        notifyHost(exposed[slot], kAudioUnitEvent_ParameterValueChange);
+
+        if (exposed[slot] == bypass)
+            PropertyChanged(
+                kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
+    }
+
+    if (any)
+        notifyHostIfLatencyChanged();
+}
+
+// Every value into Globals() and an event for each, since the host cannot tell
+// which moved; the next render takes Globals() as a host write of the same values.
+void Adapter::parameterValuesChanged() noexcept
+{
+    mirrorParametersToHost();
+
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+    {
+        movedByPlugin[slot].store(false, std::memory_order_relaxed);
+        notifyHost(exposed[slot], kAudioUnitEvent_ParameterValueChange);
+    }
+
+    if (plugin().parameters().bypassIndex() >= 0)
+        PropertyChanged(kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
+
+    notifyHostIfLatencyChanged();
+}
+
+void Adapter::stateChanged() noexcept
+{
+    PropertyChanged(kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0);
 }
 
 } // namespace MakeASound::AU

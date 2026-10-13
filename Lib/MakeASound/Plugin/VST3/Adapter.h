@@ -8,6 +8,7 @@
 #include "pluginterfaces/vst/ivstevents.h"
 
 #include <atomic>
+#include <memory>
 
 namespace MakeASound::VST3
 {
@@ -70,6 +71,8 @@ public:
     void endParameterEditGroup() noexcept override;
     void latencyChanged() noexcept override;
     void parameterInfoChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+    void stateChanged() noexcept override;
 
     tresult PLUGIN_API queryInterface(const Steinberg::TUID iid,
                                       void** obj) override;
@@ -80,12 +83,25 @@ private:
     void registerParameters();
     void registerShadowParameters();
     void notifyHostIfLatencyChanged();
+    void notifyHostParamValuesChanged();
+    void markHostDirty();
     void applyParameterChanges(Vst::IParameterChanges& changes) noexcept;
     void collectEvents(Vst::IEventList& events) noexcept;
     void bindBuses(Vst::ProcessData& data) noexcept;
     void emitEvents(Vst::IEventList& events) noexcept;
+    void emitParameterChanges(Vst::IParameterChanges& changes) noexcept;
+
+    // The host already has the value: the next block sends no point for it.
+    void takeAsBaseline(int index) noexcept;
+    void takeAllAsBaseline() noexcept;
 
     PluginWrapper pluginWrapper;
+
+    // Host-exposed plugin indices in declaration order, and the normalized value
+    // each held when the host last heard of it, by plugin index.
+    Vector<int> exposed;
+    std::unique_ptr<std::atomic<float>[]> lastPluginValue;
+
     int numMidiInputs = 0;
     bool active = false;
 
