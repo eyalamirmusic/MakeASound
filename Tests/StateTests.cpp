@@ -221,6 +221,26 @@ auto tSessionOnly = test("State/aSessionOnlyParameterMovesOnlyInASession") = []
     check(loaded.params.hand.getIndex() == 2);
 };
 
+// The half PluginWrapper applies on the host's thread follows the same rule.
+auto tSessionOnlyParams =
+    test("State/loadParamsLeavesASessionOnlyParameterOutOfAPreset") = []
+{
+    auto saved = State<SynthParams> {};
+    saved.params.hand.setValue(2.f);
+    saved.params.gain.setValue(0.25f);
+    auto session = saved.serialize(StateContext::Session);
+
+    auto loaded = State<SynthParams> {};
+    loaded.params.hand.setValue(0.f);
+
+    loaded.loadParams(session, StateContext::Preset);
+    check(loaded.params.gain.getValue() == 0.25f);
+    check(loaded.params.hand.getIndex() == 0);
+
+    loaded.loadParams(session, StateContext::Session);
+    check(loaded.params.hand.getIndex() == 2);
+};
+
 auto tInsertedParameter =
     test("State/aParameterInsertedMidListKeepsOlderOnesWhole") = []
 {
@@ -429,6 +449,34 @@ auto tPresetSnapshot = test("State/thePresetSnapshotLeavesOutSessionParameters")
     check(contains(preset, R"("Gain":0.125)"));
     check(contains(session, R"("Hand":"Right")"));
     check(contains(session, R"("Gain":0.125)"));
+};
+
+// What a host saving off the message thread gets is what it would get on it.
+auto tSnapshotIsTheDocument =
+    test("State/aCurrentSnapshotIsTheMessageThreadDocument") = []
+{
+    struct SynthTone : State<SynthParams>
+    {
+        void reflect(Miro::Reflector& ref) override
+        {
+            State::reflect(ref);
+            ref["preset"](preset);
+        }
+
+        std::string preset = "Init";
+    };
+
+    auto state = SynthTone {};
+    state.preset = "Pad";
+    state.params.hand.setValue(2.f);
+    state.publish();
+    state.params.gain.setValue(0.125f);
+    state.params.osc1.level.setValue(0.3f);
+
+    for (auto context: {StateContext::Preset, StateContext::Session})
+        check(state.snapshotDocument(context)
+              == Miro::Json::print(
+                  Miro::Json::getParsedValue(state.serialize(context))));
 };
 
 auto tPublish = test("State/publishedSnapshotReadsParametersLive") = []
