@@ -179,6 +179,13 @@ if (MAKEASOUND_BUILD_PLUGIN)
     if (TARGET MakeASoundHosting)
         list(APPEND MAKEASOUND_TEST_SOURCES HostingCacheTests.cpp HostingScanTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting)
+
+        # A stand-in scan worker whose misbehaviour the command line picks
+        # (crash, abort, hang, garbage, the old marker), for the scan suites.
+        add_executable(FakeScanWorker FakeScanWorker.cpp)
+        target_link_libraries(FakeScanWorker PRIVATE MakeASoundHosting)
+        set_makeasound_target_settings(FakeScanWorker)
+        set(MAKEASOUND_TEST_FAKE_SCAN_WORKER ON)
     endif ()
 
     # pluginval and auval over the example bundles, run only when MAKEASOUND_PLUGINVAL
@@ -267,6 +274,12 @@ if (MAKEASOUND_TEST_AUV3_SOURCES)
     set_source_files_properties(${MAKEASOUND_TEST_AUV3_SOURCES} PROPERTIES
             COMPILE_OPTIONS -fobjc-arc
             COMPILE_DEFINITIONS MAKEASOUND_AUV3_CLASS_SUFFIX=MakeASoundTests)
+endif ()
+
+if (MAKEASOUND_TEST_FAKE_SCAN_WORKER)
+    add_dependencies(MakeASoundTests FakeScanWorker)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_FAKE_SCAN_WORKER="$<TARGET_FILE:FakeScanWorker>")
 endif ()
 
 if (MAKEASOUND_TEST_AU_VIEW)

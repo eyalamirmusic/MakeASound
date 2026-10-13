@@ -20,9 +20,13 @@ endif ()
 find_package(eacp REQUIRED)
 
 add_library(MakeASoundHosting STATIC
+        FormatManager.cpp
         PluginCache.cpp
         Scan/ExecutablePath.cpp
-        Scan/Scanner.cpp)
+        Scan/ScanCoordinator.cpp
+        Scan/Scanner.cpp
+        Scan/ScanSession.cpp
+        Scan/ScanWorker.cpp)
 
 # One TU per platform for what differs; CMake picks it, no #if does.
 if (APPLE)

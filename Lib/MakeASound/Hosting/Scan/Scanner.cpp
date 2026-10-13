@@ -184,4 +184,40 @@ Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPa
     return result;
 }
 
+ModuleScan crashedScan(std::string target,
+                       std::string error,
+                       ModuleStamp stamp,
+                       PluginFormat format)
+{
+    auto scan = ModuleScan();
+
+    scan.format = format;
+    scan.path = std::move(target);
+    scan.setStamp(stamp);
+    scan.crashed = true;
+    scan.error = std::move(error);
+
+    return scan;
+}
+
+std::string stderrTail(const std::string& text, int maxChars)
+{
+    auto trimmed = text;
+
+    while (!trimmed.empty()
+           && (trimmed.back() == '\n' || trimmed.back() == '\r'
+               || trimmed.back() == ' '))
+        trimmed.pop_back();
+
+    if (trimmed.empty())
+        return {};
+
+    const auto limit = static_cast<std::size_t>(std::max(maxChars, 0));
+
+    if (trimmed.size() > limit)
+        trimmed = "..." + trimmed.substr(trimmed.size() - limit);
+
+    return ": " + trimmed;
+}
+
 } // namespace MakeASound::Hosting

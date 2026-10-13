@@ -35,4 +35,18 @@ ModuleStamp moduleStamp(std::string_view path);
 Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPaths,
                                              std::string_view extension);
 
+// A "this target never answered" result: `crashed` set, `error` saying how, and
+// the target's stamp and format. The stamp matters as much as the message: the
+// cache blacklists a failure only while its stamp is unchanged, so a crash
+// recorded with a zero stamp would be rescanned, and crash again, every launch.
+ModuleScan crashedScan(std::string target,
+                       std::string error,
+                       ModuleStamp stamp,
+                       PluginFormat format);
+
+// The last `maxChars` of what a worker wrote to stderr, as the ": ..." suffix of
+// a ModuleScan::error, or empty when it wrote nothing. A plugin that fails says
+// why there, but it can also print megabytes, which do not belong in the cache.
+std::string stderrTail(const std::string& text, int maxChars = 400);
+
 } // namespace MakeASound::Hosting
