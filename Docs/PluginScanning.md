@@ -203,7 +203,10 @@ database, a vendor's family of apps say, pass one path to all of them.
   `Apps/PluginScanner` embeds an Info.plist in `__TEXT,__info_plist`. Otherwise
   every worker flashes a Dock icon.
 - **No console windows on Windows:** workers are spawned with `noWindow`, so a
-  console-subsystem scanner launched from a GUI host shows nothing.
+  console-subsystem scanner launched from a GUI host shows nothing. A worker also
+  turns off Windows' fault dialogs and `abort()`'s message box before it loads the
+  plugin, so a crash ends the worker at once instead of waiting out the timeout
+  behind a prompt.
 - **Seal the exports:** `makeasound_enable_hosting(<target>)` links the library and
   stops an executable exporting its C++ weak symbols on macOS, so a loaded plugin
   never binds to the host's copies of inline functions (the rationale is in

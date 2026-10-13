@@ -1,5 +1,6 @@
 #include "ScanWorker.h"
 #include "ExecutablePath.h"
+#include "WorkerProcess.h"
 
 #include <Miro/Reflection/Serialize.h>
 
@@ -124,6 +125,8 @@ std::optional<int>
 
         return static_cast<int>(ScanWorkerExit::missingTarget);
     }
+
+    prepareWorkerProcess();
 
     const auto outcome = formats.scanTarget(*requested);
 

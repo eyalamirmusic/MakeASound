@@ -184,6 +184,12 @@ if (MAKEASOUND_BUILD_PLUGIN)
         # (crash, abort, hang, garbage, the old marker), for the scan suites.
         add_executable(FakeScanWorker FakeScanWorker.cpp)
         makeasound_enable_hosting(FakeScanWorker)
+
+        # Its abort, and the crash fixture's, must end the process rather than
+        # open a dialog no CI runner dismisses.
+        if (WIN32)
+            target_sources(FakeScanWorker PRIVATE AssertReporting-Windows.cpp)
+        endif ()
         set_makeasound_target_settings(FakeScanWorker)
         set(MAKEASOUND_TEST_FAKE_SCAN_WORKER ON)
 

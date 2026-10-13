@@ -36,6 +36,7 @@ if (APPLE)
             AU/AUFormat.mm
             DefaultFormats-macOS.cpp
             Scan/ExecutablePath-macOS.cpp
+            Scan/WorkerProcess-macOS.cpp
             VST3/VST3Folders-macOS.cpp)
 
     target_compile_options(MakeASoundHosting PRIVATE
@@ -47,6 +48,7 @@ else ()
     target_sources(MakeASoundHosting PRIVATE
             DefaultFormats-Windows.cpp
             Scan/ExecutablePath-Windows.cpp
+            Scan/WorkerProcess-Windows.cpp
             VST3/VST3Folders-Windows.cpp)
 
     # On the target, so windows.h leaves no min/max macros in a unity chunk.
