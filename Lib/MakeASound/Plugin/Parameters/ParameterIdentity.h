@@ -268,8 +268,28 @@ struct ParameterIdentity
     Vst3Controllers vst3Controllers = {};
     bool vst3MidiControllers = false;
 
+    // Whether a pinned host id (ParameterOptions::hostId) may use all 32 bits.
+    // Off, one at 2^31 or above is reported, since VST3 reserves that range for
+    // the host. On for foreign ids: a hosted plugin's parameters carry the ids the
+    // plugin itself chose (a VST3 ParamID, an AudioUnitParameterID), which this
+    // list must neither re-derive nor refuse (hostedPluginIdentity()).
+    bool foreignHostIds = false;
+
     constexpr bool operator==(const ParameterIdentity&) const = default;
 };
+
+// The rules for a hosted plugin's parameter list: every parameter pins the
+// foreign plugin's own id as its host id, any of the 32 bits, and every one is
+// listed, as the plugin listed them. Nothing is derived, so no profile's hashing
+// or indexing applies; the id paths, the state keys, are whatever the hosting
+// format chose (the id in decimal, say).
+constexpr ParameterIdentity hostedPluginIdentity() noexcept
+{
+    auto identity = ParameterIdentity {};
+    identity.registration = Registration::All;
+    identity.foreignHostIds = true;
+    return identity;
+}
 
 // The ids JUCE's wrappers give the parameters they make themselves.
 

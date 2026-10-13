@@ -349,7 +349,8 @@ Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
                              + ", which a VST3 MIDI controller parameter uses; "
                                "the parameter wins");
 
-    auto unmasked = ids.paramIds == ParamIdRule::JuceKeyHash && !ids.juceMask31;
+    auto unmasked = ids.foreignHostIds
+                    || (ids.paramIds == ParamIdRule::JuceKeyHash && !ids.juceMask31);
 
     for (const auto& entry: entries)
         if (auto pinned = entry.param->explicitHostId();

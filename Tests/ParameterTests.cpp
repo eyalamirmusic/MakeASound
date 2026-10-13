@@ -188,6 +188,47 @@ auto tRename = test("Parameters/aRenameKeepsTheIdsAndTheGroupNames") = []
     check(list.entry(1).hostId == hostIds[1]);
 };
 
+// A hosted plugin's parameters: ids the foreign plugin chose, all 32 bits.
+struct ForeignParams : ParameterGroup
+{
+    ForeignParams() { add(low, high, top); }
+
+    FloatParam low {"Low", 0.f, 1.f, 0.f, {.id = "7", .hostId = 7}};
+    FloatParam high {
+        "High", 0.f, 1.f, 0.f, {.id = "2147483649", .hostId = 0x80000001u}};
+    FloatParam top {"Top", 0.f, 1.f, 0.f, hiddenTop};
+
+    static constexpr auto hiddenTop = MakeASound::ParameterOptions {
+        .id = "4294967294", .automatable = false, .hostId = 0xfffffffeu};
+};
+
+auto tForeign = test("Parameters/aHostedPluginsListCarriesItsOwnIds") = []
+{
+    auto params = ForeignParams {};
+
+    // Under a plugin's own rules, the reserved range is reported.
+    auto native = ParameterList {params};
+    check(native.identityProblems().size() == 2);
+
+    auto hosted = ParameterList {params, MakeASound::hostedPluginIdentity()};
+    check(hosted.identityProblems().empty());
+
+    check(hosted.entry(0).hostId == 7u);
+    check(hosted.entry(1).hostId == 0x80000001u);
+    check(hosted.entry(2).hostId == 0xfffffffeu);
+    check(hosted.indexOfHostId(0x80000001u) == 1);
+    check(hosted.indexOfHostId(0xfffffffeu) == 2);
+    check(hosted.entry(2).id == "4294967294");
+
+    // Every one listed, a non-automatable one too, as the plugin listed them.
+    check(!hosted.isHostExposed(2));
+    check(hosted.isRegistered(2));
+
+    // Set again, as a plugin's setParameters does, nothing is re-derived.
+    hosted.setIdentity(MakeASound::hostedPluginIdentity());
+    check(hosted.entry(1).hostId == 0x80000001u);
+};
+
 struct TwoOscParams : ParameterGroup
 {
     TwoOscParams() { add(osc1, osc2); }
