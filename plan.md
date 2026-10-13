@@ -105,11 +105,11 @@ if changed after a plugin ships, a set of cheap adapter features, some later wor
 and what a JUCE plugin ported here would need to keep its users' sessions. JUCE
 paths below are relative to `~/Code/JUCE/modules/`, MakeASound paths to
 `Lib/MakeASound/Plugin/`; line numbers are approximate. A fixed what was wrong and
-is done; B settled what cannot change once a plugin ships and is done too, C is
-cheap adapter work, D is later, and E is JUCE compatibility, whose state half
-(WP10.21 to WP10.23) is in: every format reads a JUCE build's saved state. E needed B's WP10.7 (ranges equal to JUCE's
-`NormalisableRange`, skew included) and WP10.6, which are in, so the recommended
-order is now E, then C. The
+is done; B settled what cannot change once a plugin ships and is done too; E, JUCE
+compatibility, is in (WP10.19 to WP10.23): every adapter publishes a port's
+parameters and classes under its JUCE build's ids and reads a JUCE build's saved
+state, leaving only its hand proof. C is cheap adapter work, of which WP10.15 and
+WP10.17 are in and WP10.9 half, and is next; D is later. The
 proof is the format suites
 covering each fix, pluginval 10, `auval -strict` and aaxval green on both examples,
 and a hand check that a host lane follows a plugin-side change in Logic, Ableton
@@ -218,10 +218,12 @@ The original items:
     at √(min·max). `toNormalized`/`toPlain` stay virtual for a custom curve.
   - `IntParam(name, min, max, default, options)`, `numSteps` `max - min` and
     integer text; `interval > 0` makes a stepped float.
-  - AU: the plain range plus `kAudioUnitParameterFlag_DisplayLogarithmic`,
-    `DisplaySquareRoot` or `DisplayCubed` when the curve matches one exactly, 0..1
-    otherwise; `kAudioUnitParameterFlag_IsHighResolution` always (`AU_1.mm:1061`,
-    `juce_audio_plugin_client_AUv3.mm:1188`).
+  - AU: the plain range plus a display flag when the curve matches one exactly,
+    0..1 otherwise; `kAudioUnitParameterFlag_IsHighResolution` always (`AU_1.mm:1061`,
+    `juce_audio_plugin_client_AUv3.mm:1188`). Superseded by what landed (above):
+    `DisplaySquareRoot`, `DisplaySquared`, `DisplayCubed` or `DisplayCubeRoot`
+    (`AU/HostParameters.cpp`), never `DisplayLogarithmic`, since no `FloatRange`
+    curve is a logarithm.
 - **WP10.8, path-hashed host ids, documented.** The host id is FNV-1a of the
   group-prefixed id path, so moving a parameter into another group changes its
   host id and its state key unless `id` or `hostId` is pinned; JUCE hashes the
@@ -230,14 +232,21 @@ The original items:
   and say prominently in CLAUDE.md, README and `ParameterOptions`' comment that ids
   are pinned before a parameter is regrouped.
 
-### C. Cheap adapter work
+### C. Cheap adapter work (next)
 
-- **WP10.9, "not automatable" apart from "hidden".** JUCE still publishes a
+Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10, 10.11,
+10.12, 10.13, 10.14 and 10.16 are not started.
+
+- **WP10.9, "not automatable" apart from "hidden" (partly done).** JUCE still publishes a
   non-automatable parameter: VST3 without `kCanAutomate` (`VST3.cpp:922`), AU with
   `kAudioUnitParameterFlag_NonRealTime` (`AU_1.mm:1063-1068`), AAX with automatable
   false (`AAX.cpp:1764`). `isHostExposed` hides one entirely. `ParameterOptions`
   gains `hidden`, never published; `automatable = false` becomes published and not
-  automatable in every format.
+  automatable in every format. Done for the JUCE schemes only, with E: VST3 and AAX
+  register every entry (`ParameterList::isRegistered`), a non-automatable one
+  without `kCanAutomate` or not automatable, and AU and AUv3 list it
+  `NonRealTime`. Open: the native scheme still hides it through
+  `isHostExposed`, and there is no `ParameterOptions::hidden`.
 - **WP10.10, groups as VST3 units and AU clumps.** JUCE makes a VST3 `IUnitInfo`
   unit per group, its id the group id's hash `& 0x7fffffff` (`VST3.cpp:419-445,
   548-563`, `info.unitId` at 914), asserting uniqueness and `!= kRootUnitId`
@@ -280,7 +289,7 @@ The original items:
   reservation below 100 MiB, and gives nothing past 2^31 - 1 bytes.
   `VST3/aStreamThatMisreportsItsSizeAndStatusStillLoads`.
 - **WP10.16, to consider: `setParamNormalized` while playing.** The VST3 adapter
-  writes the processor unconditionally (`VST3/Adapter.cpp` ~485-495); JUCE writes
+  writes the processor unconditionally (`VST3/Adapter.cpp` ~618-630); JUCE writes
   it only while not playing (`VST3.cpp` ~962-968), so a UI-thread write does not
   race the process queue during automation playback.
 - **WP10.17, an AAX native-id hook (done).** `PluginDescription::aaxNativeId`
@@ -307,17 +316,22 @@ The original items:
   - A `ParameterOptions::unit` enum → AU unit types (dB, Hz, seconds, percent),
     set by `DecibelParam` and the rest.
   - `valueToText(plain, maxChars)`, and generated 31-, 15-, 7- and 4-character
-    short names for AAX truncated by UTF-8 code point; `AAX/Parameters.cpp`
-    ~86-97 truncates by byte today.
+    short names for AAX parameters, truncated by UTF-8 code point:
+    `AAX/Parameters.cpp` (~87-88) adds the plugin's own `shortName` untouched and
+    generates none; the 31/15/7/4 truncation that exists is of the effect's name,
+    by byte (`AAX/Describe.cpp` ~56-62).
   - Sample-accurate automation, filling `ProcessContext::paramChanges` from VST3
     queue points and AUv3 parameter and ramp events (JUCE takes the last value
     only).
   - `Smoother::follow(const FloatParam&)` glue.
-  - `isBoolean()`/`isList()` virtuals instead of inferring from `stateFormat()`.
+  - An `isList()` virtual instead of inferring a list from `stateFormat()`
+    (`VST3/HostParameters.cpp`, `AU/HostParameters.cpp`); `isBoolean()` and
+    `isDiscrete()` are in (`Parameters/Parameter.h` ~118-119, with E), though the
+    native AU path still infers a bool from `stateFormat()`.
   - `ParameterOptions::inverted` (AAX orientation), only on request.
   - `textToValue` returning `std::optional<float>`, so text that is no number keeps
     the current value (VST3 `fromString` answering `kResultFalse`); the base maps
-    it to the default today (`Parameter.cpp` ~91-94), though AU and AAX already
+    it to the default today (`Parameters/Parameter.cpp` ~125-128), though AU and AAX already
     keep the current value at their boundary.
 
 ### E. JUCE compatibility, opt-in
@@ -394,7 +408,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
       `JUCE_VST3_COMPATIBLE_CLASSES`, so the factory adds none. Under a JUCE
       scheme every parameter is registered, a non-automatable one with flags 0
       rather than `kCanAutomate` (`VST3.cpp` ~922; the native scheme still hides
-      it, WP10.9 not done). Audit for unmasked ids: nothing in the adapter
+      it, WP10.9's native half open). Audit for unmasked ids: nothing in the adapter
       assumed `< 2^31` (`ParamID` is `uint32` throughout, the SDK's container a
       `std::map`); the shadow range's collision assert holds only under
       MakeASound's scheme (a JUCE hash there is printed, the parameter winning);
@@ -630,7 +644,8 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 
 - A to C are in, each with its cases in the format suites (`VST3/`, `AU/`, `AUv3/`,
   `AAX/`, `Parameters/`, `State/`, `PluginUI/`, `Web/`) and the allocation suites
-  covering every new audio-thread path. A and B are in, with them.
+  covering every new audio-thread path. A, B and E are in, with them; C (but
+  WP10.15, WP10.17 and the JUCE half of WP10.9) and D are open.
 - pluginval 10, `auval -strict` and aaxval stay green on both examples. After A
   and B: aaxval not yet run on both examples.
 - By hand, open from B: Logic keeps an automation lane on the right parameter
@@ -664,7 +679,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 2. **Hosting**: the hosting work lives in Plug's local branch `hosting-gaps`
    (`~/Code/HostingGapsWorkspace`, `Lib/TamberPlug/VST3/Host/HostedParameter.h`),
    whose `HostedParameter` overrides accessors that are non-virtual in
-   MakeASound's `Parameter` (`Parameters/Parameter.h` ~50-57). If hosting moves
+   MakeASound's `Parameter` (`Parameters/Parameter.h` ~91-105). If hosting moves
    into MakeASound, choose virtual accessors or a separate interface before
    `ParameterOptions` grows.
 
