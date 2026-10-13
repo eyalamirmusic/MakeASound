@@ -489,4 +489,35 @@ auto tReferToOnOwning = test("Buffer/referToOnAnOwningBufferDropsItsStorage") = 
     check(buffer.getStartSample() == 2);
     check(buffer[1][0] == 12.0f);
 };
+
+float sumOf(const Buffer& buffer)
+{
+    auto sum = 0.0f;
+
+    for (auto channel: buffer)
+        for (auto sample: channel)
+            sum += sample;
+
+    return sum;
+}
+
+auto tReadOnly = test("Buffer/aReadOnlyBufferRefersToAConstTable") = []
+{
+    auto block = HostBlock {};
+    const float* const* table = block.table;
+
+    auto input = MakeASound::ReadOnlyBuffer {table, numChannels, 3, 1};
+    const auto& buffer = input.get();
+
+    static_assert(std::is_same_v<decltype(input.get()[0]), ConstChannel>);
+
+    check(!buffer.isOwning());
+    check(buffer.getNumChannels() == numChannels);
+    check(buffer.getNumSamples() == 3);
+    check(buffer.getChannelPointer(2) == block.storage[2].data() + 1);
+    check(buffer[1][0] == 11.0f);
+
+    // Samples 1..3 of channels 0, 1, 2: 6 + 36 + 66.
+    check(sumOf(input) == 108.0f);
+};
 } // namespace

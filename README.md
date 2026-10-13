@@ -180,7 +180,7 @@ output.getSubBuffer(0, event.sampleOffset).clear();
 output.getChannelSubset(2, 2).applyGain(0.5f);
 ```
 
-`Buffer` is move-only. A deep copy is `Buffer::copyOf(source)`, and `setSize` keeps its capacity so a buffer sized in a prepare step never allocates again for equal or smaller shapes. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
+`ReadOnlyBuffer` refers to a `const float* const*` table, such as a host's inputs, and hands it out only as a `const Buffer&`. `Buffer` is move-only. A deep copy is `Buffer::copyOf(source)`, and `setSize` keeps its capacity so a buffer sized in a prepare step never allocates again for equal or smaller shapes. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
 
 ### Picking a device
 
