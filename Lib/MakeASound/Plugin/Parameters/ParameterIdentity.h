@@ -224,6 +224,12 @@ struct ParameterIdentity
     // JUCE units.
     bool juceLegacyAutomationType = false;
 
+    // Not an id, but here since this half is what reaches the plugin: whether
+    // PluginWrapper loads a ForeignOrigin::TamberPlugAU document as a native one
+    // when the plugin's loadForeignState declines it. A port that kept Plug's
+    // ids and plain ranges has Plug's schema, so needs no loadLegacy for it.
+    bool foreignPlugStateIsNative = false;
+
     constexpr bool operator==(const ParameterIdentity&) const = default;
 };
 

@@ -297,7 +297,17 @@ bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
     try
     {
         if (!plugin.loadForeignState(state))
-            return false;
+        {
+            // A Tamber Plug port's AU session: Plug's document is ours.
+            auto plugAsNative =
+                state.origin == ForeignOrigin::TamberPlugAU
+                && plugin.parameters().identity().foreignPlugStateIsNative;
+
+            if (!plugAsNative)
+                return false;
+
+            plugin.loadState(state.bytes, state.context);
+        }
     }
     catch (...)
     {

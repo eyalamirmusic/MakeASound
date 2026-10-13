@@ -276,10 +276,25 @@ using ChorusPort = PlugPort<ChorusParams>;
 using SparsePort = PlugPort<SparseParams>;
 using NewerSVFPort = PlugPort<NewerSVFParams>;
 
+// A port with no loadLegacy at all, which IdScheme::TamberPlug alone lets read
+// Plug's AU sessions.
+template <typename ParamsT>
+struct PlainPlugPort : StatePlugin<State<ParamsT>>
+{
+    std::string_view name() const override { return "PlainPlugPort"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+using PlainSVFPort = PlainPlugPort<SVFParams>;
+using PlainChorusPort = PlainPlugPort<ChorusParams>;
+
 // The ports under IdScheme::TamberPlug, for the AU suites' port factory and the
 // AUv3 suite, under codes of their own: SVFFilter 'Psvf', Chorus 'Pchr', Sparse
 // 'Pspr', SVFFilter's next release 'Psv2' (indexedThroughVersion 1), and the
-// tests' gain 'Pgan', for its skewed (curve Other) cutoff.
+// tests' gain 'Pgan', for its skewed (curve Other) cutoff; SVFFilter and Chorus
+// with no loadLegacy, 'Pnsv' and 'Pnch'.
 template <typename P>
 PluginDescription plugDescription(std::string_view name,
                                   FourCC code,
@@ -303,6 +318,8 @@ inline const Vector<PluginDescription>& plugDescriptions()
         result.add(plugDescription<SparsePort>("Plug Sparse", "Pspr"));
         result.add(plugDescription<NewerSVFPort>("Plug SVFFilter 2", "Psv2", 1));
         result.add(plugDescription<TestPlugins::GainPlugin>("Plug Gain", "Pgan"));
+        result.add(plugDescription<PlainSVFPort>("Plain SVFFilter", "Pnsv"));
+        result.add(plugDescription<PlainChorusPort>("Plain Chorus", "Pnch"));
         return result;
     }();
 

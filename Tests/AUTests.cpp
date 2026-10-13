@@ -2875,4 +2875,63 @@ auto tPlugPlain = test("AU/aTamberPlugPortsSkewedFloatIsPlain") = []
     check(near(cutoff.getValue(), 440.f, 1e-2));
     check(near(host.hostValue(id), 440.f, 1e-2));
 };
+
+// Plug's AU session loads into a TamberPlug port that has no loadLegacy: its
+// document is a native one. Under MakeASound's own ids it is declined.
+auto tPlugAsNative = test("AU/aTamberPlugPortReadsPlugsClassInfoWithNoReader") = []
+{
+    using TamberPlugFixtures::PlainChorusPort;
+    using TamberPlugFixtures::PlainSVFPort;
+
+    auto source = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    check(restoreClassInfo(target, info.value) == noErr);
+    check(TamberPlugFixtures::holdsSVFValues(target.plugin().params));
+
+    // Globals() holds them under Plug's ids, which are the port's.
+    check(near(target.hostValue(1), 0.4f));
+    check(target.hostValue(6) == 0.f);
+
+    auto chorusSource = UnitHost<PlainChorusPort>(plugPortComponentFor("Pnch"));
+    auto chorusOurs = CFOwned<CFPropertyListRef>(copyClassInfo(chorusSource));
+    auto chorusInfo =
+        plugClassInfo(chorusOurs.value, TamberPlugFixtures::chorusClassInfo);
+
+    auto chorus = UnitHost<PlainChorusPort>(plugPortComponentFor("Pnch"));
+    check(restoreClassInfo(chorus, chorusInfo.value) == noErr);
+    check(TamberPlugFixtures::holdsChorusValues(chorus.plugin().params));
+
+    auto standIn = ScopedStandIn<PlainSVFPort>(Module::gainStandIn);
+    auto nativeSource = UnitHost<PlainSVFPort>("Gain");
+    auto nativeOurs = CFOwned<CFPropertyListRef>(copyClassInfo(nativeSource));
+    auto nativeInfo =
+        plugClassInfo(nativeOurs.value, TamberPlugFixtures::svfClassInfo);
+
+    auto native = UnitHost<PlainSVFPort>("Gain");
+    restoreClassInfo(native, nativeInfo.value);
+    check(TamberPlugFixtures::holdsSVFDefaults(native.plugin().params));
+};
+
+// A port with a reader of its own still reads through it.
+auto tPlugReaderFirst = test("AU/aTamberPlugPortsOwnReaderStillComesFirst") = []
+{
+    auto source = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    check(restoreClassInfo(target, info.value) == noErr);
+    check(target.plugin().legacyLoads == 1);
+    check(TamberPlugFixtures::holdsSVFValues(target.plugin().params));
+
+    // Refused, it falls back to the native read.
+    auto refusing = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    refusing.plugin().refuse = true;
+    check(restoreClassInfo(refusing, info.value) == noErr);
+    check(refusing.plugin().legacyLoads == 1);
+    check(TamberPlugFixtures::holdsSVFValues(refusing.plugin().params));
+};
 } // namespace

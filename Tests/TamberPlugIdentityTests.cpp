@@ -101,6 +101,31 @@ auto tOtherIds = test("TamberPlug/auv3AndAAXIdsAreNative") = []
     check(policy.aaxPlugin == AAXPluginRule::Native);
 };
 
+// Plug's AU document is a native one to a port that kept Plug's ids, so the
+// wrapper loads it when the plugin has no reader of its own (or declines).
+auto tPlugAsNative = test("TamberPlug/plugsAUStateLoadsWithNoLoadLegacy") = []
+{
+    auto foreign = ForeignState {.origin = ForeignOrigin::TamberPlugAU,
+                                 .bytes = TamberPlugFixtures::svfDocument,
+                                 .context = StateContext::Session};
+
+    auto port = wrap(plugPort<TamberPlugFixtures::PlainSVFPort>());
+    check(port->loadForeignState(foreign));
+    check(TamberPlugFixtures::holdsSVFValues(
+        static_cast<TamberPlugFixtures::PlainSVFPort&>(port->plugin()).params));
+
+    // Only Plug's origin: anything else is still the plugin's to read.
+    auto juce = foreign;
+    juce.origin = ForeignOrigin::JuceAU;
+    auto other = wrap(plugPort<TamberPlugFixtures::PlainSVFPort>());
+    check(!other->loadForeignState(juce));
+
+    // Only under the profile: a native plugin's ids are not Plug's.
+    auto native = plugPort<TamberPlugFixtures::PlainSVFPort>();
+    native.idScheme = IdScheme::Native;
+    check(!wrap(native)->loadForeignState(foreign));
+};
+
 // Plug's AU space and flags by default; each overridable alone.
 auto tAUOverrides = test("TamberPlug/theAUSpaceUnitsAndBypassAreOverridable") = []
 {

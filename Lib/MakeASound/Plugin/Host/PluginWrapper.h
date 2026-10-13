@@ -82,6 +82,9 @@ public:
     // returning true and telling the host every value moved once the plugin took
     // it. A `bypass` in a Session state the plugin took sets the added bypass,
     // where there is one; a plugin with its own bypass reads it from the state.
+    // A TamberPlugAU document the plugin declines loads as a native one where
+    // the identity says so (ParameterIdentity::foreignPlugStateIsNative, the
+    // TamberPlug profile's): Plug's schema is this framework's.
     bool loadForeignState(const ForeignState& state);
 
     // What the host said about the track: the plugin's trackInfo() and then its
