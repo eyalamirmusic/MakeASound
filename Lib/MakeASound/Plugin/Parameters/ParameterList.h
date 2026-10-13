@@ -30,6 +30,13 @@ constexpr uint32_t hostIdFor(std::string_view id) noexcept
 class ParameterList
 {
 public:
+    // A named group around an entry: its id path ("Osc 1") and its own name.
+    struct EnclosingGroup
+    {
+        std::string id;
+        std::string name;
+    };
+
     struct Entry
     {
         Parameter* param = nullptr;
@@ -41,6 +48,9 @@ public:
 
         // True on the one entry bypassIndex() names.
         bool bypass = false;
+
+        // Outermost first; empty for a parameter of the root group.
+        Vector<EnclosingGroup> groups;
     };
 
     ParameterList() = default;
@@ -77,7 +87,8 @@ private:
     void add(Parameter& param,
              std::string_view id,
              std::string_view displayName,
-             bool automatable);
+             bool automatable,
+             std::span<const ParameterGroup* const> groups);
     void indexHostIds();
     void findBypass();
 

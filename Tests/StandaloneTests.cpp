@@ -1,20 +1,15 @@
-// The standalone format's pieces without a window: StandaloneProcessor driven by
+// The standalone core, which needs no window: StandaloneProcessor driven by
 // Engine with a synthetic AudioCallbackInfo, the sender thread over a virtual-port
-// loopback, the typing keyboard's mapping, the settings file and the editor
-// window's options.
+// loopback, the settings file and StandaloneHost.
 
 #include "TestPlugins.h"
-#include "TestEditor.h"
 
 #include <MakeASound/Plugin/Standalone/StandaloneProcessor.h>
 #include <MakeASound/Plugin/Standalone/MidiSender.h>
-#include <MakeASound/Plugin/Standalone/TypingKeyboard.h>
 #include <MakeASound/Plugin/Standalone/Settings.h>
-#include <MakeASound/Plugin/Standalone/EditorWindow.h>
+#include <MakeASound/Plugin/Standalone/StandaloneHost.h>
 
 #include <NanoTest/NanoTest.h>
-
-#include <eacp/Graphics/Graphics/Keyboard.h>
 
 #include <atomic>
 #include <chrono>
@@ -348,158 +343,6 @@ auto tSenderNoOutput = test("Standalone/theSenderDropsWithNoOutputOpen") = []
     check(!midi.isOutputOpen());
 };
 
-// The typing keyboard.
-
-namespace Key = eacp::Graphics::KeyCode;
-
-struct Typist
-{
-    TypingKeyboard keyboard {[this](const MIDI::Event& event)
-                             {
-                                 if (accepting)
-                                     events.push_back(event);
-
-                                 return accepting;
-                             }};
-    std::vector<MIDI::Event> events;
-    bool accepting = true;
-};
-
-bool isNoteOn(const MIDI::Event& event, int pitch)
-{
-    return event.isNoteOn() && event.asNoteOn()->pitch == pitch;
-}
-
-bool isNoteOff(const MIDI::Event& event, int pitch)
-{
-    return event.isNoteOff() && event.asNoteOff()->pitch == pitch;
-}
-
-auto tKeyMap = test("Standalone/typingKeyboardMapsEveryKey") = []
-{
-    auto keys = std::array<uint16_t, 17> {Key::A,
-                                          Key::W,
-                                          Key::S,
-                                          Key::E,
-                                          Key::D,
-                                          Key::F,
-                                          Key::T,
-                                          Key::G,
-                                          Key::Y,
-                                          Key::H,
-                                          Key::U,
-                                          Key::J,
-                                          Key::K,
-                                          Key::O,
-                                          Key::L,
-                                          Key::P,
-                                          Key::Semicolon};
-
-    auto mapped = true;
-
-    for (auto i = 0; i < static_cast<int>(keys.size()); ++i)
-        mapped = mapped && TypingKeyboard::semitoneForKey(keys[i]) == i;
-
-    check(mapped);
-    check(!TypingKeyboard::semitoneForKey(Key::Q));
-    check(!TypingKeyboard::semitoneForKey(Key::Z));
-    check(!TypingKeyboard::semitoneForKey(Key::X));
-};
-
-auto tKeyDown = test("Standalone/typingKeyboardPlaysAtTheBaseNote") = []
-{
-    auto typist = Typist {};
-
-    check(typist.keyboard.baseNote() == 60);
-    check(typist.keyboard.keyDown(Key::A, false, false));
-    check(typist.keyboard.keyDown(Key::Semicolon, false, false));
-
-    check(typist.events.size() == 2);
-    check(isNoteOn(typist.events[0], 60));
-    check(isNoteOn(typist.events[1], 76));
-    check(typist.events[0].asNoteOn()->velocity == 0.8f);
-    check(typist.events[0].channel == 0);
-
-    check(typist.keyboard.keyUp(Key::A));
-    check(typist.events.size() == 3);
-    check(isNoteOff(typist.events[2], 60));
-};
-
-auto tKeyIgnored = test("Standalone/typingKeyboardIgnoresRepeatsAndChords") = []
-{
-    auto typist = Typist {};
-
-    check(!typist.keyboard.keyDown(Key::A, true, false));
-    check(!typist.keyboard.keyDown(Key::A, false, true));
-    check(!typist.keyboard.keyDown(Key::Z, false, true));
-    check(typist.events.empty());
-    check(typist.keyboard.baseNote() == 60);
-
-    check(typist.keyboard.keyDown(Key::A, false, false));
-    check(!typist.keyboard.keyDown(Key::A, false, false));
-    check(typist.events.size() == 1);
-
-    check(!typist.keyboard.keyDown(Key::Q, false, false));
-    check(!typist.keyboard.keyUp(Key::Q));
-    check(typist.events.size() == 1);
-};
-
-auto tKeyShift = test("Standalone/typingKeyboardReleasesTheNoteItPlayed") = []
-{
-    auto typist = Typist {};
-
-    typist.keyboard.keyDown(Key::D, false, false);
-    check(typist.keyboard.keyDown(Key::Z, false, false));
-    check(typist.keyboard.baseNote() == 48);
-
-    typist.keyboard.keyUp(Key::D);
-    typist.keyboard.keyDown(Key::D, false, false);
-
-    check(typist.events.size() == 3);
-    check(isNoteOn(typist.events[0], 64));
-    check(isNoteOff(typist.events[1], 64));
-    check(isNoteOn(typist.events[2], 52));
-};
-
-auto tKeyAllOff = test("Standalone/typingKeyboardAllNotesOffReleasesEachOnce") = []
-{
-    auto typist = Typist {};
-
-    typist.keyboard.keyDown(Key::A, false, false);
-    typist.keyboard.keyDown(Key::X, false, false);
-    typist.keyboard.keyDown(Key::K, false, false);
-    typist.keyboard.allNotesOff();
-
-    check(typist.events.size() == 4);
-    check(isNoteOff(typist.events[2], 60));
-    check(isNoteOff(typist.events[3], 84));
-
-    typist.keyboard.allNotesOff();
-    typist.keyboard.keyUp(Key::A);
-    check(typist.events.size() == 4);
-};
-
-auto tKeyClamp = test("Standalone/typingKeyboardClampsTheOctave") = []
-{
-    auto typist = Typist {};
-
-    for (auto i = 0; i < 12; ++i)
-        typist.keyboard.keyDown(Key::Z, false, false);
-
-    check(typist.keyboard.baseNote() == 0);
-
-    typist.keyboard.keyDown(Key::A, false, false);
-    check(isNoteOn(typist.events.back(), 0));
-
-    for (auto i = 0; i < 12; ++i)
-        typist.keyboard.keyDown(Key::X, false, false);
-
-    check(typist.keyboard.baseNote() == 111);
-
-    typist.keyboard.keyDown(Key::Semicolon, false, false);
-    check(isNoteOn(typist.events.back(), 127));
-};
-
 // Settings.
 
 struct TempFile
@@ -525,27 +368,6 @@ DeviceInfo deviceNamed(const std::string& name, int id, int outputs, int inputs)
     device.preferredSampleRate = 48000;
     return device;
 }
-
-auto tDroppedNote = test("Standalone/typingKeyboardOwesNothingForADroppedNote") = []
-{
-    auto typist = Typist {};
-    typist.accepting = false;
-
-    check(!typist.keyboard.keyDown(Key::A, false, false));
-
-    typist.accepting = true;
-    typist.keyboard.keyUp(Key::A);
-    check(typist.events.empty());
-
-    check(typist.keyboard.keyDown(Key::A, false, false));
-    typist.accepting = false;
-    typist.keyboard.keyUp(Key::A);
-    typist.accepting = true;
-    typist.keyboard.allNotesOff();
-
-    check(typist.events.size() == 2);
-    check(isNoteOff(typist.events[1], 60));
-};
 
 auto tSettingsRoundTrip = test("Standalone/settingsRoundTripThroughAFile") = []
 {
@@ -700,85 +522,150 @@ auto tResolvePorts = test("Standalone/resolvePortIdsMatchesByName") = []
     check(ids == Vector<int> {7, 4});
 };
 
-bool hasResizableFlag(const eacp::Graphics::WindowOptions& options)
-{
-    for (auto flag: options.flags)
-        if (flag == eacp::Graphics::WindowFlags::Resizable)
-            return true;
+// StandaloneHost, never started unless a case says so, its settings in a
+// temporary file.
 
-    return false;
+GainPlugin& gainOf(StandaloneHost& host)
+{
+    return static_cast<GainPlugin&>(host.plugin());
 }
 
-eacp::Graphics::Point proposeSize(const eacp::Graphics::WindowOptions& options,
-                                  float width,
-                                  float height)
+auto tHostRoundTrip = test("Standalone/hostRestoresTheSessionItSaved") = []
 {
-    return options.sizeConstraint(
-        {{width, height}, eacp::Graphics::ResizeAxis::Both});
-}
+    auto file = TempFile {};
 
-auto tFixedEditor = test("Standalone/aFixedEditorOpensAFixedWindow") = []
-{
-    auto editor = TestEditor {};
-    editor.size = {500, 320};
-
-    auto options = editorWindowOptions(editor, "Fixed");
-
-    check(options.title == "Fixed");
-    check(!hasResizableFlag(options));
-    check(options.width == 500);
-    check(options.height == 320);
-    check(options.effectiveAllowsFullScreen());
-};
-
-auto tResizableEditor = test("Standalone/aResizableEditorConstrainsTheWindow") = []
-{
-    auto editor = TestEditor {};
-    editor.size = {100, 2000};
-    editor.limits = {
-        .resizable = true, .minimum = {300, 200}, .maximum = {900, 700}};
-
-    auto options = editorWindowOptions(editor, "Resizable");
-
-    check(hasResizableFlag(options));
-    check(options.minWidth == 300);
-    check(options.minHeight == 200);
-    check(options.width == 300);
-    check(options.height == 700);
-    check(options.effectiveAllowsFullScreen());
-
-    for (auto [width, height]: {std::pair {50, 50},
-                                std::pair {640, 480},
-                                std::pair {5000, 150},
-                                std::pair {1200, 1200}})
     {
-        auto expected = editor.limits.constrain({width, height});
-        auto answer = proposeSize(options, (float) width, (float) height);
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        check(host.settingsFile() == file.path);
+        check(host.wrapper().plugin().format() == PluginFormat::Standalone);
 
-        check(answer.x == (float) expected.width);
-        check(answer.y == (float) expected.height);
+        gainOf(host).params.gain.setValue(-6.f);
+        gainOf(host).params.width.setValue(0.9f);
     }
+
+    auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+
+    check(gainOf(host).params.gain.getValue() == -6.f);
+    check(gainOf(host).params.width.getValue() == 0.9f);
 };
 
-auto tRatioEditor = test("Standalone/aRatioLockedEditorKeepsItsShape") = []
+auto tHostKeepsTheFile = test("Standalone/hostKeepsTheSavedStreamUntilStarted") = []
 {
-    auto editor = TestEditor {};
-    editor.size = {640, 300};
-    editor.limits = {.resizable = true,
-                     .minimum = {200, 100},
-                     .maximum = {2000, 1000},
-                     .aspectRatio = {2, 1}};
+    auto file = TempFile {};
 
-    auto options = editorWindowOptions(editor, "Ratio");
+    auto settings = Settings {};
+    settings.audio.output =
+        StreamParameters(deviceNamed("Speakers", 3, 2, 0), false, 2, 0);
+    settings.audio.maxBlockSize = 128;
+    settings.midiInputPorts = {"Keys"};
+    settings.midiOutputPort = "Synth";
+    check(saveSettings(file.path, settings));
 
-    check(!options.effectiveAllowsFullScreen());
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        gainOf(host).params.gain.setValue(-12.f);
+        host.saveSettings();
+    }
 
-    auto initial = options.effectiveInitialSize();
-    check(initial.x == 2.f * initial.y);
-    check(initial.x == (float) options.width);
-    check(initial.y == (float) options.height);
+    auto loaded = loadSettings(file.path);
 
-    auto dragged = options.effectiveSize({900.f, 300.f});
-    check(dragged.x == 2.f * dragged.y);
+    check(loaded.has_value());
+    check(loaded->audio.output.has_value());
+    check(loaded->audio.output->device.name == "Speakers");
+    check(loaded->audio.maxBlockSize == 128);
+    check(loaded->midiInputPorts == settings.midiInputPorts);
+    check(loaded->midiOutputPort == "Synth");
+    check(!loaded->pluginState.empty());
+    check(loaded->pluginState != settings.pluginState);
+};
+
+auto tHostReset = test("Standalone/hostResetPluginRestoresTheDefaults") = []
+{
+    auto file = TempFile {};
+    auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+    auto& params = gainOf(host).params;
+
+    params.gain.setValue(-6.f);
+    params.mode.setValue(2.f);
+    params.width.setValue(0.9f);
+
+    host.resetPlugin();
+
+    check(params.gain.getValue() == 0.f);
+    check(params.mode.getValue() == 0.f);
+
+    // Session-only: a preset leaves it where it was.
+    check(params.width.getValue() == 0.9f);
+
+    // The reset was saved at once.
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(!loaded->pluginState.empty());
+};
+
+auto tHostNoFile = test("Standalone/hostWithNoPathWritesNoFile") = []
+{
+    auto file = TempFile {};
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), {}};
+        check(host.settingsFile().empty());
+        host.saveSettings();
+        host.resetPlugin();
+    }
+
+    check(!std::filesystem::exists(file.directory));
+};
+
+auto tHostLayout = test("Standalone/hostReportsThePluginsLayout") = []
+{
+    auto effect = StandaloneHost {EA::makeOwned<GainPlugin>(), {}};
+    check(effect.busLayout() == BusLayout::stereoInOut());
+    check(!effect.hasMidiInput());
+    check(!effect.hasMidiOutput());
+
+    auto instrument = StandaloneHost {EA::makeOwned<SynthPlugin>(), {}};
+    check(instrument.hasMidiInput());
+    check(instrument.hasMidiOutput());
+    check(instrument.injectMidi(MIDI::Event::noteOn(0, 60, 1.f)));
+};
+
+auto tHostStart = test("Standalone/hostStartsOnAGoneDeviceWithoutCrashing") = []
+{
+    auto file = TempFile {};
+
+    auto settings = Settings {};
+    settings.audio.output =
+        StreamParameters(deviceNamed("No Such Device", 42, 2, 0), false);
+    settings.audio.sampleRate = 48000;
+    settings.audio.maxBlockSize = 256;
+    settings.midiInputPorts = {"No Such Port"};
+    settings.midiOutputPort = "No Such Port";
+    check(saveSettings(file.path, settings));
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        host.start();
+
+        // The gone device's side took the fallback's; there may be none.
+        check(!host.config().output
+              || host.config().output->device.name != "No Such Device");
+        check(host.openMidiInputs().empty());
+        check(!host.midiOutput());
+
+        check(host.setMidiOutput(123456) != Error::NoError);
+        check(!host.midiOutput());
+
+        host.resetAudioAndMidi();
+        check(host.openMidiInputs().empty());
+    }
+
+    // Started, so the file now holds what the host settled on.
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(loaded->midiInputPorts.empty());
+    check(loaded->midiOutputPort.empty());
+    check(!loaded->audio.output
+          || loaded->audio.output->device.name != "No Such Device");
 };
 } // namespace

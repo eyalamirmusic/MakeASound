@@ -9,6 +9,7 @@
 #include <concepts>
 #include <functional>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -31,10 +32,13 @@ struct GroupOptions
 class ParameterGroup
 {
 public:
-    using Visitor = std::function<void(Parameter& param,
-                                       std::string_view id,
-                                       std::string_view displayName,
-                                       bool automatable)>;
+    // `groups` are the named groups enclosing the parameter, outermost first.
+    using Visitor =
+        std::function<void(Parameter& param,
+                           std::string_view id,
+                           std::string_view displayName,
+                           bool automatable,
+                           std::span<const ParameterGroup* const> groups)>;
 
     explicit ParameterGroup(std::string_view nameToUse = {},
                             GroupOptions options = {});
@@ -102,7 +106,8 @@ private:
     void walk(const Visitor& visitor,
               const std::string& idPrefix,
               const std::string& displayPrefix,
-              bool inheritedAutomatable) const;
+              bool inheritedAutomatable,
+              Vector<const ParameterGroup*>& enclosing) const;
 
     void reflectEntries(Miro::Reflector& ref, bool session);
     void resetToDefaults(bool session) noexcept;

@@ -14,12 +14,29 @@ namespace Widgets = eacp::UI;
 namespace
 {
 constexpr auto padding = 12.f;
-constexpr auto rowHeight = 32.f;
-constexpr auto controlHeight = 26.f;
-constexpr auto captionWidth = 120.f;
 constexpr auto panelWidth = 420;
 constexpr auto pollHz = 2;
 constexpr auto noneId = -1;
+
+struct Metrics
+{
+    float rowHeight = 32.f;
+    float controlHeight = 26.f;
+    float captionWidth = 120.f;
+    float fontSize = 13.f;
+};
+
+// 44 points is the smallest target Apple's guidelines give a finger.
+Metrics metricsFor(const SettingsPanelOptions& options)
+{
+    if (options.touch)
+        return {.rowHeight = 56.f,
+                .controlHeight = 44.f,
+                .captionWidth = 140.f,
+                .fontSize = 17.f};
+
+    return {};
+}
 
 // A ComboBox over a DropdownInfo: items in order, and the ids beside them so a
 // selected index maps back to what it names.
@@ -100,6 +117,7 @@ struct Form final : Widgets::Component
 {
     explicit Form(SettingsPanelOptions optionsToUse)
         : options(optionsToUse)
+        , metrics(metricsFor(optionsToUse))
     {
         for (auto* label: {&outputCaption,
                            &outputChannelsCaption,
@@ -137,10 +155,13 @@ struct Form final : Widgets::Component
         if (options.showMidiInputs)
             rows += std::max(midiInputs.size(), 1);
 
-        return rows;
+        return rows + actions.size();
     }
 
-    float naturalHeight() const { return rowCount() * rowHeight + 2.f * padding; }
+    float naturalHeight() const
+    {
+        return rowCount() * metrics.rowHeight + 2.f * padding;
+    }
 
     void updateHeight() { setBounds(getBounds().withHeight(naturalHeight())); }
 
@@ -150,9 +171,9 @@ struct Form final : Widgets::Component
 
         auto row = [&](Widgets::Label* caption, Widgets::Component& control)
         {
-            auto line = area.removeFromTop(rowHeight);
-            auto inset = (line.h - controlHeight) * 0.5f;
-            auto left = line.removeFromLeft(captionWidth);
+            auto line = area.removeFromTop(metrics.rowHeight);
+            auto inset = (line.h - metrics.controlHeight) * 0.5f;
+            auto left = line.removeFromLeft(metrics.captionWidth);
 
             if (caption != nullptr)
                 caption->setBounds(left.inset(0.f, inset));
@@ -183,9 +204,17 @@ struct Form final : Widgets::Component
 
         if (options.showMidiOutput)
             row(&midiOutputCaption, midiOutput.box);
+
+        for (auto& action: actions)
+        {
+            auto line = area.removeFromTop(metrics.rowHeight);
+            action->setBounds(
+                line.inset(0.f, (line.h - metrics.controlHeight) * 0.5f));
+        }
     }
 
     SettingsPanelOptions options;
+    Metrics metrics;
 
     Widgets::Label outputCaption {"Output"};
     Widgets::Label outputChannelsCaption {"Output channels"};
@@ -206,6 +235,7 @@ struct Form final : Widgets::Component
     Choice midiOutput;
 
     Vector<OwningPointer<Widgets::Checkbox>> midiInputs;
+    Vector<OwningPointer<Widgets::Button>> actions;
 };
 } // namespace
 
@@ -366,6 +396,18 @@ struct SettingsPanel::Content final : Widgets::Component
         showOpenMidiInputs();
     }
 
+    void addAction(std::string label, std::function<void()> onClick)
+    {
+        auto& button =
+            *form.actions.add(EA::makeOwned<Widgets::Button>(std::move(label)));
+        button.onClick = std::move(onClick);
+
+        form.addAndMakeVisible(button);
+        form.updateHeight();
+        form.resized();
+        scroll.resized();
+    }
+
     void showOpenMidiInputs()
     {
         for (auto i = 0; i < form.midiInputs.size(); ++i)
@@ -517,7 +559,7 @@ SettingsPanel::SettingsPanel(DeviceManager& devicesToUse,
                              SettingsPanelOptions optionsToUse)
     : content(EA::makeOwned<Content>(*this, devicesToUse, midiToUse, optionsToUse))
 {
-    setFontPointSize(13.f);
+    setFontPointSize(content->form.metrics.fontSize);
     setBackgroundColour(Widgets::defaultTheme().background);
     setRootComponent(*content);
 
@@ -553,6 +595,11 @@ std::optional<int> SettingsPanel::getMidiOutput() const
 void SettingsPanel::refresh()
 {
     content->refresh();
+}
+
+void SettingsPanel::addAction(std::string label, std::function<void()> onClick)
+{
+    content->addAction(std::move(label), std::move(onClick));
 }
 
 int SettingsPanel::preferredWidth() const

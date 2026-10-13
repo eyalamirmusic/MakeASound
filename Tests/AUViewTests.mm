@@ -3,6 +3,7 @@
 // factory class the way a host opens it, with no adapter header.
 
 #include "AUTestHost.h"
+#include "ProbeEditor.h"
 
 #include <MakeASound/Plugin/AU/ViewPlacement.h>
 
@@ -22,90 +23,6 @@ using namespace MakeASound::AU;
 
 namespace
 {
-// What happened to a ProbeEditor, readable after the view destroyed it.
-struct EditorRecord
-{
-    EditorSize size {400, 300};
-    EditorConstraints limits;
-
-    Editor* editor = nullptr;
-    eacp::Graphics::View* content = nullptr;
-    EditorHost* hostAtAttach = nullptr;
-    EditorHost* hostAtRemove = nullptr;
-    int attached = 0;
-    int removed = 0;
-    bool destroyed = false;
-};
-
-class ProbeEditor final : public Editor
-{
-public:
-    explicit ProbeEditor(EditorRecord& recordToUse)
-        : record(recordToUse)
-    {
-        record.editor = this;
-    }
-
-    ~ProbeEditor() override
-    {
-        record.editor = nullptr;
-        record.content = nullptr;
-        record.destroyed = true;
-    }
-
-    eacp::Graphics::View& view() override
-    {
-        if (content == nullptr)
-        {
-            content = EA::makeOwned<eacp::Graphics::View>();
-            record.content = content.get();
-        }
-
-        return *content;
-    }
-
-    EditorSize initialSize() const override { return record.size; }
-    EditorConstraints constraints() const override { return record.limits; }
-
-    void onAttached() override
-    {
-        ++record.attached;
-        record.hostAtAttach = host();
-    }
-
-    void onRemoved() override
-    {
-        ++record.removed;
-        record.hostAtRemove = host();
-    }
-
-private:
-    EditorRecord& record;
-    OwningPointer<eacp::Graphics::View> content;
-};
-
-// The test plugins show a ProbeEditor over the record while this lives.
-struct ScopedProbe
-{
-    ScopedProbe()
-    {
-        Module::editorFactory = [this](Plugin&)
-        { return OwningPointer<Editor>(EA::makeOwned<ProbeEditor>(record)); };
-    }
-
-    ~ScopedProbe() { Module::editorFactory = nullptr; }
-
-    ScopedProbe(const ScopedProbe&) = delete;
-    ScopedProbe& operator=(const ScopedProbe&) = delete;
-
-    EditorRecord record;
-};
-
-EditorConstraints resizableBetween(EditorSize minimum, EditorSize maximum)
-{
-    return {.resizable = true, .minimum = minimum, .maximum = maximum};
-}
-
 // The view a host gets: the class kAudioUnitProperty_CocoaUI names, asked for a
 // view of the unit.
 NSView* openView(AudioUnit unit)

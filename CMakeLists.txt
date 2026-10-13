@@ -45,6 +45,12 @@ set(MAKEASOUND_PACE_ACCOUNT "" CACHE STRING
 set(MAKEASOUND_PACE_SIGN_ID "" CACHE STRING
     "The Developer ID Application identity wraptool signs AAX bundles with")
 
+# Set only by an iOS tree on the host sub-build it runs for the AUv3 plists (see
+# CMake/MakeASoundPlugin.cmake): this same project for macOS, where
+# makeasound_add_plugin builds each core and its <Name>-Describe tool and nothing
+# else, and no format, app, tool, test or SDK is configured.
+option(MAKEASOUND_DESCRIBE_BUILD "Internal: the host build of the AUv3 plist tools" OFF)
+
 # A .vst3 is a shared module on Linux, and every static archive linked into it,
 # ours and the dependencies' alike, has to be position independent for that.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -79,22 +85,25 @@ if (PROJECT_IS_TOP_LEVEL)
 endif ()
 
 # The vendored VST3 SDK and, on macOS, the fetched AudioUnitSDK; see ThirdParty/README.md.
-if (MAKEASOUND_BUILD_PLUGIN)
+if (MAKEASOUND_BUILD_PLUGIN AND NOT MAKEASOUND_DESCRIBE_BUILD)
     add_subdirectory(ThirdParty)
 endif ()
 
 add_subdirectory(Lib)
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS)
+if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS AND NOT MAKEASOUND_DESCRIBE_BUILD)
     add_subdirectory(Apps)
 endif ()
 
 if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(Plugins)
-    add_subdirectory(Tools)
+
+    if (NOT MAKEASOUND_DESCRIBE_BUILD)
+        add_subdirectory(Tools)
+    endif ()
 endif ()
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_TESTS)
+if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_TESTS AND NOT MAKEASOUND_DESCRIBE_BUILD)
     enable_testing()
     add_subdirectory(Tests)
 endif ()

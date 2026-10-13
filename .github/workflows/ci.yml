@@ -95,7 +95,7 @@ jobs:
       # compiler and flags match an earlier run is restored rather than
       # compiled: every eacp, VST3 SDK, AudioUnitSDK and AAX SDK object on a run
       # that changed none of them, which is most of a cold build. The eviction
-      # keeps each saved cache to what this build touched, so the eight caches
+      # keeps each saved cache to what this build touched, so the nine caches
       # at 1 GB apiece stay inside the repository's 10 GB. The Windows x64 image
       # carries Strawberry Perl's old ccache on PATH, which the default
       # detection would take; the binary install is ccache's own current
@@ -332,7 +332,9 @@ jobs:
       # Device slices can't be executed in CI, so this half is build-only. It is
       # still the half that catches iOS-specific compile breakage: miniaudio's
       # Objective-C implementation TU and the macOS-only CoreAudio HAL that
-      # BlockSizes.mm uses.
+      # BlockSizes.mm uses. The examples' apps come out unsigned, each with its
+      # AUv3 extension inside, whose plist a macOS sub-build of the plugin cores
+      # writes (MakeASoundDescribeBuild).
       - name: Build for iOS device (Release, CI build)
         shell: bash
         run: |
@@ -400,6 +402,8 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
 
       # The simulator is the only place the suite can actually execute for iOS.
+      # Both configures build the examples' -Standalone apps too (the default
+      # app's iOS shell), and the suite includes the standalone ones.
       # Left non-unity on purpose: between this and the device build above, both
       # the unity and per-TU compile paths get exercised on iOS.
       - name: Build & test on the iOS simulator
@@ -434,3 +438,120 @@ jobs:
           echo "::group::Test (simulator)"
           ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
           echo "::endgroup::"
+
+      # Each example's standalone app installed and launched in the simulator, and
+      # still running a few seconds later: the scene, the window, the editor (the
+      # Synth's web page in WKWebView) and the stream all came up.
+      - name: Launch the standalone apps on the iOS simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            bundle="build-ios-sim/Plugins/${app}.app"
+            id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$bundle/Info.plist")
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$bundle/Info.plist" | grep -qx audio
+
+            xcrun simctl install "$udid" "$bundle"
+            pid=$(xcrun simctl launch "$udid" "$id" | awk '{print $NF}')
+            sleep 5
+
+            # A live app is listed with its pid; a crashed one with "-" or not at all.
+            if ! xcrun simctl spawn "$udid" launchctl list \
+                 | awk -v id="$id" '$1 != "-" && index($3, id)' | grep -q .; then
+              echo "ERROR: $id (pid $pid) did not stay up"; exit 1
+            fi
+
+            xcrun simctl terminate "$udid" "$id"
+            echo "$id launched and stayed up"
+          done
+
+      # What a host does with each example's AUv3, the apps installed above: the
+      # system has registered the extension, instantiates it out of process, it
+      # renders sound (Gain fed a sine, the Synth a note) and hands back a view
+      # controller. AUv3Probe reads the components from each app's PlugIns and
+      # exits with the number that failed.
+      - name: AUv3 on the iOS simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+          root="$PWD/build-ios-sim"
+
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            test -f "$root/Plugins/${app}.app/PlugIns/${app#*/}.appex/Info.plist"
+            xcrun simctl install "$udid" "$root/Plugins/${app}.app"
+          done
+
+          xcrun simctl spawn "$udid" "$root/Tools/AUv3Probe/AUv3Probe" \
+            "$root/Plugins/Gain/MakeASound Gain.app" \
+            "$root/Plugins/Synth/MakeASound Synth.app"
+
+  # The same iOS tree under the Xcode generator, which is how a signed device
+  # build is made (MAKEASOUND_IOS_TEAM): each app embeds its AUv3 extension with
+  # XCODE_EMBED_APP_EXTENSIONS rather than having it laid out by hand. Build only
+  # and unsigned, for a device; the Ninja job above is the one that runs things.
+  ios-xcode:
+    name: iOS (Xcode generator, device, unsigned)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ninja too: the AUv3 plists' macOS sub-build uses it when it finds it.
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      # For the AUv3 plists' macOS sub-build, which the launchers below are
+      # forwarded to; the Xcode generator itself takes no compiler launcher.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: ios-xcode
+          max-size: 1G
+          evict-old-files: job
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Plugins/Synth/web/package-lock.json
+
+      - name: Build for iOS device with Xcode (Release, CI build, unsigned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::Configure (Xcode)"
+          cmake -S . -B build-ios-xcode -G Xcode \
+                -DCMAKE_SYSTEM_NAME=iOS \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
+                -DMAKEASOUND_BUILD_APPS=OFF \
+                -DMAKEASOUND_BUILD_TESTS=OFF
+          echo "::endgroup::"
+
+          echo "::group::Build (Xcode, iphoneos)"
+          cmake --build build-ios-xcode --config Release -- \
+                -sdk iphoneos CODE_SIGNING_ALLOWED=NO
+          echo "::endgroup::"
+
+      # Each app carries its extension, and the extension's plist is the one the
+      # host tool wrote, processed by Xcode for the device.
+      - name: Verify the embedded AUv3 extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            appex="build-ios-xcode/Plugins/${app%%/*}/Release-iphoneos/${app#*/}.app/PlugIns/${app#*/}.appex"
+            plist="$appex/Info.plist"
+            /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" "$plist"
+            /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionAttributes:AudioComponents:0:subtype" "$plist"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleSupportedPlatforms:0" "$plist" | grep -qx iPhoneOS
+            otool -l "$appex/${app#*/}" | grep -A4 LC_BUILD_VERSION | grep -qE 'platform 2$'
+            echo "$appex: ok"
+          done

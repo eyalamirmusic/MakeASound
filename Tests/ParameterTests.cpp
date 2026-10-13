@@ -401,6 +401,43 @@ auto tPinnedIds = test("Parameters/anExplicitIdOutlivesARename") = []
     check(afterList.entry(0).displayName == "Tone Frequency");
 };
 
+struct NestedParams : ParameterGroup
+{
+    NestedParams() { add(voice, flat); }
+
+    struct Voice : ParameterGroup
+    {
+        Voice()
+            : ParameterGroup("Voice")
+        {
+            add(filter);
+        }
+
+        PinnedFilter filter {"Tone", "Frequency"};
+    };
+
+    Voice voice;
+    FlatParams flat;
+};
+
+auto tEnclosing = test("Parameters/entriesNameTheirEnclosingGroups") = []
+{
+    auto params = NestedParams {};
+    auto list = ParameterList {params};
+
+    check(list.size() == 3);
+    check(list.entry(0).id == "Voice/filter/cutoff");
+
+    const auto& groups = list.entry(0).groups;
+    check(groups.size() == 2);
+    check(groups[0].id == "Voice" && groups[0].name == "Voice");
+    check(groups[1].id == "Voice/filter" && groups[1].name == "Tone");
+
+    // A nameless group encloses nothing a host would show.
+    check(list.entry(1).groups.empty());
+    check(list.entry(2).groups.empty());
+};
+
 auto tHostIdLookup = test("Parameters/indexOfHostIdFindsEveryEntry") = []
 {
     auto params = SynthParams {};

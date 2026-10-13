@@ -51,9 +51,15 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginWeb)
     endif ()
 
-    # The standalone format's pieces, where the format was built.
-    if (TARGET MakeASoundStandalone)
+    # The standalone core, wherever the plugin core builds, and the default app's
+    # window-tier pieces where the app was built.
+    if (TARGET MakeASoundStandaloneCore)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandaloneCore)
+    endif ()
+
+    if (TARGET MakeASoundStandalone)
+        list(APPEND MAKEASOUND_TEST_SOURCES StandaloneUITests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
     endif ()
 
@@ -93,6 +99,43 @@ if (MAKEASOUND_BUILD_PLUGIN)
             set_source_files_properties(AUViewTests.mm PROPERTIES
                     COMPILE_OPTIONS -fobjc-arc)
         endif ()
+    endif ()
+
+    # Both AU plist forms, on every Apple platform.
+    if (TARGET MakeASoundAUDescribe)
+        list(APPEND MAKEASOUND_TEST_SOURCES AUPlistTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUDescribe)
+    endif ()
+
+    # The AUv3 adapter, its AUAudioUnit subclass registered in process, on macOS and
+    # in the iOS simulator. The sources every module compiles build into the suite
+    # under a class suffix of the tests' own; the instantiation option is the one
+    # thing that differs per platform.
+    if (TARGET MakeASoundAUv3)
+        get_target_property(auv3_sources MakeASoundAUv3 MAKEASOUND_AUV3_SOURCES)
+        get_target_property(auv3_view_libraries MakeASoundAUv3
+                MAKEASOUND_AUV3_VIEW_LIBRARIES)
+        get_target_property(auv3_has_view MakeASoundAUv3 MAKEASOUND_AUV3_HAS_VIEW)
+
+        if (IOS)
+            set(auv3_host AUv3TestHost-iOS.mm)
+            set(auv3_view_host AUv3ViewTestHost-iOS.mm)
+        else ()
+            set(auv3_host AUv3TestHost-macOS.mm)
+            set(auv3_view_host AUv3ViewTestHost-macOS.mm)
+        endif ()
+
+        set(MAKEASOUND_TEST_AUV3_SOURCES AUv3Tests.mm ${auv3_host} ${auv3_sources})
+
+        # The view controller, the extension's principal class, over the
+        # platform's view framework.
+        if (auv3_has_view)
+            list(APPEND MAKEASOUND_TEST_AUV3_SOURCES
+                    AUv3ViewTests.mm ${auv3_view_host})
+        endif ()
+
+        list(APPEND MAKEASOUND_TEST_SOURCES ${MAKEASOUND_TEST_AUV3_SOURCES})
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUv3 ${auv3_view_libraries})
     endif ()
 
     # The AAX adapter hosted in-process over fakes of the SDK's host interfaces.
@@ -155,7 +198,7 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND MAKEASOUND_TEST_SOURCES PluginAllocationTests.cpp)
     endif ()
 
-    if (TARGET MakeASoundStandalone)
+    if (TARGET MakeASoundStandaloneCore)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneAllocationTests.cpp)
     endif ()
 
@@ -165,6 +208,11 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     if (TARGET MakeASoundAU)
         list(APPEND MAKEASOUND_TEST_SOURCES AUAllocationTests.cpp)
+    endif ()
+
+    if (TARGET MakeASoundAUv3)
+        list(APPEND MAKEASOUND_TEST_SOURCES AUv3AllocationTests.mm)
+        list(APPEND MAKEASOUND_TEST_AUV3_SOURCES AUv3AllocationTests.mm)
     endif ()
 
     if (TARGET MakeASoundAAX)
@@ -183,6 +231,12 @@ nano_add_executable(MakeASoundTests
 # Release LTO as every target of ours has: eacp's Release archives are LTO bitcode
 # under Clang, which a link without -flto cannot read.
 set_target_properties(MakeASoundTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
+if (MAKEASOUND_TEST_AUV3_SOURCES)
+    set_source_files_properties(${MAKEASOUND_TEST_AUV3_SOURCES} PROPERTIES
+            COMPILE_OPTIONS -fobjc-arc
+            COMPILE_DEFINITIONS MAKEASOUND_AUV3_CLASS_SUFFIX=MakeASoundTests)
+endif ()
 
 if (MAKEASOUND_TEST_AU_VIEW)
     target_compile_definitions(MakeASoundTests PRIVATE MAKEASOUND_AU_HAS_VIEW=1)

@@ -32,6 +32,10 @@ const PluginDescription* findPlugin(const ModuleDescription& module,
 
 std::string fourCCString(OSType code);
 
+// The standard AudioComponents tag an app extension lists for the category:
+// "Synthesizer", "MIDI" or "Effects".
+std::string_view componentTag(Category category) noexcept;
+
 // "major.minor.patch" as AudioComponents wants it: major << 16 | minor << 8 |
 // patch, a missing or unreadable part counting as 0.
 UInt32 versionNumber(std::string_view version) noexcept;

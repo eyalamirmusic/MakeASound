@@ -18,6 +18,7 @@ enum class PluginFormat
     Unknown,
     VST3,
     AU,
+    AUv3,
     AAX,
     Standalone
 };
