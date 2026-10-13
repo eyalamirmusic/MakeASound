@@ -142,51 +142,88 @@ void ParameterList::assignIds()
     {
         auto& entry = entries[index];
         auto pinned = entry.param->explicitHostId();
+        entry.hostId = pinned.value_or(derivedHostId(entry, index));
 
-        switch (ids.scheme)
+        switch (ids.auv3)
         {
-            case IdScheme::MakeASound:
-                entry.hostId = pinned.value_or(hostIdFor(entry.id));
+            case AUv3Ids::HostIdAndPath:
                 entry.address = entry.hostId;
                 entry.identifier = entry.id;
-                entry.aaxId = hexId(entry.hostId);
                 break;
 
-            case IdScheme::JUCE:
-            {
-                auto hash = Compat::juceStringHash(entry.hostKey);
-
-                if (ids.juceStudioOneMask)
-                    hash &= 0x7fffffffu;
-
-                entry.hostId =
-                    pinned.value_or(entry.addedBypass ? juceVst3BypassId : hash);
+            case AUv3Ids::JuceHash64AndKey:
                 entry.address = entry.addedBypass
                                     ? entry.hostId
                                     : Compat::juceStringHash64(entry.hostKey);
                 entry.identifier = entry.hostKey;
+                break;
+
+            case AUv3Ids::IndexAndKey:
+                entry.address = static_cast<uint64_t>(index);
+                entry.identifier = entry.hostKey;
+                break;
+        }
+
+        switch (ids.aaxIds)
+        {
+            case AAXIdRule::HexHostId:
+                entry.aaxId = hexId(entry.hostId);
+                break;
+
+            case AAXIdRule::KeyOrOverride:
                 entry.aaxId = entry.param->explicitAAXId().empty()
                                   ? entry.hostKey
                                   : entry.param->explicitAAXId();
                 break;
-            }
 
-            case IdScheme::JUCELegacyIndex:
-                entry.hostId = pinned.value_or(static_cast<uint32_t>(index));
-                entry.address = static_cast<uint64_t>(index);
-                entry.identifier = entry.hostKey;
+            case AAXIdRule::DecimalIndex:
                 entry.aaxId = std::to_string(index);
                 break;
         }
 
-        if (isJuceScheme(ids.scheme) && entry.bypass)
+        if (ids.aaxIds != AAXIdRule::HexHostId && entry.bypass)
             entry.aaxId = std::string {juceAAXBypassId};
 
-        entry.listedInAU = !(isJuceScheme(ids.scheme) && entry.addedBypass);
+        entry.listedInAU =
+            !(entry.addedBypass && ids.addedBypassInAU == BypassPlacement::Unlisted);
 
         for (auto& group: entry.groups)
-            group.identifier = isJuceScheme(ids.scheme) ? group.ownId : group.id;
+            group.identifier =
+                ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
     }
+}
+
+uint32_t ParameterList::derivedHostId(const Entry& entry, int index) const noexcept
+{
+    if (entry.addedBypass)
+    {
+        switch (ids.addedBypassId)
+        {
+            case AddedBypassId::PathHash:
+                return hostIdFor(entry.id);
+            case AddedBypassId::JuceByps:
+                return juceVst3BypassId;
+            case AddedBypassId::Index:
+                return static_cast<uint32_t>(index);
+        }
+    }
+
+    switch (ids.paramIds)
+    {
+        case ParamIdRule::PathHash:
+            break;
+
+        case ParamIdRule::JuceKeyHash:
+        {
+            auto hash = Compat::juceStringHash(entry.hostKey);
+            return ids.juceMask31 ? hash & 0x7fffffffu : hash;
+        }
+
+        case ParamIdRule::Index:
+            return static_cast<uint32_t>(index);
+    }
+
+    return hostIdFor(entry.id);
 }
 
 void ParameterList::indexHostIds()
@@ -218,7 +255,7 @@ Vector<std::string> ParameterList::identityProblems() const
     auto problems = Vector<std::string> {};
     findDuplicateHostIds(problems);
 
-    auto unmasked = ids.scheme == IdScheme::JUCE && !ids.juceStudioOneMask;
+    auto unmasked = ids.paramIds == ParamIdRule::JuceKeyHash && !ids.juceMask31;
 
     for (const auto& entry: entries)
         if (auto pinned = entry.param->explicitHostId();
@@ -233,7 +270,7 @@ Vector<std::string> ParameterList::identityProblems() const
                                 entries[byAddress[i - 1].index].id,
                                 entries[byAddress[i].index].id));
 
-    if (!isJuceScheme(ids.scheme))
+    if (!ids.juceChecks)
         return problems;
 
     // JUCE's own checks (AudioProcessor::checkForDuplicateParamID,
@@ -357,7 +394,7 @@ bool ParameterList::isHostExposed(int index) const noexcept
 
 bool ParameterList::isRegistered(int index) const noexcept
 {
-    if (isJuceScheme(ids.scheme))
+    if (ids.registration == Registration::All)
         return index >= 0 && index < size();
 
     return isHostExposed(index);

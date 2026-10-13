@@ -441,7 +441,9 @@ auto tReserved = test("Identity/aPinBeyondThirtyOneBitsIsAProblem") = []
     auto list = MakeASound::ParameterList {params};
     check(list.identityProblems().size() == 1);
 
-    list.setIdentity({IdScheme::JUCE, false});
+    list.setIdentity(MakeASound::policyFor(IdScheme::JUCE,
+                                           {.studioOneCompatibleParameters = false})
+                         .parameters);
     check(list.identityProblems().empty());
 };
 
@@ -467,7 +469,7 @@ auto tRepeatedKey = test("Identity/aRepeatedJuceKeyIsAProblemUnderJuceOnly") = [
     check(list.identityProblems().empty());
 
     auto juce = MakeASound::ParameterList {
-        params, MakeASound::ParameterIdentity {MakeASound::IdScheme::JUCE}};
+        params, MakeASound::policyFor(MakeASound::IdScheme::JUCE, {}).parameters};
     auto problems = juce.identityProblems();
 
     // The key, the AUv3 address hashed from it, and the AAX id that is the key.

@@ -1,5 +1,6 @@
 #include "HostParameters.h"
 #include "../Compat/JuceIdentity.h"
+#include "../Core/IdentityPolicy.h"
 
 #include <algorithm>
 #include <cmath>
@@ -174,23 +175,41 @@ float valueForText(const Parameter& param, CFStringRef text)
     return std::clamp(value, param.minValue(), param.maxValue());
 }
 
+ParameterSpace::ParameterSpace(const ParameterIdentity& identity) noexcept
+    : rules(identity)
+{
+}
+
 ParameterSpace::ParameterSpace(IdScheme scheme, const JuceSettings& juce) noexcept
-    : idScheme(scheme)
-    , juceSettings(juce)
+    : ParameterSpace(policyFor(scheme, juce).parameters)
 {
 }
 
 ParameterSpace::ParameterSpace(const PluginDescription& plugin) noexcept
-    : ParameterSpace(plugin.idScheme, plugin.juce)
+    : ParameterSpace(identityPolicyFor(plugin).parameters)
 {
 }
 
 bool ParameterSpace::isListed(const ParameterList& list, int index) const noexcept
 {
-    if (!isJuce())
-        return list.isHostExposed(index);
+    auto registered = rules.registration == Registration::All
+                          ? index >= 0 && index < list.size()
+                          : list.isHostExposed(index);
 
-    return index >= 0 && index < list.size() && list.entry(index).listedInAU;
+    return registered && list.entry(index).listedInAU;
+}
+
+Compat::JuceAUParameterInfo
+    ParameterSpace::juceInfo(const ParameterList::Entry& entry) const noexcept
+{
+    auto settings = JuceSettings {};
+    settings.forceLegacyParameterAutomationType = rules.juceLegacyAutomationType;
+
+    auto scheme = rules.paramIds == ParamIdRule::Index ? IdScheme::JUCELegacyIndex
+                                                       : IdScheme::JUCE;
+
+    return Compat::juceAUParameterInfo(
+        *entry.param, entry.automatable, scheme, settings);
 }
 
 Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
@@ -207,6 +226,11 @@ Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
     std::sort(order.begin(),
               order.end(),
               [&](int a, int b) { return hostId(a) < hostId(b); });
+
+    // The SDK's indexed list is ids 0..n-1 in order.
+    if (rules.auOrder == AUOrder::SdkIndexed)
+        return order;
+
     std::stable_sort(
         order.begin(), order.end(), [&](int a, int b) { return hint(a) < hint(b); });
     return order;
@@ -231,8 +255,7 @@ void ParameterSpace::fillInfo(const ParameterList::Entry& entry,
     }
 
     // AU_1.mm GetParameterInfo, less clumps and meters, which MakeASound has not.
-    auto juce = Compat::juceAUParameterInfo(
-        *entry.param, entry.automatable, idScheme, juceSettings);
+    auto juce = juceInfo(entry);
 
     info = AudioUnitParameterInfo {};
     info.cfNameString = makeCFString(entry.displayName);
@@ -245,8 +268,7 @@ void ParameterSpace::fillInfo(const ParameterList::Entry& entry,
 
     if (juce.indexedUnit)
         info.unit = kAudioUnitParameterUnit_Indexed;
-    else if (juce.boolean && juce.discrete
-             && !juceSettings.forceLegacyParameterAutomationType)
+    else if (juce.boolean && juce.discrete && !rules.juceLegacyAutomationType)
         info.unit = kAudioUnitParameterUnit_Boolean;
     else
         info.unit = kAudioUnitParameterUnit_Generic;
@@ -272,11 +294,10 @@ float ParameterSpace::toHost(const ParameterList::Entry& entry,
 {
     const auto& param = *entry.param;
 
-    if (!isJuce())
+    if (rules.auValues == AUValueSpace::NativeCurve)
         return toHostValue(param, plain);
 
-    auto juce = Compat::juceAUParameterInfo(
-        param, entry.automatable, idScheme, juceSettings);
+    auto juce = juceInfo(entry);
     return juce.toHost(param.toNormalized(plain));
 }
 
@@ -285,11 +306,10 @@ float ParameterSpace::fromHost(const ParameterList::Entry& entry,
 {
     const auto& param = *entry.param;
 
-    if (!isJuce())
+    if (rules.auValues == AUValueSpace::NativeCurve)
         return fromHostValue(param, hostValue);
 
-    auto juce = Compat::juceAUParameterInfo(
-        param, entry.automatable, idScheme, juceSettings);
+    auto juce = juceInfo(entry);
     return param.toPlain(std::clamp(juce.toNormalized(hostValue), 0.f, 1.f));
 }
 
@@ -299,8 +319,7 @@ bool ParameterSpace::hasValueStrings(const ParameterList::Entry& entry,
     if (!isJuce())
         return AU::hasValueStrings(*entry.param);
 
-    auto juce = Compat::juceAUParameterInfo(
-        *entry.param, entry.automatable, idScheme, juceSettings);
+    auto juce = juceInfo(entry);
     return flavour == AUFlavour::V2 ? juce.v2ValueStrings : juce.v3ValueStrings;
 }
 
@@ -317,8 +336,7 @@ CFArrayRef ParameterSpace::copyValueStrings(const ParameterList::Entry& entry,
 
     // JUCE's getNumSteps() strings, the text of i / maxValue each; past 1 under
     // the legacy automation type, which JUCE's range clamps.
-    auto juce = Compat::juceAUParameterInfo(
-        param, entry.automatable, idScheme, juceSettings);
+    auto juce = juceInfo(entry);
     auto count = param.numSteps() + 1;
     auto* array =
         CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);

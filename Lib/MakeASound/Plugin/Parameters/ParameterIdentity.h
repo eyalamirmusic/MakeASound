@@ -6,10 +6,12 @@
 namespace MakeASound
 {
 
-// How hosts address a plugin's parameters, and the plugin itself. MakeASound's
-// own scheme is the default; the two JUCE ones are for a plugin ported from
-// JUCE that must keep its users' sessions and automation, and follow its
-// JUCE_FORCE_USE_LEGACY_PARAM_IDS setting (0, JUCE's default: JUCE).
+// How hosts address a plugin's parameters, and the plugin itself: a
+// compatibility profile, which policyFor() (Core/IdentityPolicy.h) resolves into
+// the rules every format adapter reads. MakeASound's own scheme is the default;
+// the two JUCE ones are for a plugin ported from JUCE that must keep its users'
+// sessions and automation, and follow its JUCE_FORCE_USE_LEGACY_PARAM_IDS
+// setting (0, JUCE's default: JUCE).
 enum class IdScheme
 {
     // VST3 and AU ids FNV-1a of the id path, an AUv3 address the same and its
@@ -26,21 +28,166 @@ enum class IdScheme
     JUCELegacyIndex
 };
 
+// Whether the profile is one of JUCE's. Read only by policyFor(): everything
+// else reads the resolved rules.
 constexpr bool isJuceScheme(IdScheme scheme) noexcept
 {
     return scheme != IdScheme::MakeASound;
 }
 
-// The half of a plugin's identity its ParameterList computes. PluginWrapper
-// applies it, from the plugin's PluginDescription (parameterIdentityFor()).
+// The VST3 and AU id of an entry.
+enum class ParamIdRule
+{
+    // hostIdFor() of the id path.
+    PathHash,
+
+    // JUCE's String::hashCode of the hostKey, masked to 31 bits when
+    // ParameterIdentity::juceMask31 says so.
+    JuceKeyHash,
+
+    // The entry's position in the depth-first list.
+    Index
+};
+
+// Which entries the VST3 and AAX adapters register, and an AU lists.
+enum class Registration
+{
+    // The host-exposed (automatable) ones only.
+    ExposedOnly,
+
+    // Every one, a non-automatable one as not automatable (NonRealTime in an
+    // AU), as JUCE's wrappers do.
+    All
+};
+
+// The VST3 and AU id of the bypass PluginWrapper adds for an effect with none.
+enum class AddedBypassId
+{
+    // hostIdFor("__bypass"), as any other entry.
+    PathHash,
+
+    // 'byps', JUCE's (juceVst3BypassId).
+    JuceByps,
+
+    // Its index, as any other entry.
+    Index
+};
+
+// Whether an AU host sees the added bypass in the parameter list, or only
+// through kAudioUnitProperty_BypassEffect.
+enum class BypassPlacement
+{
+    // Listed, with versionHint 0, so first in a (hint, id) order.
+    Listed,
+
+    // JUCE's AU and AUv3 do not list the bypass they answer through the
+    // property, so listing it would move every Logic automation index by one.
+    Unlisted
+};
+
+// The AUv3 AUParameter address and identifier.
+enum class AUv3Ids
+{
+    // The host id and the id path.
+    HostIdAndPath,
+
+    // String::hashCode64 of the hostKey, never masked, and the hostKey.
+    JuceHash64AndKey,
+
+    // The index and the hostKey.
+    IndexAndKey
+};
+
+// The AAX_CParamID.
+enum class AAXIdRule
+{
+    // The host id in eight lowercase hex digits.
+    HexHostId,
+
+    // ParameterOptions::aaxId, else the hostKey; "MasterBypassID" for the
+    // bypass, declared or added.
+    KeyOrOverride,
+
+    // The index in decimal; "MasterBypassID" for the bypass.
+    DecimalIndex
+};
+
+// A named group's AUv3 AUParameterGroup identifier (and later its VST3 unit).
+enum class GroupIdRule
+{
+    // The group's id path.
+    Path,
+
+    // The group's own id, as JUCE's tree names it.
+    OwnId
+};
+
+// GetParameterList's order.
+enum class AUOrder
+{
+    // The listed entries sorted by host id and then, stably, by versionHint, as
+    // JUCE's AU does, so a parameter added with a higher hint never moves an
+    // older one's index, which Logic automates by.
+    HintThenId,
+
+    // The AudioUnitSDK's own indexed list, ids 0..n-1 (JUCE's legacy ids).
+    SdkIndexed
+};
+
+// The range and value space an AU host sees.
+enum class AUValueSpace
+{
+    // Plain, or 0..1 where the curve is Other (AU::publishesNormalized).
+    NativeCurve,
+
+    // JUCE's: 0..1, or 0..steps for a choice and a bool, every value the
+    // normalized one times the maximum (Compat::juceAUParameterInfo).
+    JuceScaled
+};
+
+// An AU parameter's unit, flags and value strings.
+enum class AUUnits
+{
+    // Boolean, Indexed for a whole-number grid, Generic otherwise;
+    // HighResolution, the curve's display flag and ValuesHaveStrings for a
+    // choice or a bool (AU::fillParameterInfo).
+    Native,
+
+    // JUCE's AU (Compat::juceAUParameterInfo).
+    Juce
+};
+
+// The half of a plugin's identity its ParameterList computes and the AU and
+// AUv3 adapters publish: the parameter rules of the resolved IdentityPolicy.
+// PluginWrapper applies it, from the plugin's PluginDescription
+// (identityPolicyFor()). The defaults are MakeASound's own.
 struct ParameterIdentity
 {
-    IdScheme scheme = IdScheme::MakeASound;
+    ParamIdRule paramIds = ParamIdRule::PathHash;
 
     // JUCE_USE_STUDIO_ONE_COMPATIBLE_PARAMETERS (1, JUCE's default): JUCE masks
     // its VST3 and AU ids to 31 bits. Off, a host id may be 2^31 or more. Read
-    // only under IdScheme::JUCE.
-    bool juceStudioOneMask = true;
+    // only under ParamIdRule::JuceKeyHash.
+    bool juceMask31 = true;
+
+    Registration registration = Registration::ExposedOnly;
+
+    // JUCE's own id checks (duplicate keys, truncated AAX ids, group ids) in
+    // ParameterList::identityProblems().
+    bool juceChecks = false;
+
+    AddedBypassId addedBypassId = AddedBypassId::PathHash;
+    BypassPlacement addedBypassInAU = BypassPlacement::Listed;
+    AUv3Ids auv3 = AUv3Ids::HostIdAndPath;
+    AAXIdRule aaxIds = AAXIdRule::HexHostId;
+    GroupIdRule groups = GroupIdRule::Path;
+    AUOrder auOrder = AUOrder::HintThenId;
+    AUValueSpace auValues = AUValueSpace::NativeCurve;
+    AUUnits auUnits = AUUnits::Native;
+
+    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE, for JuceScaled values and
+    // JUCE units.
+    bool juceLegacyAutomationType = false;
 
     constexpr bool operator==(const ParameterIdentity&) const = default;
 };

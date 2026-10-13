@@ -1,20 +1,21 @@
 #pragma once
 
 #include "Description.h"
+#include "IdentityPolicy.h"
 
 #include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
-// The ids a host stores for a plugin, by its description's IdScheme and
-// overrides, so every format adapter reads them and computes none. A
-// parameter's ids are on its ParameterList::Entry, under the identity
-// parameterIdentityFor() gives and PluginWrapper applies.
+// The ids a host stores for a plugin, by its description's resolved
+// IdentityPolicy and overrides, so every format adapter reads them and computes
+// none. A parameter's ids are on its ParameterList::Entry, under the policy's
+// parameter half, which PluginWrapper applies.
 namespace MakeASound
 {
 
-// The description's scheme with JUCE's Studio One mask.
+// identityPolicyFor(plugin).parameters.
 ParameterIdentity parameterIdentityFor(const PluginDescription& plugin) noexcept;
 
 // MakeASound's VST3 class id: FUID(manufacturer, plugin, 'VST3', 0), Plug's

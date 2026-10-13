@@ -92,12 +92,12 @@ bool hasCocoaView()
 // JUCE's AU check (juce_AudioProcessor.cpp, validateParameter), once per process:
 // a parameter with no versionHint has no place in the list a later release can
 // keep. The bypass the wrapper adds is exempt, since its hint is the framework's,
-// and so is JUCELegacyIndex, whose list is by index.
+// and so is the SDK's indexed list (JUCELegacyIndex), which is by index.
 void assertVersionHints(const ParameterList& list, const ParameterSpace& space)
 {
     static auto asserted = std::atomic<bool> {false};
 
-    if (space.scheme() == IdScheme::JUCELegacyIndex)
+    if (space.order() == AUOrder::SdkIndexed)
         return;
 
     auto bypass = list.bypassIndex();
@@ -320,7 +320,7 @@ void Adapter::PostConstructor()
     // JUCE_FORCE_USE_LEGACY_PARAM_IDS: the SDK's own indexed list, as JUCE's
     // addParameters, the listed entries being exactly indices 0..n-1 (the added
     // bypass, unlisted, is last).
-    if (space.scheme() == IdScheme::JUCELegacyIndex)
+    if (space.order() == AUOrder::SdkIndexed)
     {
         Globals()->UseIndexedParameters(static_cast<UInt32>(exposed.size()));
 
@@ -476,8 +476,7 @@ OSStatus Adapter::GetParameterList(AudioUnitScope scope,
                                    AudioUnitParameterID* outList,
                                    UInt32& outCount)
 {
-    if (scope != kAudioUnitScope_Global
-        || space.scheme() == IdScheme::JUCELegacyIndex)
+    if (scope != kAudioUnitScope_Global || space.order() == AUOrder::SdkIndexed)
         return MusicDeviceBase::GetParameterList(scope, outList, outCount);
 
     outCount = static_cast<UInt32>(listOrder.size());

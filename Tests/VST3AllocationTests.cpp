@@ -23,7 +23,7 @@ std::vector<Vst::ParamID> exposedIds(MakeASound::VST3::Adapter& adapter)
 {
     auto ids = std::vector<Vst::ParamID> {};
     const auto& list = adapter.plugin().parameters();
-    auto everyOne = MakeASound::isJuceScheme(list.identity().scheme);
+    auto everyOne = list.identity().registration == MakeASound::Registration::All;
 
     // A JUCE scheme registers the non-automatable ones too.
     for (auto i = 0; i < list.size(); ++i)
@@ -211,11 +211,12 @@ auto tPluginSideChanges =
 auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
 {
     using MakeASound::IdScheme;
-    using MakeASound::ParameterIdentity;
+    using MakeASound::policyFor;
 
     // The fixture's cutoff is 2945903597 unmasked.
     auto unmasked = AdapterHost<JuceFixtures::FixturePlugin> {
-        ParameterIdentity {IdScheme::JUCE, false}};
+        policyFor(IdScheme::JUCE, {.studioOneCompatibleParameters = false})
+            .parameters};
     check(allocationsOverBlocks(unmasked, false, maxBlock) == 0);
 
     auto ids = exposedIds(*unmasked.adapter);
@@ -249,7 +250,7 @@ auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
     check(count == 0);
 
     auto legacy = AdapterHost<SynthPlugin> {
-        ParameterIdentity {IdScheme::JUCELegacyIndex}, withMidiControllers};
+        policyFor(IdScheme::JUCELegacyIndex, {}).parameters, withMidiControllers};
     check(allocationsOverBlocks(legacy, false, maxBlock) == 0);
 };
 

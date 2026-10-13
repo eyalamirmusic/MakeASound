@@ -67,9 +67,10 @@ struct FixtureParams : ParameterGroup
     VoiceParams voice;
 };
 
-constexpr auto juce = ParameterIdentity {IdScheme::JUCE};
-constexpr auto juceUnmasked = ParameterIdentity {IdScheme::JUCE, false};
-constexpr auto juceLegacy = ParameterIdentity {IdScheme::JUCELegacyIndex};
+constexpr auto juce = policyFor(IdScheme::JUCE, {}).parameters;
+constexpr auto juceUnmasked =
+    policyFor(IdScheme::JUCE, {.studioOneCompatibleParameters = false}).parameters;
+constexpr auto juceLegacy = policyFor(IdScheme::JUCELegacyIndex, {}).parameters;
 
 // JUCE's per-id numbers: convertJuceParameterId(id, true), (id, false) and
 // hashCode64.
@@ -598,6 +599,36 @@ auto tIdentityFor = test("JuceCompat/aDescriptionGivesItsParameterIdentity") = [
     plugin.idScheme = IdScheme::JUCE;
     plugin.juce.studioOneCompatibleParameters = false;
     check(parameterIdentityFor(plugin) == juceUnmasked);
+};
+
+// The profiles resolve at compile time, and only the profile and JUCE's
+// settings decide the rules.
+static_assert(policyFor(IdScheme::MakeASound, {}) == IdentityPolicy {});
+static_assert(policyFor(IdScheme::JUCE, {}).vst3Class == Vst3ClassRule::JuceVst2);
+static_assert(policyFor(IdScheme::JUCE, {.vst3CanReplaceVst2 = false}).vst3Class
+              == Vst3ClassRule::JuceVst3);
+
+auto tPolicies = test("JuceCompat/eachProfileResolvesToItsRules") = []
+{
+    auto native = policyFor(IdScheme::MakeASound, {.vst3CanReplaceVst2 = false});
+    check(native == IdentityPolicy {});
+
+    auto modern = policyFor(IdScheme::JUCE, {}).parameters;
+    check(modern.paramIds == ParamIdRule::JuceKeyHash);
+    check(modern.addedBypassId == AddedBypassId::JuceByps);
+    check(modern.addedBypassInAU == BypassPlacement::Unlisted);
+    check(modern.auOrder == AUOrder::HintThenId);
+
+    auto legacy = policyFor(IdScheme::JUCELegacyIndex, {}).parameters;
+    check(legacy.paramIds == ParamIdRule::Index);
+    check(legacy.addedBypassId == AddedBypassId::Index);
+    check(legacy.auOrder == AUOrder::SdkIndexed);
+    check(legacy.aaxIds == AAXIdRule::DecimalIndex);
+
+    auto plugin = PluginDescription {.name = "Port",
+                                     .pluginCode = FourCC("Port"),
+                                     .idScheme = IdScheme::JUCELegacyIndex};
+    check(identityPolicyFor(plugin) == policyFor(IdScheme::JUCELegacyIndex, {}));
 };
 
 } // namespace

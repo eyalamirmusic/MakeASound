@@ -1060,7 +1060,8 @@ auto tJuceSessionIds = test("VST3/aJuceSessionKeepsItsAutomationIds") = []
 auto tJuceNonAutomatable =
     test("VST3/aJucePortListsItsNonAutomatableParameters") = []
 {
-    auto host = AdapterHost<LatencyPlugin> {ParameterIdentity {IdScheme::JUCE}};
+    auto host =
+        AdapterHost<LatencyPlugin> {policyFor(IdScheme::JUCE, {}).parameters};
     auto& adapter = *host.adapter;
     auto hiddenId = juceId("Hidden");
 
@@ -1107,8 +1108,9 @@ auto tJuceNonAutomatable =
 // the automation queue, the controller and the plugin's own moves.
 auto tJuceUnmasked = test("VST3/aJucePortsUnmaskedIdsReachThePlugin") = []
 {
-    auto host =
-        AdapterHost<FixturePlugin> {ParameterIdentity {IdScheme::JUCE, false}};
+    auto host = AdapterHost<FixturePlugin> {
+        policyFor(IdScheme::JUCE, {.studioOneCompatibleParameters = false})
+            .parameters};
     auto& cutoff = host.plugin().params.cutoff;
 
     check(host.hostIdOf(cutoff) == juceCutoffUnmasked);
@@ -1138,7 +1140,7 @@ auto tJuceUnmasked = test("VST3/aJucePortsUnmaskedIdsReachThePlugin") = []
 auto tJuceLegacy = test("VST3/aJuceLegacyPortAddressesParametersByIndex") = []
 {
     auto host = AdapterHost<FixturePlugin> {
-        ParameterIdentity {IdScheme::JUCELegacyIndex}};
+        policyFor(IdScheme::JUCELegacyIndex, {}).parameters};
     auto& adapter = *host.adapter;
     const auto& list = host.plugin().parameters();
 

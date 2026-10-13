@@ -2523,7 +2523,8 @@ auto tPortType = test("AU/aJucePortRegistersAndDispatchesItsAUType") = []
         check(AudioComponentInstanceNew(portComponentFor(scheme), &unit) == noErr);
         check(Module::lastCreated != nullptr);
         check(Module::lastCreated->name() == "Port");
-        check(Module::lastCreated->parameters().identity().scheme == scheme);
+        check(Module::lastCreated->parameters().identity()
+              == policyFor(scheme, {}).parameters);
         AudioComponentInstanceDispose(unit);
     }
 };

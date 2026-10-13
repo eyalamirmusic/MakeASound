@@ -14,23 +14,6 @@ namespace
 using namespace IdentityManifest;
 using MakeASound::AU::ParameterSpace;
 
-// What the adapter's GetParameterList answers: the SDK's indexed list, ids
-// 0..n-1, under JUCELegacyIndex, the space's order otherwise.
-MakeASound::Vector<int> publishedOrder(const PluginDescription& plugin,
-                                       const ParameterList& list,
-                                       const ParameterSpace& space)
-{
-    auto order = space.listOrder(list);
-
-    if (plugin.idScheme == IdScheme::JUCELegacyIndex)
-        std::sort(order.begin(),
-                  order.end(),
-                  [&](int a, int b)
-                  { return list.entry(a).hostId < list.entry(b).hostId; });
-
-    return order;
-}
-
 void describeAU(const ModuleDescription& module,
                 const PluginDescription& plugin,
                 Lines& out)
@@ -46,7 +29,7 @@ void describeAU(const ModuleDescription& module,
     const auto& list = wrapper.plugin().parameters();
     auto space = ParameterSpace(plugin);
 
-    auto order = publishedOrder(plugin, list, space);
+    auto order = space.listOrder(list);
     auto ids = std::string {};
 
     for (auto index: order)

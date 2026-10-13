@@ -1442,7 +1442,7 @@ auto tPortSeed = test("AUv3/aJuceTreeIsSeededWithTheNormalizedDefault") = []
     params.cutoff.setValue(5000.f);
     params.enabled.setValue(0.f);
 
-    auto list = ParameterList {params, ParameterIdentity {IdScheme::JUCE}};
+    auto list = ParameterList {params, policyFor(IdScheme::JUCE, {}).parameters};
     auto* tree = AUv3::makeParameterTree(
         list, AU::ParameterSpace(IdScheme::JUCE, JuceSettings {}));
     auto* cutoff = [tree parameterWithAddress:1052795674147ull];

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/Description.h"
+#include "../Compat/JuceIdentity.h"
 #include "../Parameters/ParameterList.h"
 
 #include <AudioToolbox/AudioToolbox.h>
@@ -55,30 +56,34 @@ enum class AUFlavour
     V3
 };
 
-// How an AU host, v2 or AUv3, sees a plugin's parameters, by its description's
-// IdScheme. MakeASound's scheme is everything above: the exposed entries, the
-// plain or normalized range, fillParameterInfo. A JUCE scheme is JUCE's AU
-// (Compat::juceAUParameterInfo): every entry listedInAU (a non-automatable one
-// NonRealTime, the added bypass left to the bypass property), 0..1 or 0..steps
-// for a choice and a bool, every value the normalized one times the maximum.
-// Pure and allocation-free but for the info and the value strings.
+// How an AU host, v2 or AUv3, sees a plugin's parameters, by the AU rules of its
+// resolved ParameterIdentity. MakeASound's are everything above: the exposed
+// entries, the plain or normalized range, fillParameterInfo. JUCE's are JUCE's
+// AU (Compat::juceAUParameterInfo): every entry listedInAU (a non-automatable
+// one NonRealTime, the added bypass left to the bypass property), 0..1 or
+// 0..steps for a choice and a bool, every value the normalized one times the
+// maximum. Pure and allocation-free but for the info and the value strings.
 class ParameterSpace
 {
 public:
     ParameterSpace() = default;
+    explicit ParameterSpace(const ParameterIdentity& identity) noexcept;
     ParameterSpace(IdScheme scheme, const JuceSettings& juce) noexcept;
     explicit ParameterSpace(const PluginDescription& plugin) noexcept;
 
-    IdScheme scheme() const noexcept { return idScheme; }
-    bool isJuce() const noexcept { return isJuceScheme(idScheme); }
+    const ParameterIdentity& identity() const noexcept { return rules; }
+    AUOrder order() const noexcept { return rules.auOrder; }
 
-    // Whether the host addresses the entry at all: isHostExposed under
-    // MakeASound's scheme, listedInAU under a JUCE one.
+    // JUCE's units, flags and tree (AUUnits::Juce).
+    bool isJuce() const noexcept { return rules.auUnits == AUUnits::Juce; }
+
+    // Whether the host addresses the entry at all: registered (Registration)
+    // and listedInAU.
     bool isListed(const ParameterList& list, int index) const noexcept;
 
-    // The listed entries' indices in GetParameterList's order (see
-    // parameterListOrder), and the first listed one other than `skip` without a
-    // versionHint, -1 when none.
+    // The listed entries' indices in GetParameterList's order (AUOrder: see
+    // parameterListOrder, or by host id for the SDK's indexed list), and the
+    // first listed one other than `skip` without a versionHint, -1 when none.
     Vector<int> listOrder(const ParameterList& list) const;
     int firstUnhinted(const ParameterList& list, int skip) const noexcept;
 
@@ -98,8 +103,10 @@ public:
                                 AUFlavour flavour) const;
 
 private:
-    IdScheme idScheme = IdScheme::MakeASound;
-    JuceSettings juceSettings = {};
+    Compat::JuceAUParameterInfo
+        juceInfo(const ParameterList::Entry& entry) const noexcept;
+
+    ParameterIdentity rules = {};
 };
 
 } // namespace MakeASound::AU

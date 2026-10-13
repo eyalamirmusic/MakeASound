@@ -5,6 +5,7 @@
 
 #include "../MakeASound.h"
 #include "Core/Description.h"
+#include "Core/IdentityPolicy.h"
 #include "Core/Identity.h"
 #include "Parameters/ParameterIdentity.h"
 #include "Parameters/Parameter.h"

@@ -4,9 +4,14 @@
 namespace MakeASound
 {
 
+IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept
+{
+    return policyFor(plugin.idScheme, plugin.juce);
+}
+
 ParameterIdentity parameterIdentityFor(const PluginDescription& plugin) noexcept
 {
-    return {plugin.idScheme, plugin.juce.studioOneCompatibleParameters};
+    return identityPolicyFor(plugin).parameters;
 }
 
 Vst3ClassId makeASoundVst3ClassId(FourCC manufacturer, FourCC plugin) noexcept
@@ -21,10 +26,12 @@ Vst3ClassId vst3ClassIdFor(const ModuleDescription& module,
     if (plugin.vst3ClassId)
         return *plugin.vst3ClassId;
 
-    if (!isJuceScheme(plugin.idScheme))
+    auto rule = identityPolicyFor(plugin).vst3Class;
+
+    if (rule == Vst3ClassRule::Native)
         return makeASoundVst3ClassId(module.manufacturerCode, plugin.pluginCode);
 
-    if (!plugin.juce.vst3CanReplaceVst2)
+    if (rule == Vst3ClassRule::JuceVst3)
         return Compat::juceVst3ClassId(module.manufacturerCode, plugin.pluginCode);
 
     auto name =
@@ -64,7 +71,7 @@ uint32_t aaxNativeIdFor(const PluginDescription& plugin, const AAXStems& stems)
     if (plugin.aaxNativeId)
         return plugin.aaxNativeId(stems);
 
-    if (isJuceScheme(plugin.idScheme))
+    if (identityPolicyFor(plugin).aaxPlugin == AAXPluginRule::Juce)
         return Compat::juceAAXPluginId(
             Compat::juceAAXChannelSetIndex(stems.inputChannels),
             Compat::juceAAXChannelSetIndex(stems.outputChannels));
@@ -80,7 +87,7 @@ std::string aaxEffectIdFor(std::string_view bundleId,
 
     auto id = std::string(bundleId);
 
-    if (!isJuceScheme(plugin.idScheme))
+    if (identityPolicyFor(plugin).aaxPlugin == AAXPluginRule::Native)
     {
         id += '.';
         id.append(plugin.pluginCode.chars, 4);
