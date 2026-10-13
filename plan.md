@@ -776,7 +776,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   microphone into the default speakers and fed back.
 - 2026-10-10: VST3 is one `SingleComponentEffect` per plugin (`VST3::Adapter`) driving `PluginWrapper` exactly as `StandaloneProcessor` does. Its `ParamID` is the parameter's 31-bit host id, looked up with `indexOfHostId`. Controller values are read live from the plugin, so the controller cache cannot go stale. `ProxyParameter` converts through the MakeASound `Parameter`, so skewed ranges display correctly.
 - 2026-10-10: VST3 state is one document through `IComponent::getState`/`setState`. It is a `Session` unless the stream's `IStreamAttributes` names a non-project state type, in which case it is a `Preset`. The editor-state pair stays `kNotImplemented`, and `setComponentState` reads nothing, since the component and the controller are one object.
-- 2026-10-10: MIDI CC, channel aftertouch, pitch bend and program change reach a VST3 plugin through `IMidiMapping` onto hidden shadow parameters `0x7FFF0000 | bus << 12 | channel << 8 | controller` (controllers 0–130, at most 16 buses), expanded point by point into `MIDI::Event`s. They are registered whenever the layout has MIDI in, with no flag. A plugin parameter whose host id falls in the range wins, and asserts in debug. Plug's bit-31 marker was dropped because VST3 reserves those ids.
+- 2026-10-10: MIDI CC, channel aftertouch, pitch bend and program change reach a VST3 plugin through `IMidiMapping` onto hidden shadow parameters `0x7FFF0000 | bus << 12 | channel << 8 | controller` (controllers 0–130, at most 16 buses), expanded point by point into `MIDI::Event`s. They are registered whenever the layout has MIDI in, with no flag (superseded 2026-10-13: per plugin, instruments by default). A plugin parameter whose host id falls in the range wins, and asserts in debug. Plug's bit-31 marker was dropped because VST3 reserves those ids.
 - 2026-10-10: the VST3 class id is `FUID(manufacturerCode, pluginCode, 'VST3', 0)`, Plug's derivation, so sessions saved with a Plug build find the MakeASound build of the same plugin. The class carries no `kDistributable` flag.
 - 2026-10-10: `MakeASoundVST3` is one static target. It compiles its `IPlugView` over `EmbeddedView` and links `MakeASoundPluginUI` when that target exists, and a null view otherwise. The choice is at link time, with no static registrar and no `WHOLE_ARCHIVE`. `MakeASoundPlugin` still sees neither the SDK nor eacp-ui.
 - 2026-10-10: a VST3 adapter prepares the wrapper in `setActive(true)`, not `setupProcessing`, so the layout is final when it allocates. A `process` before the first activation renders silence.
@@ -972,3 +972,19 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 - 2026-10-12: a Ninja iOS device build is unsigned, app and extension alike; the
   simulator is signed ad hoc, and a signed device build is Xcode's, through
   `MAKEASOUND_IOS_TEAM`.
+- 2026-10-13: the VST3 MIDI controller shadow parameters are per plugin, no longer
+  registered whenever the layout has MIDI in: `PluginDescription::vst3MidiControllers`
+  (`std::optional<bool>`), resolved by `vst3MidiControllersFor()` to on for
+  `Category::Instrument` and off for `Effect` and `MidiEffect` when unset. On the
+  description, beside `category` and `auType`, because the factory resolves it before
+  any instance exists and it follows the kind of plugin rather than its layout. Off,
+  as Plug's `enableMidiCcAutomation = false` was: no shadow parameter is registered,
+  `IMidiMapping` is still answered but every assignment is `kResultFalse`, a point on
+  a would-be shadow id is dropped, and the parameter-collision assert has no range to
+  guard. The plugin still gets notes, poly pressure, SysEx and any
+  `kLegacyMIDICCOutEvent` a host puts on the event list (Plug dropped those too; kept
+  since a host that sends them means them), but never the CC, bend, aftertouch and
+  program change hosts route through the mapping. AU, AUv3 and AAX deliver MIDI
+  natively, so the setting does not touch them: there an effect with a MIDI input
+  receives CC regardless. A Plug port's MIDI effect that had the flag on (MidiTranspose)
+  sets `.vst3MidiControllers = true`.

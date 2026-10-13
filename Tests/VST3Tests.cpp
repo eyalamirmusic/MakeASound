@@ -413,7 +413,7 @@ auto tParameterInfo = test("VST3/parameterInfoMirrorsTheList") = []
         check(isBypass == (&param == &host.plugin().params.bypass));
     }
 
-    auto instrument = AdapterHost<SynthPlugin> {};
+    auto instrument = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto& synth = *instrument.adapter;
     auto exposed = synth.plugin().parameters().size();
 
@@ -1250,7 +1250,7 @@ auto tSysEx = test("VST3/aSysExRoundTrips") = []
 
 auto tCcMapping = test("VST3/ccArrivesThroughTheMapping") = []
 {
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto id = Vst::ParamID {};
 
     check(host.adapter->getMidiControllerAssignment(0, 3, 74, id)
@@ -1282,7 +1282,7 @@ auto tCcMapping = test("VST3/ccArrivesThroughTheMapping") = []
 
 auto tBendAndPressure = test("VST3/pitchBendAndAftertouchThroughTheMapping") = []
 {
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto bend = Vst::ParamID {};
     auto pressure = Vst::ParamID {};
 
@@ -1314,7 +1314,7 @@ auto tBendAndPressure = test("VST3/pitchBendAndAftertouchThroughTheMapping") = [
 
 auto tProgramChange = test("VST3/programChangeThroughTheMapping") = []
 {
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto id = Vst::ParamID {};
 
     check(
@@ -1340,7 +1340,7 @@ auto tMappingLimits = test("VST3/theMappingRefusesWhatItCannotCarry") = []
     using MakeASound::VST3::decodeShadowId;
     using MakeASound::VST3::shadowIdFor;
 
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto& adapter = *host.adapter;
     auto id = Vst::ParamID {};
 
@@ -1378,6 +1378,161 @@ auto tMappingLimits = test("VST3/theMappingRefusesWhatItCannotCarry") = []
     check(!decodeShadowId(shadowIdFor(1, 0, 0), 1));
     check(!decodeShadowId(shadowIdFor(0, 0, 131), 1));
     check(!decodeShadowId(42, 1));
+};
+
+// A module of one plugin, P under `category` and `midiControllers`, with the
+// adapter its factory creates, initialized as a host would.
+template <typename P>
+struct FactoryHosted
+{
+    FactoryHosted(Category category, std::optional<bool> midiControllers)
+    {
+        module.vendor = "MakeASound Tests";
+        module.manufacturerCode = "MaSo";
+        module.plugins.add({.name = "Hosted",
+                            .category = category,
+                            .pluginCode = "Hstd",
+                            .create = [] { return EA::makeOwned<P>(); },
+                            .vst3MidiControllers = midiControllers});
+
+        auto factory = Steinberg::owned(MakeASound::VST3::makeFactory(module));
+        auto cid = MakeASound::VST3::classIdFor(module, module.plugins[0]);
+        auto* object = static_cast<void*>(nullptr);
+        factory->createInstance(reinterpret_cast<Steinberg::FIDString>(cid.toTUID()),
+                                Vst::IComponent::iid,
+                                &object);
+
+        component = Steinberg::owned(static_cast<Vst::IComponent*>(object));
+        component->initialize(nullptr);
+    }
+
+    ~FactoryHosted() { component->terminate(); }
+
+    Adapter& adapter() { return *static_cast<Adapter*>(component.get()); }
+
+    ModuleDescription module;
+    Steinberg::IPtr<Vst::IComponent> component;
+};
+
+// The plugin's registered parameters come first, by the same host ids whatever
+// the setting; the 2096 hidden shadows of its one MIDI bus follow only when
+// MIDI controllers are on, and the mapping answers only then.
+template <typename P>
+void checkMidiControllers(Category category,
+                          std::optional<bool> midiControllers,
+                          bool expectOn)
+{
+    using MakeASound::VST3::decodeShadowId;
+
+    auto hosted = FactoryHosted<P> {category, midiControllers};
+    auto& adapter = hosted.adapter();
+    const auto& list = adapter.plugin().parameters();
+
+    auto pluginIds = std::vector<Vst::ParamID> {};
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isRegistered(i))
+            pluginIds.push_back(list.entry(i).hostId);
+
+    auto numPluginIds = static_cast<int>(pluginIds.size());
+    check(numPluginIds > 0);
+    check(adapter.getParameterCount() == numPluginIds + (expectOn ? 2096 : 0));
+
+    for (auto i = 0; i < adapter.getParameterCount(); ++i)
+    {
+        auto info = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(i, info) == Steinberg::kResultOk);
+
+        if (i < numPluginIds)
+        {
+            check(info.id == pluginIds[static_cast<size_t>(i)]);
+            check(!decodeShadowId(info.id, 1).has_value());
+        }
+        else
+        {
+            check(decodeShadowId(info.id, 1).has_value());
+            check(flagged(info, Vst::ParameterInfo::kIsHidden));
+        }
+    }
+
+    auto mapping = Steinberg::FUnknownPtr<Vst::IMidiMapping>(hosted.component);
+    check(mapping != nullptr);
+
+    auto id = Vst::ParamID {};
+    auto expected = expectOn ? Steinberg::kResultTrue : Steinberg::kResultFalse;
+    check(mapping->getMidiControllerAssignment(0, 0, 1, id) == expected);
+    check(mapping->getMidiControllerAssignment(0, 0, Vst::kPitchBend, id)
+          == expected);
+}
+
+auto tMidiControllersResolve =
+    test("VST3/midiControllersFollowTheCategoryUnlessSet") = []
+{
+    auto resolved = [](Category category, std::optional<bool> setting)
+    {
+        return MakeASound::vst3MidiControllersFor(
+            {.category = category, .vst3MidiControllers = setting});
+    };
+
+    check(resolved(Category::Instrument, {}));
+    check(!resolved(Category::Effect, {}));
+    check(!resolved(Category::MidiEffect, {}));
+
+    check(resolved(Category::Effect, true));
+    check(resolved(Category::MidiEffect, true));
+    check(!resolved(Category::Instrument, false));
+    check(resolved(Category::Instrument, true));
+    check(!resolved(Category::Effect, false));
+};
+
+auto tInstrumentControllers =
+    test("VST3/anInstrumentMapsMidiControllersByDefault") = []
+{ checkMidiControllers<SynthPlugin>(Category::Instrument, {}, true); };
+
+auto tEffectControllers =
+    test("VST3/anEffectWithMidiInMapsNoMidiControllersByDefault") = []
+{
+    checkMidiControllers<LatentEffect>(Category::Effect, {}, false);
+    checkMidiControllers<LatentEffect>(Category::MidiEffect, {}, false);
+};
+
+auto tEffectAsksForControllers = test("VST3/anEffectCanAskForMidiControllers") = []
+{ checkMidiControllers<LatentEffect>(Category::Effect, true, true); };
+
+auto tInstrumentDeclinesControllers =
+    test("VST3/anInstrumentCanTurnMidiControllersOff") = []
+{ checkMidiControllers<SynthPlugin>(Category::Instrument, false, false); };
+
+// Off, a point on a would-be shadow id is not a parameter and is dropped, while
+// notes and a controller the host sends as an event still reach the plugin.
+auto tWithoutControllers = test("VST3/withoutMidiControllersOnlyEventsArrive") = []
+{
+    auto host = AdapterHost<SynthPlugin> {};
+    auto id = Vst::ParamID {};
+
+    check(host.adapter->getMidiControllerAssignment(0, 3, 74, id)
+          == Steinberg::kResultFalse);
+
+    auto legacy = Vst::Event {};
+    legacy.type = Vst::Event::kLegacyMIDICCOutEvent;
+    legacy.sampleOffset = 9;
+    legacy.midiCCOut.channel = 1;
+    legacy.midiCCOut.controlNumber = 7;
+    legacy.midiCCOut.value = 127;
+
+    host.addPoint(MakeASound::VST3::shadowIdFor(0, 3, 74), 0, 0.5);
+    host.addEvent(noteEvent(true, 5));
+    host.addEvent(legacy);
+    host.fillBlock(blockSize);
+    host.run();
+
+    const auto& plugin = host.plugin();
+    check(plugin.numEvents == 2);
+    check(plugin.events[0].isNoteOn() && plugin.events[0].sampleOffset == 5);
+
+    const auto* cc = plugin.events[1].asControlChange();
+    check(cc != nullptr && cc->controller == 7 && near(cc->value, 1.0));
+    check(plugin.events[1].sampleOffset == 9);
 };
 
 auto tLatency = test("VST3/latencyRestartsOnceTheHostHasABaseline") = []

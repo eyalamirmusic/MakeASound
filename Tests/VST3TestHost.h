@@ -278,13 +278,17 @@ struct HostBus
 
 // An adapter set up, activated and processing at 48 kHz in blocks of up to 64,
 // with the host's side of a block ready to fill.
-// `identity` is what the factory passes from the plugin's description.
+// `identity` and `midiControllers` are what the factory passes from the plugin's
+// description; an instrument's description turns MIDI controllers on.
+inline constexpr auto withMidiControllers = true;
+
 template <typename P>
 struct AdapterHost
 {
-    explicit AdapterHost(MakeASound::ParameterIdentity identity = {})
-        : adapter(Steinberg::owned(
-              new MakeASound::VST3::Adapter(EA::makeOwned<P>(), identity)))
+    explicit AdapterHost(MakeASound::ParameterIdentity identity = {},
+                         bool midiControllers = false)
+        : adapter(Steinberg::owned(new MakeASound::VST3::Adapter(
+              EA::makeOwned<P>(), identity, midiControllers)))
         , changes(4096)
         , inputEvents(maxEvents)
         , outputEvents(maxEvents)

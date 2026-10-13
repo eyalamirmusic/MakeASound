@@ -152,6 +152,18 @@ struct PluginDescription
     // category and layout when unset.
     std::optional<FourCC> auType = {};
 
+    // Whether the VST3 build receives MIDI CC, channel aftertouch, pitch bend
+    // and program change. VST3 hosts deliver those only through IMidiMapping,
+    // onto hidden parameters the adapter registers: 16 channels x 131
+    // controllers per MIDI input bus. Unset follows the category (on for
+    // Category::Instrument, off otherwise; vst3MidiControllersFor()). Off, no
+    // such parameter exists and the mapping answers kResultFalse: notes, poly
+    // pressure, SysEx and any controller a host sends as an event still arrive,
+    // but a host's mapped CC, bend, aftertouch and program change never reach
+    // the plugin. AU, AUv3 and AAX deliver every MIDI message natively and
+    // ignore this.
+    std::optional<bool> vst3MidiControllers = {};
+
     // The id AAX's AddEffect takes: "<bundle id>.<plugin code>" by default,
     // the bundle id under a JUCE scheme (JUCE's JucePlugin_AAXIdentifier
     // defaults to it).
@@ -163,6 +175,10 @@ struct PluginDescription
     // scheme (aaxNativeIdFor()).
     AAXNativeIdFn aaxNativeId = {};
 };
+
+// The description's vst3MidiControllers, or by category when unset: on for an
+// instrument, off for an effect or a MIDI effect.
+bool vst3MidiControllersFor(const PluginDescription& plugin) noexcept;
 
 // A module may host more than one plugin class: VST3 factories and AU bundles
 // both allow it.

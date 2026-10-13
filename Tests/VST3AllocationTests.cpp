@@ -137,7 +137,7 @@ auto tInstrumentProcess = test("Allocations/vst3InstrumentProcessIsOffTheHeap") 
 {
     checkProcessIsOffTheHeap<SynthPlugin>(false);
 
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     fillBusyBlock(host, maxBlock, false, 0);
     host.run();
     check(host.outputEvents.getEventCount() > 0);
@@ -149,7 +149,7 @@ auto tSetParamNormalized =
     auto effect = AdapterHost<GainPlugin> {};
     auto effectIds = exposedIds(*effect.adapter);
 
-    auto instrument = AdapterHost<SynthPlugin> {};
+    auto instrument = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto shadow = MakeASound::VST3::shadowIdFor(0, 0, 1);
 
     auto count = allocationsIn(
@@ -249,7 +249,7 @@ auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
     check(count == 0);
 
     auto legacy = AdapterHost<SynthPlugin> {
-        ParameterIdentity {IdScheme::JUCELegacyIndex}};
+        ParameterIdentity {IdScheme::JUCELegacyIndex}, withMidiControllers};
     check(allocationsOverBlocks(legacy, false, maxBlock) == 0);
 };
 

@@ -11,8 +11,9 @@ namespace MakeASound::VST3
 {
 
 // The hidden parameters a host maps MIDI controllers onto, IMidiMapping's only
-// route for CC, pitch bend, aftertouch and program change into a VST3 plugin.
-// They take the top 2^16 ids of the 31-bit space VST3 leaves to plugins. A
+// route for CC, pitch bend, aftertouch and program change into a VST3 plugin,
+// registered only for a plugin whose description asks for them
+// (vst3MidiControllersFor()). They take the top 2^16 ids of the 31-bit space VST3 leaves to plugins. A
 // plugin parameter with an id in the range wins over the shadow (a JUCE port's
 // String::hashCode may land there, masked or not).
 inline constexpr uint32_t shadowIdBase = 0x7fff0000u;

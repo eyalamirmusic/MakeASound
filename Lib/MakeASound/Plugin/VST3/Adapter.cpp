@@ -39,10 +39,14 @@ bool isJuceState(std::string_view bytes)
 }
 } // namespace
 
-Adapter::Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity)
+Adapter::Adapter(OwningPointer<Plugin> plugin,
+                 ParameterIdentity identity,
+                 bool midiControllers)
     : pluginWrapper(std::move(plugin), PluginFormat::VST3, identity)
-    , numMidiInputs(
-          std::min(pluginWrapper.busLayout().midiInputs.size(), maxShadowBuses))
+    , numShadowBuses(
+          midiControllers
+              ? std::min(pluginWrapper.busLayout().midiInputs.size(), maxShadowBuses)
+              : 0)
 {
     this->plugin().setHostEditListener(this);
 
@@ -69,7 +73,7 @@ Adapter::Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity)
     // the collision is only reported.
     for (const auto& entry: this->plugin().parameters())
     {
-        if (!decodeShadowId(entry.hostId, numMidiInputs))
+        if (!decodeShadowId(entry.hostId, numShadowBuses))
             continue;
 
         std::fprintf(stderr,
@@ -173,7 +177,7 @@ void Adapter::registerShadowParameters()
     const auto& list = plugin().parameters();
     Vst::String128 title {};
 
-    for (auto bus = 0; bus < numMidiInputs; ++bus)
+    for (auto bus = 0; bus < numShadowBuses; ++bus)
     {
         for (auto channel = 0; channel < 16; ++channel)
         {
@@ -187,7 +191,7 @@ void Adapter::registerShadowParameters()
                 auto target = ShadowTarget {bus, channel, controller};
                 auto defaultValue = controller == Vst::kPitchBend ? 0.5 : 0.0;
 
-                copyTo(title, shadowName(target, numMidiInputs));
+                copyTo(title, shadowName(target, numShadowBuses));
                 parameters.addParameter(
                     new Vst::Parameter(title, id, nullptr, defaultValue, 0, flags));
             }
@@ -510,7 +514,7 @@ void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
             continue;
         }
 
-        auto target = decodeShadowId(id, numMidiInputs);
+        auto target = decodeShadowId(id, numShadowBuses);
 
         if (!target)
             continue;
@@ -642,7 +646,7 @@ tresult PLUGIN_API Adapter::getMidiControllerAssignment(int32 busIndex,
                                                         Vst::CtrlNumber controller,
                                                         Vst::ParamID& id)
 {
-    if (busIndex < 0 || busIndex >= numMidiInputs || channel < 0 || channel > 15
+    if (busIndex < 0 || busIndex >= numShadowBuses || channel < 0 || channel > 15
         || controller < 0 || controller >= shadowControllers)
         return Steinberg::kResultFalse;
 

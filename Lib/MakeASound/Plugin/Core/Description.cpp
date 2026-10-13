@@ -18,4 +18,10 @@ std::string_view defaultSubcategory(Category category) noexcept
     return "Fx";
 }
 
+bool vst3MidiControllersFor(const PluginDescription& plugin) noexcept
+{
+    return plugin.vst3MidiControllers.value_or(plugin.category
+                                               == Category::Instrument);
+}
+
 } // namespace MakeASound

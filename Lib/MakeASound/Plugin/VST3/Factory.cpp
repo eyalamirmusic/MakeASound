@@ -28,7 +28,9 @@ FUnknown* createAdapter(void* context)
             return nullptr;
 
         return static_cast<Vst::IAudioProcessor*>(
-            new Adapter(std::move(plugin), parameterIdentityFor(*description)));
+            new Adapter(std::move(plugin),
+                        parameterIdentityFor(*description),
+                        vst3MidiControllersFor(*description)));
     }
     catch (...)
     {
