@@ -87,6 +87,32 @@ void ParameterList::addHostBypass(Parameter& param)
     indexHostIds();
 }
 
+bool ParameterList::refreshDisplayNames()
+{
+    auto changed = false;
+
+    for (auto i = 0; i < entries.size(); ++i)
+    {
+        auto& entry = entries[i];
+        auto prefix = displayPrefixes[i];
+        const auto& name = entry.param->name();
+
+        // join()'s rule: a separator only between two non-empty parts.
+        if (!prefix.empty() && name.empty() && prefix.back() == ' ')
+            prefix.pop_back();
+
+        auto displayName = prefix + name;
+
+        if (displayName != entry.displayName)
+        {
+            entry.displayName = std::move(displayName);
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
 void ParameterList::setIdentity(ParameterIdentity identityToUse)
 {
     ids = identityToUse;
@@ -140,6 +166,15 @@ void ParameterList::add(Parameter& param,
     entry.automatable = automatable;
     entry.sessionOnly = param.isSessionOnly();
     entry.hostKey = param.hostKey();
+
+    // The groups' part of the display name, which a rename keeps.
+    const auto& name = param.name();
+    auto prefixLength = entry.displayName.size();
+
+    if (entry.displayName.ends_with(name))
+        prefixLength -= name.size();
+
+    displayPrefixes.add(entry.displayName.substr(0, prefixLength));
 
     auto path = std::string {};
 

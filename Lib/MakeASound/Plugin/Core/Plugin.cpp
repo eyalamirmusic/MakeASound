@@ -41,6 +41,12 @@ void Plugin::setParameters(ParameterList list)
         parameterList.setIdentity(*parameterIdentity);
 }
 
+void Plugin::refreshParameterNames()
+{
+    if (parameterList.refreshDisplayNames())
+        notifyHostParameterInfoChanged();
+}
+
 void Plugin::setParameterIdentity(ParameterIdentity identity)
 {
     parameterIdentity = identity;

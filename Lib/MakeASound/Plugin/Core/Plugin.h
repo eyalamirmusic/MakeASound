@@ -182,6 +182,11 @@ protected:
     // later gets the wrapper's bypass back unless it brings a bypass of its own.
     void setParameters(ParameterList list);
 
+    // After renaming parameters in place (Parameter::setDisplayInfo): the list's
+    // display names follow, and the host is told when one changed. Ids stay.
+    // Message thread.
+    void refreshParameterNames();
+
 private:
     friend class PluginWrapper;
 

@@ -124,6 +124,11 @@ public:
     // asserted). In any build, so a Release test can run it.
     Vector<std::string> identityProblems() const;
 
+    // Re-reads every entry's display name from its parameter's current name(),
+    // under the same group names, after a Parameter::setDisplayInfo. True when
+    // one changed. Message thread, where the adapters read the names.
+    bool refreshDisplayNames();
+
     int size() const noexcept { return entries.size(); }
     bool empty() const noexcept { return entries.empty(); }
 
@@ -185,6 +190,11 @@ private:
     bool isMidiControllerId(uint32_t hostId) const noexcept;
 
     Vector<Entry> entries;
+
+    // Each entry's display name before its parameter's name: the enclosing
+    // groups' names and a space, or empty. Parallel to `entries`.
+    Vector<std::string> displayPrefixes;
+
     Vector<HostSlot> byHostId;
     Vector<AddressSlot> byAddress;
     ParameterIdentity ids;

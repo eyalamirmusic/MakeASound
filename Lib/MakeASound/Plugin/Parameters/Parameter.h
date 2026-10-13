@@ -158,6 +158,15 @@ public:
     virtual bool fromStateText(std::string_view text);
 
 protected:
+    // Renames the parameter in place, for one whose names come from elsewhere at
+    // run time: a hosted plugin's parameter, renamed by the plugin it stands for.
+    // The id, and so every host id and state key, stays as constructed. Message
+    // thread; the owning list's display names follow on
+    // ParameterList::refreshDisplayNames().
+    void setDisplayInfo(std::string_view nameToUse,
+                        std::string_view shortNameToUse,
+                        std::string_view labelToUse);
+
     // JUCE's mapping for an integer or a choice, the plain values the integers
     // from minValue to maxValue: linear, the plain value rounded half to even
     // as juce::roundToInt does.

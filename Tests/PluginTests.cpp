@@ -1551,4 +1551,60 @@ auto tForeignTeardown = test("Plugin/aForeignStateQueuedPastTeardownDrops") = []
     eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
     check(legacyLoadsEver == 0);
 };
+
+// A plugin whose parameter is renamed at run time, as a hosted plugin's is.
+struct RenamingPlugin : Plugin
+{
+    struct Param : FloatParam
+    {
+        using FloatParam::FloatParam;
+        using FloatParam::setDisplayInfo;
+    };
+
+    struct Params : ParameterGroup
+    {
+        Params() { add(level); }
+        Param level {"Level", 0.f, 1.f, 0.5f};
+    };
+
+    RenamingPlugin() { setParameters(ParameterList {params}); }
+
+    std::string_view name() const override { return "Renaming"; }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    void rename(std::string_view to)
+    {
+        params.level.setDisplayInfo(to, {}, {});
+        refreshParameterNames();
+    }
+
+    Params params;
+};
+
+struct InfoCounter : HostEditListener
+{
+    void beginParameterEdit(int) noexcept override {}
+    void performParameterEdit(int, float) noexcept override {}
+    void endParameterEdit(int) noexcept override {}
+    void parameterInfoChanged() noexcept override { ++infos; }
+
+    int infos = 0;
+};
+
+auto tRenameNotifies = test("Plugin/aRenameTellsTheHostOnlyWhenANameChanged") = []
+{
+    auto plugin = RenamingPlugin {};
+    auto listener = InfoCounter {};
+    plugin.setHostEditListener(&listener);
+
+    plugin.rename("Volume");
+    check(plugin.parameters().entry(0).displayName == "Volume");
+    check(listener.infos == 1);
+
+    plugin.rename("Volume");
+    check(listener.infos == 1);
+
+    plugin.setHostEditListener(nullptr);
+};
 } // namespace

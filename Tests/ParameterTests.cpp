@@ -133,6 +133,61 @@ auto tDisplayNames = test("Parameters/groupsPrefixDisplayNames") = []
     check(list.entry(3).displayName == "Filter Cutoff");
 };
 
+// A parameter renamed at run time, as a hosted plugin's is by the plugin.
+struct RenamableParam : FloatParam
+{
+    using FloatParam::FloatParam;
+    using FloatParam::setDisplayInfo;
+};
+
+struct RenamableGroup : ParameterGroup
+{
+    RenamableGroup() { add(level, filter); }
+
+    struct Filter : ParameterGroup
+    {
+        Filter()
+            : ParameterGroup("Filter")
+        {
+            add(cutoff);
+        }
+
+        RenamableParam cutoff {"Cutoff", 0.f, 1.f, 0.5f};
+    };
+
+    RenamableParam level {"Level", 0.f, 1.f, 0.5f};
+    Filter filter;
+};
+
+auto tRename = test("Parameters/aRenameKeepsTheIdsAndTheGroupNames") = []
+{
+    auto params = RenamableGroup {};
+    auto list = ParameterList {params};
+    const auto hostIds = std::array {list.entry(0).hostId, list.entry(1).hostId};
+
+    check(!list.refreshDisplayNames());
+
+    params.level.setDisplayInfo("Volume", "Vol", "dB");
+    params.filter.cutoff.setDisplayInfo("Frequency", "", "Hz");
+
+    check(params.level.name() == "Volume");
+    check(params.level.shortName() == "Vol");
+    check(params.level.label() == "dB");
+    check(params.level.id() == "Level");
+
+    // The list still shows the old names until it is told.
+    check(list.entry(0).displayName == "Level");
+    check(list.refreshDisplayNames());
+    check(!list.refreshDisplayNames());
+
+    check(list.entry(0).displayName == "Volume");
+    check(list.entry(1).displayName == "Filter Frequency");
+    check(list.entry(0).id == "Level");
+    check(list.entry(1).id == "Filter/Cutoff");
+    check(list.entry(0).hostId == hostIds[0]);
+    check(list.entry(1).hostId == hostIds[1]);
+};
+
 struct TwoOscParams : ParameterGroup
 {
     TwoOscParams() { add(osc1, osc2); }
