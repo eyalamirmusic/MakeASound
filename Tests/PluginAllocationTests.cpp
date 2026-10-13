@@ -46,12 +46,16 @@ auto tSwapExchange = test("Allocations/realtimeSwapExchangeIsOffTheHeap") = []
 
 struct AllocationParams : ParameterGroup
 {
-    AllocationParams() { add(gain, cutoff, mode, bypass); }
+    AllocationParams() { add(gain, cutoff, mode, bypass, pan, voices); }
 
     DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
     HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f};
     ChoiceParam mode {"Mode", {"Low", "Band", "High"}, 1};
     BoolParam bypass {"Bypass", false};
+
+    // A symmetric skew on a grid and an integer: every curve's maths.
+    FloatParam pan {"Pan", {-1.f, 1.f, 0.01f, 0.5f, true}, 0.f};
+    IntParam voices {"Voices", 1, 16, 8};
 };
 
 auto tParameterValues = test("Allocations/parameterValueIoIsOffTheHeap") = []
@@ -203,5 +207,61 @@ auto tUnboundBlock = test("Allocations/pluginWrapperUnboundBlockIsOffTheHeap") =
 
     check(count == 0);
     check(static_cast<GainPlugin&>(wrapper.plugin()).boundSamples == 0);
+};
+
+// The bypass the wrapper adds: steady bypassed blocks through the latency delay,
+// MIDI passed through, and both crossfades, in place and not.
+auto tBypassedBlock = test("Allocations/pluginWrapperBypassedBlockIsOffTheHeap") = []
+{
+    for (auto inPlace: {false, true})
+    {
+        auto wrapper = PluginWrapper(EA::makeOwned<LatentEffect>());
+        auto& plugin = static_cast<LatentEffect&>(wrapper.plugin());
+        auto bypass = wrapper.plugin().parameters().bypassIndex();
+        auto host = Host {};
+        auto aux = std::array<Block, 2> {};
+        std::array<float*, 2> auxes {aux[0].data(), aux[1].data()};
+        auto* outputs = inPlace ? host.shared.data() : host.outputs.data();
+        auto* inputs = inPlace ? host.shared.data() : host.inputs.data();
+        auto drained = 0;
+
+        plugin.latency = 7;
+        wrapper.prepare(48000, blockSize);
+
+        auto block = [&]
+        {
+            wrapper.clearMidi();
+
+            for (auto i = 0; i < 32; ++i)
+                wrapper.pushMidiIn(0, MIDI::Event::noteOn(0, 60, 1.f, 32 - i));
+
+            wrapper.sortMidiInByOffset();
+            wrapper.bindInput(0, inputs, 2, blockSize);
+            wrapper.bindOutput(0, outputs, 2, blockSize, inputs, 2);
+            wrapper.bindOutput(1, auxes.data(), 2, blockSize);
+            wrapper.process();
+            drained += wrapper.midiOut()[0].size();
+        };
+
+        block();
+
+        // On at block 2 and off at 12: a 480-sample fade is eight blocks of 64.
+        auto count = allocationsIn(
+            [&]
+            {
+                for (auto b = 0; b < 20; ++b)
+                {
+                    if (b == 2 || b == 12)
+                        wrapper.setNormalizedParameter(bypass, b == 2 ? 1.f : 0.f);
+
+                    block();
+                }
+            });
+
+        check(count == 0);
+        check(plugin.bypassed == 18);
+        check(plugin.processed == 19);
+        check(drained > 0);
+    }
 };
 } // namespace

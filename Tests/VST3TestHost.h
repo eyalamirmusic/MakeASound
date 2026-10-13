@@ -73,8 +73,11 @@ struct TestComponentHandler final
         return Steinberg::kResultOk;
     }
 
-    tresult PLUGIN_API setDirty(Steinberg::TBool) override
+    tresult PLUGIN_API setDirty(Steinberg::TBool state) override
     {
+        if (state)
+            ++dirtyCalls;
+
         return Steinberg::kResultOk;
     }
 
@@ -122,6 +125,7 @@ struct TestComponentHandler final
     std::vector<int32> restarts;
     int groupStarts = 0;
     int groupEnds = 0;
+    int dirtyCalls = 0;
 };
 
 // A MemoryStream that tells the plugin which kind of state it carries.
@@ -274,12 +278,13 @@ struct HostBus
 
 // An adapter set up, activated and processing at 48 kHz in blocks of up to 64,
 // with the host's side of a block ready to fill.
+// `identity` is what the factory passes from the plugin's description.
 template <typename P>
 struct AdapterHost
 {
-    AdapterHost()
-        : adapter(
-              Steinberg::owned(new MakeASound::VST3::Adapter(EA::makeOwned<P>())))
+    explicit AdapterHost(MakeASound::ParameterIdentity identity = {})
+        : adapter(Steinberg::owned(
+              new MakeASound::VST3::Adapter(EA::makeOwned<P>(), identity)))
         , changes(4096)
         , inputEvents(maxEvents)
         , outputEvents(maxEvents)
@@ -334,6 +339,7 @@ struct AdapterHost
     void clearQueues()
     {
         changes.clearQueue();
+        outputChanges.clearQueue();
         inputEvents.clear();
         outputEvents.clear();
     }
@@ -380,6 +386,7 @@ struct AdapterHost
         data.inputs = inputBuses.empty() ? nullptr : inputBuses.data();
         data.outputs = outputBuses.empty() ? nullptr : outputBuses.data();
         data.inputParameterChanges = &changes;
+        data.outputParameterChanges = &outputChanges;
         data.inputEvents = &inputEvents;
         data.outputEvents = &outputEvents;
         data.processContext = &context;
@@ -396,10 +403,38 @@ struct AdapterHost
     std::vector<Vst::AudioBusBuffers> outputBuses;
 
     Vst::ParameterChanges changes;
+    Vst::ParameterChanges outputChanges {64};
     Vst::EventList inputEvents;
     Vst::EventList outputEvents;
     Vst::ProcessContext context {};
     Vst::ProcessData data {};
 };
+
+// The points the plugin left for one parameter in a block's output changes, as
+// (offset, value) pairs; none when it left no queue for it.
+inline std::vector<std::pair<int32, double>>
+    outputPoints(Vst::IParameterChanges& changes, Vst::ParamID id)
+{
+    auto points = std::vector<std::pair<int32, double>> {};
+
+    for (auto q = 0; q < changes.getParameterCount(); ++q)
+    {
+        auto* queue = changes.getParameterData(q);
+
+        if (queue == nullptr || queue->getParameterId() != id)
+            continue;
+
+        for (auto p = 0; p < queue->getPointCount(); ++p)
+        {
+            auto offset = int32 {};
+            auto value = Vst::ParamValue {};
+
+            if (queue->getPoint(p, offset, value) == Steinberg::kResultOk)
+                points.emplace_back(offset, value);
+        }
+    }
+
+    return points;
+}
 
 } // namespace VST3Host

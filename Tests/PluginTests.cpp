@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace nano;
 using namespace TestPlugins;
@@ -788,5 +789,729 @@ auto tListener = test("Plugin/hostNotificationsReachTheListener") = []
     check(plugin.hostEditListener() == &listener);
     check(listener.latency == 1);
     check(listener.info == 2);
+};
+
+// The bypass PluginWrapper adds to an effect that declares none.
+
+void setBypass(PluginWrapper& wrapper, bool on)
+{
+    wrapper.setNormalizedParameter(wrapper.plugin().parameters().bypassIndex(),
+                                   on ? 1.f : 0.f);
+}
+
+bool isBypassed(const PluginWrapper& wrapper)
+{
+    return wrapper.getParameter(wrapper.plugin().parameters().bypassIndex()) > 0.5f;
+}
+
+// The host side of a LatentEffect block: separate main buffers or one shared
+// pair, and an aux output that starts every block holding -3.
+struct LatentHost
+{
+    void block(PluginWrapper& wrapper, bool inPlace = false)
+    {
+        if (inPlace)
+            out = in;
+
+        const float* inputs[] = {in[0].data(), in[1].data()};
+        float* outputs[] = {out[0].data(), out[1].data()};
+        float* auxes[] = {aux[0].data(), aux[1].data()};
+        const float* const* source = inPlace ? outputs : inputs;
+
+        aux[0].fill(-3.f);
+        aux[1].fill(-3.f);
+
+        wrapper.bindInput(0, source, 2, blockSize);
+        wrapper.bindOutput(0, outputs, 2, blockSize, source, 2);
+        wrapper.bindOutput(1, auxes, 2, blockSize);
+        wrapper.process();
+    }
+
+    std::array<Block, 2> in {};
+    std::array<Block, 2> out {};
+    std::array<Block, 2> aux {};
+};
+
+Block filled(float value)
+{
+    auto block = Block {};
+    block.fill(value);
+    return block;
+}
+
+// A plugin that saves nothing, recording the document its load is handed.
+struct StatelessEffect : Plugin
+{
+    std::string_view name() const override { return "Stateless"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    void loadState(std::string_view data, StateContext) override
+    {
+        loaded = std::string(data);
+    }
+
+    std::string loaded = "unset";
+};
+
+// A plugin that sets its parameter list a second time, after the wrapper.
+struct RebuildingEffect : Plugin
+{
+    RebuildingEffect() { rebuild(); }
+
+    void rebuild() { setParameters(ParameterList {params}); }
+
+    std::string_view name() const override { return "Rebuilding"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    LatentParams params;
+};
+
+// A bypass of its own: every output 3.
+struct OwnBypassEffect : LatentEffect
+{
+    void processBypassed(ProcessContext& context) noexcept override
+    {
+        for (auto& output: context.outputs)
+            output.fill(3.f);
+    }
+};
+
+auto tAddedBypass = test("Plugin/anEffectWithoutABypassGetsOneOfItsOwn") = []
+{
+    auto fresh = LatentEffect {};
+    check(fresh.parameters().bypassIndex() < 0);
+    check(PluginWrapper::addsBypass(fresh));
+
+    auto wrapper = makeWrapper<LatentEffect>();
+    const auto& list = wrapper.plugin().parameters();
+    auto index = list.bypassIndex();
+
+    check(list.size() == 2);
+    check(list.indexOf("Gain") == 0);
+    check(index == 1);
+
+    const auto& entry = list.entry(index);
+    check(entry.id == "__bypass");
+    check(entry.displayName == "Bypass");
+    check(entry.bypass);
+    check(entry.sessionOnly);
+    check(entry.groups.empty());
+    check(list.isHostExposed(index));
+    check(list[index].isBypass());
+    check(list[index].numSteps() == 1);
+    check(entry.hostId == hostIdFor("__bypass"));
+    check(list.indexOfHostId(entry.hostId) == index);
+
+    // Clear of the ids VST3's MIDI controller shadow parameters use.
+    check((entry.hostId & 0x7fff0000u) != 0x7fff0000u);
+
+    check(!isBypassed(wrapper));
+    wrapper.holdParameter(index);
+    check(wrapper.isParameterHeld(index));
+};
+
+auto tNoAddedBypass = test("Plugin/aPluginWithABypassOrNoInputGetsNoneAdded") = []
+{
+    auto gain = makeWrapper<GainPlugin>();
+    auto& params = pluginOf<GainPlugin>(gain).params;
+    check(gain.plugin().parameters().indexOf("__bypass") < 0);
+    check(gain.plugin().parameters().bypassIndex()
+          == gain.plugin().parameters().indexOf(&params.bypass));
+    check(!PluginWrapper::addsBypass(gain.plugin()));
+
+    auto synth = makeWrapper<SynthPlugin>();
+    check(synth.plugin().parameters().indexOf("__bypass") < 0);
+    check(synth.plugin().parameters().bypassIndex() < 0);
+    check(synth.plugin().parameters().size() == 1);
+    check(!PluginWrapper::addsBypass(synth.plugin()));
+};
+
+auto tBypassDelayed = test("Plugin/theAddedBypassDelaysTheInputByTheLatency") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    auto& plugin = pluginOf<LatentEffect>(wrapper);
+    plugin.latency = 5;
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {ramp(1.f), ramp(100.f)};
+    host.block(wrapper);
+
+    check(plugin.processed == 0);
+    check(plugin.bypassed == 1);
+
+    for (auto i = 0; i < blockSize; ++i)
+    {
+        check(host.out[0][i] == (i < 5 ? 0.f : 1.f + static_cast<float>(i - 5)));
+        check(host.out[1][i] == (i < 5 ? 0.f : 100.f + static_cast<float>(i - 5)));
+    }
+
+    check(isSilent(host.aux[0]));
+    check(isSilent(host.aux[1]));
+
+    host.in = {ramp(1000.f), ramp(2000.f)};
+    host.block(wrapper);
+
+    for (auto i = 0; i < 5; ++i)
+        check(host.out[0][i] == static_cast<float>(blockSize - 5 + i + 1));
+
+    check(host.out[0][5] == 1000.f);
+    check(host.out[1][5] == 2000.f);
+};
+
+auto tBypassInPlace = test("Plugin/theAddedBypassDelaysInPlace") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    pluginOf<LatentEffect>(wrapper).latency = 3;
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {ramp(1.f), ramp(100.f)};
+    host.block(wrapper, true);
+
+    check(host.out[0][2] == 0.f);
+    check(host.out[0][3] == 1.f);
+    check(host.out[1][blockSize - 1] == 100.f + static_cast<float>(blockSize - 4));
+};
+
+auto tBypassMidi = test("Plugin/theAddedBypassPassesMidiThrough") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    wrapper.prepare(48000, blockSize);
+    auto host = LatentHost {};
+
+    auto sendNotes = [&]
+    {
+        wrapper.clearMidi();
+        wrapper.pushMidiIn(0, MIDI::Event::noteOn(0, 60, 1.f, 9));
+        wrapper.pushMidiIn(0, MIDI::Event::noteOff(0, 60, 0.f, 3));
+        wrapper.sortMidiInByOffset();
+        host.block(wrapper);
+    };
+
+    sendNotes();
+    check(wrapper.midiOut()[0].empty());
+
+    setBypass(wrapper, true);
+    wrapper.reset();
+    sendNotes();
+
+    const auto& out = wrapper.midiOut()[0];
+    check(out.size() == 2);
+    check(out[0].sampleOffset == 3);
+    check(out[1].sampleOffset == 9);
+};
+
+auto tBypassFades = test("Plugin/togglingTheAddedBypassCrossfadesAndResumes") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    auto& plugin = pluginOf<LatentEffect>(wrapper);
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {filled(1.f), filled(1.f)};
+    host.block(wrapper);
+    check(host.out[0] == filled(1.f));
+    check(plugin.processed == 0);
+
+    // 10 ms at 48 kHz is 480 samples: the first block starts the fade, both
+    // sides running, and the eighth ends it.
+    setBypass(wrapper, false);
+    host.block(wrapper);
+    check(plugin.processed == 1);
+    check(plugin.bypassed == 2);
+    check(host.out[0][0] > 1.f && host.out[0][0] < 1.01f);
+
+    for (auto i = 1; i < blockSize; ++i)
+        check(host.out[0][i] > host.out[0][i - 1]);
+
+    check(host.out[0][blockSize - 1] < 2.f);
+    check(host.aux[0][blockSize - 1] > 0.f && host.aux[0][blockSize - 1] < 7.f);
+
+    for (auto b = 0; b < 7; ++b)
+        host.block(wrapper);
+
+    check(host.out[0][blockSize - 1] == 2.f);
+    check(plugin.bypassed == 9);
+
+    host.block(wrapper);
+    check(host.out[0] == filled(2.f));
+    check(host.aux[0] == filled(7.f));
+    check(plugin.bypassed == 9);
+
+    setBypass(wrapper, true);
+    host.block(wrapper);
+    check(host.out[0][0] < 2.f && host.out[0][0] > 1.99f);
+    check(host.out[0][blockSize - 1] > 1.f);
+
+    for (auto b = 0; b < 8; ++b)
+        host.block(wrapper);
+
+    check(host.out[0] == filled(1.f));
+    check(isSilent(host.aux[0]));
+    check(plugin.processed == 9 + 1 + 8 - 1);
+};
+
+auto tBypassReset = test("Plugin/resetEndsAnAddedBypassFade") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    auto& plugin = pluginOf<LatentEffect>(wrapper);
+    wrapper.prepare(48000, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {filled(1.f), filled(1.f)};
+    host.block(wrapper);
+
+    setBypass(wrapper, true);
+    wrapper.reset();
+    host.block(wrapper);
+
+    check(host.out[0] == filled(1.f));
+    check(plugin.processed == 1);
+};
+
+auto tBypassSession = test("Plugin/theAddedBypassIsSavedInASessionOnly") = []
+{
+    auto source = makeWrapper<LatentEffect>();
+    setBypass(source, true);
+    source.setParameter(0, 3.f);
+
+    auto session = source.saveState(StateContext::Session);
+    auto preset = source.saveState(StateContext::Preset);
+    check(contains(session, "__bypass"));
+    check(!contains(preset, "__bypass"));
+
+    auto target = makeWrapper<LatentEffect>();
+    target.loadState(session, StateContext::Session);
+    check(isBypassed(target));
+    check(near(target.getParameter(0), 3.f));
+
+    target.loadState(preset, StateContext::Preset);
+    check(isBypassed(target));
+
+    // A session from before the key, or from a plugin that had none, means off.
+    target.loadState(preset, StateContext::Session);
+    check(!isBypassed(target));
+
+    // Loaded off the message thread like any parameter.
+    loadOffMessageThread(target, session);
+    check(isBypassed(target));
+};
+
+auto tBypassStateless = test("Plugin/aStatelessEffectKeepsItsBypassUnseen") = []
+{
+    auto source = makeWrapper<StatelessEffect>();
+    setBypass(source, true);
+
+    auto session = source.saveState(StateContext::Session);
+    check(contains(session, "__bypass"));
+    check(source.saveState(StateContext::Preset).empty());
+
+    auto target = makeWrapper<StatelessEffect>();
+    target.loadState(session, StateContext::Session);
+
+    check(isBypassed(target));
+    check(pluginOf<StatelessEffect>(target).loaded.empty());
+};
+
+auto tBypassStripped = test("Plugin/thePluginNeverSeesTheAddedBypassKey") = []
+{
+    auto wrapper = makeWrapper<StatelessEffect>();
+    auto& plugin = pluginOf<StatelessEffect>(wrapper);
+
+    wrapper.loadState(R"({"__bypass": true, "x": 1})", StateContext::Session);
+    check(isBypassed(wrapper));
+    check(contains(plugin.loaded, "\"x\""));
+    check(!contains(plugin.loaded, "__bypass"));
+
+    // A preset's key is taken out too, and moves nothing.
+    wrapper.loadState(R"({"__bypass": false, "x": 2})", StateContext::Preset);
+    check(isBypassed(wrapper));
+    check(!contains(plugin.loaded, "__bypass"));
+
+    // Not JSON: handed over untouched.
+    wrapper.loadState("raw bytes", StateContext::Session);
+    check(plugin.loaded == "raw bytes");
+    check(isBypassed(wrapper));
+};
+
+auto tBypassRebuilt =
+    test("Plugin/settingTheParametersAgainKeepsTheAddedBypass") = []
+{
+    auto wrapper = makeWrapper<RebuildingEffect>();
+    auto& plugin = pluginOf<RebuildingEffect>(wrapper);
+    plugin.rebuild();
+
+    const auto& list = plugin.parameters();
+    check(list.size() == 2);
+    check(list.bypassIndex() == 1);
+    check(list.entry(1).id == "__bypass");
+
+    setBypass(wrapper, true);
+    check(isBypassed(wrapper));
+};
+
+auto tBypassOverride = test("Plugin/processBypassedCanBeOverridden") = []
+{
+    auto wrapper = makeWrapper<OwnBypassEffect>();
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {ramp(1.f), ramp(100.f)};
+    host.block(wrapper);
+
+    check(host.out[0] == filled(3.f));
+    check(host.aux[1] == filled(3.f));
+};
+
+auto tBypassGrows = test("Plugin/aLatencyThatGrowsWidensTheAddedBypassDelay") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    auto& plugin = pluginOf<LatentEffect>(wrapper);
+    plugin.latency = 2;
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    plugin.latency = 200;
+    plugin.notifyHostLatencyChanged();
+
+    auto host = LatentHost {};
+    auto heard = std::vector<float>();
+
+    for (auto b = 0; b < 5; ++b)
+    {
+        host.in[0] = ramp(1.f + static_cast<float>(b * blockSize));
+        host.block(wrapper);
+        heard.insert(heard.end(), host.out[0].begin(), host.out[0].end());
+    }
+
+    for (auto k = 0; k < static_cast<int>(heard.size()); ++k)
+        check(heard[k] == (k < 200 ? 0.f : 1.f + static_cast<float>(k - 200)));
+};
+
+// A latency that moved with no notification (a parameter, say) is caught by the
+// adapter's latency check, which goes through the wrapper.
+auto tBypassChecked = test("Plugin/theLatencyCheckWidensTheAddedBypassDelay") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    auto& plugin = pluginOf<LatentEffect>(wrapper);
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    plugin.latency = 150;
+    check(!wrapper.takeLatencyChanged());
+
+    auto host = LatentHost {};
+    auto heard = std::vector<float>();
+
+    for (auto b = 0; b < 4; ++b)
+    {
+        host.in[0] = ramp(1.f + static_cast<float>(b * blockSize));
+        host.block(wrapper);
+        heard.insert(heard.end(), host.out[0].begin(), host.out[0].end());
+    }
+
+    for (auto k = 0; k < static_cast<int>(heard.size()); ++k)
+        check(heard[k] == (k < 150 ? 0.f : 1.f + static_cast<float>(k - 150)));
+};
+
+// A port of a JUCE effect: its APVTS was "Legacy" with `cutoff` and `mode`, and
+// it kept a `preset` property on the root.
+struct LegacyParams : ParameterGroup
+{
+    LegacyParams() { add(cutoff, mode); }
+
+    FloatParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f, {.id = "cutoff"}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.id = "mode"}};
+};
+
+struct LegacyOwnBypassParams : ParameterGroup
+{
+    LegacyOwnBypassParams() { add(cutoff, mode, bypass); }
+
+    FloatParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f, {.id = "cutoff"}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.id = "mode"}};
+    BoolParam bypass {"Bypass", false, {.id = "bypass", .bypass = true}};
+};
+
+std::atomic<int> legacyLoadsEver {0};
+
+template <typename ParamsT>
+struct LegacyEffectOf : StatePlugin<GainStateOf<ParamsT>>
+{
+    std::string_view name() const override { return "Legacy"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    bool loadLegacy(const ForeignState& foreign) override
+    {
+        ++legacyLoads;
+        ++legacyLoadsEver;
+        lastOrigin = foreign.origin;
+        lastBypass = foreign.bypass;
+
+        auto root = Compat::loadJuceApvtsBlob(
+            foreign.bytes, this->params, {.rootType = "Legacy"});
+
+        if (!root)
+            return false;
+
+        if (const auto* preset = root->property("preset"))
+            this->state.preset = *preset;
+
+        return true;
+    }
+
+    int legacyLoads = 0;
+    ForeignOrigin lastOrigin = ForeignOrigin::JuceVST3;
+    std::optional<bool> lastBypass;
+};
+
+using LegacyEffect = LegacyEffectOf<LegacyParams>;
+using LegacyOwnBypassEffect = LegacyEffectOf<LegacyOwnBypassParams>;
+
+struct NotificationCounter : HostEditListener
+{
+    void beginParameterEdit(int) noexcept override {}
+    void performParameterEdit(int, float) noexcept override {}
+    void endParameterEdit(int) noexcept override {}
+    void parameterValuesChanged() noexcept override { ++values; }
+    void stateChanged() noexcept override { ++states; }
+
+    std::atomic<int> values {0};
+    int states = 0;
+};
+
+// copyXmlToBinary's framing around a single-line XML.
+std::string juceBlob(std::string_view xml)
+{
+    auto blob = std::string {"VC2!"};
+    auto size = static_cast<uint32_t>(xml.size());
+
+    for (auto i = 0; i < 4; ++i)
+        blob += static_cast<char>((size >> (8 * i)) & 0xff);
+
+    blob += xml;
+    blob += '\0';
+    return blob;
+}
+
+const auto legacyBlob =
+    juceBlob("<Legacy preset=\"Old\"><PARAM id=\"cutoff\" value=\"440.0\"/>"
+             "<PARAM id=\"mode\" value=\"2.0\"/></Legacy>");
+
+ForeignState foreignState(std::string_view bytes,
+                          std::optional<bool> bypass = std::nullopt,
+                          StateContext context = StateContext::Session)
+{
+    auto state = ForeignState {};
+    state.origin = ForeignOrigin::JuceAU;
+    state.bytes = bytes;
+    state.context = context;
+    state.bypass = bypass;
+    return state;
+}
+
+std::string legacyDocument(float cutoff, const std::string& preset)
+{
+    auto source = makeWrapper<LegacyEffect>();
+    source.setParameter(0, cutoff);
+    pluginOf<LegacyEffect>(source).state.preset = preset;
+    pluginOf<LegacyEffect>(source).state.markChanged();
+    return source.saveState(StateContext::Session);
+}
+
+auto tForeignDefault = test("Plugin/aPluginTakesNoForeignStateByDefault") = []
+{
+    auto wrapper = makeWrapper();
+    check(!wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(!isBypassed(wrapper));
+
+    auto plain = PluginWrapper(EA::makeOwned<ThrowingPlugin>());
+    check(!plain.loadForeignState(foreignState(legacyBlob)));
+};
+
+auto tForeignInline = test("Plugin/aForeignStateLoadsAtOnceOnTheMessageThread") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto state = foreignState(legacyBlob, true);
+    state.origin = ForeignOrigin::JuceAAX;
+    check(wrapper.loadForeignState(state));
+
+    check(plugin.legacyLoads == 1);
+    check(plugin.lastOrigin == ForeignOrigin::JuceAAX);
+    check(plugin.lastBypass == std::optional {true});
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(plugin.params.mode.getIndex() == 2);
+    check(plugin.state.preset == "Old");
+    check(isBypassed(wrapper));
+
+    // Republished, and a load the host asked for: no dirty mark, and the
+    // values are the adapter's to re-read on its own thread.
+    check(plugin.isStateSnapshotCurrent());
+    check(contains(wrapper.saveState(StateContext::Session), "Old"));
+    check(listener.states == 0);
+    check(listener.values == 0);
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tForeignRefused = test("Plugin/aRefusedForeignStateLeavesTheBypass") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    check(!wrapper.loadForeignState(foreignState("not a JUCE state", true)));
+    check(plugin.legacyLoads == 1);
+    check(!isBypassed(wrapper));
+
+    auto otherRoot =
+        juceBlob("<Other><PARAM id=\"cutoff\" value=\"440.0\"/></Other>");
+    check(!wrapper.loadForeignState(foreignState(otherRoot, true)));
+    check(near(plugin.params.cutoff.get(), 1000.f));
+};
+
+auto tForeignPreset = test("Plugin/aForeignPresetLeavesTheAddedBypass") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+
+    check(wrapper.loadForeignState(
+        foreignState(legacyBlob, true, StateContext::Preset)));
+    check(near(pluginOf<LegacyEffect>(wrapper).params.cutoff.get(), 440.f));
+    check(!isBypassed(wrapper));
+
+    // A state that carries no bypass leaves it where it was, as JUCE does.
+    setBypass(wrapper, true);
+    check(wrapper.loadForeignState(foreignState(legacyBlob)));
+    check(isBypassed(wrapper));
+};
+
+auto tForeignOwnBypass =
+    test("Plugin/aForeignBypassIsThePluginsWhenItHasItsOwn") = []
+{
+    auto wrapper = makeWrapper<LegacyOwnBypassEffect>();
+    auto& plugin = pluginOf<LegacyOwnBypassEffect>(wrapper);
+    check(!PluginWrapper::addsBypass(plugin));
+
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(plugin.lastBypass == std::optional {true});
+    check(!plugin.params.bypass.isOn());
+};
+
+auto tForeignDeferred = test("Plugin/aForeignStateFromAnotherThreadLoadsLater") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto taken = false;
+
+    {
+        // The bytes go before the load runs: the wrapper keeps its own copy.
+        auto bytes = std::string {legacyBlob};
+        auto host = std::thread(
+            [&] { taken = wrapper.loadForeignState(foreignState(bytes, true)); });
+        host.join();
+    }
+
+    check(taken);
+    check(plugin.legacyLoads == 0);
+    check(near(plugin.params.cutoff.get(), 1000.f));
+
+    check(pumpUntil([&] { return plugin.legacyLoads == 1; }));
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(plugin.state.preset == "Old");
+    check(isBypassed(wrapper));
+    check(listener.values == 1);
+    check(listener.states == 0);
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tForeignThenNative =
+    test("Plugin/aLaterNativeLoadDropsAQueuedForeignState") = []
+{
+    auto document = legacyDocument(100.f, "Native");
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    auto host =
+        std::thread([&] { wrapper.loadForeignState(foreignState(legacyBlob)); });
+    host.join();
+
+    wrapper.loadState(document, StateContext::Session);
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+
+    check(plugin.legacyLoads == 0);
+    check(near(plugin.params.cutoff.get(), 100.f));
+    check(plugin.state.preset == "Native");
+};
+
+auto tNativeThenForeign = test("Plugin/aForeignStateDropsAQueuedNativeLoad") = []
+{
+    auto document = legacyDocument(100.f, "Native");
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    auto host =
+        std::thread([&] { wrapper.loadState(document, StateContext::Session); });
+    host.join();
+    check(near(plugin.params.cutoff.get(), 100.f));
+
+    check(wrapper.loadForeignState(foreignState(legacyBlob)));
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(plugin.state.preset == "Old");
+};
+
+auto tForeignTwice = test("Plugin/onlyTheLatestQueuedForeignStateRuns") = []
+{
+    const auto second = juceBlob(
+        "<Legacy preset=\"Second\"><PARAM id=\"cutoff\" value=\"220\"/></Legacy>");
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    for (const auto* bytes: {&legacyBlob, &second})
+    {
+        auto host =
+            std::thread([&] { wrapper.loadForeignState(foreignState(*bytes)); });
+        host.join();
+    }
+
+    check(pumpUntil([&] { return plugin.state.preset == "Second"; }));
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {50});
+
+    check(plugin.legacyLoads == 1);
+    check(near(plugin.params.cutoff.get(), 220.f));
+};
+
+auto tForeignTeardown = test("Plugin/aForeignStateQueuedPastTeardownDrops") = []
+{
+    legacyLoadsEver = 0;
+
+    {
+        auto wrapper = makeWrapper<LegacyEffect>();
+        auto host =
+            std::thread([&] { wrapper.loadForeignState(foreignState(legacyBlob)); });
+        host.join();
+    }
+
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+    check(legacyLoadsEver == 0);
 };
 } // namespace

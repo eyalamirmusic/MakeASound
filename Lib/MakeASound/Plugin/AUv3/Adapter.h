@@ -4,6 +4,7 @@
 // of these and forwards every override to it, so the format lives in the static
 // library and the per-module class is a thin shell.
 
+#include "../AU/HostParameters.h"
 #include "../Core/Description.h"
 #include "../Host/PluginWrapper.h"
 #include "../../Realtime/SpinLock.h"
@@ -27,6 +28,15 @@ public:
     // module. `unit` owns the adapter and is held weakly.
     static OwningPointer<Adapter> create(AUAudioUnit* unit,
                                          AudioComponentDescription description,
+                                         NSError** outError);
+
+    // Over the plugin `plugin` names rather than the one the description's codes
+    // find in this module; its IdScheme says how the tree addresses the
+    // parameters. Null, with outError set, when it creates no plugin. `plugin`
+    // must outlive the adapter.
+    static OwningPointer<Adapter> create(AUAudioUnit* unit,
+                                         AudioComponentDescription description,
+                                         const PluginDescription& plugin,
                                          NSError** outError);
 
     // Message thread, where the wrapper must go.
@@ -92,6 +102,9 @@ public:
     void endParameterEdit(int index) noexcept override;
     void latencyChanged() noexcept override;
     void parameterInfoChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+
+    // stateChanged() keeps the default: an AUAudioUnit has no dirty signal.
 
 private:
     struct Render;
@@ -104,6 +117,7 @@ private:
 
     Adapter(AUAudioUnit* unit,
             AudioComponentDescription description,
+            const PluginDescription& pluginDescription,
             OwningPointer<Plugin> plugin);
 
     void buildBusses();
@@ -115,9 +129,16 @@ private:
     BusLayout negotiatedLayout() const;
     double outputSampleRate() const;
     bool isPublishedCount(bool input, int channels) const noexcept;
+    // By the entry's 64-bit Entry::address (ParameterList::indexOfAddress), -1
+    // for one the tree does not list. Allocation-free.
     int indexOfExposed(AUParameterAddress address) const noexcept;
+    bool isListed(int index) const noexcept;
     int slotOf(int index) const noexcept;
     AUParameter* treeParameter(int index) const;
+
+    // The plugin's value in the tree's space, the v2 info's (ParameterSpace).
+    AUValue treeValueOf(int index) const noexcept;
+    float plainFromTree(int index, AUValue value) const noexcept;
     void setTreeValue(
         int index,
         AUParameterAutomationEventType type = AUParameterAutomationEventTypeValue);
@@ -152,10 +173,10 @@ private:
     __weak AUAudioUnit* unit = nil;
     AudioComponentDescription description {};
 
-    // The plugin's version as AudioComponents counts it, saved in its state.
-    UInt32 version = 0;
-
     PluginWrapper pluginWrapper;
+
+    // How the tree sees the parameters, by the plugin description's IdScheme.
+    AU::ParameterSpace space;
 
     AUAudioUnitBusArray* inputs = nil;
     AUAudioUnitBusArray* outputs = nil;
@@ -163,7 +184,7 @@ private:
     AUParameterTree* tree = nil;
     dispatch_source_t treeTimer = nil;
 
-    // Indices of the host-exposed entries in declaration order, and per entry what
+    // Indices of the listed entries in declaration order, and per entry what
     // the plugin held at the last sync and whether a dropped host write is to be
     // undone in the tree.
     Vector<int> exposed;

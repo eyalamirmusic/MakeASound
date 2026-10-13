@@ -42,8 +42,15 @@ void ChoiceParam::setValue(float plain) noexcept
     if (!std::isfinite(plain))
         return;
 
-    index.store(clampIndex(static_cast<int>(std::lround(plain))),
-                std::memory_order_relaxed);
+    index.store(indexFor(plain), std::memory_order_relaxed);
+}
+
+// Half to even, as JUCE's AudioParameterChoice rounds through roundToInt, so a
+// plain write and a normalized one agree at a half point.
+int ChoiceParam::indexFor(float plain) const noexcept
+{
+    auto clamped = plain < 0.f ? 0.f : (plain > maxValue() ? maxValue() : plain);
+    return clampIndex(static_cast<int>(roundToIndex(clamped)));
 }
 
 float ChoiceParam::getValue() const noexcept
@@ -61,7 +68,7 @@ std::string ChoiceParam::valueToText(float plain) const
     if (!std::isfinite(plain))
         return choiceName(initial);
 
-    return choiceName(static_cast<int>(std::lround(plain)));
+    return choiceName(indexFor(plain));
 }
 
 float ChoiceParam::textToValue(std::string_view text) const

@@ -227,4 +227,39 @@ auto tAppex = test("AUPlist/theAppExtensionPlistDeclaresItsComponents") = []
 
     std::filesystem::remove(path);
 };
+
+// A port keeping its JUCE build's JucePlugin_AUMainType registers under it in
+// both forms, whatever its category and layout say.
+auto tAUType = test("AUPlist/bothPlistsTakeTheDescriptionsAUType") = []
+{
+    auto module = describeModule();
+    module.plugins[0].auType = FourCC("aumf");
+
+    auto component = scratchFile("MakeASoundTests-autype-component.plist");
+    check(AU::writeAudioComponentsPlist(
+        module, "Tests", "com.makeasound.tests.component", "Tests", component));
+
+    auto v2 = Plist(component);
+    auto* components = arrayOf(v2.dictionary(), "AudioComponents");
+    check(components != nullptr);
+    check(stringOf(componentAt(components, 0), "type") == "aumf");
+    check(stringOf(componentAt(components, 1), "type") == "aumu");
+
+    auto appex = scratchFile("MakeASoundTests-autype-appex.plist");
+    auto bundle = AU::AppExtensionPlist {.bundleName = "MakeASound Tests",
+                                         .bundleId = "com.makeasound.tests.auv3",
+                                         .executable = "MakeASoundTests",
+                                         .principalClass = "TestsViewController"};
+    check(AU::writeAppExtensionPlist(module, bundle, appex));
+
+    auto v3 = Plist(appex);
+    auto* extension = dictionaryOf(v3.dictionary(), "NSExtension");
+    auto* listed =
+        arrayOf(dictionaryOf(extension, "NSExtensionAttributes"), "AudioComponents");
+    check(listed != nullptr);
+    check(stringOf(componentAt(listed, 0), "type") == "aumf");
+
+    std::filesystem::remove(component);
+    std::filesystem::remove(appex);
+};
 } // namespace

@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../../Audio/Processor.h"
+#include "BypassDelay.h"
 #include "Editor.h"
 #include "HostEditListener.h"
+#include "../Parameters/BoolParam.h"
 #include "../Parameters/ParameterList.h"
 #include "../State/StateContext.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -21,6 +24,48 @@ enum class PluginFormat
     AUv3,
     AAX,
     Standalone
+};
+
+// Which format of which framework wrote a state that is not ours.
+enum class ForeignOrigin
+{
+    // A JUCE VST3's component state, its private-data trailer already stripped.
+    JuceVST3,
+
+    // A JUCE VST3 built with JUCE_VST3_CAN_REPLACE_VST2, or a VST2 session the
+    // host converted: the chunk out of the 'FBCh' bank, trailer stripped. For a
+    // bank of plain values ('FxBk'), the whole bank: Compat::readVst2Bank reads it.
+    JuceVST2Bank,
+
+    // The `jucePluginState` data of an AU v2 ClassInfo dictionary.
+    JuceAU,
+
+    // The `jucePluginState` data of an AUv3's fullState.
+    JuceAUv3,
+
+    // The 'juce' chunk of an AAX session.
+    JuceAAX,
+
+    // The `filterState` of a JUCE standalone's settings file, base64 decoded.
+    JuceStandalone
+};
+
+// A document another framework's build of this plugin saved, handed over by an
+// adapter that found no MakeASound document. `bytes` are exactly what that
+// build's AudioProcessor::setStateInformation was given, every format's framing
+// taken off; they live only for the call.
+struct ForeignState
+{
+    ForeignOrigin origin = ForeignOrigin::JuceVST3;
+    std::string_view bytes;
+    StateContext context = StateContext::Session;
+
+    // The wrapper's bypass the format saved beside the plugin's bytes (the VST3
+    // trailer's `Bypass`, the VST2 bank's 'VstW' flag), when it saved one.
+    std::optional<bool> bypass;
+
+    // The VST2 bank's current program, when there was a bank.
+    std::optional<int> program;
 };
 
 // A Processor with a host behind it: a name, a layout it negotiates, latency and
@@ -49,6 +94,14 @@ public:
 
     // How long the output rings after the input goes silent; 0 for none.
     virtual int tailSamples() const noexcept { return 0; }
+
+    // Runs in place of process() while the bypass PluginWrapper adds for an effect
+    // that declares none is on (a plugin with a bypass parameter of its own
+    // bypasses itself, and this is never called for it). The default puts the
+    // main input on the main output delayed by latencySamples(), so the bypassed
+    // signal lines up with the processed one, copies each MIDI in bus to the MIDI
+    // out bus of the same index, and clears every other output. Audio thread.
+    virtual void processBypassed(ProcessContext& context) noexcept;
 
     // True once each time latencySamples() moved on its own since the last ask.
     // Message thread.
@@ -79,6 +132,12 @@ public:
     virtual void loadStateExceptParameters(std::string_view data,
                                            StateContext context);
 
+    // A state another framework wrote (a JUCE build's session, say), which the
+    // adapters hand over when the host's data holds no MakeASound document. True
+    // when the plugin took it; the default takes nothing. Parameters and the rest
+    // alike, on the message thread: Compat/ has the readers.
+    virtual bool loadForeignState(const ForeignState& state);
+
     const ParameterList& parameters() const noexcept { return parameterList; }
 
     // Message thread; null where there is no host.
@@ -92,12 +151,38 @@ public:
     void notifyHostLatencyChanged() noexcept;
     void notifyHostParameterInfoChanged() noexcept;
 
+    // Message thread. Many values moved at once: the host re-reads them all.
+    void notifyHostParameterValuesChanged() noexcept;
+
+    // Message thread. State besides the parameters changed; StatePlugin raises
+    // it on every markChanged() that is not a load.
+    void notifyHostStateChanged() noexcept;
+
 protected:
-    // Before the wrapper is built: it sizes itself to the list.
-    void setParameters(ParameterList list) { parameterList = std::move(list); }
+    // Before the wrapper is built: it sizes itself to the list. A list set again
+    // later gets the wrapper's bypass back unless it brings a bypass of its own.
+    void setParameters(ParameterList list);
 
 private:
+    friend class PluginWrapper;
+
+    // The wrapper's half of the added bypass: it decides, at construction, and
+    // sizes the delay in prepare(). Null when the plugin has a bypass of its own.
+    void addHostBypass();
+    BoolParam* activeHostBypass() const noexcept;
+
+    // Message thread: grows the added bypass's delay to latencySamples().
+    void fitBypassDelay() noexcept;
+
+    // The wrapper's, after the bypass: every host id under the plugin's
+    // description's scheme, kept for a list set again later.
+    void setParameterIdentity(ParameterIdentity identity);
+    std::optional<ParameterIdentity> parameterIdentity;
+
+    // Before the list, which points at it.
+    OwningPointer<BoolParam> hostBypass;
     ParameterList parameterList;
+    BypassDelay bypassDelay;
     PluginFormat pluginFormat = PluginFormat::Unknown;
     HostEditListener* editListener = nullptr;
 };

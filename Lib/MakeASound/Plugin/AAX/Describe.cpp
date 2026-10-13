@@ -2,6 +2,7 @@
 #include "Adapter.h"
 #include "AlgorithmContext.h"
 #include "View.h"
+#include "../Core/Identity.h"
 #include "../Core/Plugin.h"
 
 #include <AAX_Exception.h>
@@ -22,11 +23,6 @@ constexpr StemPair allStemPairs[] = {
     {AAX_eStemFormat_None, AAX_eStemFormat_Mono},
     {AAX_eStemFormat_None, AAX_eStemFormat_Stereo},
 };
-
-std::string_view codeOf(const PluginDescription& plugin) noexcept
-{
-    return {plugin.pluginCode.chars, 4};
-}
 
 // "major.minor.patch" as major << 16 | minor << 8 | patch, a bad part 0.
 uint32_t packageVersion(std::string_view version) noexcept
@@ -171,7 +167,9 @@ bool describeEffect(AAX_ICollection& collection,
     addNames(*effect, plugin.name);
     checked = effect->AddCategory(categoryFor(plugin));
 
-    auto canBypass = instance->parameters().bypassIndex() >= 0;
+    // The adapter's wrapper adds a bypass to an effect that has none.
+    auto canBypass = instance->parameters().bypassIndex() >= 0
+                     || PluginWrapper::addsBypass(*instance);
 
     for (auto& [index, layout]: accepted)
         describeComponent(*effect, module, plugin, layout, index, canBypass);
@@ -183,7 +181,7 @@ bool describeEffect(AAX_ICollection& collection,
         checked = effect->AddProcPtr(reinterpret_cast<void*>(&createAAXView),
                                      kAAX_ProcPtrID_Create_EffectGUI);
 
-    auto id = effectIdFor(bundleId, plugin);
+    auto id = aaxEffectIdFor(bundleId, plugin);
     checked = collection.AddEffect(id.c_str(), effect);
     return true;
 }
@@ -195,9 +193,12 @@ std::span<const StemPair> stemPairs() noexcept
     return allStemPairs;
 }
 
-uint32_t nativePluginId(const PluginDescription& plugin, int stemIndex) noexcept
+uint32_t nativePluginId(const PluginDescription& plugin, int stemIndex)
 {
-    return plugin.pluginCode.toUint32() + static_cast<uint32_t>(stemIndex);
+    auto pair = allStemPairs[stemIndex];
+    return aaxNativeIdFor(
+        plugin,
+        AAXStems {channelCount(pair.input), channelCount(pair.output), stemIndex});
 }
 
 uint32_t categoryFor(const PluginDescription& plugin) noexcept
@@ -258,24 +259,12 @@ std::optional<BusLayout> layoutFor(const BusLayout& declared, StemPair pair)
     return layout;
 }
 
-std::string effectIdFor(std::string_view bundleId, const PluginDescription& plugin)
-{
-    auto id = std::string(bundleId);
-    id += '.';
-    id += codeOf(plugin);
-    return id;
-}
-
 const PluginDescription* findPlugin(const ModuleDescription& module,
-                                    std::string_view effectId) noexcept
+                                    std::string_view bundleId,
+                                    std::string_view effectId)
 {
-    if (effectId.size() < 5 || effectId[effectId.size() - 5] != '.')
-        return nullptr;
-
-    auto code = effectId.substr(effectId.size() - 4);
-
     for (auto& plugin: module.plugins)
-        if (codeOf(plugin) == code)
+        if (aaxEffectIdFor(bundleId, plugin) == effectId)
             return &plugin;
 
     return nullptr;

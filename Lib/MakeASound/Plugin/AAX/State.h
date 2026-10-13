@@ -10,6 +10,12 @@ namespace MakeASound::AAX
 // The one chunk: the wrapper's Session document.
 constexpr AAX_CTypeID chunkId = ('M' << 24) | ('k' << 16) | ('a' << 8) | 'S';
 
+// Two chunks a JUCE build of the plugin left in a session, read but never
+// listed or written: its plugin state (JucePlugin_AAX_Chunk_Identifier's
+// default) and the SDK's controls chunk, normalized values by AAX parameter id.
+constexpr AAX_CTypeID juceChunkId = ('j' << 24) | ('u' << 16) | ('c' << 8) | 'e';
+constexpr AAX_CTypeID controlsChunkId = ('e' << 24) | ('l' << 16) | ('c' << 8) | 'k';
+
 // The document into the host's chunk, whose fSize says what it holds; false when
 // it does not fit.
 bool writeChunk(AAX_SPlugInChunk& chunk, std::string_view document) noexcept;

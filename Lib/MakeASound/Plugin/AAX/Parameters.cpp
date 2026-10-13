@@ -6,58 +6,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace MakeASound::AAX
 {
 
-namespace
+std::string_view registeredId(std::string_view aaxId) noexcept
 {
-constexpr char hexDigits[] = "0123456789abcdef";
-
-int hexValue(char c) noexcept
-{
-    if (c >= '0' && c <= '9')
-        return c - '0';
-
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-
-    return -1;
-}
-} // namespace
-
-ParamId paramIdFor(uint32_t hostId) noexcept
-{
-    auto id = ParamId {};
-
-    for (auto digit = 0; digit < 8; ++digit)
-        id[static_cast<size_t>(digit)] =
-            hexDigits[(hostId >> (28 - 4 * digit)) & 0xf];
-
-    return id;
-}
-
-std::optional<uint32_t> hostIdOf(AAX_CParamID id) noexcept
-{
-    if (id == nullptr)
-        return std::nullopt;
-
-    auto value = uint32_t {0};
-
-    for (auto digit = 0; digit < 8; ++digit)
-    {
-        auto nibble = hexValue(id[digit]);
-
-        if (nibble < 0)
-            return std::nullopt;
-
-        value = value << 4 | static_cast<uint32_t>(nibble);
-    }
-
-    if (id[8] != '\0')
-        return std::nullopt;
-
-    return value;
+    return aaxId.substr(0, kAAX_ParameterIdentifierMaxSize - 1);
 }
 
 DisplayDelegate::DisplayDelegate(const Parameter& paramToUse) noexcept
@@ -117,11 +73,11 @@ bool DisplayDelegate::StringToValue(const AAX_CString& text, float* normalized) 
 AAX_IParameter* makeParameter(const ParameterList::Entry& entry)
 {
     const auto& param = *entry.param;
-    auto id = paramIdFor(entry.hostId);
+    auto id = std::string(registeredId(entry.aaxId));
     auto name = AAX_CString(entry.displayName.c_str());
 
     auto* result =
-        new AAX_CParameter<float>(id.data(),
+        new AAX_CParameter<float>(id.c_str(),
                                   name,
                                   param.toNormalized(param.defaultValue()),
                                   AAX_CLinearTaperDelegate<float>(0.f, 1.f),

@@ -28,6 +28,14 @@ struct Settings
 // <app support>/<vendor>/<plugin>/settings.json
 std::string settingsPath(std::string_view vendor, std::string_view pluginName);
 
+// Where a JUCE build's standalone named `juceName` (its JucePlugin_Name) kept its
+// settings, a PropertiesFile whose `filterState` is the plugin's state
+// (juce_audio_plugin_client_Standalone.cpp): `~/Library/Application
+// Support/<Name>.settings` on macOS and iOS, `%APPDATA%\<Name>\<Name>.settings`
+// on Windows, `~/.config/<Name>.settings` on Linux. Empty for an empty name and
+// on any other platform.
+std::string juceSettingsPath(std::string_view juceName);
+
 // Nullopt when the file is missing, blank or not a JSON object.
 std::optional<Settings> loadSettings(const std::string& path);
 

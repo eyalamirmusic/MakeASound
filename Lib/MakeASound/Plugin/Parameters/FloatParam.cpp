@@ -11,18 +11,22 @@ FloatParam::FloatParam(std::string_view nameToUse,
                        float maxToUse,
                        float defaultToUse,
                        ParameterOptions options)
-    : Parameter(nameToUse, options)
-    , minimum(minToUse)
-    , maximum(maxToUse)
-    , initial(clamp(defaultToUse))
-    , value(initial)
+    : FloatParam(nameToUse, FloatRange {minToUse, maxToUse}, defaultToUse, options)
 {
-    assert(minToUse <= maxToUse);
 }
 
-float FloatParam::clamp(float plain) const noexcept
+FloatParam::FloatParam(std::string_view nameToUse,
+                       FloatRange rangeToUse,
+                       float defaultToUse,
+                       ParameterOptions options)
+    : Parameter(nameToUse, options)
+    , valueRange(rangeToUse)
+    , initial(valueRange.snap(defaultToUse))
+    , value(initial)
 {
-    return plain < minimum ? minimum : (plain > maximum ? maximum : plain);
+    assert(valueRange.min <= valueRange.max);
+    assert(valueRange.interval >= 0.f);
+    assert(valueRange.skew > 0.f && std::isfinite(valueRange.skew));
 }
 
 void FloatParam::setValue(float plain) noexcept
@@ -31,7 +35,45 @@ void FloatParam::setValue(float plain) noexcept
     if (!std::isfinite(plain))
         return;
 
-    value.store(clamp(plain), std::memory_order_relaxed);
+    value.store(valueRange.snap(plain), std::memory_order_relaxed);
+}
+
+// RangedAudioParameter's order: snap, then the curve; the curve, then snap.
+float FloatParam::toNormalized(float plain) const noexcept
+{
+    return valueRange.toNormalized(valueRange.snap(plain));
+}
+
+float FloatParam::toPlain(float normalized) const noexcept
+{
+    auto clamped = normalized < 0.f ? 0.f : (normalized > 1.f ? 1.f : normalized);
+    return valueRange.snap(valueRange.toPlain(clamped));
+}
+
+Parameter::Curve FloatParam::curve() const noexcept
+{
+    // Exact matches only: an AU host draws these curves with its own maths.
+    const auto skew = valueRange.skew;
+
+    if (skew == 1.f)
+        return Curve::Linear;
+
+    if (valueRange.symmetricSkew)
+        return Curve::Other;
+
+    if (skew == 0.5f)
+        return Curve::SquareRoot;
+
+    if (skew == 2.f)
+        return Curve::Squared;
+
+    if (skew == 3.f)
+        return Curve::Cubed;
+
+    if (skew == 1.f / 3.f)
+        return Curve::CubeRoot;
+
+    return Curve::Other;
 }
 
 } // namespace MakeASound

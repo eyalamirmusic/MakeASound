@@ -5,6 +5,7 @@
 // the automation delegate, MIDI nodes and a transport for the render context, and
 // a fixture owning one initialized adapter, its channel memory and its context.
 
+#include "JuceFixtures.h"
 #include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AAX/Adapter.h>
@@ -26,6 +27,8 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace AAXHost
@@ -591,12 +594,12 @@ enum class EditKind
 struct Edit
 {
     EditKind kind = EditKind::Touch;
-    std::array<char, 16> id {};
+    std::array<char, kAAX_ParameterIdentifierMaxSize> id {};
     double value = 0.0;
 
-    bool is(EditKind expected, const Format::ParamId& expectedId) const
+    bool is(EditKind expected, std::string_view expectedId) const
     {
-        return kind == expected && std::strcmp(id.data(), expectedId.data()) == 0;
+        return kind == expected && std::string_view(id.data()) == expectedId;
     }
 };
 
@@ -823,10 +826,65 @@ struct FakeController
 
 // ---------------------------------------------------------------- the fixture
 
+// The effect id of a plugin of the test module, under MakeASound's scheme.
 inline std::string effectIdFor(FourCC code)
 {
     return std::string(bundleId) + "." + std::string(code.chars, 4);
 }
+
+// A port's bundle id, which a JUCE-scheme plugin's effect id defaults to.
+constexpr auto juceBundleId = "com.juce.tests";
+
+template <typename P>
+OwningPointer<Plugin> createRecorded()
+{
+    auto plugin = OwningPointer<Plugin>(EA::makeOwned<P>());
+    TestPlugins::Module::lastCreated = plugin.get();
+    return plugin;
+}
+
+// A module of JUCE ports under juceBundleId: the fixture plugin under JUCE's ids
+// with the default effect id (the bundle id), and the gain effect, the
+// MIDI-echoing instrument and the fixture again under the legacy index ids,
+// each with an effect id of its own.
+inline const ModuleDescription& juceModule()
+{
+    static const auto module = []
+    {
+        auto described = ModuleDescription {};
+        described.vendor = "JUCE Tests";
+        described.manufacturerCode = "Juce";
+        described.plugins.add({.name = "Fixture",
+                               .pluginCode = "Fixt",
+                               .create = createRecorded<JuceFixtures::FixturePlugin>,
+                               .idScheme = IdScheme::JUCE});
+        described.plugins.add({.name = "Gain",
+                               .pluginCode = "Gain",
+                               .create = createRecorded<TestPlugins::GainPlugin>,
+                               .idScheme = IdScheme::JUCE,
+                               .aaxEffectId = "com.juce.tests.gain"});
+        described.plugins.add({.name = "Echo",
+                               .category = Category::Instrument,
+                               .pluginCode = "Echo",
+                               .create = createRecorded<TestPlugins::SynthPlugin>,
+                               .idScheme = IdScheme::JUCE,
+                               .aaxEffectId = "com.juce.tests.echo"});
+        described.plugins.add({.name = "Legacy",
+                               .pluginCode = "Lgcy",
+                               .create = createRecorded<JuceFixtures::FixturePlugin>,
+                               .idScheme = IdScheme::JUCELegacyIndex,
+                               .aaxEffectId = "com.juce.tests.legacy"});
+        return described;
+    }();
+
+    return module;
+}
+
+// An effect id of juceModule()'s, for AdapterHost.
+struct JuceEffect
+{
+    std::string id = juceBundleId;
+};
 
 // One adapter of the test module, initialized for the stem pair at 48 kHz, with
 // host channel memory, every node and the private data the host would fill.
@@ -836,12 +894,39 @@ struct AdapterHost
     explicit AdapterHost(FourCC code,
                          AAX_EStemFormat inputFormat = AAX_eStemFormat_Stereo,
                          AAX_EStemFormat outputFormat = AAX_eStemFormat_Stereo)
+        : AdapterHost(nullptr, {}, effectIdFor(code), inputFormat, outputFormat)
     {
-        controller.effectId = effectIdFor(code);
+    }
+
+    // The plugin of juceModule() whose effect id the controller names.
+    explicit AdapterHost(JuceEffect effect,
+                         AAX_EStemFormat inputFormat = AAX_eStemFormat_Stereo,
+                         AAX_EStemFormat outputFormat = AAX_eStemFormat_Stereo)
+        : AdapterHost(&juceModule(),
+                      juceBundleId,
+                      std::move(effect.id),
+                      inputFormat,
+                      outputFormat)
+    {
+    }
+
+    // Over `module` under `moduleBundle`, or as the host creates one (the test
+    // module under bundleId) when it is null.
+    AdapterHost(const ModuleDescription* module,
+                std::string_view moduleBundle,
+                std::string effectId,
+                AAX_EStemFormat inputFormat,
+                AAX_EStemFormat outputFormat)
+    {
+        controller.effectId = std::move(effectId);
         controller.input = inputFormat;
         controller.output = outputFormat;
 
-        adapter.reset(static_cast<Format::Adapter*>(Format::Adapter::create()));
+        if (module != nullptr)
+            adapter = std::make_unique<Format::Adapter>(*module, moduleBundle);
+        else
+            adapter.reset(static_cast<Format::Adapter*>(Format::Adapter::create()));
+
         controller.adapter = adapter.get();
 
         TestPlugins::Module::lastCreated = nullptr;
@@ -924,10 +1009,12 @@ struct AdapterHost
         return outputPointers[static_cast<size_t>(channel)][sample];
     }
 
-    Format::ParamId idOf(const Parameter& param)
+    // The id the parameter is registered under.
+    std::string idOf(const Parameter& param)
     {
         const auto& list = plugin().parameters();
-        return Format::paramIdFor(list.entry(list.indexOf(&param)).hostId);
+        return std::string(
+            Format::registeredId(list.entry(list.indexOf(&param)).aaxId));
     }
 
     AAX_Result hostWrites(const Parameter& param, double normalized)

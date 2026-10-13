@@ -112,6 +112,25 @@ auto tInstrument = test("Allocations/aaxInstrumentRenderIsOffTheHeap") = []
     check(host.midiOut.numPosted == 4);
 };
 
+// A JUCE port: every host write found by JUCE's AAX id (the bypass by
+// "MasterBypassID", the legacy scheme's by index) with no allocation of ours.
+// The SDK's own GetParameterByID builds a std::string from the id, so an id past
+// the library's short-string capacity (22 bytes here) allocates there; these
+// stay inside it.
+auto tJuce = test("Allocations/aaxJuceSchemeRenderIsOffTheHeap") = []
+{
+    for (auto* effect: {"com.juce.tests", "com.juce.tests.legacy"})
+    {
+        auto host = AdapterHost<JuceFixtures::FixturePlugin>(JuceEffect {effect});
+        check(allocationsOverBlocks(host) == 0);
+        checkHeldRenderIsOffTheHeap(host);
+    }
+
+    auto host = AdapterHost<GainPlugin>(JuceEffect {"com.juce.tests.gain"});
+    check(allocationsOverBlocks(host) == 0);
+    check(host.plugin().processed > 0);
+};
+
 auto tHeld = test("Allocations/aaxHeldParameterRenderIsOffTheHeap") = []
 {
     {

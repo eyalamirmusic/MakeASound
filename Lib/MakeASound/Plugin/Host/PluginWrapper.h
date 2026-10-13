@@ -14,11 +14,29 @@ namespace MakeASound
 // The per-block pipeline every format adapter shares; a bad index is a no-op.
 // In order: parameters, setPlayhead, clearMidi/pushMidiIn/sortMidiInByOffset,
 //   bindInput/bindOutput per bus, process(), drain midiOut().
+//
+// An effect that declares no bypass parameter gets one here: a BoolParam
+// "Bypass" (id `__bypass`) appended to its parameters() as the bypass entry, so
+// every format's host bypass reaches it. While it is on, process() runs the
+// plugin's processBypassed() instead, with a 10 ms crossfade either way, and a
+// Session document carries it as the top-level key `__bypass`.
 class PluginWrapper
 {
 public:
+    // The key the added bypass is saved under in a Session document.
+    static constexpr const char* bypassStateKey = "__bypass";
+
+    // `identity` is the plugin's description's (parameterIdentityFor()): every
+    // entry of parameters() then carries the ids that scheme gives it, the added
+    // bypass's included.
     explicit PluginWrapper(OwningPointer<Plugin> pluginToUse,
-                           PluginFormat format = PluginFormat::Unknown);
+                           PluginFormat format = PluginFormat::Unknown,
+                           ParameterIdentity identity = {});
+
+    // Whether a wrapper around `plugin` adds a bypass: it has none of its own and
+    // its declared layout has a main input. For code that describes a plugin
+    // without wrapping it, as the AAX description does.
+    static bool addsBypass(const Plugin& plugin);
 
     // Message thread only: a deferred load running there holds the plugin.
     ~PluginWrapper();
@@ -42,11 +60,29 @@ public:
     // Audio thread, after a gap in the stream.
     void reset() noexcept;
 
+    // Message thread, from every adapter's latency check, in place of the
+    // plugin's own takeLatencyChanged(): that, and the added bypass's delay grown
+    // to the current latencySamples(), whatever moved it.
+    bool takeLatencyChanged() noexcept;
+
     // saveState off the message thread reads the plugin's snapshot, and waits on
     // the message thread only for a plugin with none. loadState never waits: the
     // parameters land now, the rest later unless a newer load or teardown came.
+    // With the added bypass, a Session save adds `__bypass` to a JSON object
+    // document (an empty one becomes `{"__bypass": ...}`); a load takes it back
+    // out before the plugin sees the document, and a Session load without it
+    // turns the bypass off. A Preset never carries it.
     std::string saveState(StateContext context);
     void loadState(std::string_view data, StateContext context);
+
+    // A document another framework wrote, for the plugin's loadForeignState: on
+    // the message thread now, returning the plugin's answer; from any other
+    // thread queued there with a copy of the bytes, ordered against loadState as
+    // a load of its own (a later load of either kind wins, teardown drops it),
+    // returning true and telling the host every value moved once the plugin took
+    // it. A `bypass` in a Session state the plugin took sets the added bypass,
+    // where there is one; a plugin with its own bypass reads it from the state.
+    bool loadForeignState(const ForeignState& state);
 
     // Host writes; each is dropped while the parameter is held.
     void setNormalizedParameter(int index, float normalized) noexcept;
@@ -93,7 +129,10 @@ public:
                     int matchingInputChannels = 0) noexcept;
 
     // Clears the MIDI out buses, runs the plugin with denormals flushed, then
-    // detaches every audio bus so no host pointer outlives its block.
+    // detaches every audio bus so no host pointer outlives its block. With the
+    // added bypass on, processBypassed() runs instead; across a toggle both run
+    // for the crossfade, the bypassed one on a copy of the inputs, and the MIDI
+    // out is the side being faded to.
     void process() noexcept;
 
 private:
@@ -103,13 +142,51 @@ private:
         std::atomic<uint64_t> latestLoad {0};
     };
 
+    // A host binding set aside while the crossfade's bypassed run borrows the bus.
+    struct Binding
+    {
+        float* const* channels = nullptr;
+        int numChannels = 0;
+        int numSamples = 0;
+        int startSample = 0;
+    };
+
+    static int addBypassAndCount(Plugin& plugin,
+                                 const BusLayout& declared,
+                                 ParameterIdentity identity);
+
     Parameter* parameterAt(int index) const noexcept;
     Parameter* writableParameterAt(int index) const noexcept;
+
+    std::string savePluginState(StateContext context);
+    static bool applyForeignState(Plugin& plugin, const ForeignState& state);
+    std::string withBypass(std::string document, StateContext context) const;
+    std::string_view takeBypass(std::string_view document,
+                                StateContext context,
+                                std::string& stripped);
+
+    void prepareBypass(int sampleRate, int maxBlockSize);
+    void processBypassable(const BoolParam& bypass) noexcept;
+    bool canCrossfade() const noexcept;
+    void crossfade(float target) noexcept;
+    void runBypassedOnCopies() noexcept;
+    void mixTowards(float target) noexcept;
 
     OwningPointer<Plugin> pluginPtr;
     BusLayout layout;
     ProcessContext context;
     EA::FixedDynamicArray<std::atomic<int>> holdCounts;
+
+    // The added bypass's audio-thread state: 0 processing, 1 bypassed, between
+    // while a crossfade runs, and the scratch the crossfade runs on, sized in
+    // prepare().
+    float bypassMix = 0.f;
+    float fadeStep = 1.f;
+    int fadeCapacity = 0;
+    Vector<Buffer> fadeInputs;
+    Vector<Buffer> fadeOutputs;
+    Vector<Binding> hostInputs;
+    Vector<Binding> hostOutputs;
 
     // How loadState's deferred half reaches the plugin. Declared last so it
     // expires before the plugin goes, and a queued load drops.

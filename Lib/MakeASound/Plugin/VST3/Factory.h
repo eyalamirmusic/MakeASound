@@ -12,6 +12,8 @@ namespace MakeASound::VST3
 // must outlive it: each class's create context is a pointer to its description.
 Steinberg::CPluginFactory* makeFactory(const ModuleDescription& module);
 
+// vst3ClassIdFor()'s four words (Core/Identity.h): MakeASound's
+// FUID(manufacturer, plugin, 'VST3', 0), or a JUCE build's under a JUCE scheme.
 // Never change it once shipped: a DAW finds a saved instance's plugin by it.
 Steinberg::FUID classIdFor(const ModuleDescription& module,
                            const PluginDescription& plugin);

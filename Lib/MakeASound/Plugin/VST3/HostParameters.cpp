@@ -68,7 +68,9 @@ void ProxyParameter::refreshInfo()
     info.stepCount = p.numSteps();
     info.defaultNormalizedValue = p.toNormalized(p.defaultValue());
     info.unitId = Vst::kRootUnitId;
-    info.flags = Vst::ParameterInfo::kCanAutomate;
+    // Only a JUCE scheme registers a non-automatable entry, published without
+    // kCanAutomate as JUCE's wrapper publishes one.
+    info.flags = entry.automatable ? Vst::ParameterInfo::kCanAutomate : 0;
 
     if (entry.bypass)
         info.flags |= Vst::ParameterInfo::kIsBypass;

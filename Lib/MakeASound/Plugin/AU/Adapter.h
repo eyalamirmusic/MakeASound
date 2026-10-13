@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AUCommon.h"
+#include "HostParameters.h"
 #include "../Core/Description.h"
 #include "../Host/PluginWrapper.h"
 #include "../Realtime/RealtimeSwap.h"
@@ -10,6 +11,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 
 namespace MakeASound::AU
 {
@@ -25,6 +27,12 @@ public:
     // Throws when the component's subtype names no plugin of this module; the
     // SDK's Open catches it and fails the instantiation.
     explicit Adapter(AudioComponentInstance instance);
+
+    // Over the plugin `description` names rather than the one the component's
+    // subtype finds in this module; its IdScheme says how the host addresses the
+    // parameters. Throws when it creates no plugin. `description` must outlive
+    // the adapter.
+    Adapter(AudioComponentInstance instance, const PluginDescription& description);
     ~Adapter() override;
 
     // The plugin this module ships with that subtype, or null.
@@ -136,15 +144,27 @@ public:
     void endParameterEdit(int index) noexcept override;
     void latencyChanged() noexcept override;
     void parameterInfoChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+    void stateChanged() noexcept override;
+
+    // Message thread: a value event for each parameter the render thread found
+    // the plugin had moved on its own. The value timer runs it at 30 Hz.
+    void postMovedParameters() noexcept;
 
 private:
-    Adapter(AudioComponentInstance instance, OwningPointer<Plugin> plugin);
+    Adapter(AudioComponentInstance instance,
+            const PluginDescription& description,
+            OwningPointer<Plugin> plugin);
 
     struct ViewCloser
     {
         void* key = nullptr;
         std::function<void()> close;
     };
+
+    // A main-queue timer calling postMovedParameters(), defined in Adapter.cpp
+    // so no dispatch type reaches an Objective-C++ TU including this header.
+    class ValueTimer;
 
     double outputSampleRate();
     BusLayout negotiatedLayout();
@@ -170,11 +190,32 @@ private:
 
     PluginWrapper pluginWrapper;
 
-    // Indices of the host-exposed entries, in declaration order, and what each
-    // read in Globals() and in the plugin at the end of the last block.
+    // How the host sees the parameters, by the description's IdScheme.
+    ParameterSpace space;
+
+    // The plugin's value of an entry in the host's space (ParameterSpace::toHost),
+    // and a value in that space written into the plugin.
+    float hostValueOf(int index) const noexcept;
+    void setFromHost(int index, float hostValue) noexcept;
+
+    // Whether the host addresses the entry (ParameterSpace::isListed).
+    bool isListed(int index) const noexcept;
+
+    // Indices of the entries the host addresses, in declaration order, and what
+    // each read in Globals() (in the host's space) and in the plugin (plain) at
+    // the end of the last block.
     Vector<int> exposed;
     Vector<float> lastHostValue;
     Vector<float> lastPluginValue;
+
+    // GetParameterList's answer, by (versionHint, host id); unused under
+    // JUCELegacyIndex, where the SDK's indexed list answers.
+    Vector<AudioUnitParameterID> listOrder;
+
+    // Per slot, raised by the render thread when it wrote a value the plugin
+    // moved on its own into Globals(), taken by postMovedParameters().
+    std::unique_ptr<std::atomic<bool>[]> movedByPlugin;
+    std::unique_ptr<ValueTimer> valueTimer;
 
     // Handed to the host by SupportedNumChannels, so it outlives the call.
     Vector<AUChannelInfo> channelInfos;

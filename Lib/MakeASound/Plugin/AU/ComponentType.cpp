@@ -19,7 +19,9 @@ ComponentInfo componentInfoFor(const ModuleDescription& module,
                                .numInputBuses = layout.inputs.size(),
                                .numOutputBuses = layout.outputs.size()};
 
-    if (plugin.category == Category::Instrument)
+    if (plugin.auType)
+        info.type = plugin.auType->toUint32();
+    else if (plugin.category == Category::Instrument)
         info.type = kAudioUnitType_MusicDevice;
     else if (plugin.category == Category::MidiEffect)
         info.type = kAudioUnitType_MIDIProcessor;

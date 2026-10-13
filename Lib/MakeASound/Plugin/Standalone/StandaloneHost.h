@@ -33,19 +33,34 @@ namespace MakeASound::Standalone
 // once more. The settings file holds the stream config, the open MIDI ports by
 // name and the plugin's Session document.
 //
+// With no settings file to read, the host imports what a JUCE build of the
+// plugin's standalone saved, from that build's settings file (juceSettingsPath):
+// its `filterState` goes to the plugin's loadForeignState as JuceStandalone, as
+// a Session. Its audio and MIDI setup are not read. The next save writes the
+// native file, so the import happens once.
+//
 // Message thread only, construction and destruction included: PluginWrapper
 // asserts it. A UI built over the host must be destroyed before it, so the editor
 // goes first, then the stream (Engine stops it), then the wrapper.
 class StandaloneHost
 {
 public:
-    // The module's first plugin, its settings at settingsPath(vendor, name).
+    // The module's first plugin, its settings at settingsPath(vendor, name), a
+    // JUCE build's at juceSettingsPath(name).
     StandaloneHost();
     explicit StandaloneHost(const ModuleDescription& module);
 
     // Any plugin, its settings at settingsFile; an empty path reads and writes
-    // no file.
-    StandaloneHost(OwningPointer<Plugin> plugin, std::string settingsFile);
+    // no file. juceSettingsFile, when not empty, is a JUCE build's settings file
+    // to import from when settingsFile gives nothing: juceSettingsPath() of the
+    // JUCE build's JucePlugin_Name, for a port whose name changed. `identity` is
+    // the wrapper's (parameterIdentityFor() of the plugin's description); the
+    // standalone has no host ids, so it only keeps the plugin's parameter list
+    // as every format sees it.
+    StandaloneHost(OwningPointer<Plugin> plugin,
+                   std::string settingsFile,
+                   std::string juceSettingsFile = {},
+                   ParameterIdentity identity = {});
 
     ~StandaloneHost();
 
@@ -90,6 +105,9 @@ public:
     void saveSettings();
     const std::string& settingsFile() const noexcept { return settingsPathName; }
 
+    // The JUCE build's settings file the constructor would import from.
+    const std::string& juceSettingsFile() const noexcept { return juceSettingsName; }
+
     // The plugin's editor, or null when it has none; a UI then shows its own
     // (the default app shows GenericEditor).
     OwningPointer<Editor> createEditor() { return plugin().createEditor(); }
@@ -109,6 +127,7 @@ private:
     static OwningPointer<Plugin> createFirstPlugin(const ModuleDescription& module);
 
     void restoreSession();
+    void importJuceSettings();
     void restoreMidi(const Settings& settings);
     Error startEngine(const StreamConfig& config);
     Error openMidiOutput(std::optional<int> portId);
@@ -126,6 +145,7 @@ private:
     Engine audioEngine {deviceManager, midiManager};
 
     std::string settingsPathName;
+    std::string juceSettingsName;
     std::string defaultState;
     StreamConfig fallback;
     std::optional<int> openOutput;

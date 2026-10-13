@@ -3,21 +3,22 @@
 #include "AAXCommon.h"
 #include "../Parameters/ParameterList.h"
 
-#include <array>
-#include <cstdint>
-#include <optional>
+#include <string_view>
 
 namespace MakeASound::AAX
 {
 
-// AAX_CParamID: the 31-bit host id as eight lowercase hex digits, so an inserted or
-// renamed parameter keeps everyone's automation.
-using ParamId = std::array<char, 9>;
+// An AAX_CParamID is the entry's aaxId (ParameterList): under MakeASound's scheme
+// the 31-bit host id as eight lowercase hex digits, so an inserted or renamed
+// parameter keeps everyone's automation; under a JUCE scheme the id JUCE's AAX
+// wrapper gave it, "MasterBypassID" for the bypass.
 
-ParamId paramIdFor(uint32_t hostId) noexcept;
-
-// Nullopt unless the id is exactly eight lowercase hex digits.
-std::optional<uint32_t> hostIdOf(AAX_CParamID id) noexcept;
+// The id the host knows the entry by: its aaxId cut to the first 31 bytes, as
+// the SDK's AAX_CParameter keeps it (kAAX_ParameterIdentifierMaxSize less the
+// NUL), whole characters or not. Only a non-ASCII JUCE id is ever cut, since
+// ParameterList keeps every aaxId to 31 code points; a JUCE build's session
+// names that parameter by the same 31 bytes.
+std::string_view registeredId(std::string_view aaxId) noexcept;
 
 // Text both ways through the MakeASound parameter, in normalized units: the AAX
 // parameter is 0..1 with a linear taper, so a skewed parameter reads right.
@@ -39,8 +40,9 @@ private:
     const Parameter* param;
 };
 
-// One AAX_CParameter<float> for the entry, at the parameter's current value: steps
-// and a discrete type from numSteps, automatable from the entry.
+// One AAX_CParameter<float> for the entry under its aaxId, at the parameter's
+// current value: steps and a discrete type from numSteps, automatable from the
+// entry.
 AAX_IParameter* makeParameter(const ParameterList::Entry& entry);
 
 } // namespace MakeASound::AAX

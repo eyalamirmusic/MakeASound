@@ -38,6 +38,8 @@ public:
     float maxValue() const noexcept override { return 1.f; }
     float defaultValue() const noexcept override { return initial ? 1.f : 0.f; }
     int numSteps() const noexcept override { return 1; }
+    bool isDiscrete() const noexcept override { return true; }
+    bool isBoolean() const noexcept override { return true; }
 
     void setValue(float plain) noexcept override
     {

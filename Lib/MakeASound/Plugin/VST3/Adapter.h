@@ -8,6 +8,7 @@
 #include "pluginterfaces/vst/ivstevents.h"
 
 #include <atomic>
+#include <memory>
 
 namespace MakeASound::VST3
 {
@@ -23,7 +24,10 @@ class Adapter
 {
 public:
     // Installs itself as the plugin's HostEditListener; the destructor removes it.
-    explicit Adapter(OwningPointer<Plugin> plugin);
+    // `identity` is the description's (parameterIdentityFor), which names every
+    // ParamID; under a JUCE scheme every parameter is registered, a
+    // non-automatable one without kCanAutomate, as JUCE's wrapper does.
+    explicit Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity = {});
     ~Adapter() override;
 
     Plugin& plugin() noexcept;
@@ -70,6 +74,8 @@ public:
     void endParameterEditGroup() noexcept override;
     void latencyChanged() noexcept override;
     void parameterInfoChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+    void stateChanged() noexcept override;
 
     tresult PLUGIN_API queryInterface(const Steinberg::TUID iid,
                                       void** obj) override;
@@ -80,12 +86,29 @@ private:
     void registerParameters();
     void registerShadowParameters();
     void notifyHostIfLatencyChanged();
+    void notifyHostParamValuesChanged();
+    void markHostDirty();
     void applyParameterChanges(Vst::IParameterChanges& changes) noexcept;
     void collectEvents(Vst::IEventList& events) noexcept;
     void bindBuses(Vst::ProcessData& data) noexcept;
     void emitEvents(Vst::IEventList& events) noexcept;
+    void emitParameterChanges(Vst::IParameterChanges& changes) noexcept;
+
+    // Whether the host knows the parameter at `index`: an exposed one, or under
+    // a JUCE scheme any. Bounds-tolerant.
+    bool isRegistered(int index) const noexcept;
+
+    // The host already has the value: the next block sends no point for it.
+    void takeAsBaseline(int index) noexcept;
+    void takeAllAsBaseline() noexcept;
 
     PluginWrapper pluginWrapper;
+
+    // Registered plugin indices in declaration order, and the normalized value
+    // each held when the host last heard of it, by plugin index.
+    Vector<int> exposed;
+    std::unique_ptr<std::atomic<float>[]> lastPluginValue;
+
     int numMidiInputs = 0;
     bool active = false;
 

@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 
 namespace MakeASound::AAX
 {
@@ -25,7 +26,13 @@ class Adapter
     , public HostEditListener
 {
 public:
-    Adapter() = default;
+    // Over module() under moduleBundleId(), as the host creates one.
+    Adapter();
+
+    // Over another module and bundle id: the plugin is the one whose effect id
+    // (aaxEffectIdFor) the controller names. The module must outlive the adapter.
+    Adapter(const ModuleDescription& moduleToUse, std::string_view bundleIdToUse);
+
     ~Adapter() override;
 
     // kAAX_ProcPtrID_Create_EffectParameters
@@ -37,7 +44,8 @@ public:
     // Null until EffectInit found the plugin.
     PluginWrapper* wrapper() noexcept { return pluginWrapper.get(); }
 
-    // The plugin index an AAX parameter id names, -1 unless it is host-exposed.
+    // The plugin index an AAX parameter id names, -1 unless the adapter
+    // registered it (isRegistered). A binary search: allocation-free.
     int indexOf(AAX_CParamID id) const noexcept;
 
     // AAX_CEffectParameters
@@ -63,6 +71,10 @@ public:
     AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* chunk,
                                   AAX_CBoolean* isEqual) const override;
 
+    // The base's parameter changes plus every stateChanged(), so Pro Tools marks
+    // the session modified for state that is not a parameter.
+    AAX_Result GetNumberOfChanges(int32_t* numChanges) const override;
+
     // Message thread: the latency and the values the plugin moved on its own.
     AAX_Result TimerWakeup() override;
 
@@ -74,6 +86,8 @@ public:
     void performParameterEdit(int index, float normalized) noexcept override;
     void endParameterEdit(int index) noexcept override;
     void latencyChanged() noexcept override;
+    void parameterValuesChanged() noexcept override;
+    void stateChanged() noexcept override;
 
 private:
     AAX_Result createWrapper();
@@ -88,6 +102,9 @@ private:
     // since the last look unless `all`.
     void mirrorParametersToHost(bool all);
 
+    const ModuleDescription& described;
+    std::string bundleId;
+
     OwningPointer<PluginWrapper> pluginWrapper;
 
     int inputChannels = 0;
@@ -96,10 +113,12 @@ private:
     bool hasMidiIn = false;
     bool hasMidiOut = false;
 
-    // Host-exposed plugin indices in declaration order, each one's AAX id by
-    // plugin index, and what each held when last mirrored to the host.
-    Vector<int> exposed;
-    Vector<ParamId> paramIds;
+    // Registered plugin indices in declaration order, the same sorted by their
+    // AAX id, each one's AAX id as registered (registeredId) by plugin index,
+    // empty for the rest, and what each held when last mirrored to the host.
+    Vector<int> registered;
+    Vector<int> byParamId;
+    Vector<std::string> paramIds;
     std::unique_ptr<std::atomic<float>[]> lastPluginValue;
 
     Vector<const float*> inputTable;
@@ -116,6 +135,9 @@ private:
 
     // What the host was last told.
     std::atomic<int> lastReportedLatency {-1};
+
+    // How many times the plugin marked its non-parameter state changed.
+    std::atomic<int32_t> stateChanges {0};
 };
 
 } // namespace MakeASound::AAX
