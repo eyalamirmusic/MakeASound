@@ -69,6 +69,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
     if (TARGET MakeASoundVST3)
         list(APPEND MAKEASOUND_TEST_SOURCES VST3Tests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundVST3 vst3sdk-hosting)
+
+        # A ViewRect is pixels on Windows, and an unscaled view follows the DPI.
+        if (WIN32 AND TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+            list(APPEND MAKEASOUND_TEST_SOURCES VST3ViewTests-Windows.cpp)
+        endif ()
     endif ()
 
     # The AU adapter hosted in-process through AudioToolbox's C API. The suites
