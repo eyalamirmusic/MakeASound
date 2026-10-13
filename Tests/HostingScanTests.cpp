@@ -46,8 +46,9 @@ std::string makeBundle(const fs::path& path, std::size_t bytes = 64)
 
 std::int64_t msSince(Clock::time_point start)
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start)
-        .count();
+    const auto elapsed = Clock::now() - start;
+
+    return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
 }
 
 WorkerCommand fakeWorker(const char* mode, const char* delayMs = nullptr)
@@ -147,7 +148,7 @@ auto tExecutable = test("HostingScan/theExecutablePathIsThisBinary") = []
     check(fs::equivalent(fs::path(executablePathFromPlatform()), path));
 };
 
-auto tDefaultWorker = test("HostingScan/theDefaultWorkerIsThisBinaryWithTheFlag") = []
+auto tDefaultWorker = test("HostingScan/theDefaultWorkerIsThisBinaryAndFlag") = []
 {
     const auto command = defaultWorkerCommand();
 
@@ -436,7 +437,10 @@ auto tLimit = test("HostingScan/thePoolNeverRunsMoreWorkersThanTheLimit") = []
     check(msSince(start) >= 600);
 
     for (const auto& target: targets)
-        check(recorder.find(target) != nullptr && recorder.find(target)->succeeded());
+    {
+        const auto* scan = recorder.find(target);
+        check(scan != nullptr && scan->succeeded());
+    }
 
     fs::remove_all(folder);
 };
@@ -521,7 +525,8 @@ struct SessionRecorder
         session.onStarted = [this](const ScanSessionPlan& planToUse)
         { plan = planToUse; };
 
-        session.onTargetFinished = [this](int index, int total, const ModuleScan& scan)
+        session.onTargetFinished =
+            [this](int index, int total, const ModuleScan& scan)
         {
             lastIndex = index;
             lastTotal = total;

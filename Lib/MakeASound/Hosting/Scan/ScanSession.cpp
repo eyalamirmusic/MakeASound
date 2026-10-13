@@ -237,10 +237,12 @@ struct ScanSession::Impl
     bool running = false;
     bool cancelling = false;
 
-    std::chrono::steady_clock::time_point startedAt = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point startedAt =
+        std::chrono::steady_clock::now();
 };
 
-ScanSession::ScanSession(const FormatManager& formats, ScanSessionOptions optionsToUse)
+ScanSession::ScanSession(const FormatManager& formats,
+                         ScanSessionOptions optionsToUse)
     : impl(EA::makeOwned<Impl>(*this, formats, std::move(optionsToUse)))
 {
 }

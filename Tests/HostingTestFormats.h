@@ -30,7 +30,8 @@ public:
 
     Vector<std::string> defaultSearchFolders() const override { return {}; }
 
-    Vector<std::string> findTargets(const Vector<std::string>& folders) const override
+    Vector<std::string>
+        findTargets(const Vector<std::string>& folders) const override
     {
         return findModulesWithExtension(folders, ".vst3");
     }

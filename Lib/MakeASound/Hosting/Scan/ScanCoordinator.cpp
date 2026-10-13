@@ -70,8 +70,8 @@ struct ScanCoordinator::Impl
         running = true;
 
         if (autoPoll)
-            timer = EA::makeOwned<eacp::Threads::Timer>([this] { poll(); },
-                                                    eacp::Time::MS {pollIntervalMs});
+            timer = EA::makeOwned<eacp::Threads::Timer>(
+                [this] { poll(); }, eacp::Time::MS {pollIntervalMs});
 
         if (owner.onProgress)
             owner.onProgress(0, totalCount);

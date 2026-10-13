@@ -40,7 +40,8 @@ std::set<std::string> asSet(const Vector<std::string>& paths)
 }
 } // namespace
 
-std::string defaultPluginCachePath(std::string_view appName, std::string_view company)
+std::string defaultPluginCachePath(std::string_view appName,
+                                   std::string_view company)
 {
     if (eacp::FilePath::appDataDirectory().empty())
         return cachePathIn({});
@@ -74,7 +75,8 @@ void PluginCache::setStampFunction(StampFunction stampFunctionToUse)
 
 bool PluginCache::stampMatches(const ModuleScan& entry) const
 {
-    const auto stamp = stampFunction ? stampFunction(entry) : moduleStamp(entry.path);
+    const auto stamp =
+        stampFunction ? stampFunction(entry) : moduleStamp(entry.path);
 
     return stamp == entry.stamp();
 }

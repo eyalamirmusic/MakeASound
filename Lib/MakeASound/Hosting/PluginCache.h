@@ -100,7 +100,8 @@ public:
     // Which of `foundTargets` must be scanned: those with no entry, and those
     // whose stamp changed. A failed entry with an unchanged stamp is left out;
     // that is the blacklist.
-    Vector<std::string> modulesNeedingScan(const Vector<std::string>& foundTargets) const;
+    Vector<std::string>
+        modulesNeedingScan(const Vector<std::string>& foundTargets) const;
 
     // Upserts a result by path. A failure overwrites a good entry as readily as
     // the reverse: it is the current truth about that target.

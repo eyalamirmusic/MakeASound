@@ -31,7 +31,8 @@ public:
 
     // Every target of this format under `folders`, deduplicated and sorted. A
     // registry format ignores the folders.
-    virtual Vector<std::string> findTargets(const Vector<std::string>& folders) const = 0;
+    virtual Vector<std::string>
+        findTargets(const Vector<std::string>& folders) const = 0;
 
     // Whether `target` is spelled like one of this format's, from its shape alone:
     // nothing is loaded to find out. FormatManager asks the formats in the order

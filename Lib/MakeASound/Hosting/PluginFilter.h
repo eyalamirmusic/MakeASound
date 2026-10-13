@@ -48,8 +48,8 @@ inline bool matchesFilter(const PluginDescription& description,
 }
 
 // The descriptions matching `query`, in the order they came in.
-inline Vector<PluginDescription> filterPlugins(const Vector<PluginDescription>& plugins,
-                                               std::string_view query)
+inline Vector<PluginDescription>
+    filterPlugins(const Vector<PluginDescription>& plugins, std::string_view query)
 {
     auto result = Vector<PluginDescription>();
 

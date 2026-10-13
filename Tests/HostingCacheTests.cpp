@@ -48,9 +48,8 @@ void makeFile(const fs::path& path, std::size_t bytes = 8)
     out << std::string(bytes, 'x');
 }
 
-PluginDescription makeDescription(std::string name,
-                                  std::string path,
-                                  std::string classId)
+PluginDescription
+    makeDescription(std::string name, std::string path, std::string classId)
 {
     auto description = PluginDescription();
     description.name = std::move(name);
@@ -132,7 +131,7 @@ auto tPlugReads = test("HostingCache/aDatabasePlugWroteLoadsUnchanged") = []
     check(delay.stamp() == ModuleStamp {1791931959, 5185568});
 };
 
-auto tPlugBytes = test("HostingCache/aDatabasePlugWroteIsWrittenBackByteForByte") = []
+auto tPlugBytes = test("HostingCache/aPlugDatabaseIsWrittenBackByteForByte") = []
 {
     // The same keys, order, indent and number forms: a file written here is the
     // file Plug writes, so Plug reads it back.
@@ -140,7 +139,7 @@ auto tPlugBytes = test("HostingCache/aDatabasePlugWroteIsWrittenBackByteForByte"
           == HostingFixtures::pluginCacheDocument);
 };
 
-auto tPlugFile = test("HostingCache/thePlugDatabaseLoadsAndSavesThroughTheCache") = []
+auto tPlugFile = test("HostingCache/aPlugDatabaseLoadsAndSavesThroughACache") = []
 {
     const auto folder = freshFolder("plugFile");
     const auto path = folder / "Plugins.json";
@@ -344,7 +343,7 @@ auto tRemoveMissing = test("HostingCache/removeMissingDropsUninstalledModules") 
     fs::remove_all(folder);
 };
 
-auto tRemoveByFormat = test("HostingCache/removeMissingByFormatSparesOtherFormats") = []
+auto tRemoveByFormat = test("HostingCache/removeMissingByFormatSparesOthers") = []
 {
     auto cache = PluginCache((freshFolder("removeByFormat") / "x.json").string());
 
@@ -503,10 +502,11 @@ PluginDescription filterable(std::string name,
 
 Vector<PluginDescription> filterList()
 {
-    return {filterable("Pigments", "Arturia", "Instrument|Synth", "/V/Pigments.vst3"),
-            filterable("Pro-Q 3", "FabFilter", "Fx|EQ", "/V/FabFilter Pro-Q 3.vst3"),
-            filterable("Mini V", "Arturia", "Instrument|Synth", "/V/Mini V.vst3"),
-            filterable("Rev", "Arturia", "Fx|Reverb", "/V/Rev.vst3")};
+    return {
+        filterable("Pigments", "Arturia", "Instrument|Synth", "/V/Pigments.vst3"),
+        filterable("Pro-Q 3", "FabFilter", "Fx|EQ", "/V/FabFilter Pro-Q 3.vst3"),
+        filterable("Mini V", "Arturia", "Instrument|Synth", "/V/Mini V.vst3"),
+        filterable("Rev", "Arturia", "Fx|Reverb", "/V/Rev.vst3")};
 }
 
 auto tFilterBlank = test("HostingCache/aBlankFilterMatchesEverything") = []
@@ -515,7 +515,7 @@ auto tFilterBlank = test("HostingCache/aBlankFilterMatchesEverything") = []
     check(filterPlugins(filterList(), "   \t ").size() == 4);
 };
 
-auto tFilterFields = test("HostingCache/theFilterMatchesNameVendorCategoryOrPath") = []
+auto tFilterFields = test("HostingCache/theFilterMatchesNameVendorKindOrPath") = []
 {
     check(filterPlugins(filterList(), "pigments").size() == 1);
     check(filterPlugins(filterList(), "FABFILTER").size() == 1);
@@ -561,7 +561,7 @@ auto tWalkDepth = test("HostingCache/theWalkFindsModulesAtAnyDepthButNotInside")
     fs::remove_all(root);
 };
 
-auto tWalkPaths = test("HostingCache/theWalkTakesModulesAndToleratesMissingPaths") = []
+auto tWalkPaths = test("HostingCache/theWalkTakesModulesAndSkipsMissingPaths") = []
 {
     const auto root = freshFolder("walkPaths");
     const auto module = root / "Direct.vst3";
