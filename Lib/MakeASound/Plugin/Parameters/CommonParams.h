@@ -38,7 +38,9 @@ struct DecibelParam : FloatParam
 
 // A frequency, skewed so the geometric mean √(min·max) sits at the middle of the
 // travel (20 Hz–20 kHz puts 632 Hz there), or linear when the range starts at 0
-// Hz or below. The FloatRange overload takes any other curve. Typed text may use
+// Hz or below. The FloatRange overload takes any other curve:
+// `FloatRange {minHz, maxHz}` is linear, the mapping a Tamber Plug HzParam had,
+// which a port keeps or every automation lane on it moves. Typed text may use
 // kHz.
 struct HzParam : FloatParam
 {

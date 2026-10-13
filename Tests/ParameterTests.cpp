@@ -713,6 +713,22 @@ auto tHz = test("Parameters/hzReadsHzAndKhz") = []
     check(near(param.toPlain(param.toNormalized(440.f)), 440.f, 1e-2f));
 };
 
+// A Tamber Plug HzParam was linear; a port keeps that through the range.
+auto tLinearHz = test("Parameters/aPlainRangeKeepsAnHzParamLinear") = []
+{
+    auto param = HzParam {"Rate", FloatRange {0.1f, 20.1f}, 10.1f};
+
+    check(param.curve() == Parameter::Curve::Linear);
+    check(param.numSteps() == 0);
+    check(near(param.getNormalized(), 0.5f));
+    check(near(param.toNormalized(5.1f), 0.25f));
+    check(near(param.toPlain(0.75f), 15.1f, 1e-4f));
+    check(param.valueToText(5.1f) == "5.10 Hz");
+
+    auto skewed = HzParam {"Rate", 0.1f, 20.1f, 10.1f};
+    check(skewed.curve() == Parameter::Curve::Other);
+};
+
 auto tTime = test("Parameters/timeReadsMsAndSeconds") = []
 {
     auto param = TimeParam {"Attack", 0.f, 5.f, 0.01f};
