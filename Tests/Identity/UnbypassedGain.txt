@@ -1,4 +1,4 @@
-plugin "Unbypassed Gain" code Gnub scheme MakeASound category Effect
+plugin "Unbypassed Gain" code Gnub scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
 core entry 1 "Filter/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 1782027245 address 1782027245 identifier "Filter/Cutoff" aaxId "6a3793ed" groups {[Filter|Filter]}

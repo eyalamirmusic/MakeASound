@@ -1189,7 +1189,7 @@ auto tJuceIdRules = test("AAX/aJuceIdIsItsOverrideCutAsTheSDKKeepsIt") = []
     check(near(params.hidden.get(), 0.25f));
 
     // MakeASound's scheme still leaves it out.
-    auto native = juceIdsModule(IdScheme::MakeASound);
+    auto native = juceIdsModule(IdScheme::Native);
     auto nativeHost = AdapterHost<JuceIdsPlugin>(&native,
                                                  juceBundleId,
                                                  "com.juce.tests.Idss",

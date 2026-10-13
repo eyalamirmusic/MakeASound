@@ -1,4 +1,4 @@
-plugin "Latent" code Latn scheme MakeASound category Effect
+plugin "Latent" code Latn scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
 core entry 1 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1423004271 address 1423004271 identifier "__bypass" aaxId "54d1526f" groups {}
@@ -53,7 +53,7 @@ aax effect "com.makeasound.tests"
 aax native 2:0x6a636363
 aax param entry 0 id "0" automatable 1
 aax param entry 1 id "MasterBypassID" automatable 1
-plugin "Latent CC" code Lcc1 scheme MakeASound category Effect
+plugin "Latent CC" code Lcc1 scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
 core entry 1 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1423004271 address 1423004271 identifier "__bypass" aaxId "54d1526f" groups {}

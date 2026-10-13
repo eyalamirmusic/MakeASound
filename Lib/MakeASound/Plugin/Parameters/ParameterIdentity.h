@@ -8,15 +8,19 @@ namespace MakeASound
 
 // How hosts address a plugin's parameters, and the plugin itself: a
 // compatibility profile, which policyFor() (Core/IdentityPolicy.h) resolves into
-// the rules every format adapter reads. MakeASound's own scheme is the default;
-// the two JUCE ones are for a plugin ported from JUCE that must keep its users'
-// sessions and automation, and follow its JUCE_FORCE_USE_LEGACY_PARAM_IDS
+// the rules every format adapter reads. MakeASound's own scheme, Native, is the
+// default; the two JUCE ones are for a plugin ported from JUCE that must keep its
+// users' sessions and automation, and follow its JUCE_FORCE_USE_LEGACY_PARAM_IDS
 // setting (0, JUCE's default: JUCE).
 enum class IdScheme
 {
     // VST3 and AU ids FNV-1a of the id path, an AUv3 address the same and its
     // identifier the id path, an AAX id the host id in eight hex digits.
-    MakeASound,
+    Native,
+
+    // Native's earlier name.
+    MakeASound [[deprecated("IdScheme::MakeASound is now IdScheme::Native")]] =
+        Native,
 
     // JUCE's ids from each parameter's hostKey (its leaf id): VST3 and AU
     // String::hashCode, masked to 31 bits unless juceStudioOneMask is off, an
@@ -32,7 +36,7 @@ enum class IdScheme
 // else reads the resolved rules.
 constexpr bool isJuceScheme(IdScheme scheme) noexcept
 {
-    return scheme != IdScheme::MakeASound;
+    return scheme == IdScheme::JUCE || scheme == IdScheme::JUCELegacyIndex;
 }
 
 // The VST3 and AU id of an entry.

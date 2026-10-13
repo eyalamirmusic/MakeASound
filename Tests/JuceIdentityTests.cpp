@@ -603,14 +603,14 @@ auto tIdentityFor = test("JuceCompat/aDescriptionGivesItsParameterIdentity") = [
 
 // The profiles resolve at compile time, and only the profile and JUCE's
 // settings decide the rules.
-static_assert(policyFor(IdScheme::MakeASound, {}) == IdentityPolicy {});
+static_assert(policyFor(IdScheme::Native, {}) == IdentityPolicy {});
 static_assert(policyFor(IdScheme::JUCE, {}).vst3Class == Vst3ClassRule::JuceVst2);
 static_assert(policyFor(IdScheme::JUCE, {.vst3CanReplaceVst2 = false}).vst3Class
               == Vst3ClassRule::JuceVst3);
 
 auto tPolicies = test("JuceCompat/eachProfileResolvesToItsRules") = []
 {
-    auto native = policyFor(IdScheme::MakeASound, {.vst3CanReplaceVst2 = false});
+    auto native = policyFor(IdScheme::Native, {.vst3CanReplaceVst2 = false});
     check(native == IdentityPolicy {});
 
     auto modern = policyFor(IdScheme::JUCE, {}).parameters;

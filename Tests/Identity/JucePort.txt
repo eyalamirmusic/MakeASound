@@ -1,4 +1,4 @@
-plugin "Port" code Jprt scheme MakeASound category Effect
+plugin "Port" code Jprt scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "cutoff" key "cutoff" hint 1 automatable 1 session 0 bypass no hostId 1801646368 address 1801646368 identifier "cutoff" aaxId "6b62f120" groups {}
 core entry 1 "mode" key "mode" hint 1 automatable 1 session 0 bypass no hostId 1819205650 address 1819205650 identifier "mode" aaxId "6c6ee012" groups {}

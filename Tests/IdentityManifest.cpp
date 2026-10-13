@@ -23,8 +23,8 @@ std::string_view schemeName(IdScheme scheme)
 {
     switch (scheme)
     {
-        case IdScheme::MakeASound:
-            return "MakeASound";
+        case IdScheme::Native:
+            return "Native";
         case IdScheme::JUCE:
             return "JUCE";
         case IdScheme::JUCELegacyIndex:
@@ -133,7 +133,7 @@ ModuleDescription moduleOf(FourCC manufacturer,
 }
 
 constexpr auto everyScheme = {
-    IdScheme::MakeASound, IdScheme::JUCE, IdScheme::JUCELegacyIndex};
+    IdScheme::Native, IdScheme::JUCE, IdScheme::JUCELegacyIndex};
 
 ModuleDescription testPluginModule(PluginDescription plugin)
 {
@@ -186,7 +186,7 @@ Vector<Case> cases()
     port.vendor = "MakeASound Identity";
     port.manufacturerCode = JucePort::manufacturer;
     port.plugins.add(
-        describedAs(JucePort::description(IdScheme::JUCE), IdScheme::MakeASound));
+        describedAs(JucePort::description(IdScheme::JUCE), IdScheme::Native));
     port.plugins.add(JucePort::description(IdScheme::JUCE));
     port.plugins.add(JucePort::description(IdScheme::JUCELegacyIndex));
 

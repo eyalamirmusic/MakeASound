@@ -1,4 +1,4 @@
-plugin "Synth" code Echo scheme MakeASound category Instrument
+plugin "Synth" code Echo scheme Native category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 1096112509 address 1096112509 identifier "Level" aaxId "4155597d" groups {}
 vst3 class 0x4d61536f 0x4563686f 0x56535433 0x00000000

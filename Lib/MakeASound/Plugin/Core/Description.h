@@ -142,7 +142,7 @@ struct PluginDescription
     // may hold a port beside native plugins; on the description rather than the
     // Plugin, since a VST3 factory names its classes before any instance exists
     // and a port should not have to change its processor to keep its ids.
-    IdScheme idScheme = IdScheme::MakeASound;
+    IdScheme idScheme = IdScheme::Native;
     JuceSettings juce = {};
 
     // Overrides, each winning over the scheme. The VST3 component class id.

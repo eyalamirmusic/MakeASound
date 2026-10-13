@@ -1,4 +1,4 @@
-plugin "SVFFilter" code Svf1 scheme MakeASound category Effect
+plugin "SVFFilter" code Svf1 scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "HP/Enable" key "Enable" hint 1 automatable 1 session 0 bypass no hostId 683117885 address 683117885 identifier "HP/Enable" aaxId "28b78d3d" groups {[HP|HP]}
 core entry 1 "HP/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 775432387 address 775432387 identifier "HP/Cutoff" aaxId "2e3828c3" groups {[HP|HP]}
@@ -57,7 +57,7 @@ aax param entry 6 id "5934bf79" automatable 1
 aax param entry 7 id "0b2599c7" automatable 1
 aax param entry 8 id "1c87ecbe" automatable 1
 aax param entry 9 id "54d1526f" automatable 1
-plugin "Chorus" code Chr1 scheme MakeASound category Effect
+plugin "Chorus" code Chr1 scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Input Level" key "Input Level" hint 1 automatable 1 session 0 bypass no hostId 1478329769 address 1478329769 identifier "Input Level" aaxId "581d85a9" groups {}
 core entry 1 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
