@@ -192,6 +192,12 @@ if (MAKEASOUND_BUILD_PLUGIN)
             add_subdirectory(HostFixtures)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp)
             set(MAKEASOUND_TEST_HOST_FIXTURES ON)
+
+            # Apps/PluginScanner, run as a program over the fixtures.
+            if (TARGET PluginScanner)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostingScannerAppTests.cpp)
+                set(MAKEASOUND_TEST_PLUGIN_SCANNER ON)
+            endif ()
         endif ()
 
         # Audio Units: Apple's own, found through the registry.
@@ -300,6 +306,12 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
             HostFixtureScanCrash-VST3 HostFixtureScanHang-VST3)
     target_compile_definitions(MakeASoundTests PRIVATE
             MAKEASOUND_HOST_FIXTURE_VST3_DIR="${MAKEASOUND_HOST_FIXTURE_VST3_DIR}")
+endif ()
+
+if (MAKEASOUND_TEST_PLUGIN_SCANNER)
+    add_dependencies(MakeASoundTests PluginScanner)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_PLUGIN_SCANNER="$<TARGET_FILE:PluginScanner>")
 endif ()
 
 if (MAKEASOUND_TEST_AU_VIEW)

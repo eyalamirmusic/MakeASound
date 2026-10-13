@@ -26,3 +26,8 @@ if (NOT IOS)
         add_subdirectory(Synth)
     endif ()
 endif ()
+
+# The console plugin scanner, wherever hosting builds.
+if (TARGET MakeASoundHosting)
+    add_subdirectory(PluginScanner)
+endif ()

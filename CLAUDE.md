@@ -11,6 +11,7 @@ MakeASound is a C++20 library for platform-agnostic audio, MIDI and audio plugin
 - **`MakeASoundPlugin`** (`Plugin/`): the SDK-free plugin core: `Plugin`, `StatePlugin`, parameters, state, `PluginWrapper` (the per-block pipeline every format shares) and `Compat/` (readers for state that JUCE builds saved).
 - **Formats on top:** Standalone (`StandaloneCore` with no window, plus `Standalone` with windows), VST3 (vendored SDK), AU v2 (macOS, fetched AudioUnitSDK), AUv3 (Apple, no SDK), AAX (macOS, opt-in through `MAKEASOUND_BUILD_AAX`). Each one is a static target that exists only where its dependency target exists. A format whose target is missing is skipped with a status line.
 - **UI:** `MakeASoundPluginUI` (eacp-ui: `GenericEditor`, `ResizeGrip`) and `MakeASoundPluginWeb` (React editors over eacp's `WebView`).
+- **Hosting:** `MakeASoundHosting` (`Hosting/`, beside `Plugin/` since `Plugin/Host` is the plugin's view of a host): third-party plugin scanning through a `FormatManager` (VST3; AU on macOS), out of process, into a `PluginCache`, plus `Apps/PluginScanner`. Loading and hosted editors come later. See `Docs/PluginScanning.md`.
 - **Tools:** `PluginValidator` (pluginval, auval and the user's own aaxval) and `AUv3Probe` (iOS simulator).
 
 Public umbrellas: `<MakeASound/MakeASound.h>` and `<MakeASound/Plugin/MakeASoundPlugin.h>`. The include root is `Lib/`.
@@ -77,6 +78,12 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - AAX: the SDK is GPLv3/Avid-licensed and fetched only under the flag. The AAX Validator, DigiShell and Avid tools are under NDA. Run them only from a path the user names; never fetch, commit or run them in CI. Only one `dsh` may run at a time, since it uses a fixed port.
 - Web editors: `src/generated` and `package-lock.json` are committed; `node_modules`, `dist` and `.vite` are not.
 - `ThirdParty/VST3_SDK` is vendored and trimmed (see `ThirdParty/README.md`).
+
+**Hosting**
+- The plugin database's schema (`PluginDescription`, `ModuleScan`, `PluginCacheDocument`) is Tamber Plug's and is append-only: never rename or repurpose a field. `Tests/HostingFixtures.h` pins a file Plug wrote, byte for byte.
+- The worker protocol is `--makeasound-scan <target>` in and one `MAKEASOUND_SCAN:` line out (`scanResultPrefix`), plus the `ScanWorkerExit` codes. Stdout outside worker mode stays empty.
+- No process-wide format registries: what a host scans and stamps is what its `FormatManager` holds. An Audio Unit stamps as its component version, so a cache holding them stamps through the formats (`useFormatStamps`).
+- Hosting tests load only `Tests/HostFixtures` and Apple's built-in AUs. A fixture that crashes or hangs is scanned only through a worker.
 
 ## Tests
 
