@@ -9,7 +9,7 @@ MakeASound is a C++20 library for platform-agnostic audio, MIDI and audio plugin
 - **`MakeASound`** (`Lib/MakeASound/`): `DeviceManager` (audio, backed by miniaudio) and `MidiManager` (Core MIDI, WinMM or ALSA sequencer, chosen per platform). Each façade hides its backend behind a pimpl, and no backend type reaches a public header.
 - **`MakeASoundDSP`** (`DSP/`): an optional DSP library. Today it holds `TestSynth`.
 - **`MakeASoundPlugin`** (`Plugin/`): the SDK-free plugin core: `Plugin`, `StatePlugin`, parameters, state, `PluginWrapper` (the per-block pipeline every format shares) and `Compat/` (readers for state that JUCE builds saved).
-- **Formats on top:** Standalone (`StandaloneCore` with no window, plus `Standalone` with windows), VST3 (vendored SDK), AU v2 (macOS, fetched AudioUnitSDK), AUv3 (Apple, no SDK), AAX (macOS, opt-in through `MAKEASOUND_BUILD_AAX`). Each one is a static target that exists only where its dependency target exists. A format whose target is missing is skipped with a status line.
+- **Formats on top:** Standalone (`StandaloneCore` with no window, plus `Standalone` with windows), VST3 (vendored SDK), AU v2 (macOS, fetched AudioUnitSDK), AUv3 (Apple, no SDK), AAX (macOS and Windows x64, opt-in through `MAKEASOUND_BUILD_AAX`). Each one is a static target that exists only where its dependency target exists. A format whose target is missing is skipped with a status line.
 - **UI:** `MakeASoundPluginUI` (eacp-ui: `GenericEditor`, `ResizeGrip`) and `MakeASoundPluginWeb` (React editors over eacp's `WebView`).
 - **Tools:** `PluginValidator` (pluginval, auval and the user's own aaxval) and `AUv3Probe` (iOS simulator).
 
@@ -73,6 +73,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - AUv3 on iOS configures the tree a second time for macOS (`MakeASoundDescribeBuild`) to write plists, so plugin sources must also build for macOS.
 - Tests reach the AU v2 adapter only through the AudioUnit C API. Components are registered with `AudioComponentRegister`, never found through `AudioComponentFindNext`.
 - AAX: the SDK is GPLv3/Avid-licensed and fetched only under the flag. The AAX Validator, DigiShell and Avid tools are under NDA. Run them only from a path the user names; never fetch, commit or run them in CI. Only one `dsh` may run at a time, since it uses a fixed port.
+- AAX on Windows is x64 only: the SDK does not compile for Windows ARM64, so the format is skipped there. Build an x64 tree to test it.
 - Web editors: `src/generated` and `package-lock.json` are committed; `node_modules`, `dist` and `.vite` are not.
 - `ThirdParty/VST3_SDK` is vendored and trimmed (see `ThirdParty/README.md`).
 

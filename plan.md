@@ -7,8 +7,8 @@ windows and editors, Miro for state and UI schemas), re-homed on MakeASound so t
 standalone format and the device library are one code base rather than two.
 
 Stages 0 to 9 have landed on `develop`: `Buffer`, `Processor`/`Engine`, the plugin
-core, the standalone, VST3, AU, editor size policy and the web editor, AAX on macOS,
-the windowless and iOS standalone, and AUv3 on iOS. CLAUDE.md describes what exists
+core, the standalone, VST3, AU, editor size policy and the web editor, AAX on macOS
+(and since on Windows x64), the windowless and iOS standalone, and AUv3 on iOS. CLAUDE.md describes what exists
 and the decisions log below keeps why. What remains is the hand checks those stages
 could not make in CI, a few follow-ups, stage 10, and the later stages.
 
@@ -81,6 +81,11 @@ format, recorded in the decisions log.
 - **The iOS standalone** has no on-screen keyboard and no Bluetooth MIDI pairing
   (`CABTMIDICentralViewController`).
 - **AAX transport**: `barStartPpq` and `isRecording` are not mapped.
+- **AAX on Windows** builds and runs its cases on x64, but three things stay
+  macOS-only or unchecked: an aaxval run through `PluginValidator` on a Windows
+  machine, PACE signing (`AAX_WCGUID` prints a status line there and signs
+  nothing), and how the editor scales on a HiDPI display in Pro Tools for
+  Windows, which is a hand check.
 - **PACE signing** (`CMake/SignAAXBundle.cmake`) has not yet been seen to work
   from a non-interactive shell: wraptool reported no password there after a
   terminal `wraptool sync`.
@@ -690,8 +695,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 - **AUv3 on macOS**: the adapter already builds and is tested there; shipping it
   would need a macOS container app and a decision on coexisting with the v2
   `.component`.
-- **AAX on Windows** (MSVC x64; clap-wrapper and Pro Tools rule out ARM64 and
-  clang-cl), with a `View-Windows.cpp`; then surround and side-chain stems
+- **AAX**, now on macOS and Windows x64: surround and side-chain stems
   (`AddSideChainIn` from a non-main input bus) once a bus carries channel roles,
   and AudioSuite.
 - **MIDI 2.0**: `MIDIEventList`/UMP in AU and AUv3, which take MIDI 1.0 bytes only.
@@ -972,3 +976,14 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 - 2026-10-12: a Ninja iOS device build is unsigned, app and extension alike; the
   simulator is signed ad hoc, and a signed device build is Xcode's, through
   `MAKEASOUND_IOS_TEAM`.
+- 2026-10-13: AAX builds on Windows for x64 only. The SDK does not compile for
+  Windows ARM64 (`acfbasetypes.h` stops at `#error Unknown platform`) and Pro
+  Tools for Windows is x64, so an ARM64 tree skips the format with a status line.
+  The bundle is `<OUTPUT_NAME>.aaxplugin/Contents/x64/<OUTPUT_NAME>.aaxplugin`, a
+  DLL, with no plist, `PkgInfo` or signature; it installs best effort into
+  `C:\Program Files\Common Files\Avid\Audio\Plug-Ins`. The SDK's `dllexport`
+  already limits the exports to the seven ACF entry points, so Windows needs no
+  export list; CI checks them against `AAXExports.txt` without its underscores.
+  The view embeds in Pro Tools' `HWND`. Both Windows x64 CI jobs build the bundles
+  and run the AAX cases. aaxval on Windows, PACE signing there and HiDPI in Pro
+  Tools for Windows are still open (see Follow-ups).

@@ -152,7 +152,31 @@ endif ()
 # Avid's AAX SDK License Agreement or GPLv3. Both ACF glue files belong to each
 # module, so they stay out of the archive: AAX_Init.cpp is included by the module's
 # EntryPoint.cpp, its shutdown renamed, and AAX_Exports.cpp is compiled beside it.
+# Built on macOS and on Windows x64 only: the SDK's ACF/acfbasetypes.h knows no
+# Windows ARM64 (#error Unknown platform without _M_AMD64), and AAX.h's
+# pointer-size check wants _M_X64, so an ARM64 Windows build skips the format.
+set(aax_sdk_platform OFF)
+
 if (MAKEASOUND_BUILD_AAX AND APPLE AND NOT IOS)
+    set(aax_sdk_platform ON)
+elseif (MAKEASOUND_BUILD_AAX AND WIN32)
+    set(aax_arch_id "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
+
+    if (NOT aax_arch_id)
+        set(aax_arch_id "${CMAKE_SYSTEM_PROCESSOR}")
+    endif ()
+
+    string(TOUPPER "${aax_arch_id}" aax_arch_id)
+
+    if (aax_arch_id MATCHES "^(X64|AMD64|X86_64)$")
+        set(aax_sdk_platform ON)
+    else ()
+        message(STATUS "aaxsdk skipped (the AAX SDK builds for Windows x64 only, "
+                "not '${aax_arch_id}')")
+    endif ()
+endif ()
+
+if (aax_sdk_platform)
     include(CPM)
 
     CPMAddPackage(
@@ -175,14 +199,19 @@ if (MAKEASOUND_BUILD_AAX AND APPLE AND NOT IOS)
 
     set(AAX_LIB_DIR "${AAX_SDK_DIR}/Libs/AAXLibrary/source")
 
+    # The glob takes the Windows autorelease pool too, which the Mac build swaps
+    # for the Objective-C one.
     file(GLOB aax_library_sources CONFIGURE_DEPENDS "${AAX_LIB_DIR}/*.cpp")
-    list(REMOVE_ITEM aax_library_sources
-            "${AAX_LIB_DIR}/AAX_Init.cpp"
-            "${AAX_LIB_DIR}/AAX_CAutoreleasePool.Win.cpp")
+    list(REMOVE_ITEM aax_library_sources "${AAX_LIB_DIR}/AAX_Init.cpp")
+
+    if (APPLE)
+        list(REMOVE_ITEM aax_library_sources
+                "${AAX_LIB_DIR}/AAX_CAutoreleasePool.Win.cpp")
+        list(APPEND aax_library_sources "${AAX_LIB_DIR}/AAX_CAutoreleasePool.OSX.mm")
+    endif ()
 
     add_library(aaxsdk STATIC
             ${aax_library_sources}
-            ${AAX_LIB_DIR}/AAX_CAutoreleasePool.OSX.mm
             ${AAX_SDK_DIR}/Interfaces/ACF/CACFClassFactory.cpp)
 
     target_include_directories(aaxsdk SYSTEM PUBLIC
@@ -194,9 +223,18 @@ if (MAKEASOUND_BUILD_AAX AND APPLE AND NOT IOS)
 
     target_compile_features(aaxsdk PUBLIC cxx_std_20)
     target_compile_options(aaxsdk PRIVATE -w)
-    target_link_libraries(aaxsdk PUBLIC
-            "-framework Foundation"
-            "-framework CoreFoundation")
+
+    # AAX_CMutex.cpp is the one TU that includes <windows.h>, and the unity build
+    # hands its macros to every file after it. The vcxproj's other definitions
+    # (_WINDOWS, I18N_LIB, PLUGIN_SDK_BUILD, AAX_PLUGIN_BUILD) are read by no
+    # source, and the two _NO_DEPRECATE ones only quiet warnings -w already drops.
+    if (APPLE)
+        target_link_libraries(aaxsdk PUBLIC
+                "-framework Foundation"
+                "-framework CoreFoundation")
+    else ()
+        target_compile_definitions(aaxsdk PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif ()
 
     # AAX_CUIDs.cpp defines INITACFIDS before the headers that declare every uid,
     # so it must be the first to include them: an object of its own.
