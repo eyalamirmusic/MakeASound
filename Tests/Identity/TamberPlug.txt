@@ -1,0 +1,123 @@
+plugin "SVFFilter" code Svf1 scheme MakeASound category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "HP/Enable" key "Enable" hint 1 automatable 1 session 0 bypass no hostId 683117885 address 683117885 identifier "HP/Enable" aaxId "28b78d3d" groups {[HP|HP]}
+core entry 1 "HP/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 775432387 address 775432387 identifier "HP/Cutoff" aaxId "2e3828c3" groups {[HP|HP]}
+core entry 2 "HP/Resonance" key "Resonance" hint 1 automatable 1 session 0 bypass no hostId 1379585250 address 1379585250 identifier "HP/Resonance" aaxId "523acce2" groups {[HP|HP]}
+core entry 3 "BP/Enable" key "Enable" hint 1 automatable 1 session 0 bypass no hostId 664886655 address 664886655 identifier "BP/Enable" aaxId "27a15d7f" groups {[BP|BP]}
+core entry 4 "BP/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 1545060885 address 1545060885 identifier "BP/Cutoff" aaxId "5c17c215" groups {[BP|BP]}
+core entry 5 "BP/Resonance" key "Resonance" hint 1 automatable 1 session 0 bypass no hostId 1678901360 address 1678901360 identifier "BP/Resonance" aaxId "64120070" groups {[BP|BP]}
+core entry 6 "LP/Enable" key "Enable" hint 1 automatable 1 session 0 bypass no hostId 1496629113 address 1496629113 identifier "LP/Enable" aaxId "5934bf79" groups {[LP|LP]}
+core entry 7 "LP/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 187013575 address 187013575 identifier "LP/Cutoff" aaxId "0b2599c7" groups {[LP|LP]}
+core entry 8 "LP/Resonance" key "Resonance" hint 1 automatable 1 session 0 bypass no hostId 478670014 address 478670014 identifier "LP/Resonance" aaxId "1c87ecbe" groups {[LP|LP]}
+core entry 9 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1423004271 address 1423004271 identifier "__bypass" aaxId "54d1526f" groups {}
+vst3 class 0x4541504d 0x53766631 0x56535433 0x00000000
+vst3 param 0 entry 0 id 683117885 steps 1 default 0 flags 0x1 unit 0
+vst3 param 1 entry 1 id 775432387 steps 0 default 0.232989997 flags 0x1 unit 0
+vst3 param 2 entry 2 id 1379585250 steps 0 default 0.200000003 flags 0x1 unit 0
+vst3 param 3 entry 3 id 664886655 steps 1 default 0 flags 0x1 unit 0
+vst3 param 4 entry 4 id 1545060885 steps 0 default 0.56632334 flags 0x1 unit 0
+vst3 param 5 entry 5 id 1678901360 steps 0 default 0.200000003 flags 0x1 unit 0
+vst3 param 6 entry 6 id 1496629113 steps 1 default 1 flags 0x1 unit 0
+vst3 param 7 entry 7 id 187013575 steps 0 default 0.725363731 flags 0x1 unit 0
+vst3 param 8 entry 8 id 478670014 steps 0 default 0.200000003 flags 0x1 unit 0
+vst3 param 9 entry 9 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Svf1 EAPM
+au list 1423004271 187013575 478670014 664886655 683117885 775432387 1379585250 1496629113 1545060885 1678901360
+au param entry 0 id 683117885 position 4 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 0 address 683117885 identifier "HP/Enable" strings 1
+au param entry 1 id 775432387 position 5 min 0 max 1 default 0.232989997 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 1 address 775432387 identifier "HP/Cutoff" strings 0
+au param entry 2 id 1379585250 position 6 min 0 max 1 default 0.200000003 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 2 address 1379585250 identifier "HP/Resonance" strings 0
+au param entry 3 id 664886655 position 3 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 3 address 664886655 identifier "BP/Enable" strings 1
+au param entry 4 id 1545060885 position 8 min 0 max 1 default 0.56632334 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 4 address 1545060885 identifier "BP/Cutoff" strings 0
+au param entry 5 id 1678901360 position 9 min 0 max 1 default 0.200000003 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 5 address 1678901360 identifier "BP/Resonance" strings 0
+au param entry 6 id 1496629113 position 7 min 0 max 1 default 1 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 6 address 1496629113 identifier "LP/Enable" strings 1
+au param entry 7 id 187013575 position 1 min 0 max 1 default 0.725363731 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 7 address 187013575 identifier "LP/Cutoff" strings 0
+au param entry 8 id 478670014 position 2 min 0 max 1 default 0.200000003 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 8 address 478670014 identifier "LP/Resonance" strings 0
+au param entry 9 id 1423004271 position 0 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 9 address 1423004271 identifier "__bypass" strings 1
+aax effect "com.makeasound.tests.Svf1"
+aax native 2:0x53766633
+aax param entry 0 id "28b78d3d" automatable 1
+aax param entry 1 id "2e3828c3" automatable 1
+aax param entry 2 id "523acce2" automatable 1
+aax param entry 3 id "27a15d7f" automatable 1
+aax param entry 4 id "5c17c215" automatable 1
+aax param entry 5 id "64120070" automatable 1
+aax param entry 6 id "5934bf79" automatable 1
+aax param entry 7 id "0b2599c7" automatable 1
+aax param entry 8 id "1c87ecbe" automatable 1
+aax param entry 9 id "54d1526f" automatable 1
+plugin "Chorus" code Chr1 scheme MakeASound category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "Input Level" key "Input Level" hint 1 automatable 1 session 0 bypass no hostId 1478329769 address 1478329769 identifier "Input Level" aaxId "581d85a9" groups {}
+core entry 1 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
+core entry 2 "High Pass" key "High Pass" hint 1 automatable 1 session 0 bypass no hostId 595907114 address 595907114 identifier "High Pass" aaxId "2384d22a" groups {}
+core entry 3 "Rate" key "Rate" hint 1 automatable 1 session 0 bypass no hostId 783280263 address 783280263 identifier "Rate" aaxId "2eafe887" groups {}
+core entry 4 "Intensity" key "Intensity" hint 1 automatable 1 session 0 bypass no hostId 1404369322 address 1404369322 identifier "Intensity" aaxId "53b4f9aa" groups {}
+core entry 5 "Vibrato Depth" key "Vibrato Depth" hint 1 automatable 1 session 0 bypass no hostId 1245253519 address 1245253519 identifier "Vibrato Depth" aaxId "4a390f8f" groups {}
+core entry 6 "Mode" key "Mode" hint 1 automatable 1 session 0 bypass no hostId 1397651250 address 1397651250 identifier "Mode" aaxId "534e7732" groups {}
+core entry 7 "Stereo Width" key "Stereo Width" hint 1 automatable 1 session 0 bypass no hostId 376431897 address 376431897 identifier "Stereo Width" aaxId "166fe519" groups {}
+core entry 8 "Low Pass" key "Low Pass" hint 1 automatable 1 session 0 bypass no hostId 1602483926 address 1602483926 identifier "Low Pass" aaxId "5f83f6d6" groups {}
+core entry 9 "Mix" key "Mix" hint 1 automatable 1 session 0 bypass no hostId 1016355841 address 1016355841 identifier "Mix" aaxId "3c945c01" groups {}
+core entry 10 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 877923789 address 877923789 identifier "Bypass" aaxId "34540dcd" groups {}
+vst3 class 0x4541504d 0x43687231 0x56535433 0x00000000
+vst3 param 0 entry 0 id 1478329769 steps 1 default 0 flags 0x9 unit 0
+vst3 param 1 entry 1 id 461402910 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 2 entry 2 id 595907114 steps 0 default 0 flags 0x1 unit 0
+vst3 param 3 entry 3 id 783280263 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 4 entry 4 id 1404369322 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 5 entry 5 id 1245253519 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 6 entry 6 id 1397651250 steps 1 default 0 flags 0x9 unit 0
+vst3 param 7 entry 7 id 376431897 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 8 entry 8 id 1602483926 steps 0 default 1 flags 0x1 unit 0
+vst3 param 9 entry 9 id 1016355841 steps 0 default 1 flags 0x1 unit 0
+vst3 param 10 entry 10 id 877923789 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Chr1 EAPM
+au list 376431897 461402910 595907114 783280263 877923789 1016355841 1245253519 1397651250 1404369322 1478329769 1602483926
+au param entry 0 id 1478329769 position 9 min 0 max 1 default 0 unit 1 flags 0xc8a00010 mid 0 strings 1
+auv3 param entry 0 address 1478329769 identifier "Input Level" strings 1
+au param entry 1 id 461402910 position 1 min 0 max 10 default 5 unit 0 flags 0xc8800010 mid 5 strings 0
+auv3 param entry 1 address 461402910 identifier "Gain" strings 0
+au param entry 2 id 595907114 position 2 min 0 max 1 default 0 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 2 address 595907114 identifier "High Pass" strings 0
+au param entry 3 id 783280263 position 3 min 0 max 10 default 5 unit 0 flags 0xc8800010 mid 5 strings 0
+auv3 param entry 3 address 783280263 identifier "Rate" strings 0
+au param entry 4 id 1404369322 position 8 min 0 max 10 default 5 unit 0 flags 0xc8800010 mid 5 strings 0
+auv3 param entry 4 address 1404369322 identifier "Intensity" strings 0
+au param entry 5 id 1245253519 position 6 min 0 max 10 default 5 unit 0 flags 0xc8800010 mid 5 strings 0
+auv3 param entry 5 address 1245253519 identifier "Vibrato Depth" strings 0
+au param entry 6 id 1397651250 position 7 min 0 max 1 default 0 unit 1 flags 0xc8a00010 mid 0 strings 1
+auv3 param entry 6 address 1397651250 identifier "Mode" strings 1
+au param entry 7 id 376431897 position 0 min 0 max 2 default 1 unit 0 flags 0xc8800010 mid 1 strings 0
+auv3 param entry 7 address 376431897 identifier "Stereo Width" strings 0
+au param entry 8 id 1602483926 position 10 min 0 max 1 default 1 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 8 address 1602483926 identifier "Low Pass" strings 0
+au param entry 9 id 1016355841 position 5 min 0 max 1 default 1 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 9 address 1016355841 identifier "Mix" strings 0
+au param entry 10 id 877923789 position 4 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 10 address 877923789 identifier "Bypass" strings 1
+aax effect "com.makeasound.tests.Chr1"
+aax native 2:0x43687233
+aax param entry 0 id "581d85a9" automatable 1
+aax param entry 1 id "1b80731e" automatable 1
+aax param entry 2 id "2384d22a" automatable 1
+aax param entry 3 id "2eafe887" automatable 1
+aax param entry 4 id "53b4f9aa" automatable 1
+aax param entry 5 id "4a390f8f" automatable 1
+aax param entry 6 id "534e7732" automatable 1
+aax param entry 7 id "166fe519" automatable 1
+aax param entry 8 id "5f83f6d6" automatable 1
+aax param entry 9 id "3c945c01" automatable 1
+aax param entry 10 id "34540dcd" automatable 1

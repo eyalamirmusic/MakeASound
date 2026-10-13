@@ -32,6 +32,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
             JuceCompatTests.cpp
             JuceIdentityTests.cpp)
 
+    # Every id a host stores, against the goldens in Identity/. Each format built
+    # adds its own lines (IdentityManifest.h).
+    list(APPEND MAKEASOUND_TEST_SOURCES IdentityManifest.cpp)
+    set(MAKEASOUND_TEST_IDENTITY ON)
+
     # eacp-core so the swap's and the wrapper's cases can pump the message loop.
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS eacp-core)
@@ -67,7 +72,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
     # The VST3 adapter hosted in-process, with the SDK's own queues and event lists.
     if (TARGET MakeASoundVST3)
-        list(APPEND MAKEASOUND_TEST_SOURCES VST3Tests.cpp)
+        list(APPEND MAKEASOUND_TEST_SOURCES VST3Tests.cpp IdentityManifestVST3.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundVST3 vst3sdk-hosting)
 
         # A ViewRect is pixels on Windows, and an unscaled view follows the DPI.
@@ -114,7 +119,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
     # Both AU plist forms, on every Apple platform.
     if (TARGET MakeASoundAUDescribe)
-        list(APPEND MAKEASOUND_TEST_SOURCES AUPlistTests.cpp)
+        list(APPEND MAKEASOUND_TEST_SOURCES AUPlistTests.cpp IdentityManifestAU.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUDescribe)
     endif ()
 
@@ -156,7 +161,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
     # The AAX adapter hosted in-process over fakes of the SDK's host interfaces.
     if (TARGET MakeASoundAAX)
-        list(APPEND MAKEASOUND_TEST_SOURCES AAXTests.cpp)
+        list(APPEND MAKEASOUND_TEST_SOURCES AAXTests.cpp IdentityManifestAAX.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAAX)
     endif ()
 
@@ -256,6 +261,11 @@ endif ()
 
 if (MAKEASOUND_TEST_AU_VIEW)
     target_compile_definitions(MakeASoundTests PRIVATE MAKEASOUND_AU_HAS_VIEW=1)
+endif ()
+
+if (MAKEASOUND_TEST_IDENTITY)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_TEST_IDENTITY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Identity")
 endif ()
 
 if (MAKEASOUND_TEST_PLUGINVAL)
