@@ -112,6 +112,16 @@ void ParameterGroup::addGroup(ParameterGroup& group)
     entries.add(Entry {nullptr, &group});
 }
 
+void ParameterGroup::addChild(std::string_view nameToUse,
+                              ParameterGroup& group,
+                              GroupOptions options)
+{
+    group.groupName = nameToUse;
+    group.groupId = options.id.empty() ? nameToUse : options.id;
+    group.automatable = group.automatable && options.automatable;
+    addGroup(group);
+}
+
 bool ParameterGroup::hasKey(std::string_view key) const
 {
     for (const auto& entry: entries)

@@ -250,6 +250,71 @@ auto tInstances = test("Parameters/twoInstancesOfAGroupTypeKeepTheirOwnNames") =
     check(list.entry(0).hostId != list.entry(2).hostId);
 };
 
+// A group that names nothing itself, mounted by its parent under a name and an
+// id of the parent's choosing, once per member and once per array element.
+struct LfoParams : ParameterGroup
+{
+    LfoParams() { add(rate); }
+
+    FloatParam rate {"Rate", 0.f, 1.f, 0.5f};
+};
+
+struct MountedParams : ParameterGroup
+{
+    MountedParams()
+    {
+        addChild("Osc 1", osc1, {.id = "Osc1"});
+        addChild("Osc 2", osc2, {.id = "Osc2", .automatable = false});
+
+        for (auto i = 0; i < static_cast<int>(lfos.size()); ++i)
+        {
+            auto n = std::to_string(i + 1);
+            addChild("LFO " + n, lfos[i], {.id = "Lfo" + n});
+        }
+
+        addChild("Tone", tone);
+    }
+
+    OscParams osc1 {"Unused"};
+    OscParams osc2 {"Unused"};
+    std::array<LfoParams, 2> lfos;
+    LfoParams tone;
+};
+
+auto tMounted = test("Parameters/aParentNamesTheChildrenItMounts") = []
+{
+    auto params = MountedParams {};
+    auto list = ParameterList {params};
+
+    check(idsOf(list)
+          == std::vector<std::string> {"Osc1/Attack",
+                                       "Osc1/Wave",
+                                       "Osc2/Attack",
+                                       "Osc2/Wave",
+                                       "Lfo1/Rate",
+                                       "Lfo2/Rate",
+                                       "Tone/Rate"});
+    check(namesOf(list)
+          == std::vector<std::string> {"Osc 1 Attack",
+                                       "Osc 1 Wave",
+                                       "Osc 2 Attack",
+                                       "Osc 2 Wave",
+                                       "LFO 1 Rate",
+                                       "LFO 2 Rate",
+                                       "Tone Rate"});
+
+    check(params.osc1.name() == "Osc 1" && params.osc1.id() == "Osc1");
+    check(params.tone.id() == "Tone");
+    check(&list[5] == &params.lfos[1].rate);
+
+    check(list.entry(1).automatable);
+    check(!list.entry(2).automatable && !list.entry(3).automatable);
+
+    const auto& groups = list.entry(4).groups;
+    check(groups.size() == 1);
+    check(groups[0].id == "Lfo1" && groups[0].name == "LFO 1");
+};
+
 auto tFlags = test("Parameters/entriesCarryTheParameterFlags") = []
 {
     auto params = SynthParams {};
