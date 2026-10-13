@@ -1681,6 +1681,8 @@ auto tView = test("VST3/theEditorViewIsTheGenericEditor") = []
     auto host = AdapterHost<GainPlugin> {};
     auto view = Steinberg::owned(host.adapter->createView(Vst::ViewType::kEditor));
     check(view != nullptr);
+    Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(view.get())
+        ->setContentScaleFactor(1.f);
 
     auto native = MakeASound::VST3::PlugView::nativeViewType();
     check(view->isPlatformTypeSupported(native) == Steinberg::kResultTrue);
@@ -1736,9 +1738,13 @@ EditorConstraints ratioLocked()
 
 struct EditorView
 {
+    // At a content scale of 1, as a host would set it: unscaled, a Windows view
+    // follows the machine's DPI (VST3ViewTests-Windows.cpp).
     explicit EditorView(AdapterHost<GainPlugin>& host)
         : view(Steinberg::owned(host.adapter->createView(Vst::ViewType::kEditor)))
     {
+        Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(view.get())
+            ->setContentScaleFactor(1.f);
     }
 
     Steinberg::ViewRect size()

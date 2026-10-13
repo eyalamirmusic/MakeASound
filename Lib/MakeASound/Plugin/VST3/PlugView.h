@@ -58,7 +58,7 @@ private:
 
     // Pixels per point in a ViewRect: 1 where the host speaks points.
     float rectScale() const noexcept;
-    // Hands `scale` to the embedded view where the platform leaves that to us.
+    // Hands the scale to the embedded view where the platform leaves that to us.
     void applyContentScale() noexcept;
     Steinberg::ViewRect rectFor(EditorSize size) const noexcept;
     EditorSize pointsOf(const Steinberg::ViewRect& pixels) const noexcept;
@@ -69,6 +69,9 @@ private:
     OwningPointer<eacp::Graphics::EmbeddedView> embedded;
     OwningPointer<HostRunLoop> frameLoop;
     float scale = 1.f;
+    // Whether `scale` came from the host's setContentScaleFactor. Not every host
+    // calls it, and on Windows one that never does leaves the window's DPI.
+    bool hostScaled = false;
     bool sizedByHost = false;
     int sizeChanges = 0;
 };
