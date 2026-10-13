@@ -73,7 +73,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - The AU `CFBundleVersion` comes from `ModuleDescription::version`, because macOS keys its component cache on it.
 - Don't release the host message thread from an `__attribute__((destructor))`: auval aborts at exit.
 - AUv3 on iOS configures the tree a second time for macOS (`MakeASoundDescribeBuild`) to write plists, so plugin sources must also build for macOS.
-- Tests reach the AU v2 adapter only through the AudioUnit C API. Components are registered with `AudioComponentRegister`, never found through `AudioComponentFindNext`.
+- Tests reach the AU v2 adapter only through the AudioUnit C API. Components are registered with `AudioComponentRegister`, never found through `AudioComponentFindNext`. The one approved exception is the hosting suites: scanning an Audio Unit *is* a registry lookup, so they scan Apple's always-present `aufx:dely:appl` and `aumu:dls :appl`, and a hosting test that loads an AU fixture registers it and takes the registered `AudioComponent` directly.
 - AAX: the SDK is GPLv3/Avid-licensed and fetched only under the flag. The AAX Validator, DigiShell and Avid tools are under NDA. Run them only from a path the user names; never fetch, commit or run them in CI. Only one `dsh` may run at a time, since it uses a fixed port.
 - Web editors: `src/generated` and `package-lock.json` are committed; `node_modules`, `dist` and `.vite` are not.
 - `ThirdParty/VST3_SDK` is vendored and trimmed (see `ThirdParty/README.md`).
@@ -88,5 +88,6 @@ NanoTest, one executable (`MakeASoundTests`). Suites are gated on which targets 
 - `Tests/JucePort.h` (with what JUCE 8.0.12's own builds of its twin published)
 - `Tests/IdentityManifest.h` (`describeIdentity`, against `Tests/Identity/`)
 - `Tests/*TestHost.h`, one per format
+- `Tests/HostingFixtures.h` (a plugin database written by Tamber Plug's scanner), `Tests/HostingTestFormats.h` (stub formats), `Tests/FakeScanWorker.cpp` (a worker that misbehaves on request) and `Tests/HostFixtures/` (VST3 fixture plugins, never installed, built into `<build>/HostFixtures`). Hosting tests use these and Apple's built-in AUs only, never a third-party plugin.
 
 `PluginTests.cpp` defines the tests' `describeModule()`. Cases that write files use their own temp folder, because ctest runs cases in parallel processes.

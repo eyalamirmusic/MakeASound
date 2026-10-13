@@ -193,6 +193,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp)
             set(MAKEASOUND_TEST_HOST_FIXTURES ON)
         endif ()
+
+        # Audio Units: Apple's own, found through the registry.
+        if (APPLE)
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingAUScanTests.cpp)
+        endif ()
     endif ()
 
     # pluginval and auval over the example bundles, run only when MAKEASOUND_PLUGINVAL

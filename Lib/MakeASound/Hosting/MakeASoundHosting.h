@@ -14,3 +14,5 @@
 #include "Scan/ScanCoordinator.h"
 #include "Scan/ScanSession.h"
 #include "VST3/VST3Format.h"
+
+// AU/AUFormat.h is macOS only, so it is included by name where it is used.

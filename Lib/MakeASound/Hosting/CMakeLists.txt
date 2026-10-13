@@ -31,10 +31,18 @@ add_library(MakeASoundHosting STATIC
 
 # One TU per platform for what differs; CMake picks it, no #if does.
 if (APPLE)
+    # Audio Units, macOS only, over AudioToolbox's C API.
     target_sources(MakeASoundHosting PRIVATE
+            AU/AUFormat.mm
             DefaultFormats-macOS.cpp
             Scan/ExecutablePath-macOS.cpp
             VST3/VST3Folders-macOS.cpp)
+
+    target_compile_options(MakeASoundHosting PRIVATE
+            $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(MakeASoundHosting PRIVATE
+            "-framework AudioToolbox"
+            "-framework CoreFoundation")
 else ()
     target_sources(MakeASoundHosting PRIVATE
             DefaultFormats-Windows.cpp
