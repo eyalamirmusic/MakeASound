@@ -41,9 +41,10 @@ if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS eacp-core)
 
-    # The vendored VST3 SDK: compiled and linked here before any adapter needs it.
+    # The vendored VST3 SDK, plugin and host side: compiled and linked here before
+    # any adapter or host needs it.
     list(APPEND MAKEASOUND_TEST_SOURCES VST3SDKTests.cpp)
-    list(APPEND MAKEASOUND_TEST_TARGETS vst3sdk)
+    list(APPEND MAKEASOUND_TEST_TARGETS vst3sdk vst3sdk-hosting)
 
     # The generic editor and the resize grip, and the editor every format suite
     # can show in place of a plugin's own.

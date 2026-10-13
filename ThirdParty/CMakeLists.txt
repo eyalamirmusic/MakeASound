@@ -91,11 +91,34 @@ endif ()
 
 set_target_properties(vst3sdk PROPERTIES MAKEASOUND_VST3_SDK_MAIN "${VST3_SDK_MAIN}")
 
-# vst3sdk-hosting: the SDK's own IParameterChanges and IEventList, for the tests
-# that host the VST3 adapter in-process. Test-only; no plugin links it.
+# vst3sdk-hosting: the host side of the SDK. The module loader (one platform file
+# each), the host classes a plugin is initialised with, and the SDK's own
+# IParameterChanges and IEventList. MakeASoundHosting links it, and so do the tests
+# that host the VST3 adapter in-process; no plugin does.
 add_library(vst3sdk-hosting STATIC
         ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/eventlist.cpp
-        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/parameterchanges.cpp)
+        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/hostclasses.cpp
+        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module.cpp
+        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/parameterchanges.cpp
+        ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/pluginterfacesupport.cpp)
+
+# The loader that differs per platform: Cocoa's NSBundle under ARC, LoadLibraryW
+# (and Shell32's known folders, which the file links itself through a pragma), or
+# dlopen.
+if (APPLE)
+    set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_mac.mm)
+    set_source_files_properties(${vst3_module_loader} PROPERTIES
+            COMPILE_OPTIONS -fobjc-arc
+            SKIP_UNITY_BUILD_INCLUSION ON)
+    target_link_libraries(vst3sdk-hosting PUBLIC "-framework Cocoa")
+elseif (WIN32)
+    set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_win32.cpp)
+    target_compile_definitions(vst3sdk-hosting PRIVATE NOMINMAX)
+else ()
+    set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_linux.cpp)
+endif ()
+
+target_sources(vst3sdk-hosting PRIVATE ${vst3_module_loader})
 
 target_link_libraries(vst3sdk-hosting PUBLIC vst3sdk)
 set_target_properties(vst3sdk-hosting PROPERTIES UNITY_BUILD ON)
