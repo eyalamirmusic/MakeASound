@@ -3,9 +3,12 @@
 // the host's value space, and the AUv3 tree's address and identifier.
 
 #include "IdentityManifest.h"
+#include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AU/ComponentType.h>
 #include <MakeASound/Plugin/AU/HostParameters.h>
+
+#include <NanoTest/NanoTest.h>
 
 #include <algorithm>
 
@@ -81,4 +84,36 @@ void describeAU(const ModuleDescription& module,
 }
 
 auto added = addSection({{"au", "auv3"}, describeAU});
+
+using namespace nano;
+
+// A legacy port's post-port parameter lists after every indexed one, and the
+// SDK's indexed list, ids 0..n-1, gives way to the adapter's own.
+auto tPostPortListing = test("Identity/aPostPortParameterListsLastInAnAU") = []
+{
+    auto create = []
+    { return OwningPointer<Plugin>(EA::makeOwned<TestPlugins::NewerGainPlugin>()); };
+    auto description = PluginDescription {.name = "Newer",
+                                          .pluginCode = "Nwr1",
+                                          .create = create,
+                                          .idScheme = IdScheme::JUCELegacyIndex};
+
+    auto every = PluginWrapper(
+        description.create(), PluginFormat::AU, parameterIdentityFor(description));
+    auto everySpace = ParameterSpace(description);
+    check(everySpace.usesSdkIndexedList(every.plugin().parameters()));
+
+    description.overrides.indexedThroughVersion = 1;
+    auto wrapper = PluginWrapper(
+        description.create(), PluginFormat::AU, parameterIdentityFor(description));
+    const auto& list = wrapper.plugin().parameters();
+    auto space = ParameterSpace(description);
+    auto order = space.listOrder(list);
+
+    check(!space.usesSdkIndexedList(list));
+    check(list.entry(order.back()).id == "Drive");
+
+    for (auto slot = 0; slot + 1 < order.size(); ++slot)
+        check(list.entry(order[slot]).hostId == static_cast<uint32_t>(slot));
+};
 } // namespace

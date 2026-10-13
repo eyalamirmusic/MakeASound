@@ -138,11 +138,36 @@ void ParameterList::add(Parameter& param,
 
 void ParameterList::assignIds()
 {
-    for (auto index = 0; index < entries.size(); ++index)
+    // Under ParamIdRule::Index, the next indexed entry's index.
+    auto nextIndex = 0;
+
+    for (auto position = 0; position < entries.size(); ++position)
     {
-        auto& entry = entries[index];
+        auto& entry = entries[position];
+        auto indexRule = ids.paramIds == ParamIdRule::Index;
+
+        entry.postPort = indexRule && !entry.addedBypass
+                         && entry.param->versionHint() > ids.indexedThroughVersion;
+
+        auto index = position;
+
+        if (indexRule && !entry.postPort)
+            index = nextIndex++;
+
         auto pinned = entry.param->explicitHostId();
         entry.hostId = pinned.value_or(derivedHostId(entry, index));
+
+        // A post-port entry has none of the index's ids: FNV-1a of its path
+        // everywhere an index would go.
+        if (entry.postPort)
+        {
+            entry.address = entry.hostId;
+            entry.identifier =
+                ids.auv3 == AUv3Ids::HostIdAndPath ? entry.id : entry.hostKey;
+            entry.aaxId = hexId(entry.hostId);
+            finishIds(entry);
+            continue;
+        }
 
         switch (ids.auv3)
         {
@@ -181,20 +206,27 @@ void ParameterList::assignIds()
                 break;
         }
 
-        if (ids.aaxIds != AAXIdRule::HexHostId && entry.bypass)
-            entry.aaxId = std::string {juceAAXBypassId};
-
-        entry.listedInAU =
-            !(entry.addedBypass && ids.addedBypassInAU == BypassPlacement::Unlisted);
-
-        for (auto& group: entry.groups)
-            group.identifier =
-                ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
+        finishIds(entry);
     }
+}
+
+void ParameterList::finishIds(Entry& entry) const
+{
+    if (ids.aaxIds != AAXIdRule::HexHostId && entry.bypass)
+        entry.aaxId = std::string {juceAAXBypassId};
+
+    entry.listedInAU =
+        !(entry.addedBypass && ids.addedBypassInAU == BypassPlacement::Unlisted);
+
+    for (auto& group: entry.groups)
+        group.identifier = ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
 }
 
 uint32_t ParameterList::derivedHostId(const Entry& entry, int index) const noexcept
 {
+    if (entry.postPort)
+        return hostIdFor(entry.id);
+
     if (entry.addedBypass)
     {
         switch (ids.addedBypassId)

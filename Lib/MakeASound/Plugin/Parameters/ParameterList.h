@@ -93,6 +93,12 @@ public:
 
         // False only for the added bypass under BypassPlacement::Unlisted.
         bool listedInAU = true;
+
+        // Under ParamIdRule::Index, an entry added after the port: its
+        // versionHint is past ParameterIdentity::indexedThroughVersion. It takes
+        // FNV-1a of its path for every id an index would give, counts toward no
+        // other entry's index, and lists in an AU after every indexed entry.
+        bool postPort = false;
     };
 
     ParameterList() = default;
@@ -166,6 +172,7 @@ private:
              bool automatable,
              std::span<const ParameterGroup* const> groups);
     void assignIds();
+    void finishIds(Entry& entry) const;
     uint32_t derivedHostId(const Entry& entry, int index) const noexcept;
     void indexHostIds();
     void findBypass();

@@ -92,12 +92,13 @@ bool hasCocoaView()
 // JUCE's AU check (juce_AudioProcessor.cpp, validateParameter), once per process:
 // a parameter with no versionHint has no place in the list a later release can
 // keep. The bypass the wrapper adds is exempt, since its hint is the framework's,
-// and so is the SDK's indexed list (JUCELegacyIndex), which is by index.
+// and so is an index profile (JUCELegacyIndex), whose indexed entries list by
+// index and whose post-port ones are hinted by definition.
 void assertVersionHints(const ParameterList& list, const ParameterSpace& space)
 {
     static auto asserted = std::atomic<bool> {false};
 
-    if (space.order() == AUOrder::SdkIndexed)
+    if (space.identity().paramIds == ParamIdRule::Index)
         return;
 
     auto bypass = list.bypassIndex();
@@ -211,6 +212,8 @@ Adapter::Adapter(AudioComponentInstance instance,
     for (auto index: space.listOrder(list))
         listOrder.add(list.entry(index).hostId);
 
+    sdkIndexedList = space.usesSdkIndexedList(list);
+
     assertVersionHints(list, space);
 
     lastHostValue.resize(exposed.size());
@@ -319,8 +322,9 @@ void Adapter::PostConstructor()
 
     // JUCE_FORCE_USE_LEGACY_PARAM_IDS: the SDK's own indexed list, as JUCE's
     // addParameters, the listed entries being exactly indices 0..n-1 (the added
-    // bypass, unlisted, is last).
-    if (space.order() == AUOrder::SdkIndexed)
+    // bypass, unlisted, is last). Not once a post-port entry is listed, whose
+    // id is no index.
+    if (sdkIndexedList)
     {
         Globals()->UseIndexedParameters(static_cast<UInt32>(exposed.size()));
 
@@ -476,7 +480,7 @@ OSStatus Adapter::GetParameterList(AudioUnitScope scope,
                                    AudioUnitParameterID* outList,
                                    UInt32& outCount)
 {
-    if (scope != kAudioUnitScope_Global || space.order() == AUOrder::SdkIndexed)
+    if (scope != kAudioUnitScope_Global || sdkIndexedList)
         return MusicDeviceBase::GetParameterList(scope, outList, outCount);
 
     outCount = static_cast<UInt32>(listOrder.size());

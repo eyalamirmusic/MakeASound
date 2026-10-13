@@ -75,7 +75,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     return policy;
 }
 
-// The description's profile and settings resolved.
+// The description's profile and settings resolved, then its overrides applied.
 IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept;
 
 } // namespace MakeASound

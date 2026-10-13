@@ -121,6 +121,19 @@ struct JuceSettings
     constexpr bool operator==(const JuceSettings&) const = default;
 };
 
+// Per-concern overrides of the rules a description's IdScheme resolves to
+// (IdentityPolicy, Core/IdentityPolicy.h), each winning over the profile where
+// set. There is one only where a port needs it.
+struct IdentityOverrides
+{
+    // ParameterIdentity::indexedThroughVersion, under an index profile
+    // (JUCELegacyIndex): set it to the hint the port shipped with, 1 for most,
+    // the first release that adds a parameter other than at the end.
+    std::optional<int> indexedThroughVersion = {};
+
+    constexpr bool operator==(const IdentityOverrides&) const = default;
+};
+
 // One plugin class within a module.
 struct PluginDescription
 {
@@ -144,6 +157,7 @@ struct PluginDescription
     // and a port should not have to change its processor to keep its ids.
     IdScheme idScheme = IdScheme::Native;
     JuceSettings juce = {};
+    IdentityOverrides overrides = {};
 
     // Overrides, each winning over the scheme. The VST3 component class id.
     std::optional<Vst3ClassId> vst3ClassId = {};

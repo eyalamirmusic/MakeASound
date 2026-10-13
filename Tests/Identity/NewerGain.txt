@@ -115,3 +115,43 @@ aax param entry 2 id "2" automatable 1
 aax param entry 3 id "3" automatable 1
 aax param entry 4 id "MasterBypassID" automatable 1
 aax param entry 5 id "5" automatable 1
+plugin "Newer Gain Post-port" code Gnw3 scheme JUCELegacyIndex category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core overrides indexedThroughVersion 1
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Gain" aaxId "0" groups {}
+core entry 1 "Drive" key "Drive" hint 2 automatable 1 session 0 bypass no hostId 1907031063 address 1907031063 identifier "Drive" aaxId "71aafc17" groups {} postPort
+core entry 2 "Filter/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 1 address 1 identifier "Cutoff" aaxId "1" groups {[Filter|Filter]}
+core entry 3 "Mode" key "Mode" hint 1 automatable 1 session 0 bypass no hostId 2 address 2 identifier "Mode" aaxId "2" groups {}
+core entry 4 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 3 address 3 identifier "Bypass" aaxId "MasterBypassID" groups {}
+core entry 5 "Width" key "Width" hint 1 automatable 1 session 1 bypass no hostId 4 address 4 identifier "Width" aaxId "4" groups {}
+vst3 class 0x56535447 0x6e77336e 0x65776572 0x20676169
+vst3 param 0 entry 0 id 0 steps 0 default 0.833333313 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1907031063 steps 0 default 0.25 flags 0x1 unit 0
+vst3 param 2 entry 2 id 1 steps 0 default 0.549002707 flags 0x1 unit 0
+vst3 param 3 entry 3 id 2 steps 2 default 0 flags 0x9 unit 0
+vst3 param 4 entry 4 id 3 steps 1 default 0 flags 0x10001 unit 0
+vst3 param 5 entry 5 id 4 steps 0 default 0.5 flags 0x1 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Gnw3 MaSo
+au list 0 1 2 3 4 1907031063
+au param entry 0 id 0 position 0 min 0 max 1 default 0.833333313 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 0 address 0 identifier "Gain" strings 0
+au param entry 1 id 1907031063 position 5 min 0 max 1 default 0.25 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 1 address 1907031063 identifier "Drive" strings 0
+au param entry 2 id 1 position 1 min 0 max 1 default 0.549002707 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 2 address 1 identifier "Cutoff" strings 0
+au param entry 3 id 2 position 2 min 0 max 2 default 0 unit 1 flags 0xc8a00010 mid 1 strings 0
+auv3 param entry 3 address 2 identifier "Mode" strings 1
+au param entry 4 id 3 position 3 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 0
+auv3 param entry 4 address 3 identifier "Bypass" strings 1
+au param entry 5 id 4 position 4 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 5 address 4 identifier "Width" strings 0
+aax effect "com.makeasound.tests"
+aax native 0:0x6a636262 2:0x6a636363
+aax param entry 0 id "0" automatable 1
+aax param entry 1 id "71aafc17" automatable 1
+aax param entry 2 id "1" automatable 1
+aax param entry 3 id "2" automatable 1
+aax param entry 4 id "MasterBypassID" automatable 1
+aax param entry 5 id "4" automatable 1

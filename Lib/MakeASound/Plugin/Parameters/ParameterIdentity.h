@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <string_view>
 
 namespace MakeASound
@@ -134,7 +135,9 @@ enum class AUOrder
     // older one's index, which Logic automates by.
     HintThenId,
 
-    // The AudioUnitSDK's own indexed list, ids 0..n-1 (JUCE's legacy ids).
+    // The AudioUnitSDK's own indexed list, ids 0..n-1 (JUCE's legacy ids). With
+    // post-port entries, the indexed entries by index and then the post-port
+    // ones by (hint, id), as a list of the adapter's own.
     SdkIndexed
 };
 
@@ -173,6 +176,13 @@ struct ParameterIdentity
     // its VST3 and AU ids to 31 bits. Off, a host id may be 2^31 or more. Read
     // only under ParamIdRule::JuceKeyHash.
     bool juceMask31 = true;
+
+    // Under ParamIdRule::Index, the last versionHint whose entries are indexed;
+    // a later one's are post-port (ParameterList::Entry::postPort). Every entry
+    // is indexed by default, which keeps a pure append safe; the first release
+    // that adds a parameter anywhere else sets it to the hint the port shipped
+    // with (IdentityOverrides) and gives the new parameter a higher one.
+    int indexedThroughVersion = std::numeric_limits<int>::max();
 
     Registration registration = Registration::ExposedOnly;
 

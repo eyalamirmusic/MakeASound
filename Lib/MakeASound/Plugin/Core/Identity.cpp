@@ -6,7 +6,13 @@ namespace MakeASound
 
 IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept
 {
-    return policyFor(plugin.idScheme, plugin.juce);
+    auto policy = policyFor(plugin.idScheme, plugin.juce);
+    const auto& overrides = plugin.overrides;
+
+    if (overrides.indexedThroughVersion)
+        policy.parameters.indexedThroughVersion = *overrides.indexedThroughVersion;
+
+    return policy;
 }
 
 ParameterIdentity parameterIdentityFor(const PluginDescription& plugin) noexcept

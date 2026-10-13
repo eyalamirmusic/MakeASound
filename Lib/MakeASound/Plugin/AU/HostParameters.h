@@ -85,6 +85,10 @@ public:
     // parameterListOrder, or by host id for the SDK's indexed list), and the
     // first listed one other than `skip` without a versionHint, -1 when none.
     Vector<int> listOrder(const ParameterList& list) const;
+
+    // Whether GetParameterList is the SDK's own indexed list: AUOrder::SdkIndexed
+    // with no post-port entry listed, so the ids are exactly 0..n-1.
+    bool usesSdkIndexedList(const ParameterList& list) const noexcept;
     int firstUnhinted(const ParameterList& list, int skip) const noexcept;
 
     void fillInfo(const ParameterList::Entry& entry,

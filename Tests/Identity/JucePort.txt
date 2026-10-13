@@ -211,3 +211,47 @@ aax param entry 3 id "3" automatable 1
 aax param entry 4 id "4" automatable 1
 aax param entry 5 id "5" automatable 0
 aax param entry 6 id "MasterBypassID" automatable 1
+plugin "Legacy Port Post-port" code Jlg1 scheme JUCELegacyIndex category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core overrides indexedThroughVersion 1
+core entry 0 "cutoff" key "cutoff" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "cutoff" aaxId "0" groups {}
+core entry 1 "mode" key "mode" hint 1 automatable 1 session 0 bypass no hostId 1 address 1 identifier "mode" aaxId "1" groups {}
+core entry 2 "enabled" key "enabled" hint 1 automatable 1 session 0 bypass no hostId 2 address 2 identifier "enabled" aaxId "2" groups {}
+core entry 3 "voices" key "voices" hint 1 automatable 1 session 0 bypass no hostId 3 address 3 identifier "voices" aaxId "3" groups {}
+core entry 4 "env/attack" key "attack" hint 1 automatable 1 session 0 bypass no hostId 4 address 4 identifier "attack" aaxId "4" groups {[env|env]}
+core entry 5 "quality" key "quality" hint 2 automatable 0 session 0 bypass no hostId 450187302 address 450187302 identifier "quality" aaxId "1ad55026" groups {} postPort
+core entry 6 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 5 address 5 identifier "__bypass" aaxId "MasterBypassID" groups {}
+vst3 class 0x5653544a 0x6c67316c 0x65676163 0x7920706f
+vst3 param 0 entry 0 id 0 steps 0 default 0.404752135 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1 steps 2 default 0.5 flags 0x9 unit 0
+vst3 param 2 entry 2 id 2 steps 1 default 1 flags 0x1 unit 0
+vst3 param 3 entry 3 id 3 steps 15 default 0.466666669 flags 0x1 unit 0
+vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 5 entry 5 id 450187302 steps 0 default 0.5 flags 0x0 unit 0
+vst3 param 6 entry 6 id 5 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Jlg1 MaSo
+au list 0 1 2 3 4 450187302
+au param entry 0 id 0 position 0 min 0 max 1 default 0.404752135 unit 0 flags 0xcaa00010 mid 0.49999997 strings 0
+auv3 param entry 0 address 0 identifier "cutoff" strings 0
+au param entry 1 id 1 position 1 min 0 max 2 default 1 unit 1 flags 0xc8a00010 mid 1 strings 0
+auv3 param entry 1 address 1 identifier "mode" strings 1
+au param entry 2 id 2 position 2 min 0 max 1 default 1 unit 2 flags 0xc8a00010 mid 1 strings 0
+auv3 param entry 2 address 2 identifier "enabled" strings 1
+au param entry 3 id 3 position 3 min 0 max 1 default 0.466666669 unit 0 flags 0xcaa00010 mid 0.466666669 strings 0
+auv3 param entry 3 address 3 identifier "voices" strings 0
+au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 4 address 4 identifier "attack" strings 0
+au param entry 5 id 450187302 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcba00010 mid 0.5 strings 0
+auv3 param entry 5 address 450187302 identifier "quality" strings 0
+au param entry 6 unlisted
+aax effect "com.makeasound.tests"
+aax native 2:0x6a636363
+aax param entry 0 id "0" automatable 1
+aax param entry 1 id "1" automatable 1
+aax param entry 2 id "2" automatable 1
+aax param entry 3 id "3" automatable 1
+aax param entry 4 id "4" automatable 1
+aax param entry 5 id "1ad55026" automatable 0
+aax param entry 6 id "MasterBypassID" automatable 1

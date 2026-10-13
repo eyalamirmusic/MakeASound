@@ -73,6 +73,10 @@ void describeCore(const ModuleDescription&,
                         juce.vst3CanReplaceVst2 ? 1 : 0,
                         vst3MidiControllersFor(plugin) ? 1 : 0));
 
+    if (const auto& overrides = plugin.overrides; overrides != IdentityOverrides {})
+        out.push_back(print("core overrides indexedThroughVersion %d",
+                            overrides.indexedThroughVersion.value_or(-1)));
+
     auto wrapper = PluginWrapper(
         plugin.create(), PluginFormat::Unknown, parameterIdentityFor(plugin));
     const auto& list = wrapper.plugin().parameters();
@@ -96,6 +100,10 @@ void describeCore(const ModuleDescription&,
             entry.identifier.c_str(),
             entry.aaxId.c_str(),
             groupsOf(entry).c_str()));
+
+        // Only where it is, so a manifest from before the rule reads the same.
+        if (entry.postPort)
+            out.back() += " postPort";
     }
 }
 
@@ -151,10 +159,16 @@ Vector<Case> cases()
                                   .pluginCode = "Gain",
                                   .create = creator<GainPlugin>()})});
 
-    result.add({"NewerGain",
-                testPluginModule({.name = "Newer Gain",
-                                  .pluginCode = "Gnw2",
-                                  .create = creator<NewerGainPlugin>()})});
+    // Once more as a legacy port's second release: `drive` (hint 2) post-port.
+    auto newer = testPluginModule({.name = "Newer Gain",
+                                   .pluginCode = "Gnw2",
+                                   .create = creator<NewerGainPlugin>()});
+    newer.plugins.add({.name = "Newer Gain Post-port",
+                       .pluginCode = "Gnw3",
+                       .create = creator<NewerGainPlugin>(),
+                       .idScheme = IdScheme::JUCELegacyIndex,
+                       .overrides = {.indexedThroughVersion = 1}});
+    result.add({"NewerGain", newer});
 
     result.add({"UnbypassedGain",
                 testPluginModule({.name = "Unbypassed Gain",
@@ -198,6 +212,14 @@ Vector<Case> cases()
                     .vst3CanReplaceVst2 = false};
     port.plugins.add(flipped);
     port.plugins.add(describedAs(flipped, IdScheme::JUCELegacyIndex));
+
+    // `quality` (hint 2) post-port: the added bypass takes the index after the
+    // five indexed entries, as JUCE's N.
+    auto postPort = JucePort::description(IdScheme::JUCELegacyIndex);
+    postPort.name = "Legacy Port Post-port";
+    postPort.pluginCode = "Jlg1";
+    postPort.overrides.indexedThroughVersion = 1;
+    port.plugins.add(postPort);
     result.add({"JucePort", port});
 
     // Tamber Plug's examples as ported, under Plug's manufacturer code. Their
@@ -474,6 +496,105 @@ auto tRepeatedKey = test("Identity/aRepeatedJuceKeyIsAProblemUnderJuceOnly") = [
 
     // The key, the AUv3 address hashed from it, and the AAX id that is the key.
     check(problems.size() == 3);
+};
+
+// The unbypassed gain's next release under a legacy-index port: `drive`
+// inserted mid-list with that release's hint.
+struct InsertedParams : MakeASound::ParameterGroup
+{
+    InsertedParams() { add(gain, drive, filter, mode, width); }
+
+    MakeASound::DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
+    MakeASound::FloatParam drive {"Drive", 0.f, 1.f, 0.25f, {.versionHint = 2}};
+    TestPlugins::FilterParams filter;
+    MakeASound::ChoiceParam mode {
+        "Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    MakeASound::FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
+};
+
+using InsertedPlugin = TestPlugins::GainPluginOf<InsertedParams>;
+
+MakeASound::PluginDescription legacyPort(MakeASound::PluginCreateFn create,
+                                         std::optional<int> indexedThrough)
+{
+    return {.name = "Legacy",
+            .pluginCode = "Lgcy",
+            .create = std::move(create),
+            .idScheme = MakeASound::IdScheme::JUCELegacyIndex,
+            .overrides = {.indexedThroughVersion = indexedThrough}};
+}
+
+auto tPostPort = test("Identity/aPostPortParameterMovesNoIndexedId") = []
+{
+    using namespace MakeASound;
+    using TestPlugins::UnbypassedGainPlugin;
+
+    auto make = [](PluginDescription description)
+    {
+        return OwningPointer<PluginWrapper>(
+            EA::makeOwned<PluginWrapper>(description.create(),
+                                         PluginFormat::Unknown,
+                                         parameterIdentityFor(description)));
+    };
+
+    auto shipped = make(legacyPort(
+        [] { return OwningPointer<Plugin>(EA::makeOwned<UnbypassedGainPlugin>()); },
+        {}));
+    auto next = make(legacyPort(
+        [] { return OwningPointer<Plugin>(EA::makeOwned<InsertedPlugin>()); }, 1));
+
+    const auto& before = shipped->plugin().parameters();
+    const auto& after = next->plugin().parameters();
+    check(after.size() == before.size() + 1);
+
+    for (const auto& old: before)
+    {
+        const auto& now = after.entry(after.indexOf(std::string_view {old.id}));
+        check(!now.postPort);
+        check(now.hostId == old.hostId && now.address == old.address);
+        check(now.aaxId == old.aaxId);
+    }
+
+    // The added bypass is still N, the count of indexed entries.
+    check(after.entry(after.bypassIndex()).hostId == 4u);
+
+    const auto& drive = after.entry(after.indexOf("Drive"));
+    check(drive.postPort);
+    check(drive.hostId == hostIdFor("Drive") && drive.address == drive.hostId);
+    check(drive.aaxId.size() == 8);
+
+    // Without the threshold, the inserted parameter takes index 1, as in JUCE.
+    auto unmarked = make(legacyPort(
+        [] { return OwningPointer<Plugin>(EA::makeOwned<InsertedPlugin>()); }, {}));
+    const auto& shifted = unmarked->plugin().parameters();
+    check(shifted.entry(shifted.indexOf("Drive")).hostId == 1u);
+    check(shifted.entry(shifted.bypassIndex()).hostId == 5u);
+};
+
+// A post-port id that lands on an index is a clash like any other.
+struct PinnedPostPortParams : MakeASound::ParameterGroup
+{
+    PinnedPostPortParams() { add(first, later); }
+
+    MakeASound::FloatParam first {"First", 0.f, 1.f, 0.f, {.versionHint = 1}};
+    MakeASound::FloatParam later {
+        "Later", 0.f, 1.f, 0.f, {.hostId = 0u, .versionHint = 2}};
+};
+
+auto tPostPortClash = test("Identity/aPostPortIdOnAnIndexIsAProblem") = []
+{
+    auto params = PinnedPostPortParams {};
+    auto identity =
+        MakeASound::policyFor(MakeASound::IdScheme::JUCELegacyIndex, {}).parameters;
+    identity.indexedThroughVersion = 1;
+
+    auto list = MakeASound::ParameterList {params, identity};
+    check(list.entry(1).postPort);
+
+    auto problems = list.identityProblems();
+    check(!problems.empty());
+    check(problems[0].find("share host id 0") != std::string::npos);
 };
 
 // A golden names every format's lines, so a build without some format still

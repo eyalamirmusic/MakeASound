@@ -222,18 +222,39 @@ Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
 
     auto hostId = [&](int index) { return list.entry(index).hostId; };
     auto hint = [&](int index) { return list[index].versionHint(); };
+    auto postPort = [&](int index) { return list.entry(index).postPort; };
 
     std::sort(order.begin(),
               order.end(),
               [&](int a, int b) { return hostId(a) < hostId(b); });
 
-    // The SDK's indexed list is ids 0..n-1 in order.
+    // The SDK's indexed list is ids 0..n-1 in order; any post-port entries
+    // follow, by (hint, id).
     if (rules.auOrder == AUOrder::SdkIndexed)
+    {
+        auto firstPostPort = std::stable_partition(
+            order.begin(), order.end(), [&](int index) { return !postPort(index); });
+        std::stable_sort(firstPostPort,
+                         order.end(),
+                         [&](int a, int b) { return hint(a) < hint(b); });
         return order;
+    }
 
     std::stable_sort(
         order.begin(), order.end(), [&](int a, int b) { return hint(a) < hint(b); });
     return order;
+}
+
+bool ParameterSpace::usesSdkIndexedList(const ParameterList& list) const noexcept
+{
+    if (rules.auOrder != AUOrder::SdkIndexed)
+        return false;
+
+    for (auto index = 0; index < list.size(); ++index)
+        if (isListed(list, index) && list.entry(index).postPort)
+            return false;
+
+    return true;
 }
 
 int ParameterSpace::firstUnhinted(const ParameterList& list, int skip) const noexcept
