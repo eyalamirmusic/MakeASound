@@ -32,4 +32,11 @@ std::optional<std::string>
     readJuceState(NSDictionary<NSString*, id>* state,
                   const AudioComponentDescription& description);
 
+// What a Tamber Plug build's AU v2 saved in its ClassInfo, which a Mac host
+// hands the AUv3 standing in for it under the same codes: its `TamberPlugState`
+// data, or nullopt when the dictionary is another component's or carries none.
+std::optional<std::string>
+    readTamberPlugState(NSDictionary<NSString*, id>* state,
+                        const AudioComponentDescription& description);
+
 } // namespace MakeASound::AUv3

@@ -48,7 +48,17 @@ enum class ForeignOrigin
     JuceAAX,
 
     // The `filterState` of a JUCE standalone's settings file, base64 decoded.
-    JuceStandalone
+    JuceStandalone,
+
+    // The `TamberPlugState` data of an AU v2 ClassInfo dictionary a Tamber Plug
+    // build saved (AU/Adapter.cpp's SaveState), whichever unit it reaches: a
+    // State document, `version` and a `params` object, written in a session. Its
+    // schema is this framework's own (each leaf under its id, each child list as a
+    // sub-object; a choice by name, a bool as 0 or 1), so a port that kept
+    // Plug's ids and plain-value ranges reads it with
+    // `state.deserialize(foreign.bytes, foreign.context)`. Plug's VST3 state is
+    // the same document with no framing, and loads as a native one.
+    TamberPlugAU
 };
 
 // A document another framework's build of this plugin saved, handed over by an

@@ -916,23 +916,31 @@ OSStatus Adapter::SaveState(CFPropertyListRef* outData)
 OSStatus Adapter::RestoreState(CFPropertyListRef plist)
 {
     auto document = std::optional<std::string> {};
-    auto juceState = std::optional<std::string> {};
+    auto foreignBytes = std::optional<std::string> {};
+    auto foreignOrigin = ForeignOrigin::JuceAU;
 
     try
     {
         document = readState(plist);
 
         if (!document)
-            juceState = readJuceState(plist);
+            foreignBytes = readJuceState(plist);
+
+        if (!document && !foreignBytes)
+        {
+            foreignBytes = readTamberPlugState(plist);
+            foreignOrigin = ForeignOrigin::TamberPlugAU;
+        }
     }
     catch (...)
     {
     }
 
-    // A JUCE build's dictionary loses its parameter data, whose ids are not
-    // ours; an AUAudioUnit's own state (the AUv3's on an iPad) carries version 1.
-    auto normalized = juceState ? copyWithoutParameterData(plist)
-                                : copyWithStateVersionZero(plist);
+    // Another framework's dictionary (JUCE's, Plug's) loses its parameter data,
+    // whose ids are not ours; an AUAudioUnit's own state (the AUv3's on an iPad)
+    // carries version 1.
+    auto normalized = foreignBytes ? copyWithoutParameterData(plist)
+                                   : copyWithStateVersionZero(plist);
 
     if (normalized)
         plist = normalized.get();
@@ -949,11 +957,11 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
             pluginWrapper.loadState(*document, StateContext::Session);
             mirrorParametersToHost();
         }
-        else if (juceState)
+        else if (foreignBytes)
         {
             auto foreign = ForeignState {};
-            foreign.origin = ForeignOrigin::JuceAU;
-            foreign.bytes = *juceState;
+            foreign.origin = foreignOrigin;
+            foreign.bytes = *foreignBytes;
             foreign.context = StateContext::Session;
 
             // Off the message thread the load runs later, and its

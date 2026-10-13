@@ -5,6 +5,7 @@
 
 #include "AUTestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/AU/CocoaUI.h>
 #include <MakeASound/Plugin/AU/HostParameters.h>
@@ -2211,6 +2212,170 @@ auto tJuceOffThread =
                440.f,
                1e-2));
     check(!hasGlobalParameter(target.unit, juceCutoffId));
+};
+
+// A Tamber Plug build's session, as its AU wrapper saved one.
+
+using TamberPlugFixtures::ChorusPort;
+using TamberPlugFixtures::SVFPort;
+
+// A Plug fixture's dictionary under the codes of `ours` (a unit hosting the port
+// under the test module's codes); every other key as Plug wrote it.
+CFOwned<CFPropertyListRef> plugClassInfo(CFPropertyListRef ours,
+                                         std::string_view fixture)
+{
+    auto xml = CFOwned<CFDataRef>(
+        CFDataCreate(kCFAllocatorDefault,
+                     reinterpret_cast<const UInt8*>(fixture.data()),
+                     static_cast<CFIndex>(fixture.size())));
+    auto parsed = CFOwned<CFPropertyListRef>(CFPropertyListCreateWithData(
+        kCFAllocatorDefault, xml.value, kCFPropertyListImmutable, nullptr, nullptr));
+    check(parsed.value != nullptr);
+
+    auto* copy = CFDictionaryCreateMutableCopy(
+        kCFAllocatorDefault, 0, static_cast<CFDictionaryRef>(parsed.value));
+
+    for (auto* key: {CFSTR("type"), CFSTR("subtype"), CFSTR("manufacturer")})
+        CFDictionarySetValue(
+            copy,
+            key,
+            CFDictionaryGetValue(static_cast<CFDictionaryRef>(ours), key));
+
+    return CFOwned<CFPropertyListRef>(copy);
+}
+
+std::string dataUnder(CFPropertyListRef info, CFStringRef key)
+{
+    auto* data = static_cast<CFDataRef>(
+        CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), key));
+
+    if (data == nullptr)
+        return {};
+
+    return {reinterpret_cast<const char*>(CFDataGetBytePtr(data)),
+            static_cast<size_t>(CFDataGetLength(data))};
+}
+
+// None of Plug's ids, its list indices, reached Globals().
+template <typename P>
+bool holdsNoPlugIds(UnitHost<P>& host, int count)
+{
+    const auto& list = host.plugin().parameters();
+
+    for (auto id = 0; id < count; ++id)
+    {
+        auto ours = false;
+
+        for (auto i = 0; i < list.size(); ++i)
+            ours = ours || list.entry(i).hostId == static_cast<uint32_t>(id);
+
+        if (!ours && hasGlobalParameter(host.unit, static_cast<UInt32>(id)))
+            return false;
+    }
+
+    return true;
+}
+
+auto tPlugFixture = test("AU/thePlugFixturesHoldPlugsDocuments") = []
+{
+    auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+    auto source = UnitHost<SVFPort>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+
+    auto svf = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+    check(dataUnder(svf.value, CFSTR("TamberPlugState"))
+          == TamberPlugFixtures::svfDocument);
+
+    auto chorus = plugClassInfo(ours.value, TamberPlugFixtures::chorusClassInfo);
+    check(dataUnder(chorus.value, CFSTR("TamberPlugState"))
+          == TamberPlugFixtures::chorusDocument);
+};
+
+auto tPlugState = test("AU/aTamberPlugClassInfoLoadsThroughThePluginsReader") = []
+{
+    auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+    auto source = UnitHost<SVFPort>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<SVFPort>("Gain");
+    check(restoreClassInfo(target, info.value) == noErr);
+
+    auto& plugin = target.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::TamberPlugAU);
+    check(plugin.context == StateContext::Session);
+    check(TamberPlugFixtures::holdsSVFValues(plugin.params));
+    check(near(target.hostValue(target.hostIdOf(plugin.params.highPass.cutoff)),
+               0.4f));
+    check(target.hostValue(target.hostIdOf(plugin.params.lowPass.enabled)) == 0.f);
+
+    // Plug's `data`, under its own ids, never reached Globals().
+    check(holdsNoPlugIds(target, TamberPlugFixtures::svfParameterCount));
+
+    // The next save is the native document, and it loads as one.
+    auto saved = CFOwned<CFPropertyListRef>(copyClassInfo(target));
+    auto* dictionary = static_cast<CFDictionaryRef>(saved.value);
+    check(CFDictionaryGetValue(dictionary, CFSTR("MakeASoundState")) != nullptr);
+    check(CFDictionaryGetValue(dictionary, CFSTR("TamberPlugState")) == nullptr);
+
+    auto again = UnitHost<SVFPort>("Gain");
+    check(restoreClassInfo(again, saved.value) == noErr);
+    check(again.plugin().legacyLoads == 0);
+    check(TamberPlugFixtures::holdsSVFValues(again.plugin().params));
+};
+
+auto tPlugChoices = test("AU/aTamberPlugClassInfoLoadsChoicesByName") = []
+{
+    auto standIn = ScopedStandIn<ChorusPort>(Module::gainStandIn);
+    auto source = UnitHost<ChorusPort>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::chorusClassInfo);
+
+    auto target = UnitHost<ChorusPort>("Gain");
+    check(restoreClassInfo(target, info.value) == noErr);
+    check(target.plugin().legacyLoads == 1);
+    check(TamberPlugFixtures::holdsChorusValues(target.plugin().params));
+    check(target.hostValue(target.hostIdOf(target.plugin().params.mode)) == 1.f);
+    check(holdsNoPlugIds(target, TamberPlugFixtures::chorusParameterCount));
+
+    // The document form, as Logic restores it.
+    auto document = UnitHost<ChorusPort>("Gain");
+    check(AudioUnitSetProperty(document.unit,
+                               kAudioUnitProperty_ClassInfoFromDocument,
+                               kAudioUnitScope_Global,
+                               0,
+                               &info.value,
+                               sizeof(info.value))
+          == noErr);
+    check(document.plugin().origin == ForeignOrigin::TamberPlugAU);
+    check(TamberPlugFixtures::holdsChorusValues(document.plugin().params));
+};
+
+auto tPlugRefused = test("AU/aTamberPlugClassInfoThePluginRefusesMovesNothing") = []
+{
+    auto info = CFOwned<CFPropertyListRef> {};
+
+    {
+        auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+        auto source = UnitHost<SVFPort>("Gain");
+        auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+        auto made = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+        std::swap(info.value, made.value);
+
+        auto target = UnitHost<SVFPort>("Gain");
+        target.plugin().refuse = true;
+        check(restoreClassInfo(target, info.value) == noErr);
+        check(target.plugin().legacyLoads == 1);
+        check(TamberPlugFixtures::holdsSVFDefaults(target.plugin().params));
+        check(holdsNoPlugIds(target, TamberPlugFixtures::svfParameterCount));
+    }
+
+    // A plugin that never opted in (loadLegacy's default) keeps its values.
+    auto unported = UnitHost<GainPlugin>("Gain");
+    unported.plugin().params.gain.setValue(-3.f);
+    check(restoreClassInfo(unported, info.value) == noErr);
+    check(near(unported.plugin().params.gain.getValue(), -3.f));
 };
 
 // An effect with no bypass parameter answers BypassEffect through the one the

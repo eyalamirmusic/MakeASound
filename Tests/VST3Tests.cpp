@@ -5,6 +5,7 @@
 
 #include "VST3TestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/VST3/Factory.h>
 #include <MakeASound/Plugin/VST3/Text.h>
@@ -771,6 +772,27 @@ struct QuirkyStream final
 
     bool failingReads = false;
     Steinberg::int64 reportedSize = 0;
+};
+
+// Plug's VST3 getState writes its document with no framing: it loads as a native
+// one, and loadLegacy never hears of it.
+auto tPlugState = test("VST3/aTamberPlugSessionLoadsAsANativeDocument") = []
+{
+    auto svf = AdapterHost<TamberPlugFixtures::SVFPort> {};
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream, std::string {TamberPlugFixtures::svfDocument});
+
+    check(svf.adapter->setState(&stream) == Steinberg::kResultOk);
+    check(svf.plugin().legacyLoads == 0);
+    check(TamberPlugFixtures::holdsSVFValues(svf.plugin().params));
+
+    auto chorus = AdapterHost<TamberPlugFixtures::ChorusPort> {};
+    auto chorusStream = Steinberg::MemoryStream {};
+    writeBytes(chorusStream, std::string {TamberPlugFixtures::chorusDocument});
+
+    check(chorus.adapter->setState(&chorusStream) == Steinberg::kResultOk);
+    check(chorus.plugin().legacyLoads == 0);
+    check(TamberPlugFixtures::holdsChorusValues(chorus.plugin().params));
 };
 
 auto tJuceState = test("VST3/aJuceSessionLoadsThroughThePluginsReader") = []
