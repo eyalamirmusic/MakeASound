@@ -6,6 +6,7 @@
 #include "AllocationProbe.h"
 #include "VST3TestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <NanoTest/NanoTest.h>
 
@@ -252,6 +253,28 @@ auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
     auto legacy = AdapterHost<SynthPlugin> {
         policyFor(IdScheme::JUCELegacyIndex, {}).parameters, withMidiControllers};
     check(allocationsOverBlocks(legacy, false, maxBlock) == 0);
+};
+
+// A Tamber Plug port's index ids, a post-port FNV one among them, and the
+// added bypass: the queue, the lookups and the plugin's moves stay off the heap.
+auto tPlugIds = test("Allocations/vst3TamberPlugIdsAreOffTheHeap") = []
+{
+    using MakeASound::IdScheme;
+
+    auto identity = MakeASound::policyFor(IdScheme::TamberPlug, {}).parameters;
+    identity.indexedThroughVersion = 1;
+
+    auto host = AdapterHost<TamberPlugFixtures::NewerSVFPort> {identity};
+    check(allocationsOverBlocks(host, false, maxBlock) == 0);
+
+    auto ids = exposedIds(*host.adapter);
+    auto count = allocationsIn(
+        [&]
+        {
+            for (auto id: ids)
+                host.adapter->setParamNormalized(id, 0.5);
+        });
+    check(count == 0);
 };
 
 auto tHeldPath = test("Allocations/vst3HeldParameterPathIsOffTheHeap") = []

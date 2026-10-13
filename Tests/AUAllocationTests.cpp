@@ -240,4 +240,52 @@ auto tJucePort = test("Allocations/auJucePortRenderIsOffTheHeap") = []
               == space.toHost(list.entry(list.indexOf(&cutoff)), cutoff.getValue()));
     }
 };
+
+// A Tamber Plug port (IdScheme::TamberPlug) with a post-port parameter: host
+// writes in its plain space to Plug's index ids and the FNV one, the bypass
+// property, and the plugin's own moves mirrored back, over varying slices.
+auto tPlugPort = test("Allocations/auTamberPlugPortRenderIsOffTheHeap") = []
+{
+    const auto& description =
+        *TamberPlugFixtures::plugDescriptionFor(FourCC("Psv2").toUint32());
+    auto host =
+        UnitHost<TamberPlugFixtures::NewerSVFPort>(plugPortComponentFor("Psv2"));
+    auto space = AU::ParameterSpace(description);
+    const auto& list = host.plugin().parameters();
+    auto count = 0;
+    auto status = OSStatus {noErr};
+
+    auto writeEvery = [&](float normalized)
+    {
+        for (auto i = 0; i < list.size(); ++i)
+            if (space.isListed(list, i))
+                status |= host.hostWrites(
+                    list.entry(i).hostId,
+                    space.toHost(list.entry(i), list[i].toPlain(normalized)));
+    };
+
+    writeEvery(0.5f);
+    status |= host.render(maxBlock);
+
+    auto block = 0;
+
+    for (auto size: {64u, 17u, 1u, 63u, 0u})
+    {
+        auto normalized = block++ % 2 == 0 ? 0.3f : 0.7f;
+        count += allocationsIn(
+            [&]
+            {
+                writeEvery(normalized);
+                status |= host.render(size);
+            });
+
+        for (auto i = 0; i < list.size(); ++i)
+            list[i].setNormalized(1.f - normalized);
+
+        count += allocationsIn([&] { status |= host.render(size); });
+    }
+
+    check(status == noErr);
+    check(count == 0);
+};
 } // namespace
