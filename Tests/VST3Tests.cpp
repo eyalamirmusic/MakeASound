@@ -5,6 +5,7 @@
 
 #include "VST3TestHost.h"
 #include "JuceFixtures.h"
+#include "JucePort.h"
 #include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/VST3/Factory.h>
@@ -2179,5 +2180,90 @@ auto tAddedBypassLatency =
 
     for (auto k = 200; k < static_cast<int>(heard.size()); ++k)
         check(heard[static_cast<size_t>(k)] == static_cast<float>(first + k - 200));
+};
+
+// What Plug's own SVFFilter and Chorus VST3s published (TamberPlugFixtures.h),
+// from a port under IdScheme::TamberPlug: the index ids, steps, defaults and
+// kCanAutomate. MakeASound adds kIsList to a choice (a display hint Plug's
+// RangeParameter lacked), and registers the bypass the wrapper adds after
+// them, which Plug had none of.
+template <typename P, size_t count>
+void checkPlugsVST3(const TamberPlugFixtures::PlugParameter (&published)[count])
+{
+    auto identity =
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters;
+    auto host = AdapterHost<P> {identity};
+    auto& adapter = *host.adapter;
+
+    check(adapter.getParameterCount() == static_cast<int32>(count) + 1);
+
+    for (auto index = 0; index < static_cast<int>(count); ++index)
+    {
+        auto info = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(index, info) == Steinberg::kResultOk);
+
+        const auto& plug = published[index];
+        check(info.id == static_cast<Vst::ParamID>(index));
+        check(MakeASound::VST3::toUtf8(info.title) == plug.name);
+        check(info.stepCount == plug.vst3Steps);
+        check(near(info.defaultNormalizedValue, plug.vst3Default, 1e-6));
+        check(info.unitId == Vst::kRootUnitId);
+        check((info.flags & ~Vst::ParameterInfo::kIsList)
+              == Vst::ParameterInfo::kCanAutomate);
+    }
+
+    auto bypass = Vst::ParameterInfo {};
+    adapter.getParameterInfo(static_cast<int32>(count), bypass);
+    check(bypass.id == MakeASound::hostIdFor("__bypass"));
+    check((bypass.flags & Vst::ParameterInfo::kIsBypass) != 0);
+}
+
+// What JUCE 8.0.12's own VST3 build of JucePort's twin published (JucePort.h),
+// under each JUCE scheme. MakeASound differs only where noted: kIsList on a
+// choice, and an int's steps (JUCE's AudioParameterInt is not discrete to its
+// VST3 wrapper; MakeASound's IntParam has a step per value).
+void checkJucesVST3(MakeASound::IdScheme scheme)
+{
+    auto legacy = scheme == MakeASound::IdScheme::JUCELegacyIndex;
+    auto host = AdapterHost<JucePort::PortPlugin> {
+        MakeASound::policyFor(scheme, {}).parameters};
+    auto& adapter = *host.adapter;
+
+    constexpr auto count = static_cast<int>(std::size(JucePort::juceVST3));
+    check(adapter.getParameterCount() == count);
+
+    for (auto index = 0; index < count; ++index)
+    {
+        const auto& juce = JucePort::juceVST3[index];
+        auto info = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(index, info) == Steinberg::kResultOk);
+
+        check(info.id == (legacy ? juce.legacyId : juce.id));
+        check(near(info.defaultNormalizedValue, juce.defaultValue, 1e-6));
+        check((info.flags & ~Vst::ParameterInfo::kIsList) == juce.flags);
+
+        if (std::string_view {juce.key} == "voices")
+            check(info.stepCount == 15 && juce.stepCount == 0);
+        else
+            check(info.stepCount == juce.stepCount);
+    }
+}
+
+auto tJuceGoldens = test("VST3/aJucePortPublishesWhatJucesVST3Did") = []
+{
+    checkJucesVST3(MakeASound::IdScheme::JUCE);
+    checkJucesVST3(MakeASound::IdScheme::JUCELegacyIndex);
+
+    auto port = JucePort::description(MakeASound::IdScheme::JUCE);
+    port.juce.vst3CanReplaceVst2 = false;
+    auto module = MakeASound::ModuleDescription {.manufacturerCode = "MaSo"};
+    check(MakeASound::vst3ClassIdFor(module, port) == JucePort::juceVST3ClassId);
+};
+
+auto tPlugGoldens = test("VST3/aTamberPlugPortPublishesWhatPlugsVST3Did") = []
+{
+    checkPlugsVST3<TamberPlugFixtures::SVFPort>(TamberPlugFixtures::svfPublished);
+    checkPlugsVST3<TamberPlugFixtures::ChorusPort>(
+        TamberPlugFixtures::chorusPublished);
 };
 } // namespace

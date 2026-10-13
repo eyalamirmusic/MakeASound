@@ -126,6 +126,42 @@ auto tPlugAsNative = test("TamberPlug/plugsAUStateLoadsWithNoLoadLegacy") = []
     check(!wrap(native)->loadForeignState(foreign));
 };
 
+// The VST3 class id Plug's builds registered (probed), which is MakeASound's.
+auto tClassIds = test("TamberPlug/theVst3ClassIdsArePlugs") = []
+{
+    auto module = ModuleDescription {.vendor = "Tamber", .manufacturerCode = "EAPM"};
+
+    auto svf = plugPort<TamberPlugFixtures::SVFPort>();
+    svf.pluginCode = "Svf1";
+    check(vst3ClassIdFor(module, svf) == TamberPlugFixtures::svfClassId);
+
+    auto chorus = plugPort<TamberPlugFixtures::ChorusPort>();
+    chorus.pluginCode = "Chr1";
+    check(vst3ClassIdFor(module, chorus) == TamberPlugFixtures::chorusClassId);
+};
+
+// Plug's VST3 normalization was linear over min..max (RangeParameter), which a
+// FloatParam, a choice and a bool of MakeASound's are too: a normalized value
+// a host recorded means the same plain value. Plug's host-side probe read these.
+auto tLinear = test("TamberPlug/vst3NormalizedValuesMeanWhatTheyDidInPlug") = []
+{
+    auto params = TamberPlugFixtures::ChorusParams {};
+
+    // Gain 0..10: normalized 0, 0.5, 1 are 0, 5, 10.
+    check(params.gain.toPlain(0.f) == 0.f);
+    check(params.gain.toPlain(0.5f) == 5.f);
+    check(params.gain.toPlain(1.f) == 10.f);
+    check(params.gain.toNormalized(7.5f) == 0.75f);
+    check(params.width.toNormalized(1.5f) == 0.75f);
+
+    // A choice of two and a bool: the steps at 0 and 1.
+    check(params.mode.toNormalized(0.f) == 0.f);
+    check(params.mode.toNormalized(1.f) == 1.f);
+    check(params.mode.toPlain(1.f) == 1.f);
+    check(params.bypass.toNormalized(1.f) == 1.f);
+    check(params.bypass.toPlain(0.f) == 0.f);
+};
+
 // Plug's AU space and flags by default; each overridable alone.
 auto tAUOverrides = test("TamberPlug/theAUSpaceUnitsAndBypassAreOverridable") = []
 {

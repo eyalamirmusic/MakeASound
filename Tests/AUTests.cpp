@@ -2915,6 +2915,79 @@ auto tPlugAsNative = test("AU/aTamberPlugPortReadsPlugsClassInfoWithNoReader") =
     check(TamberPlugFixtures::holdsSVFDefaults(native.plugin().params));
 };
 
+// What Plug's own SVFFilter and Chorus AUs published (TamberPlugFixtures.h),
+// through the adapter.
+template <typename P, size_t count>
+void checkPlugsAU(FourCC code,
+                  const TamberPlugFixtures::PlugParameter (&published)[count])
+{
+    auto host = UnitHost<P>(plugPortComponentFor(code));
+    check(parameterListOf(host.unit) == idsUpTo(static_cast<int>(count)));
+
+    for (auto id = 0; id < static_cast<int>(count); ++id)
+    {
+        const auto& plug = published[id];
+        auto ours = publishedInfo(host.unit, static_cast<AudioUnitParameterID>(id));
+
+        check(ours.status == noErr);
+        check(ours.name == plug.name);
+        check(ours.info.minValue == plug.minValue);
+        check(ours.info.maxValue == plug.maxValue);
+        check(near(ours.info.defaultValue, plug.defaultValue, 1e-5));
+        check(ours.info.unit == plug.auUnit);
+        check(ours.info.flags == TamberPlugFixtures::plugAUFlags);
+    }
+}
+
+auto tPlugGoldens = test("AU/aTamberPlugPortPublishesWhatPlugsAUDid") = []
+{
+    checkPlugsAU<SVFPort>("Psvf", TamberPlugFixtures::svfPublished);
+    checkPlugsAU<ChorusPort>("Pchr", TamberPlugFixtures::chorusPublished);
+};
+
+// What JUCE 8.0.12's own AU build of JucePort's twin published (JucePort.h):
+// the list and every parameter's info, but for the clump JUCE gives a grouped
+// parameter, which MakeASound's AU has not yet.
+void checkJucesAUInfo(AudioUnit unit,
+                      AudioUnitParameterID id,
+                      const JucePort::JucePublishedAU& juce)
+{
+    auto ours = publishedInfo(unit, id);
+    check(ours.status == noErr);
+    check(ours.info.minValue == juce.minValue);
+    check(ours.info.maxValue == juce.maxValue);
+    check(near(ours.info.defaultValue, juce.defaultValue, 1e-6));
+    check(ours.info.unit == juce.unit);
+    check(ours.info.flags == (juce.flags & ~JucePort::juceAUHasClump));
+    check(((juce.flags & JucePort::juceAUHasClump) != 0)
+          == (std::string_view {juce.key} == "attack"));
+}
+
+auto tJuceGoldens = test("AU/aJucePortPublishesWhatJucesAUDid") = []
+{
+    auto host = UnitHost<PortPlugin>(portComponentFor(IdScheme::JUCE));
+    auto expected = std::vector<AudioUnitParameterID> {};
+
+    for (const auto& juce: JucePort::juceAU)
+    {
+        expected.push_back(juce.id);
+        checkJucesAUInfo(host.unit, juce.id, juce);
+    }
+
+    check(parameterListOf(host.unit) == expected);
+
+    // By index, in declaration order, under legacy ids.
+    auto legacy = UnitHost<PortPlugin>(portComponentFor(IdScheme::JUCELegacyIndex));
+    check(parameterListOf(legacy.unit) == idsUpTo(6));
+    constexpr const char* declared[] = {
+        "cutoff", "mode", "enabled", "voices", "attack", "quality"};
+
+    for (auto index = 0; index < 6; ++index)
+        for (const auto& juce: JucePort::juceAU)
+            if (std::string_view {juce.key} == declared[index])
+                checkJucesAUInfo(legacy.unit, static_cast<UInt32>(index), juce);
+};
+
 // A port with a reader of its own still reads through it.
 auto tPlugReaderFirst = test("AU/aTamberPlugPortsOwnReaderStillComesFirst") = []
 {

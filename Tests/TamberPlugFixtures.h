@@ -24,8 +24,10 @@
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
+#include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -109,6 +111,63 @@ inline constexpr auto chorusDocument = std::string_view {
 inline constexpr auto svfParameterCount = 9;
 inline constexpr auto chorusParameterCount = 11;
 
+// What Plug's own builds published, for a port under IdScheme::TamberPlug to
+// match. Probed from the AU and VST3 bundles installed from ~/Code/Plug
+// (2457f60, built 2026-10-13) by a throwaway AudioToolbox program (ParameterList
+// and ParameterInfo after AudioUnitInitialize; auval passes both) and a
+// throwaway VST3 host over the vendored SDK (getParameterInfo). Plug's AU list
+// is ids 0..n-1 in order, every flag word Readable | Writable | HasCFNameString
+// | CFNameRelease, no value strings, no BypassEffect; every VST3 parameter is
+// kCanAutomate alone, in the root unit. TamberGestures (TAmb) shows the same
+// scheme with 7 exposed ids among 2989 (1459, 1467, ... 1507), sparse.
+inline constexpr uint32_t plugAUFlags = 0xC8000010u;
+
+struct PlugParameter
+{
+    std::string_view name;
+    float minValue;
+    float maxValue;
+    float defaultValue;
+
+    // kAudioUnitParameterUnit_Indexed (1) where it has steps, else Generic (0).
+    uint32_t auUnit;
+
+    int vst3Steps;
+    double vst3Default;
+};
+
+inline constexpr PlugParameter svfPublished[svfParameterCount] = {
+    {"HP Enable", 0.f, 1.f, 0.f, 1, 1, 0.0},
+    {"HP Cutoff", 0.f, 1.f, 0.23299f, 0, 0, 0.232989997},
+    {"HP Resonance", 0.f, 1.f, 0.2f, 0, 0, 0.200000003},
+    {"BP Enable", 0.f, 1.f, 0.f, 1, 1, 0.0},
+    {"BP Cutoff", 0.f, 1.f, 0.566323f, 0, 0, 0.56632334},
+    {"BP Resonance", 0.f, 1.f, 0.2f, 0, 0, 0.2},
+    {"LP Enable", 0.f, 1.f, 1.f, 1, 1, 1.0},
+    {"LP Cutoff", 0.f, 1.f, 0.725364f, 0, 0, 0.725363731},
+    {"LP Resonance", 0.f, 1.f, 0.2f, 0, 0, 0.2},
+};
+
+inline constexpr PlugParameter chorusPublished[chorusParameterCount] = {
+    {"Input Level", 0.f, 1.f, 0.f, 1, 1, 0.0},
+    {"Gain", 0.f, 10.f, 5.f, 0, 0, 0.5},
+    {"High Pass", 0.f, 1.f, 0.f, 0, 0, 0.0},
+    {"Rate", 0.f, 10.f, 5.f, 0, 0, 0.5},
+    {"Intensity", 0.f, 10.f, 5.f, 0, 0, 0.5},
+    {"Vibrato Depth", 0.f, 10.f, 5.f, 0, 0, 0.5},
+    {"Mode", 0.f, 1.f, 0.f, 1, 1, 0.0},
+    {"Stereo Width", 0.f, 2.f, 1.f, 0, 0, 0.5},
+    {"Low Pass", 0.f, 1.f, 1.f, 0, 0, 1.0},
+    {"Mix", 0.f, 1.f, 1.f, 0, 0, 1.0},
+    {"Bypass", 0.f, 1.f, 0.f, 1, 1, 0.0},
+};
+
+// Plug's VST3 class ids: FUID('EAPM', code, 'VST3', 0), MakeASound's own.
+inline constexpr std::array<uint32_t, 4> svfClassId = {
+    0x4541504Du, 0x53766631u, 0x56535433u, 0u};
+inline constexpr std::array<uint32_t, 4> chorusClassId = {
+    0x4541504Du, 0x43687231u, 0x56535433u, 0u};
+
 inline bool plugNear(float a, float b, float tolerance = 1e-4f)
 {
     return std::abs(a - b) < tolerance;
@@ -163,7 +222,9 @@ inline bool holdsSVFDefaults(const SVFParams& params)
            && plugNear(params.bandPass.resonance.get(), 0.2f);
 }
 
-// Plug's ChorusParams. Its Bypass is the plugin's own.
+// Plug's ChorusParams. Its Bypass is the plugin's own, an ordinary bool: Plug's
+// Parameter::isBypass() is never overridden, so neither format saw it as a
+// bypass (no kIsBypass, no BypassEffect), and the wrapper adds one beside it.
 struct ChorusParams : ParameterGroup
 {
     ChorusParams()
@@ -191,7 +252,7 @@ struct ChorusParams : ParameterGroup
     FloatParam width {"Stereo Width", 0.f, 2.f, 1.f, {.versionHint = 1}};
     FloatParam lowPass {"Low Pass", 0.f, 1.f, 1.f, {.versionHint = 1}};
     FloatParam mix {"Mix", 0.f, 1.f, 1.f, {.versionHint = 1}};
-    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+    BoolParam bypass {"Bypass", false, {.versionHint = 1}};
 };
 
 inline bool holdsChorusValues(const ChorusParams& params)
