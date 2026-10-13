@@ -51,6 +51,25 @@ enum class Category
 // none: Effect -> "Fx", Instrument -> "Instrument|Synth".
 std::string_view defaultSubcategory(Category category) noexcept;
 
+// Pro Tools' plug-in categories, SDK-free. Default is Instrument for
+// Category::Instrument and MidiEffect, Effect otherwise.
+enum class AAXCategory
+{
+    Default,
+    EQ,
+    Dynamics,
+    PitchShift,
+    Reverb,
+    Delay,
+    Modulation,
+    Harmonic,
+    NoiseReduction,
+    Dither,
+    SoundField,
+    Effect,
+    Instrument
+};
+
 using PluginCreateFn = std::function<OwningPointer<Plugin>()>;
 
 // One plugin class within a module.
@@ -60,6 +79,7 @@ struct PluginDescription
     std::string_view version = "1.0.0";
     Category category = Category::Effect;
     std::string_view subcategory = {};
+    AAXCategory aaxCategory = AAXCategory::Default;
 
     // Unique per plugin within a manufacturer.
     FourCC pluginCode;

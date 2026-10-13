@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>@AAX_EXECUTABLE@</string>
+	<key>CFBundleIdentifier</key>
+	<string>@AAX_BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>@AAX_BUNDLE_NAME@</string>
+	<key>CFBundlePackageType</key>
+	<string>TDMw</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@AAX_VERSION@</string>
+	<key>CFBundleSignature</key>
+	<string>PTul</string>
+	<key>CFBundleVersion</key>
+	<string>@AAX_VERSION@</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>@AAX_COPYRIGHT@</string>
+</dict>
+</plist>

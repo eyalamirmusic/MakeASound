@@ -5,6 +5,7 @@
 #         [BUNDLE_ID <reverse.dns.id>]
 #         [COMPANY <vendor>]
 #         [VERSION <x.y.z>]
+#         [AAX_WCGUID <PACE wrap configuration guid>]
 #         [FOLDER <ide folder>]
 #         [NO_AUDIO_INPUT]
 #         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
@@ -13,8 +14,9 @@
 # target per format: <Name>-Standalone, an app; <Name>-VST3, a module built into
 # the bundle <build>/VST3/<OUTPUT_NAME>.vst3; and on macOS <Name>-AU, a module
 # built into <build>/AU/<OUTPUT_NAME>.component, whose Info.plist <Name>-AUPlistGen
-# writes from describeModule() after every link. The company and display name go
-# into eacp's embedded app info; the app's settings are filed under the module's
+# writes from describeModule() after every link; and with MAKEASOUND_BUILD_AAX on
+# macOS <Name>-AAX, a module built into <build>/AAX/<OUTPUT_NAME>.aaxplugin. The
+# company and display name go into eacp's embedded app info; the app's settings are filed under the module's
 # vendor and the plugin's name. VERSION (default 1.0.0) is the app's and the
 # VST3 bundle's version string; a VST3 host reads the version from the factory
 # instead, and the AU bundle takes ModuleDescription::version. Every target
@@ -23,6 +25,9 @@
 # skipped with a status line; targets are global, so this works from a CPM
 # consumer's directory too. With MAKEASOUND_INSTALL_PLUGINS on, each plug-in
 # bundle is also copied into the user's plug-in folder after every build.
+# AAX_WCGUID, with MAKEASOUND_PACE_SIGN_ID set and wraptool at
+# MAKEASOUND_PACE_WRAPTOOL, has PACE sign the AAX bundle after the build, as
+# MAKEASOUND_PACE_ACCOUNT or wraptool's default account.
 #
 # On Apple the app's plist carries NSMicrophoneUsageDescription, which the
 # standalone needs the moment a user picks an input, unless NO_AUDIO_INPUT says
@@ -63,7 +68,7 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
 
 function(makeasound_add_plugin name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT"
-            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;FOLDER"
+            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;AAX_WCGUID;FOLDER"
             "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
 
     if (NOT ARG_SOURCES)
@@ -221,6 +226,13 @@ function(makeasound_add_plugin name)
             endif ()
 
             _makeasound_add_au(${name})
+        elseif (format STREQUAL "AAX")
+            if (NOT TARGET MakeASoundAAX)
+                message(STATUS "${name}: AAX format skipped (MakeASoundAAX not built)")
+                continue()
+            endif ()
+
+            _makeasound_add_aax(${name})
         else ()
             message(FATAL_ERROR
                     "makeasound_add_plugin(${name}): unknown format '${format}'")
@@ -676,7 +688,11 @@ function(_makeasound_add_describe_build)
         list(APPEND args "-DCMAKE_MAKE_PROGRAM=${make_program}")
     endif ()
 
-    foreach (option MAKEASOUND_BUILD_EXAMPLES MAKEASOUND_UNITY_BUILD MAKEASOUND_CI_BUILD)
+    # The compiler launchers too, so a tree compiled through ccache compiles its
+    # host build through it as well.
+    foreach (option MAKEASOUND_BUILD_EXAMPLES MAKEASOUND_UNITY_BUILD MAKEASOUND_CI_BUILD
+            CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
+            CMAKE_OBJCXX_COMPILER_LAUNCHER)
         if (DEFINED ${option})
             list(APPEND args "-D${option}=${${option}}")
         endif ()
@@ -730,4 +746,84 @@ function(_makeasound_add_describe name)
             FOLDER "${ARG_FOLDER}"
             MACOSX_BUNDLE FALSE
             RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/Describe>")
+endfunction()
+
+# <Name>-AAX: the module, our GetEffectDescriptions with the SDK's ACF glue and its
+# exports, laid out as the .aaxplugin bundle Pro Tools scans. AAX hosts read
+# identity from GetEffectDescriptions, so the plist is configured here rather than
+# generated after the link. Reads the caller's ARG_* variables.
+function(_makeasound_add_aax name)
+    get_target_property(aax_entry MakeASoundAAX MAKEASOUND_AAX_ENTRY)
+    get_target_property(aax_exports MakeASoundAAX MAKEASOUND_AAX_EXPORTS)
+    get_target_property(aax_plist MakeASoundAAX MAKEASOUND_AAX_PLIST)
+    get_target_property(aax_pkginfo MakeASoundAAX MAKEASOUND_AAX_PKGINFO)
+    get_target_property(aax_sdk_exports aaxsdk MAKEASOUND_AAX_SDK_EXPORTS)
+
+    set(target ${name}-AAX)
+    add_library(${target} MODULE "${aax_entry}" "${aax_sdk_exports}")
+    # The format first, as for the others: the core defines describeModule().
+    target_link_libraries(${target} PRIVATE MakeASoundAAX ${name})
+    target_compile_definitions(${target} PRIVATE
+            MAKEASOUND_AAX_BUNDLE_ID="${ARG_BUNDLE_ID}"
+            MAKEASOUND_AAX_PACKAGE_NAME="${ARG_OUTPUT_NAME}")
+
+    set(bundle_dir "${CMAKE_BINARY_DIR}/AAX")
+    set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.aaxplugin")
+
+    # Laid out by hand, as the .component is; $<1:...> keeps a multi-config
+    # generator from appending a per-config folder.
+    set_target_properties(${target} PROPERTIES
+            FOLDER "${ARG_FOLDER}"
+            OUTPUT_NAME "${ARG_OUTPUT_NAME}"
+            PREFIX ""
+            SUFFIX ""
+            LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle}/Contents/MacOS>"
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+            MAKEASOUND_AAX_BUNDLE "${bundle}")
+
+    # Exactly the seven ACF entry points leave the image.
+    target_link_options(${target} PRIVATE "LINKER:-exported_symbols_list,${aax_exports}")
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${aax_exports}")
+
+    # One identifier per format: the macOS Installer resolves a package's
+    # components by bundle id.
+    set(AAX_EXECUTABLE "${ARG_OUTPUT_NAME}")
+    set(AAX_BUNDLE_ID "${ARG_BUNDLE_ID}.aaxplugin")
+    set(AAX_BUNDLE_NAME "${ARG_OUTPUT_NAME}")
+    set(AAX_VERSION "${ARG_VERSION}")
+    set(AAX_COPYRIGHT "${ARG_COMPANY}")
+    set(plist "${CMAKE_CURRENT_BINARY_DIR}/${target}-Info.plist")
+    configure_file("${aax_plist}" "${plist}" @ONLY)
+
+    # The plist and PkgInfo, then the signature over both. Pro Tools Developer
+    # loads an ad-hoc signed bundle; PACE signing, when it comes, re-signs.
+    add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy "${plist}" "${bundle}/Contents/Info.plist"
+            COMMAND ${CMAKE_COMMAND} -E copy "${aax_pkginfo}" "${bundle}/Contents/PkgInfo"
+            COMMAND codesign --force --sign - "${bundle}"
+            VERBATIM)
+
+    if (ARG_AAX_WCGUID AND MAKEASOUND_PACE_SIGN_ID AND EXISTS "${MAKEASOUND_PACE_WRAPTOOL}")
+        message(STATUS "${name}: AAX bundle signed by PACE's wraptool")
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                        -D "WRAPTOOL=${MAKEASOUND_PACE_WRAPTOOL}"
+                        -D "ACCOUNT=${MAKEASOUND_PACE_ACCOUNT}"
+                        -D "SIGN_ID=${MAKEASOUND_PACE_SIGN_ID}"
+                        -D "WCGUID=${ARG_AAX_WCGUID}"
+                        -D "BUNDLE=${bundle}"
+                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SignAAXBundle.cmake"
+                VERBATIM)
+    elseif (ARG_AAX_WCGUID)
+        message(STATUS "${name}: AAX bundle not PACE signed "
+                "(needs wraptool and MAKEASOUND_PACE_SIGN_ID)")
+    endif ()
+
+    if (MAKEASOUND_INSTALL_PLUGINS)
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
+                        -D "DEST_DIR=/Library/Application Support/Avid/Audio/Plug-Ins"
+                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
+                VERBATIM)
+    endif ()
 endfunction()

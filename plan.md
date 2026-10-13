@@ -1,7 +1,7 @@
 # Plan: a plugin framework on MakeASound
 
 MakeASound grows from a device library into a write-once plugin framework: one
-`Plugin` compiled to VST3, AU and a standalone app, later CLAP and AUv3. The design
+`Plugin` compiled to VST3, AU, AAX, AUv3 and a standalone app, later CLAP. The design
 follows Plug (the format-neutral core, thin per-format adapters, eacp for
 windows and editors, Miro for state and UI schemas), re-homed on MakeASound so the
 standalone format and the device library are one code base rather than two.
@@ -20,8 +20,9 @@ it.
 | 4 | VST3 | pluginval at strictness 10 — **landed 2026-10-10** |
 | 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
 | 6 | editor size policy and host resize in every format, Logic's view service, AU bypass, a React editor for the Synth example | pluginval 10 and `auval -strict` with the new editors; the Synth's web editor opens in all three formats — **landed 2026-10-11** (DAW hand checks pending) |
-| 7 | `StandaloneHost` without a window, a plugin's own standalone app, the standalone on iOS | desktop standalones unchanged, a custom-app example builds, both examples run as iOS standalones in the simulator — **landed 2026-10-12** |
-| 8 | AUv3, shipped on iOS inside the standalone | `AUv3/` suites on macOS and the iOS simulator, Ninja and Xcode iOS builds in CI, a hand check in AUM and GarageBand — **landed 2026-10-12** (hand checks pending) |
+| 7 | AAX (macOS), the SDK fetched only under `MAKEASOUND_BUILD_AAX` | the AAX Validator on both examples, `AAX/` green in CI, a Pro Tools Developer hand check — **landed 2026-10-12** (Pro Tools hand check pending) |
+| 8 | `StandaloneHost` without a window, a plugin's own standalone app, the standalone on iOS | desktop standalones unchanged, a custom-app example builds, both examples run as iOS standalones in the simulator — **landed 2026-10-12** |
+| 9 | AUv3, shipped on iOS inside the standalone | `AUv3/` suites on macOS and the iOS simulator, Ninja and Xcode iOS builds in CI, a hand check in AUM and GarageBand — **landed 2026-10-12** (hand checks pending) |
 
 ## Stage 0: `Buffer`
 
@@ -2509,13 +2510,479 @@ and can start at once; WP7 is last.
   `plan.md` (this section's "Landed" paragraph, the stage table, the decisions
   log). After the rest, once the hand checks have been made.
 
-## Stage 7: a replaceable standalone, on the desktop and on iOS
+## Stage 7: the AAX format
+
+The third DAW format: an AAX Native `.aaxplugin` for Pro Tools over the same
+`PluginWrapper`, macOS first (universal), Windows (MSVC x64) a later stage. The
+SDK is never in this repository: it is fetched only when `MAKEASOUND_BUILD_AAX` is
+on, so a default build compiles no Avid code and the repository stays MIT. The
+proof is Avid's AAX Validator (`aaxval` in DigiShell, from the user's own copy of
+the developer tools) passing both example bundles on this Mac, the `AAX/` suite
+green on the macOS CI job, and a hand check in Pro Tools Developer. Signing (PACE
+`wraptool`) is out of scope: retail Pro Tools loads only signed plugins, and
+signing helpers come separately, since the tools cannot be shipped publicly.
+
+Branch: `aax`, cut from `develop`, its pull request into `develop`.
+
+Landed: `aaxsdk` in `ThirdParty/` (only under `MAKEASOUND_BUILD_AAX`, on macOS),
+`MakeASoundAAX` in `Plugin/AAX/` (`Adapter`, `Conversion`, `Describe`,
+`Parameters`, `State`, and the view in `View.cpp` and `View-macOS.mm` or
+`NoView.cpp`), `_makeasound_add_aax` and Avid's install folder in the CMake
+helpers, `PluginFormat::AAX` and `AAXCategory`/`aaxCategory`, `FORMATS Standalone
+VST3 AU AAX` on both examples, the AAX half of `MakeASoundPluginval`
+(`AAXValidator.{h,cpp}`, `AAXValidator-{macOS,Default}.cpp`) and `--aax-tools` /
+`MAKEASOUND_AAX_TOOLS` in `PluginValidator`, `AAXTests.cpp`, `AAXViewTests.cpp`,
+`AAXAllocationTests.cpp` and `AAXTestHost.h`, and the flag on the macOS CI job with
+a step verifying both bundles' slices, exports, `PkgInfo`, plist and signature.
+`PluginValidator --aax-tools <validator> build/AAX` passes `MakeASound
+Gain.aaxplugin` and `MakeASound Synth.aaxplugin` on this Mac against the 2024.6.0
+validator: every test but the two skipped by id passes or reports not applicable,
+with no warning. Both bundles carry the plist, `PkgInfo` `TDMwPTul` and an ad-hoc
+signature, and `nm -gU` shows exactly the seven `ACF*` symbols. The 34 `AAX/` cases,
+the three AAX allocation cases and the AAX half of `Pluginval/` are green here. The
+universal (arm64 + x86_64) build of the SDK and the bundles is first proven by the
+macOS CI job; this Mac builds arm64 only. The Pro Tools Developer hand check is
+still the user's to make (the list ends this paragraph). Where it differs from the
+section below:
+
+- **`AAX_Init.cpp` is included, not compiled.** `EntryPoint.cpp` includes it with
+  `AAXShutdown` renamed, so the module compiles only the entry and
+  `Interfaces/AAX_Exports.cpp`; `MAKEASOUND_AAX_SDK_INIT` was recorded on `aaxsdk`
+  and never read, and is gone. `aaxsdk` also needs
+  `Interfaces/ACF/CACFClassFactory.cpp` and the include root
+  `Libs/AAXLibrary/include`, and keeps `AAX_CUIDs.cpp` out of the unity chunks:
+  it defines `INITACFIDS` before the headers that declare every uid, so it must be
+  the first to include them.
+- **The SDK's namespace is `::AAX::`** inside `MakeASound::AAX`
+  (`::AAX::Exception::ResultError`).
+- **The package name** comes from `MAKEASOUND_AAX_PACKAGE_NAME` (`OUTPUT_NAME`),
+  defined beside `MAKEASOUND_AAX_BUNDLE_ID`, so `describeEffects` takes it as a
+  fourth argument; it also sets the manufacturer name from `vendor` and the
+  package version from `ModuleDescription::version`. Each effect adds its name and
+  its 31-, 15-, 7- and 4-character truncations, which Pro Tools picks from.
+- **The maximum block is 1024** (`1 << AAX_eAudioBufferLengthNative_Max`), the
+  SDK's ceiling for a Native process call. A larger host block is rendered in
+  slices of 1024 rather than trusted, each slice with its own `clearMidi`, the
+  staged MIDI shifted to its start and the playhead advanced to it.
+- **An unused MIDI field gets a placeholder private-data port**, as Avid's
+  monolithic template does: a field with no port fails the description with
+  "Algorithm context contains gaps", so `midiIn` and `midiOut` are nodes only
+  where the layout has that MIDI bus. The context struct is otherwise as planned.
+- **The validator runs test by test.** dsh is driven over stdin twice: `load_dish
+  aaxval` and `listtests {detail: min, stringformat: yaml}`, then `load_dish
+  aaxval` and one `runtest {test, path, stringformat: yaml, runmode: serial}` per
+  listed test, not one `runtests`. `E_COMPLETED_PASS` passes and `E_CANCELED` is
+  not applicable (`N/A`). A dsh silent for 10 minutes is killed with what it
+  forked, since one can hang after a failed command. dsh listens on a fixed port,
+  so two must never run at once. Two tests fail outright rather than reporting
+  `E_CANCELED` and are skipped by id, each logged with its reason:
+  `test.cycle_counts` (HDX only: it loads the DAE dish and acquires a deck, which
+  without HDX ends `E_LOST` about as often as `E_CANCELED`) and
+  `test.page_table.load` ("Failed to load page tables library" for a plugin that
+  ships no page table). The bundle is not installed; aaxval takes its path.
+- **The view's file is `View-macOS.mm`**, not `.cpp`, since it touches AppKit. The
+  editor lives from `Initialize` (the SDK's `CreateViewContents`) to
+  `Uninitialize`, and the host is set only while embedded. eacp's surface is
+  pinned to the container's top-left by an autoresizing mask on eacp's view,
+  because Pro Tools sizes the container after `GetViewSize` and filling it would
+  grow the editor; a top-left option on eacp's `EmbeddedView` would be cleaner
+  later. `View::Initialize` adopts the message thread too. A container of a
+  foreign type embeds nothing.
+- **Parameters.** The `AAX_CParameter` keeps the host's value, and
+  `TimerWakeup` pushes only values the plugin moved on its own since the last
+  look on parameters no gesture holds, so a host value the plugin snapped is
+  never written back. A stepped parameter has `numSteps + 1` steps.
+- **`CompareActiveChunk`** compares the `params` objects of the two documents with
+  the bypass entry left out, as the SDK leaves the master bypass out of its own
+  compare, and answers equal for a chunk of another id so it never lights the
+  compare light.
+- **Transport:** `barStartPpq` and `isRecording` are not mapped.
+- **The tests** follow `VST3Tests.cpp` rather than `AUTests.cpp`: the SDK is C++20,
+  so they include the adapter's headers. The fixture's controller is a fake that is
+  also the automation delegate and echoes set-value requests back, as Pro Tools
+  does, rather than no controller. The view cases are a file of their own,
+  `AAXViewTests.cpp`, over a fake view container and a `View` whose `findPlugin()`
+  the test overrides.
+- **CI** also verifies each `.aaxplugin`. The AAX install into
+  `/Library/Application Support/Avid/Audio/Plug-Ins` warns on the runner and never
+  fails it. `InstallPluginBundle.cmake` now runs every step through `cmake -E`,
+  because `file()` stopped the script on a folder it could not write.
+
+Open for the Pro Tools hand check: the validator reports `category: None` for
+`AAX_EPlugInCategory_Effect` (Gain's default), and its `s6_feature` test shows
+`master_bypass support: 0`, which may mean Pro Tools wants the bypass parameter
+flagged as the category bypass too; whether Pro Tools' bypass button drives Gain's
+bypass parameter is what decides it. The hand check, in Pro Tools Developer:
+
+- both plugins appear under their categories (Effect for Gain: see above);
+- the generic editor (Gain) and the web editor (Synth) open at the top-left of the
+  window at their right size, the grip resizes them, and the Synth keeps 3:2;
+- closing and reopening an editor, and removing the plugin with its window open,
+  do not crash;
+- automation records and plays back, and the editor's values follow it;
+- the Synth's web page takes keyboard focus for its fields while Pro Tools'
+  shortcuts still work outside it;
+- the synth plays from a MIDI track;
+- a saved session reopens with its values;
+- Gain's bypass follows the parameter and Pro Tools' bypass button;
+- the view finds its plugin, i.e. the `dynamic_cast` of `GetEffectParameters()`
+  to `Adapter` succeeds in Pro Tools' process (an editor at all proves it).
+
+### Licensing
+
+- The AAX SDK is dual-licensed: Avid's commercial AAX SDK License Agreement, or
+  GPLv3. Every source file under `Interfaces/`, `Libs/AAXLibrary/` and
+  `Extensions/` carries that notice, which is what lets anyone redistribute it;
+  JUCE vendors it on the same terms (`JUCE.spdx.json`: `LicenseRef-Avid-AAX OR
+  GPL-3.0-only`), and clap-wrapper fetches it.
+- MakeASound neither vendors nor copies any AAX file. With `MAKEASOUND_BUILD_AAX`
+  on, `ThirdParty/CMakeLists.txt` fetches the SDK through CPM, so the repository's
+  own sources stay MIT and a build with the flag off never sees Avid's code.
+- An AAX binary built from it is the plugin author's to license: GPLv3, or under
+  Avid's agreement, which shipping AAX needs anyway for signing. The configure
+  prints that once when the flag is on, and README says it beside the formats.
+- The AAX Validator, DigiShell and the developer tools are NDA-confidential
+  (their readme says so) and carry no GPL option: they are only ever run from a
+  path the user names, never fetched, copied, committed or run in CI.
+
+### Decision
+
+There is one class per module, `MakeASound::AAX::Adapter`, deriving from
+`AAX_CEffectParameters` (the data model) plus `HostEditListener`, owning a
+`PluginWrapper` built with `PluginFormat::AAX` and driving it in the documented
+order, never calling the plugin's `process`. A second class, `AAX::View`
+(`AAX_CEffectGUI`), shows the editor. The design follows JUCE's and clap-wrapper's
+AAX wrappers mapped onto MakeASound's types:
+
+- **The SDK** is `github.com/audiosdk/aax`, a public fork of AAX SDK 2.8.1 with the
+  examples and docs removed and the sources untouched (two commits: Avid's import,
+  then deletions and four README lines). It is pinned to the commit
+  `faf5d8e2c339b1c6053d86501465e5679b16314e`, not the movable tag `2.8.1-slim`,
+  with `CPM_AAXSDK_SOURCE` for a local copy (the user's 2.10.0). The adapter is
+  written against the 2.8.1 API alone, so it builds against either and no
+  `#if` on the SDK version is ever needed. A mirror of our own replaces the fork
+  later if it moves or disappears; nothing but the CPM line changes. 2.8.1 lacks
+  2.9's GUI minimum size, 2.10's `UpdateScalingFactor` (Windows display scaling),
+  parameter roles, default automation state, bounce notifications and Avid's
+  mocks; none is needed here, and the tests carry their own fakes.
+- **Topology is monolithic native**: `AAX_eConstraintTopology_Monolithic`,
+  `AAX_eConstraintLocationMask_DataModel`, one `AddProcessProc_Native` per
+  component over our context struct, `AAX::AlgorithmContext`: audio inputs and
+  outputs, the sample count, the clock, the local MIDI input and output nodes,
+  the transport node and a private-data field holding the `Adapter*`, which
+  `ResetFieldData` fills with `this`. The process procedure walks its instances
+  and calls `adapter->render(context)` on each, so the algorithm is the adapter's
+  member code, as in JUCE. No packet dispatcher, coefficient generation, DSP or
+  HDX path.
+- **Stem formats.** Each component is one main-bus pair; for this stage the pairs
+  are Mono→Mono, Mono→Stereo, Stereo→Stereo, and for a layout with no input bus
+  None→Mono and None→Stereo, each offered when `acceptsLayout` accepts it.
+  `BusLayout` carries channel counts, not channel roles, and AAX's surround
+  orders differ from VST3's, so surround waits for a stage that gives a bus its
+  roles. A side-chain input is a later stage too (`AddSideChainIn` from a
+  non-main input bus).
+- **Ids.** `AAX_eProperty_ManufacturerID` is `manufacturerCode`,
+  `AAX_eProperty_ProductID` is `pluginCode`, and each component's
+  `AAX_eProperty_PlugInID_Native` is `pluginCode` plus the stem pair's index in
+  the fixed list above, JUCE's derivation, so a plugin moved from a JUCE build
+  with the same codes keeps its Pro Tools sessions. The list is append-only and
+  the ids never change once shipped. The effect id given to `AddEffect` is
+  `<BUNDLE_ID>.<pluginCode>`, the bundle id reaching the module as
+  `MAKEASOUND_AAX_BUNDLE_ID`. A test asserts every native id in a module is
+  unique.
+- **Category.** `PluginDescription` gains `aaxCategory`, an SDK-free
+  `AAXCategory` enum in `Description.h` mirroring Pro Tools' list (`EQ`,
+  `Dynamics`, `PitchShift`, `Reverb`, `Delay`, `Modulation`, `Harmonic`,
+  `NoiseReduction`, `Dither`, `SoundField`, `Effect`, `Instrument`, and `Default`),
+  where `Default` means `Instrument` (`AAX_ePlugInCategory_SWGenerators`) for
+  `Category::Instrument` and `Effect` (`AAX_EPlugInCategory_Effect`) otherwise. A
+  `MidiEffect` ships as an instrument, as in VST3.
+- **Parameters.** Only `isHostExposed` entries are registered, each as an
+  `AAX_CParameter<float>` in normalized units with a linear 0..1 taper, the
+  number of steps and discrete type from `numSteps`, automatable from the entry,
+  and an `AAX::DisplayDelegate` (`Parameters.{h,cpp}`) that formats and parses
+  through the MakeASound `Parameter` (`valueToText`/`textToValue`), so a skewed
+  parameter reads right. `AAX_CParamID` is the 31-bit host id as eight lowercase
+  hex digits, so an inserted or renamed parameter keeps everyone's automation.
+  A host write arrives through `UpdateParameterNormalizedValue` and goes straight
+  into the wrapper (`setNormalizedParameter`) unless a gesture holds it, as AU's
+  `SetParameter` does: the values are atomics, the block reads them, and the
+  last write before a block wins, as in every format.
+- **Bypass.** With a `bypassIndex()` entry, `AAX_eProperty_CanBypass` is true and
+  `GetMasterBypassParameter` names that entry's id; the plugin does the
+  bypassing, as Gain does. A plugin with none declares no bypass. Whether Pro
+  Tools then bypasses it host-side or greys the button out is checked in Pro
+  Tools Developer before the stage lands; if the button must work, the adapter
+  gains a hidden master bypass that copies input to output.
+- **Gestures.** `beginParameterEdit` holds the parameter and calls
+  `TouchParameter`, `performParameterEdit` calls `SetParameterNormalizedValue`
+  with the plugin's normalized value (the host's echo of it lands on a held
+  parameter and drops, harmlessly), and `endParameterEdit` calls
+  `ReleaseParameter` and releases. Edit groups are no-ops. `parameterInfoChanged`
+  has no AAX counterpart in 2.8.1 and is ignored.
+- **State** is one chunk, id `'MkaS'`: `GetNumberOfChunks` 1,
+  `GetChunkSize` saves the wrapper's `Session` document into a member and
+  answers its size, `GetChunk` copies that member (the SDK pairs each size call
+  with a chunk call), `SetChunk` loads it as a `Session`, and
+  `CompareActiveChunk` compares the parameters a chunk holds with the live ones,
+  which is what drives Pro Tools' compare light. Pro Tools gives no preset signal,
+  so every save is a `Session`, as in AU. No exception crosses the ABI.
+  `AAX_eProperty_RequiresChunkCallsOnMainThread` stays false: the wrapper's
+  off-thread save reads the published snapshot.
+- **Render**, per instance, in order: `clearMidi()`, the input node's packets
+  onto MIDI-in bus 0 at their `mTimestamp` (through a `MidiParser` so a SysEx
+  split across packets is assembled; Pro Tools delivers one MIDI stream),
+  `setPlayhead` from the transport node (`GetCurrentTempo`, `GetCurrentMeter`,
+  `IsTransportPlaying`, `GetCurrentNativeSampleLocation`,
+  `GetCurrentTickPosition` over 960000 ticks per quarter, loop points from
+  `GetCurrentLoopPosition`), `sortMidiInByOffset`, `bindInput`/`bindOutput` over
+  the context's channel tables for the component's stem counts, `process()`, and
+  MIDI out bus 0 into the output node with `PostMIDIPacket`, channel-voice
+  messages only (Pro Tools routes no plugin SysEx). Denormals are the wrapper's
+  `ScopedNoDenormals`. Allocation-free and `noexcept`.
+- **Latency.** `SetSignalLatency(latencySamples())` from `EffectInit` and, on the
+  message thread, when the latency moves: `latencyChanged` and `TimerWakeup`
+  check it through the same compare-exchange on the last reported figure the
+  other adapters use. AAX has no tail query in 2.8.1; `tailSamples()` is unused.
+- **The message thread.** `GetEffectDescriptions`, the adapter's `Initialize`
+  and the view's `Initialize` call `adoptHostMessageThread()`. `EntryPoint.cpp` includes the SDK's
+  `AAX_Init.cpp` with `AAXShutdown` renamed, clap-wrapper's trick,
+  and defines its own `AAXShutdown` that calls `releaseHostMessageThread()` and
+  then the SDK's: unlike AU, AAX has a module-exit hook, and a host unloads the
+  module after it.
+- **The view.** `AAX::View::CreateViewContainer` takes the native view from
+  `GetViewContainerPtr()` (`NSView` on macOS) and embeds `createEditor()` or
+  `GenericEditor` in an `eacp::Graphics::EmbeddedView` at
+  `constrain(initialSize())`, `setHost` then `onAttached()`;
+  `DeleteViewContainer` reverses it. `GetViewSize` answers the editor's size.
+  The view is the editor's `EditorHost`: `resizeEditor` constrains the size and
+  hands it to `GetViewContainer()->SetViewSize`, true when the host took it, and
+  `drawsResizeHandle()` is false, since a Pro Tools plugin window has no grip, so
+  the editor draws its `ResizeGrip`. The view holds the adapter through
+  `GetEffectParameters()`, which the host keeps alive longer than the view.
+  `createAAXView` is defined twice, by `View.cpp` where the UI tier exists and by
+  `NoView.cpp` (null: no `kAAX_ProcPtrID_Create_EffectGUI` registered, so Pro
+  Tools shows its generic controls) where it does not, the choice made at link
+  time as in VST3. Which native type `CreateViewContainer` accepts is per
+  platform by TU: `View-macOS.mm` now, `View-Windows.cpp` with Windows.
+- **Not this stage:** Windows, surround and side-chain stems, AudioSuite, DSP/HDX,
+  page tables and control-surface support, PTSL, meters, signing.
+
+### Layout
+
+New directory `Lib/MakeASound/Plugin/AAX/` (namespace `MakeASound::AAX`, IDE
+folder `Lib/Plugin`):
+
+| file | what |
+| --- | --- |
+| `CMakeLists.txt` | `MakeASoundAAX` and its file properties |
+| `AAXCommon.h` | the SDK includes every adapter TU takes first |
+| `Describe.{h,cpp}` | the stem list, `nativePluginId`, the category mapping, `layoutFor`, `effectIdFor`/`findPlugin`, and `describeEffects(AAX_ICollection&, const ModuleDescription&, bundleId, packageName)` |
+| `Adapter.{h,cpp}` | the data model and `render` |
+| `AlgorithmContext.h` | the context struct, packed with the SDK's alignment headers, and the process procedure's declaration |
+| `Parameters.{h,cpp}` | host id ⇄ `AAX_CParamID`, the display delegate, parameter registration |
+| `Conversion.{h,cpp}` | noexcept: MIDI packets ⇄ `MIDI::Event`, the transport into a `Playhead` |
+| `State.{h,cpp}` | the chunk id, size, copy and compare |
+| `View.{h,cpp}`, `View-macOS.mm`, `NoView.cpp` | the `AAX_CEffectGUI` |
+| `EntryPoint.cpp` | `GetEffectDescriptions`, the renamed `AAX_Init.cpp`, `AAXShutdown`; compiled into each module |
+| `AAXExports.txt` | `_ACFRegisterPlugin`, `_ACFRegisterComponent`, `_ACFGetClassFactory`, `_ACFCanUnloadNow`, `_ACFStartup`, `_ACFShutdown`, `_ACFGetSDKVersion` |
+| `AAXInfo.plist.in` | `CFBundlePackageType` `TDMw`, `CFBundleSignature` `PTul`, identifier `<BUNDLE_ID>.aaxplugin`, name, executable, `VERSION` |
+| `PkgInfo` | the 8 bytes `TDMwPTul` |
+
+Elsewhere: `CMakeLists.txt` (`MAKEASOUND_BUILD_AAX`), `ThirdParty/CMakeLists.txt`
+(`aaxsdk`), `Plugin/CMakeLists.txt` (`add_subdirectory(AAX)`),
+`Plugin/Core/Plugin.h` (`PluginFormat::AAX`), `Plugin/Core/Description.h`
+(`AAXCategory`, `aaxCategory`), `CMake/MakeASoundPlugin.cmake` (`AAX` format,
+`_makeasound_add_aax`), `CMake/InstallPluginBundle.cmake` (the Avid folder),
+`Plugins/Gain` and `Plugins/Synth` (`FORMATS Standalone VST3 AU AAX`),
+`Plugin/Validation/` and `Tools/PluginValidator/` (`.aaxplugin` through aaxval),
+`Tests/`, `.github/workflows/ci.yml`, `CLAUDE.md`, `README.md`.
+
+**Targets:**
+
+- **`aaxsdk`** (STATIC, `ThirdParty/`): only under `MAKEASOUND_BUILD_AAX`, on
+  `APPLE AND NOT IOS` this stage. CPM `NAME AAXSDK`, `GITHUB_REPOSITORY
+  audiosdk/aax`, the pinned commit, `DOWNLOAD_ONLY`; a configure error when
+  `Interfaces/AAX.h` is missing, so a wrong `CPM_AAXSDK_SOURCE` says so. Every
+  `Libs/AAXLibrary/source/*.cpp` except `AAX_Init.cpp` (the module's) and the
+  Windows autorelease pool, plus `AAX_CAutoreleasePool.OSX.mm` and
+  `Interfaces/ACF/CACFClassFactory.cpp`; SYSTEM include roots `Interfaces`,
+  `Interfaces/ACF`, `Libs`, `Libs/AAXLibrary/include` and `Extensions`; warnings
+  off (`-w`); Foundation and CoreFoundation PUBLIC; IDE folder `External/AAX_SDK`;
+  a unity build with `AAX_CUIDs.cpp` kept out of the chunks. The path of
+  `Interfaces/AAX_Exports.cpp` is recorded as `MAKEASOUND_AAX_SDK_EXPORTS`, since it
+  must be compiled into the module itself; `AAX_Init.cpp` is included by the
+  module's `EntryPoint.cpp`. C++20, like everything but the AU side.
+- **`MakeASoundAAX`** (STATIC): added when `TARGET aaxsdk`; links
+  `MakeASoundPlugin` and `aaxsdk` PUBLIC, and with the view `MakeASoundPluginUI`
+  and `eacp-graphics` PRIVATE. Properties `MAKEASOUND_AAX_ENTRY`,
+  `MAKEASOUND_AAX_EXPORTS`, `MAKEASOUND_AAX_PLIST`, `MAKEASOUND_AAX_PKGINFO`;
+  `MAKEASOUND_AAX_HAS_VIEW=1` PUBLIC with the view. Unity under
+  `MAKEASOUND_UNITY_BUILD`.
+- **`<Name>-AAX`** (MODULE, IDE folder `<Name>`), by `makeasound_add_plugin`.
+
+### Build
+
+- `option(MAKEASOUND_BUILD_AAX ... OFF)`, top-level and CPM consumers alike,
+  meaningful only with `MAKEASOUND_BUILD_PLUGIN`. With it on, configure prints
+  that the SDK is fetched from the audiosdk/aax fork and that AAX binaries are
+  GPLv3 unless their author holds Avid's agreement.
+- `_makeasound_add_aax(name)`, after `_makeasound_add_au`'s pattern:
+  `add_library(${name}-AAX MODULE <entry> <SDK exports>)`, linking
+  `MakeASoundAAX` then the core; `MAKEASOUND_AAX_BUNDLE_ID="<BUNDLE_ID>"` and
+  `MAKEASOUND_AAX_PACKAGE_NAME="<OUTPUT_NAME>"`; Release LTO. The bundle `<build>/AAX/<OUTPUT_NAME>.aaxplugin` is laid out by hand, as
+  the `.component` is (the module in `Contents/MacOS`, the output directory in
+  `$<1:...>`), with the plist configured at configure time from the CMake
+  arguments: AAX hosts read identity from `GetEffectDescriptions`, not the plist,
+  so nothing is generated after the link. `PkgInfo` copied into `Contents/`, an
+  ad-hoc signature over the bundle (Pro Tools Developer loads unsigned plugins;
+  PACE signing, when it comes, re-signs). The bundle path is
+  `MAKEASOUND_AAX_BUNDLE`.
+- `-exported_symbols_list AAXExports.txt` with `LINK_DEPENDS`, so `nm -gU` shows
+  exactly the seven `ACF*` entry points.
+- With `MAKEASOUND_INSTALL_PLUGINS`, `InstallPluginBundle.cmake` copies into
+  `/Library/Application Support/Avid/Audio/Plug-Ins`, which usually needs admin
+  rights: the copy is best effort as for every format, and a failure is a
+  warning saying so.
+- Skipped with a status line where `MakeASoundAAX` is not a target, so every tree
+  with the flag off is untouched.
+
+### Validation
+
+`MakeASoundPluginval` gains the AAX half, by TU:
+
+- `isAAX(bundle)` is the `.aaxplugin` extension; `findBundles` also returns them.
+- `validate` hands an AAX bundle to `validateAAX` (`AAXValidator.h`):
+  `AAXValidator-macOS.cpp` runs `<tools>/CommandLineTools/dsh` through
+  an `eacp::Processes::Process`, a script on its stdin: `load_dish aaxval` and
+  `listtests`, then one `runtest` per listed test on the bundle's absolute path
+  (as landed; see above). `E_COMPLETED_PASS` passes, `E_CANCELED` is not
+  applicable, anything else fails, pinned against the 2024.6.0 validator. `AAXValidator-Default.cpp` fails an AAX
+  bundle with "AAX validation is macOS only" for now.
+- `Options::aaxTools` is the validator folder, from `--aax-tools <dir>` or the
+  environment variable `MAKEASOUND_AAX_TOOLS`; with neither, an AAX bundle fails
+  with "AAX validation needs --aax-tools". The validator's readme asks for
+  `xattr -dr com.apple.quarantine <folder>` once after unpacking; the error for a
+  quarantined `dsh` says so.
+- Tests that need a page table or HDX hardware (`test.page_table.*`,
+  `test.cycle_counts`) are expected to report not applicable; any that fail
+  outright for a plugin without a page table are listed in the stage's landed
+  notes and skipped by id, not hidden: `test.cycle_counts` and
+  `test.page_table.load`, as landed.
+- `PluginValidator build/AAX --aax-tools <dir>` is the sweep. pluginval is never
+  fetched for it, and nothing about it runs in CI.
+
+### Tests
+
+`Tests/CMakeLists.txt`: `if (TARGET MakeASoundAAX)` links it and adds
+`AAXTests.cpp`, `AAXViewTests.cpp` where the view is built, and, in the allocation
+branch, `AAXAllocationTests.cpp`. The SDK
+compiles as C++20, so the tests include the adapter's headers directly.
+
+**`Tests/AAXTestHost.h`**: recording fakes of the SDK's abstract description
+interfaces (`AAX_ICollection`, `AAX_IEffectDescriptor`, `AAX_IComponentDescriptor`,
+`AAX_IPropertyMap`), and of `AAX_IMIDINode` and `AAX_ITransport` for the render
+context; a controller fake that is also the automation delegate and echoes a
+set-value request back as Pro Tools does; an `AdapterHost` that constructs the
+adapter, initializes it through that controller, builds an `AlgorithmContext` with its own
+channel tables and nodes, and calls the process procedure.
+
+**`AAXTests.cpp`** (suite `AAX/`), after `AUTests.cpp`:
+- describe: the effect per plugin with its id, name and category; the stem pairs
+  `acceptsLayout` accepts and no other, for the effect and the instrument; the
+  manufacturer, product and native ids; every native id unique; the private data,
+  MIDI and transport fields.
+- the category default for each `Category` and an explicit `aaxCategory`.
+- a block in place and not, a bus past the input's width zeroed, Mono→Stereo, an
+  instrument with no input.
+- parameters: the AAX ids are the host ids in hex, in declaration order; the
+  display delegate's text both ways, non-finite text keeping the value; steps and
+  automatable; a host write landing in the next block; a held parameter's host
+  write dropped; begin/perform/end reaching the controller fake.
+- bypass: named only for the gain plugin.
+- state: chunk size then chunk round trip, a parameter inserted mid-list, a save
+  from a worker thread while the main thread spins, `CompareActiveChunk`.
+- MIDI: notes at their timestamps, a SysEx split across packets assembled, the
+  echo leaving through the output node, channel-voice only.
+- the playhead from the transport fake.
+- latency: a change reaching `SetSignalLatency`.
+- where the view is built, in `AAXViewTests.cpp`: the size the view answers,
+  `requestResize` through a view-container fake, the view the editor's host while
+  embedded.
+
+**`AAXAllocationTests.cpp`**: whole process-procedure calls with host parameter
+writes, MIDI in and out, a held parameter and varying block sizes, under the ban.
+
+### CI
+
+The macOS job configures with `-DMAKEASOUND_BUILD_AAX=ON`, so CPM fetches the
+fork, and builds both `.aaxplugin` bundles and the `AAX/` cases. No validator, no
+signing: both need the user's NDA tools. Every other job keeps the flag off and
+is unchanged.
+
+### Fallout in this repository
+
+| place | change |
+| --- | --- |
+| `CMakeLists.txt` | `MAKEASOUND_BUILD_AAX` |
+| `ThirdParty/CMakeLists.txt` | `aaxsdk` through CPM, under the flag |
+| `Plugin/CMakeLists.txt` | `add_subdirectory(AAX)` after `AU` |
+| `Plugin/Core/Plugin.h`, `Description.h` | `PluginFormat::AAX`; `AAXCategory`, `aaxCategory` |
+| `CMake/MakeASoundPlugin.cmake`, `InstallPluginBundle.cmake` | `AAX` format, the Avid folder |
+| `Plugins/Gain`, `Plugins/Synth` | `FORMATS Standalone VST3 AU AAX` |
+| `Plugin/Validation/`, `Tools/PluginValidator/` | `.aaxplugin` through aaxval, `--aax-tools` |
+| `Tests/` | `AAXTests.cpp`, `AAXViewTests.cpp`, `AAXAllocationTests.cpp`, `AAXTestHost.h` |
+| `.github/workflows/ci.yml` | the flag on the macOS job, and a step verifying both `.aaxplugin`s |
+| `CLAUDE.md`, `README.md`, `plan.md` | the format as it is, and its licensing |
+
+Public API: `PluginFormat` gains an enumerator and `PluginDescription` a field
+with a default; no other change.
+
+### Fallout downstream
+
+None: the flag is off by default, and `MAKEASOUND_BUILD_PLUGIN` is off in Plug and
+tamber-web.
+
+### Done when
+
+- `PluginValidator build/AAX --aax-tools <validator>` passes `MakeASound
+  Gain.aaxplugin` and `MakeASound Synth.aaxplugin` on this Mac, any test skipped
+  by id listed with its reason.
+- `AAX/` and the AAX allocation cases are green on macOS here and in CI; every job
+  with the flag off is unchanged.
+- Both bundles carry the plist, `PkgInfo` and an ad-hoc signature, and `nm -gU`
+  shows exactly the seven `ACF*` symbols.
+- *The user's hand check, in Pro Tools Developer* (retail Pro Tools loads no
+  unsigned plugin): both plugins appear under their categories; the generic and
+  the web editor open; automation records and plays back; the synth plays from a
+  MIDI track; a saved session reopens with its values; Gain's bypass follows the
+  parameter, and a plugin without one behaves as decided above.
+- CLAUDE.md, README and this plan describe the format and its licensing as they
+  are.
+
+### Work packages
+
+- **WP1, the SDK and the empty format.** The flag, `aaxsdk`, `MakeASoundAAX` with
+  `Describe` and an adapter that renders silence, `_makeasound_add_aax`, the
+  bundle layout, the examples' `FORMATS`, `PluginFormat::AAX`, `aaxCategory`.
+  Done when both bundles build and the validator loads them.
+- **WP2, render, parameters, state, MIDI, latency.** `Adapter`, `Parameters`,
+  `Conversion`, `State`, `AAXTests.cpp`, `AAXTestHost.h`,
+  `AAXAllocationTests.cpp`. After WP1.
+- **WP3, the view.** `View*.cpp`, `NoView.cpp`, the view cases. After WP1, beside
+  WP2.
+- **WP4, validation.** `Plugin/Validation/` and `Tools/PluginValidator/`. After
+  WP1, beside WP2 and WP3.
+- **WP5, docs and CI.** `.github/workflows/ci.yml`, `CLAUDE.md`, `README.md`,
+  this section's landed notes, the stage table, the decisions log. Last.
+
+## Stage 8: a replaceable standalone, on the desktop and on iOS
 
 The standalone stops being one fixed app. What runs a plugin without a host
 (devices, MIDI, the wrapper, `Engine`, the settings file) becomes a library with no
 window in it, the default app is one client of that library, and a plugin can bring
 an app of its own in its place. The same library and the same eacp-ui widgets then
-run the plugin on iOS, which stage 8 needs: an AUv3 extension ships inside an app,
+run the plugin on iOS, which stage 9 needs: an AUv3 extension ships inside an app,
 and on iOS that app is the plugin's full standalone. The UI stays eacp-ui GPU
 widgets in a `ComponentHost` on every platform, as `SettingsPanel` already is; no
 WebView enters the standalone. The proof is the desktop standalones unchanged
@@ -2572,7 +3039,7 @@ plan below:
   checks here launch the apps and screenshot them; nothing taps through the
   settings screen), and anything on a device.
 
-- **WP7.1, the host without a window.** Everything in `StandaloneApp` that is not
+- **WP8.1, the host without a window.** Everything in `StandaloneApp` that is not
   UI moves into `StandaloneHost`: `devices`, `midi`, `sender`, `wrapper`,
   `processor`, `engine`, the settings path, the captured default `Preset`, the
   fallback config, the open MIDI output's id, loading and saving `Settings`,
@@ -2583,7 +3050,7 @@ plan below:
   keeps `SettingsPanel`, `EditorWindow`, `TypingKeyboard` and the default
   `StandaloneApp` over it. Destruction order stays the one `PluginWrapper` asserts:
   UI first, then the stream, then the wrapper, on the main thread.
-- **WP7.2, a plugin's own app.** `makeasound_add_plugin(... STANDALONE_SOURCES
+- **WP8.2, a plugin's own app.** `makeasound_add_plugin(... STANDALONE_SOURCES
   <files> [STANDALONE_LIBRARIES <targets>])` builds `<Name>-Standalone` from those
   sources instead of `StandaloneMain.cpp`; the app class and its `main` are the
   plugin's, composing `StandaloneHost` and, if it wants them, `SettingsPanel`,
@@ -2591,7 +3058,7 @@ plan below:
   signing and (on iOS) the AUv3 embedding stay the function's, so a custom app
   loses none of the packaging. `StandaloneHost`'s header is a documented public API
   from here on. A small example under `Tests/` or `Plugins/` proves the path builds.
-- **WP7.3, the iOS standalone.** `MakeASoundStandalone`'s gate becomes `TARGET
+- **WP8.3, the iOS standalone.** `MakeASoundStandalone`'s gate becomes `TARGET
   MakeASoundPluginUI AND TARGET eacp-graphics` on Apple and Windows, iOS included.
   iOS has no menu bar and one window, so the default app there is one screen: the
   editor, with `SettingsPanel` presented as a screen of its own from a button, rows
@@ -2603,12 +3070,12 @@ plan below:
   already does; interruptions and route changes are checked against
   `DeviceManager`'s recovery path, and anything missing there is a device-library
   fix, not a standalone one.
-- **WP7.4, tests and CI.** The standalone suites run against
+- **WP8.4, tests and CI.** The standalone suites run against
   `MakeASoundStandaloneCore` on every platform that builds it; the iOS simulator
   job builds both examples' `-Standalone` apps and runs the suite.
-- **WP7.5, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
+- **WP8.5, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
 
-## Stage 8: AUv3, shipped on iOS
+## Stage 9: AUv3, shipped on iOS
 
 An `AUAudioUnit` adapter over the same `PluginWrapper`, packaged as an app extension
 inside the plugin's iOS standalone. macOS keeps the v2 `.component` from stage 5 as
@@ -2621,7 +3088,7 @@ the `AUv3/` suites green on macOS and in the iOS simulator, both generators buil
 the iOS tree in CI, and a hand check of both examples in AUM and GarageBand on a
 device, the Synth's web editor opening in both.
 
-Landed, WP8.1 to WP8.8: `MakeASoundAUDescribe` on every Apple platform with
+Landed, WP9.1 to WP9.8: `MakeASoundAUDescribe` on every Apple platform with
 `HostParameters` moved into it, `writeAppExtensionPlist` and `componentTag`;
 `MakeASoundAUv3` in `Plugin/AUv3/` (`Adapter`, `Parameters`, `State`, `Conversion`,
 and `AudioUnit.mm`, the per-module `AUAudioUnit` subclass over `Adapter`);
@@ -2662,7 +3129,7 @@ Where it differs from the plan below:
   per-module sources (`MAKEASOUND_AUV3_SOURCES` on the target, today
   `AudioUnit.mm`), and `MAKEASOUND_AUV3_CLASS(name)` makes `name_<suffix>`. The
   static library defines no class; `audioUnitClass()` is the seam the view
-  controller's factory (WP8.5) instantiates through.
+  controller's factory (WP9.5) instantiates through.
 - **The test host constructs the registered subclass directly.** The v2 suite
   registers the same descriptions with its factory in the same process, so a
   lookup by description could find those; one case instantiates through
@@ -2711,7 +3178,7 @@ Where it differs from the plan below:
   `MinimumOSVersion`) are written by `plutil` into the extension's plist and by
   `eacp_append_plist_xml` into the app's under Ninja only; Xcode adds its own.
   The simulator or a device is read from `CMAKE_OSX_SYSROOT`; a Ninja device build
-  now leaves the app unsigned too, where stage 7 signed it ad hoc.
+  now leaves the app unsigned too, where stage 8 signed it ad hoc.
 - **Xcode needed two things the spike did not show:** `XCODE_EMBED_APP_EXTENSIONS`
   copies the extension without building it, so the app depends on it under both
   generators, and Xcode drops `$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc`, so the
@@ -2724,7 +3191,7 @@ Where it differs from the plan below:
   view controller reports the screen's size, not the editor's, so the probe
   checks only that one comes back.
 
-- **WP8.0, spikes, before anything else is fixed.**
+- **WP9.0, spikes, before anything else is fixed.**
   1. *The framework.* The container app and the appex share one
      `<Name>.framework` holding the plugin core, the adapter and eacp, so the code
      is in the app once. eacp in a framework answers `Platform::isDLL()` true, and
@@ -2749,7 +3216,7 @@ Where it differs from the plan below:
   3. *Both generators.* A Ninja tree laid out by hand (`.app` → `PlugIns/<Out>.appex`
      + `Frameworks/<Name>.framework`, signed inside out) that installs and loads in
      the simulator, and the same tree under the Xcode generator.
-- **WP8.1, describing the component on every Apple platform.**
+- **WP9.1, describing the component on every Apple platform.**
   `MakeASoundAUDescribe` is gated on `APPLE` rather than `TARGET ausdk`
   (`ViewPlacement` stays with it; it is pure geometry), and the plist writer learns
   the appex form: `NSExtension` with `NSExtensionPointIdentifier`
@@ -2760,8 +3227,8 @@ Where it differs from the plan below:
   built for the host, since an iOS binary cannot be `dlopen`ed by a macOS tool; how
   it reads `describeModule()` for a cross build is part of this package: a
   `<Name>-Describe` tool in a host sub-build links the plugin's core built a
-  second time for macOS (WP8.6 has it).
-- **WP8.2, the adapter.** `Plugin/AUv3/`, target `MakeASoundAUv3`, namespace
+  second time for macOS (WP9.6 has it).
+- **WP9.2, the adapter.** `Plugin/AUv3/`, target `MakeASoundAUv3`, namespace
   `MakeASound::AUv3`, `-fobjc-arc`. An `AUAudioUnit` subclass owning a
   `PluginWrapper` built with a new `PluginFormat::AUv3`, driving it in the
   documented order and never calling the plugin's `process`. Its Objective-C class
@@ -2787,7 +3254,7 @@ Where it differs from the plan below:
     through the compare-exchange the v2 adapter uses; `shouldBypassEffect` over
     `bypassIndex()`, refused for a plugin with none; `reset` raising the atomic
     flag the next render answers.
-- **WP8.3, parameters.** An `AUParameterTree` from the `ParameterGroup`: each named
+- **WP9.3, parameters.** An `AUParameterTree` from the `ParameterGroup`: each named
   group an `AUParameterGroup`, each host-exposed leaf an `AUParameter` in
   declaration order, address its 31-bit host id, plain range and default, unit and
   flags and value strings as `HostParameters` chooses them for v2.
@@ -2797,14 +3264,14 @@ Where it differs from the plan below:
   leave as `setValue:originator:atHostTime:eventType:` with `Touch`, `Value` and
   `Release` around `holdParameter`/`releaseParameter`; `parameterInfoChanged`
   rebuilds the tree and posts its KVO.
-- **WP8.4, state.** `fullState` is a `Preset` and `fullStateForDocument` a
+- **WP9.4, state.** `fullState` is a `Preset` and `fullStateForDocument` a
   `Session`, so AUv3, unlike v2, says which one the host wants. Both are the
   ClassInfo-shaped dictionary (type, subtype, manufacturer, version) plus
   `MakeASoundState`, the wrapper's document as `NSData`; a load applies through
   `loadState` and mirrors the values into the tree. `factoryPresets` empty and
   `supportsUserPresets` NO for now; `currentPreset` kept. No exception crosses
   into Objective-C.
-- **WP8.5, the view.** eacp gains `EmbeddedView-iOS.mm` (a `UIView` host), the
+- **WP9.5, the view.** eacp gains `EmbeddedView-iOS.mm` (a `UIView` host), the
   per-platform TU its other three platforms have. An `AUViewController
   <AUAudioUnitFactory>` subclass is the appex's principal class, one TU per
   platform (`AUv3View-iOS.mm`, and `AUv3View-macOS.mm` for the macOS tests),
@@ -2816,10 +3283,10 @@ Where it differs from the plan below:
   is false; an iOS host offers no grip and the editor's `ResizeGrip` rule decides.
   The view outlives the unit or not as the host pleases, so it closes through the
   same weak closer the v2 view registers.
-- **WP8.6, packaging, `FORMATS AUv3`.** iOS only (a status line elsewhere), and it
+- **WP9.6, packaging, `FORMATS AUv3`.** iOS only (a status line elsewhere), and it
   requires `Standalone` in the same call, since the appex rides inside it:
   `<Name>-Standalone.app/PlugIns/<OUTPUT_NAME>.appex`, bundle id
-  `<BUNDLE_ID>.auv3`, `CFBundlePackageType` `XPC!`. No framework (WP8.0.1): the
+  `<BUNDLE_ID>.auv3`, `CFBundlePackageType` `XPC!`. No framework (WP9.0.1): the
   appex is an executable of its own over `NSExtensionMain`, linking the static
   plugin core, `MakeASoundAUv3` and the module's AUv3 sources with
   `-fapplication-extension`, and the app links the same core again. The app's
@@ -2838,7 +3305,7 @@ Where it differs from the plan below:
     `MAKEASOUND_IOS_TEAM` for a device (the simulator: `CODE_SIGN_IDENTITY "-"`,
     `CODE_SIGNING_REQUIRED NO`, manual style); the plist template leaves
     `CFBundleSupportedPlatforms` and `UIDeviceFamily` to Xcode.
-  - *The appex plist* comes from `writeAppExtensionPlist` (WP8.1) run by a host
+  - *The appex plist* comes from `writeAppExtensionPlist` (WP9.1) run by a host
     tool, since an iOS binary can neither be `dlopen`ed nor run on the build
     machine: the iOS tree builds a host sub-tree of this repository as an
     `ExternalProject` (macOS, plugin core on, apps, tests and formats off) whose
@@ -2846,8 +3313,8 @@ Where it differs from the plan below:
     time for the host from the same sources, with `MakeASoundAUDescribe`, and
     write the plist from `describeModule()` directly. The plugin's sources must
     therefore build for macOS as well, which every example already does.
-  A custom standalone from stage 7 gets the same embedding.
-- **WP8.7, tests and CI.** `AUv3Tests.mm` (suite `AUv3/`) registers the subclass in
+  A custom standalone from stage 8 gets the same embedding.
+- **WP9.7, tests and CI.** `AUv3Tests.mm` (suite `AUv3/`) registers the subclass in
   process and follows `AUTests.cpp`: buses and capabilities, a block in place and
   not, events at their offsets, the parameter tree and its conversions, gestures,
   both state forms, latency, bypass, reset, MIDI out, and the view's size policy.
@@ -2855,11 +3322,11 @@ Where it differs from the plan below:
   `internalRenderBlock` with parameter events, MIDI in and out and a held
   parameter under the ban. CI adds an Xcode-generator iOS job, build only and
   unsigned, beside the Ninja one; the simulator job runs the suite.
-- **WP8.8, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
+- **WP9.8, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
 
 Risks: the plugin core twice in one app bundle, once in the app and once in the
 appex, which costs download size and is what a framework would have saved
-(WP8.0.1 found it would not have worked); the iOS extension memory limit with
+(WP9.0.1 found it would not have worked); the iOS extension memory limit with
 eacp's Metal drawing beside a `WKWebView` in the Synth; an Objective-C message
 slipping into the render block, which the allocation tests do not see, so it is a
 review rule; and two generators, each of which stays working only while CI builds
@@ -2870,7 +3337,7 @@ Follow-ups:
 - **eacp.** The iOS `EmbeddedView` landed in eacp's `develop` (eyalamirmusic/eacp#126),
   which `Findeacp.cmake` fetches, so the iOS jobs build against it; a pin, if one is
   introduced, must name that merge or later.
-- **eacp's `isDLL()` on iOS** (WP8.0.1): `false` on iOS and Android would let a
+- **eacp's `isDLL()` on iOS** (WP9.0.1): `false` on iOS and Android would let a
   framework carry eacp, should one ever be wanted; proposed to eacp, not made.
 - **eacp's iOS tests**: 13 of eacp's own cases fail in the iOS simulator, before
   any change here, and eacp's CI does not run its iOS tests.
@@ -2881,9 +3348,13 @@ Follow-ups:
 
 - **CLAP**: the ids and the per-event MIDI path are already prepared; note ids and
   per-note expression are the remaining `MIDI::Event` gap.
-- **AUv3 on macOS**: stage 8's adapter already builds and is tested there;
+- **AUv3 on macOS**: stage 9's adapter already builds and is tested there;
   shipping it would need a macOS container app and a decision on coexisting with
   the v2 `.component`.
+- **AAX on Windows** (MSVC x64; clap-wrapper and Pro Tools rule out ARM64 and
+  clang-cl), then surround and side-chain stems once a bus carries channel roles,
+  and AudioSuite. Signing helpers for PACE's `wraptool`, kept out of the
+  repository's tools.
 
 ## Decisions log
 
@@ -3047,6 +3518,51 @@ Follow-ups:
 - 2026-10-11: CI sets up Node 22 on every desktop job and the iOS one, because the
   Synth's page runs `npm install` at configure and vite in the build wherever eacp
   has a web runtime, iOS included; Linux builds the fallback editor.
+- 2026-10-12: AAX is fetched, never vendored: `MAKEASOUND_BUILD_AAX` (off by
+  default) has CPM fetch `github.com/audiosdk/aax`, a public GPLv3-option fork of
+  SDK 2.8.1 with only deletions on top, pinned to commit `faf5d8e`, with
+  `CPM_AAXSDK_SOURCE` for a local copy. The repository stays MIT and a default
+  build compiles no Avid code; an AAX binary is GPLv3 unless its author holds
+  Avid's agreement. JUCE vendors the SDK on the same GPLv3 option; vendoring
+  would have put a GPL component in an MIT tree. The validator and developer
+  tools are NDA-confidential and only ever run from the user's path.
+- 2026-10-12: AAX is one monolithic native `AAX_CEffectParameters` per plugin,
+  the algorithm a member call reached through a private-data field, as in JUCE
+  and clap-wrapper; one component per accepted Mono/Stereo stem pair, native id
+  `pluginCode + stem index` (JUCE's derivation), parameter ids the 31-bit host id
+  in hex. Host parameter writes go straight into the wrapper, so there is no
+  packet dispatcher.
+- 2026-10-12: the AAX module includes the SDK's `AAX_Init.cpp` with `AAXShutdown`
+  renamed and defines its own, which releases eacp's message thread before the
+  SDK's shutdown, because Pro Tools unloads the module right after it; nothing of
+  eacp's may outlive the code it calls into, as pluginval's cold reload showed for
+  VST3 on Windows.
+- 2026-10-12: an AAX Native block is at most 1024 samples, the SDK's own ceiling;
+  the adapter prepares for that and renders a larger host block in slices of it,
+  MIDI and playhead per slice, rather than trusting the host never to exceed it.
+- 2026-10-12: an AAX component gives every context field a port, a placeholder
+  private-data block where a MIDI node is not wanted, because a gap in the
+  algorithm context fails the description; the field order of `AlgorithmContext`
+  is ABI and only ever appended to.
+- 2026-10-12: AAX parameter values flow one way each: a host write goes into the
+  wrapper and the `AAX_CParameter` keeps the host's value as written, and the
+  timer mirrors to the host only what the plugin moved itself on parameters no
+  gesture holds, so a value the plugin snaps is never written back over the host's.
+- 2026-10-12: aaxval is driven over DigiShell's stdin, one `runtest` per listed
+  test rather than `runtests`, so each test gets its own verdict and an
+  inapplicable one (`E_CANCELED`) is told apart from a failure;
+  `test.cycle_counts` and `test.page_table.load`, which fail outright for a native
+  plugin with no page table, are skipped by id with their reasons in the log. The
+  validator is the user's NDA copy, so nothing runs it but `PluginValidator`, and
+  never two at once.
+- 2026-10-12: the AAX view pins eacp's surface to the container's top-left with
+  an autoresizing mask rather than filling the container, since Pro Tools sizes
+  the container after asking `GetViewSize`; a top-left option on eacp's
+  `EmbeddedView` would replace it.
+- 2026-10-12: CI builds the AAX format on the macOS job only and verifies the
+  bundles' slices, exports, `PkgInfo`, plist and signature, but neither validates
+  nor signs them; installing into Avid's system folder stays best effort there,
+  as everywhere.
 - 2026-10-12: AUv3 ships on iOS only; macOS keeps the v2 `.component` as its AU.
 - 2026-10-12: no shared framework for AUv3. The static plugin core links into both
   the iOS app and its appex, each an executable. In a framework eacp's `isDLL()`

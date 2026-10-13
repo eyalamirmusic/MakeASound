@@ -48,6 +48,7 @@ else ()
     add_subdirectory(VST3)
     add_subdirectory(AU)
     add_subdirectory(AUv3)
+    add_subdirectory(AAX)
     add_subdirectory(Validation)
 endif ()
 

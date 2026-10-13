@@ -138,6 +138,18 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUv3 ${auv3_view_libraries})
     endif ()
 
+    # The AAX adapter hosted in-process over fakes of the SDK's host interfaces.
+    if (TARGET MakeASoundAAX)
+        list(APPEND MAKEASOUND_TEST_SOURCES AAXTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAAX)
+    endif ()
+
+    # The AAX view over a fake view container, where the view is built.
+    if (TARGET MakeASoundAAX AND TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+        list(APPEND MAKEASOUND_TEST_SOURCES AAXViewTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAAX)
+    endif ()
+
     # pluginval and auval over the example bundles, run only when MAKEASOUND_PLUGINVAL
     # is set.
     if (TARGET MakeASoundPluginval AND TARGET MakeASoundVST3)
@@ -201,6 +213,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (TARGET MakeASoundAUv3)
         list(APPEND MAKEASOUND_TEST_SOURCES AUv3AllocationTests.mm)
         list(APPEND MAKEASOUND_TEST_AUV3_SOURCES AUv3AllocationTests.mm)
+    endif ()
+
+    if (TARGET MakeASoundAAX)
+        list(APPEND MAKEASOUND_TEST_SOURCES AAXAllocationTests.cpp)
     endif ()
 endif ()
 

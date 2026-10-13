@@ -9,7 +9,7 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
-On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)), on macOS AU (see [AU](#au)) and on iOS AUv3 (see [AUv3 on iOS](#auv3-on-ios)).
+On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)), on macOS AU (see [AU](#au)), on iOS AUv3 (see [AUv3 on iOS](#auv3-on-ios)), and on macOS, when asked for, AAX (see [AAX](#aax)).
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -41,6 +41,7 @@ manager.start(manager.getDefaultConfig(),
 - **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
 - **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the plugin's editor or the generic one, sample-accurate MIDI in and out, the host's bypass button and the plugin's state in the session; both examples pass `auval -strict`.
 - **An AUv3 format on iOS.** The same call puts an Audio Unit extension inside the iOS app, so AUM, GarageBand and every other iOS host find the plugin once the app is installed, with its editor in the host's window.
+- **An AAX format, opt-in.** On macOS with `-DMAKEASOUND_BUILD_AAX=ON` the same call also builds an `.aaxplugin` for Pro Tools, with the plugin's editor or the generic one, automation, MIDI in and out, the plugin's state in the session and its bypass parameter as the master bypass; both examples pass Avid's AAX Validator. Avid's SDK is fetched only under that flag and has its own licence terms (see [AAX](#aax)).
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset`, `Smoother`, `ScopedNoDenormals` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
@@ -75,9 +76,10 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on macOS, Windows and iOS, also the standalone format's app (the windowless `StandaloneHost` builds everywhere). |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). Needs Node and npm where the Synth's web editor builds. |
-| `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
+| `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`; an `.aaxplugin` into `/Library/Application Support/Avid/Audio/Plug-Ins`, which usually needs admin rights). A failed copy is a warning. |
 | `MAKEASOUND_IOS_TEAM` | empty | The Apple development team an iOS tree signs its apps and AUv3 extensions with under the Xcode generator. Empty: ad hoc for the simulator, unsigned for a device. |
 | `MAKEASOUND_DESCRIBE_CMAKE_ARGS` | empty | Extra configure arguments for an iOS tree's macOS sub-build that writes the AUv3 plists. |
+| `MAKEASOUND_BUILD_AAX` | `OFF` | Fetch Avid's AAX SDK and build the AAX format (macOS, with the plugin core). Off, no Avid code is fetched or compiled. See [AAX](#aax) for the licence this puts on an AAX binary. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
 | `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
 
@@ -311,7 +313,7 @@ engine.start(devices.getDefaultDuplexConfig(), gain);
 
 ## Plugins
 
-`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app, VST3 and AU are its formats (below); CLAP and AUv3 are later stages in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
+`MakeASoundPlugin` is a second static target, built when `MAKEASOUND_BUILD_PLUGIN` is on (the default in a top-level build; a project consuming MakeASound turns it on): the SDK-free core of a write-once plugin framework. The standalone app, VST3, AU, AUv3 and AAX are its formats (below); CLAP is a later stage in `plan.md`. A plugin is a `Processor` with a name, a parameter group and a state document, and a module describes the plugins it holds:
 
 ```cpp
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
@@ -395,7 +397,7 @@ Every format opens the editor at its initial size put through `constraints().con
 An editor can be a React page instead. `makeasound_add_web_editor` builds the page with vite, embeds it into the plugin's core so every format carries it, and generates TypeScript bindings for `MakeASound::Web::ParameterApi` (and any API of your own) into the page's `src/generated`:
 
 ```cmake
-makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU AUv3 SOURCES SynthPlugin.cpp)
+makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU AUv3 AAX SOURCES SynthPlugin.cpp)
 
 makeasound_add_web_editor(SynthPlugin
         WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
@@ -511,12 +513,12 @@ One CMake call builds it:
 
 ```cmake
 makeasound_add_plugin(Gain
-        FORMATS Standalone VST3 AU AUv3
+        FORMATS Standalone VST3 AU AUv3 AAX
         OUTPUT_NAME "MakeASound Gain"
         SOURCES GainPlugin.cpp)
 ```
 
-That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), `Gain-VST3`, the VST3 plug-in (see [VST3](#vst3)), on macOS `Gain-AU`, the Audio Unit (see [AU](#au)), and on iOS `Gain-AUv3`, the Audio Unit extension inside the app (see [AUv3 on iOS](#auv3-on-ios)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional. A format the machine cannot build, AU off macOS or AUv3 off iOS for two, is skipped with a status line, so one list of formats serves every platform. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
+That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), `Gain-VST3`, the VST3 plug-in (see [VST3](#vst3)), on macOS `Gain-AU`, the Audio Unit (see [AU](#au)), on iOS `Gain-AUv3`, the Audio Unit extension inside the app (see [AUv3 on iOS](#auv3-on-ios)), and on macOS with `MAKEASOUND_BUILD_AAX` on `Gain-AAX`, the Pro Tools plug-in (see [AAX](#aax)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional. A format the machine or the configuration cannot build, AU off macOS, AUv3 off iOS or AAX with the flag off for three, is skipped with a status line, so one list of formats serves every platform. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
 
 ```bash
 open "./build/Plugins/Gain/MakeASound Gain.app"
@@ -547,7 +549,7 @@ makeasound_add_plugin(GainApp
 
 The app includes `<MakeASound/Plugin/Standalone/MakeASoundStandalone.h>`, holds a `StandaloneHost` as its first member and its UI after it, calls `host.start()` in its constructor, and defines `main()` as `return eacp::Apps::run<MyApp>();`. `SettingsPanel`, `GenericEditor` and `editorWindowOptions` are there to reuse. `Plugins/GainApp` is the example: one window with a toolbar of its own above the generic editor.
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, with a React editor (see [Web editors](#web-editors)) wherever there is a web runtime and the generic one elsewhere. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, with a React editor (see [Web editors](#web-editors)) wherever there is a web runtime and the generic one elsewhere. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
 
 ## VST3
 
@@ -592,6 +594,27 @@ cmake --build build
 auval only finds a component that is installed, so `PluginValidator` copies each `.component` into `~/Library/Audio/Plug-Ins/Components` (replacing the one there) and runs `auval -strict -v` on each of its plugins, with `--stress N` adding auval's stress test. No pluginval download is needed for a run that names only components. If auval cannot find a freshly installed component, the tool restarts `AudioComponentRegistrar` once and tries again. CI runs it on macOS, and with `MAKEASOUND_PLUGINVAL` set the test suite's validation case sweeps the components too.
 
 macOS caches a bundle's `AudioComponents` by its `CFBundleVersion`, which is `ModuleDescription::version`, not the CMake `VERSION` argument. Bump it whenever a plugin's codes, name, type or list change, or hosts keep seeing the old ones; during development `killall -9 AudioComponentRegistrar` clears the cache.
+
+## AAX
+
+AAX is opt-in. With `-DMAKEASOUND_BUILD_AAX=ON` on macOS, the `AAX` format builds `<build>/AAX/<OUTPUT_NAME>.aaxplugin`, an AAX Native bundle for Pro Tools with identifier `<BUNDLE_ID>.aaxplugin`. It is ad-hoc signed and exports only the seven ACF entry points. Pro Tools reads a plug-in's identity from the module, so the module description is again the only place it lives. Each plugin is one effect. Its manufacturer is `manufacturerCode` and its product is `pluginCode`. Its Pro Tools category is `PluginDescription::aaxCategory`, which defaults to Effect or Instrument by `category`. The effect has one component per mono or stereo stem pair the plugin accepts. It is one class over `PluginWrapper`, so the plugin code is again the same code every other format runs:
+
+- **Parameters** are the automatable ones, by the same 31-bit host ids as in VST3 and AU (written as hex), with the plugin's own text for every value. A host write reaches the plugin at the next block. An editor edit is reported back to the host as a gesture, and a value the plugin moves on its own is shown to the host on its next timer.
+- **MIDI.** Notes, CC, pitch bend, aftertouch, program change and short SysEx arrive at their sample offsets. A plugin with a MIDI output bus sends channel messages back to Pro Tools.
+- **State** is the plugin's session document, in one chunk of the session. Pro Tools' compare light compares the parameters, leaving out bypass.
+- **Bypass.** A plugin with a bypass parameter names it as its master bypass, and the plugin does the bypassing itself, as Gain does.
+- **The editor** is the plugin's own `Editor` or the generic page. A Pro Tools plug-in window has no grip, so the editor draws one. A resize request goes to Pro Tools, which sizes the window.
+- **Blocks** longer than 1024 samples are rendered in slices of 1024, each with its own MIDI and playhead.
+
+```bash
+cmake -S . -B build -G Ninja -DMAKEASOUND_BUILD_AAX=ON
+cmake --build build
+./build/Tools/PluginValidator/PluginValidator --aax-tools ~/AAX/Validator build/AAX   # aaxval on every .aaxplugin there
+```
+
+**Licensing.** Avid's AAX SDK is dual-licensed: you take Avid's AAX SDK License Agreement, or GPLv3. MakeASound neither vendors nor copies any of it. The configure fetches it, from a public fork of SDK 2.8.1 pinned to one commit, only when `MAKEASOUND_BUILD_AAX` is on (`-DCPM_AAXSDK_SOURCE=<path>` uses your own copy). So the repository stays MIT, and a build with the flag off never sees Avid's code. An AAX binary you build with it is yours to license: it is GPLv3 unless you hold Avid's agreement, which shipping AAX needs anyway. The configure says so once.
+
+**Validation and signing.** Avid's AAX Validator and its DigiShell are NDA-confidential developer tools. MakeASound never fetches, ships or runs them in CI. `PluginValidator` runs your own copy from the folder that `--aax-tools` or the `MAKEASOUND_AAX_TOOLS` environment variable names (the one holding `CommandLineTools/dsh`), test by test. Two tests are skipped, each logged with its reason: the HDX-only `test.cycle_counts`, and `test.page_table.load`, which needs a page table these plug-ins do not ship. Only one validator can run at a time. Unpacking the validator may leave it quarantined; `xattr -dr com.apple.quarantine <folder>` once fixes that, and the tool says so when it is the cause. Pro Tools Developer loads the ad-hoc signed bundle. Retail Pro Tools loads only bundles signed with PACE's tools, under Avid's agreement. If you have them, pass your wrap configuration to `makeasound_add_plugin` as `AAX_WCGUID <guid>` and configure with `-DMAKEASOUND_PACE_SIGN_ID="Developer ID Application: …"` (and optionally `MAKEASOUND_PACE_ACCOUNT`); each build then runs `wraptool sign` on the bundle. No password goes in the build: run `wraptool sync --account <account> --password <password>` once, and wraptool keeps it in your keychain. A failed signing is a warning and leaves the ad-hoc signature. CI builds both bundles and runs the AAX test cases on macOS, but neither validates nor signs.
 
 ## AUv3 on iOS
 
@@ -686,7 +709,8 @@ Lib/MakeASound/
                     the default app: desktop windows and menu bar, or one iOS screen
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
     AU/             MakeASoundAU: the AU format, its factory, Cocoa view, view placement and plist tool
-    Validation/     MakeASoundPluginval: fetches and runs pluginval, runs auval
+    AAX/            MakeASoundAAX (opt-in): the AAX format, its description, view, plist and entry point
+    Validation/     MakeASoundPluginval: fetches and runs pluginval, runs auval and your own aaxval
   DSP/              MakeASoundDSP, optional: TestSynth, the instrument the Synth app and plugin share
   UI/               dropdown/toggle-list helpers for the demo apps
   Common/           EA type re-exports and audio-thread-safe algorithms
@@ -698,10 +722,10 @@ Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
 Plugins/            Gain, Synth: plugins built with makeasound_add_plugin; Synth/web is its React editor;
                     GainApp: Gain in a standalone app of its own
-Tools/              PluginValidator: pluginval or auval over the bundles on its command line
+Tools/              PluginValidator: pluginval, auval or aaxval over the bundles on its command line
 CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, MakeASoundWebEditor.cmake,
                     ExternalFolders.cmake, the plug-in install script
-ThirdParty/         the vendored VST3 SDK, and the fetched AudioUnitSDK's build
+ThirdParty/         the vendored VST3 SDK, and the builds of the fetched AudioUnitSDK and (opt-in) AAX SDK
 Tests/              NanoTest suites
 gaps.md             what the probe found, what was fixed, what is open
 ```
@@ -718,8 +742,10 @@ MIT; see [LICENSE](LICENSE). Every dependency is MIT or more permissive but one,
 and the VST3 SDK vendored under `ThirdParty/VST3_SDK` is MIT as of 3.8.0, its
 notices kept alongside. The one is Apple's AudioUnitSDK, fetched on macOS for the
 AU format, which is Apache-2.0. A plugin built on MakeASound ships those notices
-with it.
+with it. Avid's AAX SDK is not a dependency of a default build. It is fetched only
+with `MAKEASOUND_BUILD_AAX`, and it is GPLv3 unless you hold Avid's agreement, so
+an AAX binary built with it is too (see [AAX](#aax)).
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.

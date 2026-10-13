@@ -13,8 +13,15 @@ on:
 # archive is fetched once per job instead of once per configure, which keeps a
 # flaky download from taking out the second half of a job that has already
 # downloaded everything it needs.
+#
+# CCACHE_DEPEND: ccache hashes the source and the include files the compiler's
+# own dependency output names (-MD, /showIncludes) instead of running the
+# preprocessor a second time, so a miss costs the compile and nothing more. What
+# it gives up - a hit after a change the preprocessor would have erased - never
+# happens on a runner. eacp's CI runs the same way.
 env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+  CCACHE_DEPEND: '1'
 
 jobs:
   build:
@@ -26,12 +33,18 @@ jobs:
         include:
           - name: macOS Universal (arm64 + x86_64, min 11.0)
             os: macos-latest
+            cache_key: macos-universal
             osx_archs: "arm64;x86_64"
             deployment_target: "11.0"
             pluginval: true
+            # Fetches the AAX SDK (the audiosdk/aax fork) and builds both
+            # .aaxplugin bundles and the AAX/ cases. Never validated or signed
+            # here: aaxval and PACE's tools are the user's NDA copies.
+            aax: true
 
           - name: Windows MSVC (x64)
             os: windows-latest
+            cache_key: windows-msvc-x64
             cc: cl
             cxx: cl
             msvc_arch: x64
@@ -39,6 +52,7 @@ jobs:
 
           - name: Windows Clang (x64)
             os: windows-latest
+            cache_key: windows-clang-x64
             cc: clang-cl
             cxx: clang-cl
             msvc_arch: x64
@@ -48,29 +62,51 @@ jobs:
           # rather than being cross-compiled and skipped.
           - name: Windows MSVC (ARM64)
             os: windows-11-arm
+            cache_key: windows-msvc-arm64
             cc: cl
             cxx: cl
             msvc_arch: arm64
 
           - name: Windows Clang (ARM64)
             os: windows-11-arm
+            cache_key: windows-clang-arm64
             cc: clang-cl
             cxx: clang-cl
             msvc_arch: arm64
 
           - name: Linux GCC
             os: ubuntu-latest
+            cache_key: linux-gcc
             cc: gcc
             cxx: g++
             pluginval: true
 
           - name: Linux Clang
             os: ubuntu-latest
+            cache_key: linux-clang
             cc: clang
             cxx: clang++
 
     steps:
       - uses: actions/checkout@v4
+
+      # A ccache per compiler and architecture, kept in the Actions cache. A
+      # translation unit (a unity chunk, mostly) whose source, includes,
+      # compiler and flags match an earlier run is restored rather than
+      # compiled: every eacp, VST3 SDK, AudioUnitSDK and AAX SDK object on a run
+      # that changed none of them, which is most of a cold build. The eviction
+      # keeps each saved cache to what this build touched, so the nine caches
+      # at 1 GB apiece stay inside the repository's 10 GB. The Windows x64 image
+      # carries Strawberry Perl's old ccache on PATH, which the default
+      # detection would take; the binary install is ccache's own current
+      # release on every Windows lane instead.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: ${{ matrix.cache_key }}
+          max-size: 1G
+          evict-old-files: job
+          install: ${{ runner.os == 'Windows' && 'binary' || 'detect' }}
 
       # The library's own ALSA sequencer MIDI backend needs the ALSA dev headers.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
@@ -121,13 +157,25 @@ jobs:
           CXX_COMPILER: ${{ matrix.cxx }}
           OSX_ARCHS: ${{ matrix.osx_archs }}
           DEPLOY: ${{ matrix.deployment_target }}
+          AAX: ${{ matrix.aax }}
         run: |
           set -euo pipefail
+          # ccache launches every compile, Objective-C++ included on macOS.
+          # Windows embeds any debug info in each object (/Z7), since the /Zi
+          # default's one PDB per target is something no per-object cache can
+          # restore.
           args=( -S . -B build-Release -G Ninja
                  -DCMAKE_BUILD_TYPE=Release
                  -DMAKEASOUND_CI_BUILD=ON
                  -DMAKEASOUND_BUILD_APPS=OFF
-                 -DMAKEASOUND_BUILD_TESTS=ON )
+                 -DMAKEASOUND_BUILD_TESTS=ON
+                 -DCMAKE_C_COMPILER_LAUNCHER=ccache
+                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache )
+
+          case "$RUNNER_OS" in
+            macOS)   args+=( -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache ) ;;
+            Windows) args+=( -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded ) ;;
+          esac
 
           # Compiler selection (empty for macOS -> default AppleClang).
           if [ -n "$CC_COMPILER" ]; then
@@ -140,6 +188,13 @@ jobs:
           if [ -n "$OSX_ARCHS" ]; then
             args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
                     -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
+          fi
+
+          # The AAX bundles' install into Avid's system folder fails on a
+          # runner (no write access) and is only a warning, like every
+          # format's best-effort install.
+          if [ "$AAX" = "true" ]; then
+            args+=( -DMAKEASOUND_BUILD_AAX=ON )
           fi
 
           echo "::group::Configure"
@@ -197,6 +252,35 @@ jobs:
           path: build-Release/pluginval/logs/
           if-no-files-found: ignore
 
+      # What a host checks before it loads one: every slice of the universal
+      # build, exactly the seven ACF entry points exported, PkgInfo TDMwPTul and
+      # the ad-hoc signature over the bundle.
+      - name: Verify AAX bundles
+        if: matrix.aax
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(sort Lib/MakeASound/Plugin/AAX/AAXExports.txt)
+          found=0
+          for bundle in build-Release/AAX/*.aaxplugin; do
+            found=$((found + 1))
+            name=$(basename "$bundle" .aaxplugin)
+            binary="$bundle/Contents/MacOS/$name"
+            echo "$bundle: $(lipo -archs "$binary")"
+            lipo -archs "$binary" | grep -q x86_64
+            lipo -archs "$binary" | grep -q arm64
+            for arch in $(lipo -archs "$binary"); do
+              exported=$(nm -gUj -arch "$arch" "$binary" | sort -u)
+              if [ "$exported" != "$expected" ]; then
+                echo "ERROR: $name ($arch) exports:"; echo "$exported"; exit 1
+              fi
+            done
+            [ "$(cat "$bundle/Contents/PkgInfo")" = "TDMwPTul" ]
+            plutil -lint "$bundle/Contents/Info.plist"
+            codesign --verify --strict "$bundle"
+          done
+          [ "$found" -eq 2 ] || { echo "ERROR: expected 2 bundles, found $found"; exit 1; }
+
       # Prove requirement #1: the archive is a real fat binary and every slice
       # is built against the macOS 11.0 minimum.
       - name: Verify macOS universal + minimum OS
@@ -228,6 +312,15 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
+      # One cache for both configures: the device and simulator objects differ
+      # in sysroot and architecture, so they sit beside each other in it.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: ios
+          max-size: 1G
+          evict-old-files: job
+
       # iOS has WKWebView, so both configures build the Synth's web editor too.
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -254,6 +347,9 @@ jobs:
                 -DCMAKE_OSX_ARCHITECTURES=arm64 \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
                 -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=OFF
           echo "::endgroup::"
@@ -324,6 +420,9 @@ jobs:
                 -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
                 -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=ON \
                 -DCMAKE_CROSSCOMPILING_EMULATOR="xcrun;simctl;spawn;${{ steps.sim.outputs.udid }}"
@@ -404,6 +503,15 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
+      # For the AUv3 plists' macOS sub-build, which the launchers below are
+      # forwarded to; the Xcode generator itself takes no compiler launcher.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: ios-xcode
+          max-size: 1G
+          evict-old-files: job
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -420,6 +528,9 @@ jobs:
                 -DCMAKE_SYSTEM_NAME=iOS \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
                 -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=OFF
           echo "::endgroup::"
