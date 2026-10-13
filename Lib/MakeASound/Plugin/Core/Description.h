@@ -92,7 +92,7 @@ struct AAXStems
 using AAXNativeIdFn = std::function<uint32_t(const AAXStems& stems)>;
 
 // The JUCE settings that name a ported plugin and its parameters, with JUCE
-// 8.0.12's defaults. Read only when the description's idScheme is a JUCE one.
+// 8.0.12's defaults. Read only by policyFor(), for a JUCE idScheme.
 // JUCE_FORCE_USE_LEGACY_PARAM_IDS is not here: it is IdScheme::JUCELegacyIndex.
 struct JuceSettings
 {
@@ -156,8 +156,10 @@ struct PluginDescription
     PluginCreateFn create;
 
     // Identity. Every id a host stores for this plugin and its parameters comes
-    // from here: MakeASound's by default, a JUCE build's for a port that must
-    // keep its users' sessions (Core/Identity.h computes them). Per plugin
+    // from here: MakeASound's by default, a JUCE or Tamber Plug build's for a
+    // port that must keep its users' sessions. The profile and overrides
+    // resolve into an IdentityPolicy (identityPolicyFor(), Core/IdentityPolicy.h)
+    // and Core/Identity.h computes the plugin's ids from it. Per plugin
     // rather than per module, since JUCE's settings are per binary and a module
     // may hold a port beside native plugins; on the description rather than the
     // Plugin, since a VST3 factory names its classes before any instance exists

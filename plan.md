@@ -988,3 +988,16 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   natively, so the setting does not touch them: there an effect with a MIDI input
   receives CC regardless. A Plug port's MIDI effect that had the flag on (MidiTranspose)
   sets `.vst3MidiControllers = true`.
+- 2026-10-13: identity is a compatibility profile resolved into per-concern rules
+  (the workspace's `design/parameter-ids.md`). `IdScheme` (`Native`, formerly
+  `MakeASound` and still accepted, `JUCE`, `JUCELegacyIndex`, `TamberPlug`) is
+  resolved by `policyFor()` / `identityPolicyFor()` into an `IdentityPolicy`
+  (`Core/IdentityPolicy.h`); `ParameterList` and every adapter read only its rules,
+  and `PluginDescription::overrides` replaces one. Index profiles count every leaf
+  and take an `indexedThroughVersion`, past which a parameter is post-port: a path
+  hash, listed last, moving no index (and the legacy added bypass is the count of
+  indexed entries, JUCE's N). `TamberPlug` keeps Plug's ids, AU list, plain values
+  and flags, leaves the added bypass to the AU bypass property, and loads Plug's AU
+  documents as native ones. `identityProblems()` replaces the debug-only checks.
+  `Tests/Identity/` holds golden manifests of every id; `TamberPlugFixtures.h` and
+  `JucePort.h` hold what real Plug and JUCE 8.0.12 builds published.

@@ -17,7 +17,9 @@ namespace MakeASound
 // path is also its key in saved state. Renaming a parameter, or moving it into,
 // out of or between groups, therefore changes both and breaks every session and
 // automation lane that used it, unless `id` (for the name) or `hostId` (for the
-// host id) is pinned first. Pin them before regrouping.
+// host id) is pinned first. Pin them before regrouping. A port's IdScheme
+// derives the host id otherwise (a JUCE key's hash, or an index), but the state
+// key is the path in every scheme.
 struct ParameterOptions
 {
     // The key in saved state and the source of the host id; the name when
@@ -32,20 +34,22 @@ struct ParameterOptions
     // Written and read in a DAW session only, never in a preset.
     bool sessionOnly = false;
 
-    // Overrides the hash of the parameter's id, e.g. to keep the id a release
-    // that named it differently gave to the host: the VST3 and AU id in every
-    // scheme. Below 2^31, except under IdScheme::JUCE with juceStudioOneMask off.
+    // Overrides the derived id (the path's hash, a JUCE key's hash or an
+    // index), e.g. to keep the id a release that named it differently gave to
+    // the host: the VST3 and AU id in every IdScheme. It moves no other entry's
+    // index. Below 2^31, except under IdScheme::JUCE with juceStudioOneMask off
+    // (ParameterList::identityProblems() lists it otherwise).
     std::optional<uint32_t> hostId = {};
 
     // Under a JUCE IdScheme, the leaf key the host ids come from: JUCE's
     // ParameterID::paramID. The id when empty, the leaf's own and not its path,
     // since JUCE hashes the leaf id; unique across the whole tree (asserted).
-    // MakeASound's scheme ignores it.
+    // Native and TamberPlug ignore it.
     std::string_view hostKey = {};
 
     // Under a JUCE IdScheme, the AAX_CParamID in place of the hostKey: at most
     // 31 characters and unique after truncation to 31 (asserted), as JUCE
-    // requires of every id. MakeASound's scheme ignores it.
+    // requires of every id. Native and TamberPlug ignore it.
     std::string_view aaxId = {};
 
     // The release that added the parameter, JUCE's ParameterID::versionHint.
@@ -53,7 +57,10 @@ struct ParameterOptions
     // parameter list, which is ordered by (versionHint, host id): give every
     // parameter of the first release 1 and each later addition its release's
     // higher number, and an inserted parameter lands after all the old ones.
-    // 0 is unset, which a debug AU build asserts on.
+    // 0 is unset, which a debug AU build asserts on. Under an index profile
+    // (JUCELegacyIndex, TamberPlug) a hint past the description's
+    // overrides.indexedThroughVersion makes the parameter post-port: a path
+    // hash for its ids, listed after every indexed one, moving no index.
     int versionHint = 0;
 };
 

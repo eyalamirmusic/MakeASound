@@ -22,9 +22,10 @@ ParameterIdentity parameterIdentityFor(const PluginDescription& plugin) noexcept
 // derivation, never to change once shipped.
 Vst3ClassId makeASoundVst3ClassId(FourCC manufacturer, FourCC plugin) noexcept;
 
-// The VST3 component class id: the description's override; under a JUCE scheme
-// JUCE's VST2-compatible id when juce.vst3CanReplaceVst2 is on and its own
-// otherwise; MakeASound's.
+// The VST3 component class id: the description's override, else by the
+// policy's Vst3ClassRule: JUCE's VST2-compatible id (a JUCE profile with
+// juce.vst3CanReplaceVst2 on), JUCE's own (off), or MakeASound's (Native and
+// TamberPlug, whose class id Plug's builds already shared).
 Vst3ClassId vst3ClassIdFor(const ModuleDescription& module,
                            const PluginDescription& plugin) noexcept;
 
@@ -41,13 +42,13 @@ enum class TuidLayout
 std::array<uint8_t, 16> vst3ClassIdBytes(const Vst3ClassId& id,
                                          TuidLayout layout) noexcept;
 
-// AAX_eProperty_PlugInID_Native: the description's aaxNativeId hook; under a
-// JUCE scheme JUCE's 'jcaa' derivation from the stems' channel sets;
+// AAX_eProperty_PlugInID_Native: the description's aaxNativeId hook; under
+// AAXPluginRule::Juce JUCE's 'jcaa' derivation from the stems' channel sets;
 // otherwise the plugin code plus the stem pair's index (MakeASound's own).
 uint32_t aaxNativeIdFor(const PluginDescription& plugin, const AAXStems& stems);
 
-// The effect id AddEffect takes: the description's aaxEffectId; under a JUCE
-// scheme the bundle id; otherwise "<bundle id>.<plugin code>".
+// The effect id AddEffect takes: the description's aaxEffectId; under
+// AAXPluginRule::Juce the bundle id; otherwise "<bundle id>.<plugin code>".
 std::string aaxEffectIdFor(std::string_view bundleId,
                            const PluginDescription& plugin);
 

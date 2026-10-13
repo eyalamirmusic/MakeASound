@@ -61,6 +61,8 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - Adapters drive `PluginWrapper` in its documented order and never call the plugin's `process` themselves. The wrapper is destroyed on the message thread.
 - Audio-thread code is allocation-free. A new realtime path gets a case in the allocation suites: `AllocationTests.cpp` (device library only; it must build without the plugin core), `PluginAllocationTests.cpp`, or the per-format `*AllocationTests`.
 - Parameter state keys and host ids derive from the id *path*. Pin `id`/`hostId` before regrouping, or every session and automation lane breaks.
+- Identity is an `IdScheme` profile resolved into an `IdentityPolicy` (`Core/IdentityPolicy.h`). Adapters and `ParameterList` read only the policy's rules, never the profile: a new behaviour is a new rule, not another `isJuceScheme()` check. Index profiles (`JUCELegacyIndex`, `TamberPlug`) count every leaf, hidden ones included; a parameter with a hint past `indexedThroughVersion` is post-port and must move no index.
+- `Tests/Identity/*.txt` are golden manifests of every id a host stores for each test plugin. A diff there is a change to a shipped identity: make it on purpose, regenerate with `MAKEASOUND_UPDATE_IDENTITY=1 ./build/Tests/MakeASoundTests --test Identity/<case>`, and review it. `identityProblems()` must stay empty for every test plugin (CI builds Release, where nothing asserts).
 - Shipped identities never change: the VST3 class id derivation, AU codes, the AAX ids and the stem-pair order (`stemPairs()` is append-only).
 - `ScopedMemoryAllocations` / `AllocationsChecker` is test-only. It must never reach `Lib/` or `Apps/`.
 
@@ -82,8 +84,9 @@ NanoTest, one executable (`MakeASoundTests`). Suites are gated on which targets 
 
 - `Tests/TestPlugins.h`
 - `Tests/JuceFixtures.h` (bytes written by JUCE 8.0.12)
-- `Tests/TamberPlugFixtures.h` (ClassInfo written by Tamber Plug's AU)
-- `Tests/JucePort.h`
+- `Tests/TamberPlugFixtures.h` (ClassInfo written by Tamber Plug's AU, what Plug's AU and VST3 published, the ports)
+- `Tests/JucePort.h` (with what JUCE 8.0.12's own builds of its twin published)
+- `Tests/IdentityManifest.h` (`describeIdentity`, against `Tests/Identity/`)
 - `Tests/*TestHost.h`, one per format
 
 `PluginTests.cpp` defines the tests' `describeModule()`. Cases that write files use their own temp folder, because ctest runs cases in parallel processes.
