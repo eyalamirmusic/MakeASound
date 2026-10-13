@@ -28,7 +28,7 @@ ctest --test-dir build
 
 On Windows ARM64, build from a VS dev shell (see memory).
 
-- Options: `MAKEASOUND_BUILD_PLUGIN`, `_BUILD_APPS`, `_BUILD_EXAMPLES` (the plugin examples need Node/npm at configure time), `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
+- Options: `MAKEASOUND_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES` (the plugin examples need Node/npm at configure time), `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
 - `CMAKE_CXX_SCAN_FOR_MODULES` is OFF on purpose. A scanned source falls out of its unity chunk, which silently un-unities MSVC and clang-cl builds.
 - `-DCPM_<Name>_SOURCE=/path` points a dependency at a local checkout.
 - Plugins are declared with `makeasound_add_plugin(<Name> FORMATS ... SOURCES ...)` (`CMake/MakeASoundPlugin.cmake`) and web editors with `makeasound_add_web_editor` (`CMake/MakeASoundWebEditor.cmake`). Read those files before changing packaging, bundle layout or signing.

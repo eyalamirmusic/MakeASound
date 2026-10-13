@@ -172,6 +172,15 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAAX)
     endif ()
 
+    # Hosting third-party plugins: the scan pipeline and the cache. The test binary
+    # links the library directly rather than through makeasound_enable_hosting,
+    # whose sealed exports would hide the allocation suites' operator new from the
+    # system libraries.
+    if (TARGET MakeASoundHosting)
+        list(APPEND MAKEASOUND_TEST_SOURCES HostingScanTests.cpp)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting)
+    endif ()
+
     # pluginval and auval over the example bundles, run only when MAKEASOUND_PLUGINVAL
     # is set.
     if (TARGET MakeASoundPluginval AND TARGET MakeASoundVST3)

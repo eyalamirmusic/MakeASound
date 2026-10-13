@@ -29,6 +29,9 @@ option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only
 option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
        ${PROJECT_IS_TOP_LEVEL})
+option(MAKEASOUND_BUILD_HOSTING
+       "Build MakeASoundHosting, scanning and loading third-party plugins (needs MAKEASOUND_BUILD_PLUGIN)"
+       ${PROJECT_IS_TOP_LEVEL})
 option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" ON)
 option(MAKEASOUND_BUILD_AAX

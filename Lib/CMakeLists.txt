@@ -89,3 +89,13 @@ add_subdirectory(MakeASound/DSP)
 if (MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(MakeASound/Plugin)
 endif ()
+
+# Hosting third-party plugins: beside the plugin core rather than inside it, since
+# Plugin/Host is the plugin's own view of a host.
+if (MAKEASOUND_BUILD_HOSTING AND NOT MAKEASOUND_DESCRIBE_BUILD)
+    if (MAKEASOUND_BUILD_PLUGIN)
+        add_subdirectory(MakeASound/Hosting)
+    else ()
+        message(STATUS "MakeASoundHosting skipped (needs MAKEASOUND_BUILD_PLUGIN)")
+    endif ()
+endif ()
