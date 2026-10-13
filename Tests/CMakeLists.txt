@@ -177,7 +177,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
     # whose sealed exports would hide the allocation suites' operator new from the
     # system libraries.
     if (TARGET MakeASoundHosting)
-        list(APPEND MAKEASOUND_TEST_SOURCES HostingScanTests.cpp)
+        list(APPEND MAKEASOUND_TEST_SOURCES HostingCacheTests.cpp HostingScanTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting)
     endif ()
 
