@@ -1854,6 +1854,48 @@ AUEventListenerRef listenForValues(UnitHost<P>& host,
     return listener;
 }
 
+auto tContextName = test("AU/theContextNameReachesTheTrackInfo") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+    check(!plugin.trackInfo().isValid);
+
+    auto setName = [&](const char* text)
+    {
+        auto name = CFStringCreateWithCString(nullptr, text, kCFStringEncodingUTF8);
+        auto status = AudioUnitSetProperty(host.unit,
+                                           kAudioUnitProperty_ContextName,
+                                           kAudioUnitScope_Global,
+                                           0,
+                                           &name,
+                                           sizeof(name));
+        CFRelease(name);
+        return status;
+    };
+
+    check(setName("Lead Vocal") == noErr);
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name == "Lead Vocal");
+
+    check(setName("Drums") == noErr);
+    check(plugin.trackInfoChanges == 2);
+    check(plugin.trackInfo().name == "Drums");
+
+    // The base still answers the property with what the host set.
+    auto read = CFStringRef {};
+    auto size = UInt32 {sizeof(read)};
+    check(AudioUnitGetProperty(host.unit,
+                               kAudioUnitProperty_ContextName,
+                               kAudioUnitScope_Global,
+                               0,
+                               &read,
+                               &size)
+          == noErr);
+    check(AU::toUtf8(read) == "Drums");
+    CFRelease(read);
+};
+
 auto tPluginMovePosted = test("AU/aPluginSideMoveReachesAnEventListener") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");

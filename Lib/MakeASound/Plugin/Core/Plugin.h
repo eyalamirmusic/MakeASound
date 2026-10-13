@@ -4,6 +4,7 @@
 #include "BypassDelay.h"
 #include "Editor.h"
 #include "HostEditListener.h"
+#include "TrackInfo.h"
 #include "../Parameters/BoolParam.h"
 #include "../Parameters/ParameterList.h"
 #include "../State/StateContext.h"
@@ -140,6 +141,14 @@ public:
 
     const ParameterList& parameters() const noexcept { return parameterList; }
 
+    // The last the host said about the track (see TrackInfo); not valid until it
+    // says something. Message thread.
+    const TrackInfo& trackInfo() const noexcept { return currentTrackInfo; }
+
+    // The host said something about the track, already in trackInfo(). Each time
+    // it tells, changed or not. Message thread.
+    virtual void onTrackInfoChanged(const TrackInfo& info);
+
     // Message thread; null where there is no host.
     void setHostEditListener(HostEditListener* listener) noexcept
     {
@@ -173,6 +182,10 @@ private:
 
     // Message thread: grows the added bypass's delay to latencySamples().
     void fitBypassDelay() noexcept;
+
+    // The wrapper's, on the message thread: keeps it, then onTrackInfoChanged().
+    void setTrackInfo(TrackInfo info);
+    TrackInfo currentTrackInfo;
 
     // The wrapper's, after the bypass: every host id under the plugin's
     // description's scheme, kept for a list set again later.

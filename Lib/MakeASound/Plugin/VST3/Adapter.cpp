@@ -655,6 +655,23 @@ tresult PLUGIN_API Adapter::getMidiControllerAssignment(int32 busIndex,
     return Steinberg::kResultTrue;
 }
 
+tresult PLUGIN_API Adapter::setChannelContextInfos(Vst::IAttributeList* list)
+{
+    if (list == nullptr)
+        return Steinberg::kInvalidArgument;
+
+    try
+    {
+        pluginWrapper.setTrackInfo(toTrackInfo(*list));
+    }
+    catch (...)
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    return Steinberg::kResultOk;
+}
+
 void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);
@@ -725,6 +742,7 @@ void Adapter::stateChanged() noexcept
 tresult PLUGIN_API Adapter::queryInterface(const Steinberg::TUID _iid, void** obj)
 {
     DEF_INTERFACE(Vst::IMidiMapping)
+    DEF_INTERFACE(Vst::ChannelContext::IInfoListener)
     return SingleComponentEffect::queryInterface(_iid, obj);
 }
 

@@ -906,6 +906,28 @@ auto tLatency = test("AAX/aLatencyChangeReachesSetSignalLatency") = []
     check(host.controller.latency == 32);
 };
 
+auto tTrackName = test("AAX/aTrackNameNotificationReachesTheTrackInfo") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+    check(!plugin.trackInfo().isValid);
+
+    auto name = AAX_CString("Lead Vocal");
+    check(host.adapter->NotificationReceived(
+              AAX_eNotificationEvent_TrackNameChanged, &name, sizeof(name))
+          == AAX_SUCCESS);
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name == "Lead Vocal");
+
+    // Any other notification, or one with no data, says nothing about the track.
+    host.adapter->NotificationReceived(
+        AAX_eNotificationEvent_SessionPathChanged, &name, sizeof(name));
+    host.adapter->NotificationReceived(
+        AAX_eNotificationEvent_TrackNameChanged, nullptr, 0);
+    check(plugin.trackInfoChanges == 1);
+};
+
 auto tMirror = test("AAX/aValueThePluginMovesReachesTheHostOnTheTimer") = []
 {
     auto host = AdapterHost<GainPlugin>("Gain");

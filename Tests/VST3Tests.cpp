@@ -10,6 +10,7 @@
 #include <MakeASound/Plugin/VST3/Text.h>
 
 #include <pluginterfaces/gui/iplugview.h>
+#include <pluginterfaces/vst/ivstchannelcontextinfo.h>
 #include <pluginterfaces/vst/ivstmidicontrollers.h>
 
 #if MAKEASOUND_VST3_HAS_VIEW
@@ -25,6 +26,7 @@
 #include <climits>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -199,6 +201,7 @@ auto tFactoryCreates = test("VST3/createInstanceAnswersEveryInterface") = []
     check(answers(Vst::IAudioProcessor::iid));
     check(answers(Vst::IEditController::iid));
     check(answers(Vst::IMidiMapping::iid));
+    check(answers(Vst::ChannelContext::IInfoListener::iid));
 
     auto unknown = Steinberg::FUID(1, 2, 3, 4);
     auto* none = static_cast<void*>(nullptr);
@@ -1400,6 +1403,132 @@ auto tInfoChanged = test("VST3/parameterInfoChangedRestartsTitles") = []
 
     host.plugin().notifyHostParameterInfoChanged();
     check(host.handler.restartsWith(Vst::kParamTitlesChanged) == 1);
+};
+
+// The channel context a host hands IInfoListener: strings and integers by key.
+// Stack-owned, so its reference count is a no-op.
+struct TestChannelContext final : Vst::IAttributeList
+{
+    tresult PLUGIN_API setInt(AttrID id, Steinberg::int64 value) override
+    {
+        ints[id] = value;
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API getInt(AttrID id, Steinberg::int64& value) override
+    {
+        auto found = ints.find(id);
+
+        if (found == ints.end())
+            return Steinberg::kResultFalse;
+
+        value = found->second;
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API setFloat(AttrID, double) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API getFloat(AttrID, double&) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API setString(AttrID id, const Vst::TChar* text) override
+    {
+        strings[id] = MakeASound::VST3::toUtf8(text);
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API getString(AttrID id,
+                                 Vst::TChar* text,
+                                 Steinberg::uint32 sizeInBytes) override
+    {
+        auto found = strings.find(id);
+
+        if (found == strings.end() || sizeInBytes < sizeof(Vst::String128))
+            return Steinberg::kResultFalse;
+
+        MakeASound::VST3::copyTo(text, found->second);
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API setBinary(AttrID, const void*, Steinberg::uint32) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API getBinary(AttrID, const void*&, Steinberg::uint32&) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID _iid,
+                                      void** obj) override
+    {
+        QUERY_INTERFACE(_iid, obj, Steinberg::FUnknown::iid, Vst::IAttributeList)
+        QUERY_INTERFACE(_iid, obj, Vst::IAttributeList::iid, Vst::IAttributeList)
+        *obj = nullptr;
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1; }
+
+    std::map<std::string, std::string> strings;
+    std::map<std::string, Steinberg::int64> ints;
+};
+
+auto tChannelContext = test("VST3/theChannelContextReachesTheTrackInfo") = []
+{
+    namespace CC = Vst::ChannelContext;
+
+    auto host = AdapterHost<GainPlugin> {};
+    auto& plugin = host.plugin();
+
+    auto* listener = static_cast<void*>(nullptr);
+    check(host.adapter->queryInterface(CC::IInfoListener::iid, &listener)
+          == Steinberg::kResultOk);
+    auto* info = static_cast<CC::IInfoListener*>(listener);
+
+    auto context = TestChannelContext {};
+    context.strings[CC::kChannelNameKey] = "Lead Vocal";
+    context.strings[CC::kChannelUIDKey] = "track-7";
+    context.strings[CC::kChannelIndexNamespaceKey] = "Audio";
+    context.ints[CC::kChannelIndexKey] = 4;
+    context.ints[CC::kChannelIndexNamespaceOrderKey] = 2;
+    // ARGB.
+    context.ints[CC::kChannelColorKey] = 0xff102030;
+    context.ints[CC::kChannelPluginLocationKey] = CC::kPostVolumeFader;
+
+    check(info->setChannelContextInfos(&context) == Steinberg::kResultOk);
+    info->release();
+
+    const auto& track = plugin.trackInfo();
+    check(plugin.trackInfoChanges == 1);
+    check(track.isValid);
+    check(track.name == "Lead Vocal");
+    check(track.uid == "track-7");
+    check(track.indexNamespace == "Audio");
+    check(track.index == 4);
+    check(track.namespaceOrder == 2);
+    check(track.color == MakeASound::TrackColor {0x10, 0x20, 0x30, 0xff});
+    check(track.location == MakeASound::PluginLocation::PostVolumeFader);
+
+    // A rename alone: what the host leaves out goes back to its default.
+    auto renamed = TestChannelContext {};
+    renamed.strings[CC::kChannelNameKey] = "Lead Vox";
+    check(host.adapter->setChannelContextInfos(&renamed) == Steinberg::kResultOk);
+    check(plugin.trackInfoChanges == 2);
+    check(plugin.trackInfo().name == "Lead Vox");
+    check(plugin.trackInfo().index == 0);
+    check(plugin.trackInfo().location == MakeASound::PluginLocation::Unknown);
+
+    check(host.adapter->setChannelContextInfos(nullptr)
+          == Steinberg::kInvalidArgument);
+    check(plugin.trackInfoChanges == 2);
 };
 
 // One block of `numSamples` with nothing from the host, whose output changes the

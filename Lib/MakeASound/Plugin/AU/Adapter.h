@@ -90,6 +90,12 @@ public:
                          const void* inData,
                          UInt32 inDataSize) override;
 
+    // After the base's: a new kAudioUnitProperty_ContextName, which the base
+    // stores without calling SetProperty, becomes the plugin's track name.
+    void PropertyChanged(AudioUnitPropertyID id,
+                         AudioUnitScope scope,
+                         AudioUnitElement element) override;
+
     Float64 GetLatency() noexcept override;
     Float64 GetTailTime() noexcept override;
     bool SupportsTail() noexcept override { return true; }

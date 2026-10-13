@@ -774,6 +774,25 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
     return MusicDeviceBase::GetProperty(id, scope, element, outData);
 }
 
+void Adapter::PropertyChanged(AudioUnitPropertyID id,
+                              AudioUnitScope scope,
+                              AudioUnitElement element)
+{
+    MusicDeviceBase::PropertyChanged(id, scope, element);
+
+    if (id != kAudioUnitProperty_ContextName || scope != kAudioUnitScope_Global)
+        return;
+
+    try
+    {
+        pluginWrapper.setTrackInfo(
+            TrackInfo {.isValid = true, .name = toUtf8(GetContextName())});
+    }
+    catch (...)
+    {
+    }
+}
+
 OSStatus Adapter::SetProperty(AudioUnitPropertyID id,
                               AudioUnitScope scope,
                               AudioUnitElement element,

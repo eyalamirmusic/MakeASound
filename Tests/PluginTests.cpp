@@ -419,6 +419,43 @@ auto tLoadPastTeardown = test("Plugin/aLoadQueuedPastTeardownDrops") = []
     check(pumpUntil([] { return deferredLoads == 1; }));
 };
 
+auto tTrackInfo = test("Plugin/trackInfoReachesThePluginOnTheMessageThread") = []
+{
+    auto wrapper = makeWrapper();
+    auto& plugin = pluginOf<GainPlugin>(wrapper);
+    check(!plugin.trackInfo().isValid);
+    check(plugin.trackInfoChanges == 0);
+
+    wrapper.setTrackInfo({.isValid = true, .name = "Lead Vocal", .index = 3});
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().name == "Lead Vocal");
+    check(plugin.trackInfo().index == 3);
+    check(plugin.trackInfoHeard == plugin.trackInfo());
+
+    // Off the message thread it is queued there.
+    auto host = std::thread(
+        [&] { wrapper.setTrackInfo({.isValid = true, .name = "Bass"}); });
+    host.join();
+    check(plugin.trackInfo().name == "Lead Vocal");
+
+    check(pumpUntil([&] { return plugin.trackInfoChanges == 2; }));
+    check(plugin.trackInfo().name == "Bass");
+    check(plugin.trackInfo().index == 0);
+};
+
+auto tTrackInfoPastTeardown = test("Plugin/trackInfoQueuedPastTeardownDrops") = []
+{
+    {
+        auto wrapper = makeWrapper();
+        auto host = std::thread(
+            [&] { wrapper.setTrackInfo({.isValid = true, .name = "Gone"}); });
+        host.join();
+    }
+
+    // The queued call finds the wrapper gone and does nothing.
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+};
+
 auto tWriteBeforeDrain =
     test("Plugin/aParameterWrittenBeforeTheDeferredHalfSurvivesIt") = []
 {

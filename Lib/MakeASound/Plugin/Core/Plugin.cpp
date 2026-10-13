@@ -93,6 +93,16 @@ bool Plugin::loadForeignState(const ForeignState&)
     return false;
 }
 
+void Plugin::onTrackInfoChanged(const TrackInfo&)
+{
+}
+
+void Plugin::setTrackInfo(TrackInfo info)
+{
+    currentTrackInfo = std::move(info);
+    onTrackInfoChanged(currentTrackInfo);
+}
+
 void Plugin::loadStateExceptParameters(std::string_view data, StateContext context)
 {
     loadState(data, context);

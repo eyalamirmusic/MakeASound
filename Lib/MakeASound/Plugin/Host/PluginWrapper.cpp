@@ -276,6 +276,22 @@ bool PluginWrapper::loadForeignState(const ForeignState& state)
     return true;
 }
 
+void PluginWrapper::setTrackInfo(TrackInfo info)
+{
+    if (isMessageThread())
+    {
+        pluginPtr->setTrackInfo(std::move(info));
+        return;
+    }
+
+    callOnMessageThread(
+        [weak = std::weak_ptr<Live>(live), info = std::move(info)]() mutable
+        {
+            if (auto alive = weak.lock())
+                alive->plugin->setTrackInfo(std::move(info));
+        });
+}
+
 bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
 {
     try
