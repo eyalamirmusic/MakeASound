@@ -84,6 +84,11 @@ public:
     // where there is one; a plugin with its own bypass reads it from the state.
     bool loadForeignState(const ForeignState& state);
 
+    // What the host said about the track: the plugin's trackInfo() and then its
+    // onTrackInfoChanged(), now on the message thread, queued there from any
+    // other (never the audio thread: queuing allocates), and dropped by teardown.
+    void setTrackInfo(TrackInfo info);
+
     // Host writes; each is dropped while the parameter is held.
     void setNormalizedParameter(int index, float normalized) noexcept;
     void setParameter(int index, float plain) noexcept;

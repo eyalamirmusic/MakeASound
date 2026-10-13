@@ -968,6 +968,16 @@ NSArray<NSString*>* Adapter::midiOutputNames() const
     return names;
 }
 
+void Adapter::setContextName(NSString* name)
+{
+    auto info = TrackInfo {.isValid = true};
+
+    if (name != nil)
+        info.name = name.UTF8String;
+
+    pluginWrapper.setTrackInfo(std::move(info));
+}
+
 void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);

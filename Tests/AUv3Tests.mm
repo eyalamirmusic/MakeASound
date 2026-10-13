@@ -703,6 +703,24 @@ auto tOffGrid = test("AUv3/aTreeWriteIsKeptAsTheTreeStoredIt") = []
     check(params.mode.getIndex() == 1);
 };
 
+auto tContextName = test("AUv3/theContextNameReachesTheTrackInfo") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+    check(!plugin.trackInfo().isValid);
+
+    host.unit.contextName = @"Lead Vocal";
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name == "Lead Vocal");
+    check([host.unit.contextName isEqualToString:@"Lead Vocal"]);
+
+    host.unit.contextName = nil;
+    check(plugin.trackInfoChanges == 2);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name.empty());
+};
+
 auto tPluginMoves = test("AUv3/aValueThePluginMovesReachesTheTree") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");

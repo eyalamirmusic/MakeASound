@@ -2,9 +2,11 @@
 
 #include "VST3Common.h"
 #include "HostParameters.h"
+#include "../Core/TrackInfo.h"
 #include "../../Audio/Playhead.h"
 #include "../../MIDI/MIDI.h"
 
+#include "pluginterfaces/vst/ivstattributes.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "pluginterfaces/vst/vstspeaker.h"
@@ -24,5 +26,9 @@ MIDI::Event
     shadowEvent(const ShadowTarget& target, int sampleOffset, float value) noexcept;
 
 Vst::SpeakerArrangement arrangementFor(int numChannels) noexcept;
+
+// The channel context IInfoListener receives, valid: a key the host left out
+// keeps its default.
+TrackInfo toTrackInfo(Vst::IAttributeList& list);
 
 } // namespace MakeASound::VST3

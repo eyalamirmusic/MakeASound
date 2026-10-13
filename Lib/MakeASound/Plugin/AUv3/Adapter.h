@@ -91,6 +91,10 @@ public:
 
     NSArray<NSString*>* midiOutputNames() const;
 
+    // The unit's contextName, which a host sets to the track's name: the
+    // plugin's trackInfo() name, nil an empty one. Any thread.
+    void setContextName(NSString* name);
+
     // Every exposed parameter whose plugin value moved since the last call goes
     // into the tree, as does a held parameter's dropped host write being undone.
     // Message thread; a 30 Hz timer calls it, and so does a load.

@@ -140,6 +140,12 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
                 sample *= gain;
     }
 
+    void onTrackInfoChanged(const TrackInfo& info) override
+    {
+        ++trackInfoChanges;
+        trackInfoHeard = info;
+    }
+
     static void record(const Buffer& buffer, std::array<Block, 2>& into) noexcept
     {
         for (auto& block: into)
@@ -157,6 +163,8 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
     int processed = 0;
     int resets = 0;
     int inputBuses = 0;
+    int trackInfoChanges = 0;
+    TrackInfo trackInfoHeard;
 
     // Channels times samples across every audio bus the block was handed.
     int boundSamples = -1;

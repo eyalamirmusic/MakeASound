@@ -380,6 +380,28 @@ AAX_Result Adapter::TimerWakeup()
     return AAX_CEffectParameters::TimerWakeup();
 }
 
+AAX_Result
+    Adapter::NotificationReceived(AAX_CTypeID type, const void* data, uint32_t size)
+{
+    auto result = AAX_CEffectParameters::NotificationReceived(type, data, size);
+
+    if (type != AAX_eNotificationEvent_TrackNameChanged || data == nullptr
+        || !pluginWrapper)
+        return result;
+
+    try
+    {
+        const auto* name = static_cast<const AAX_IString*>(data)->Get();
+        pluginWrapper->setTrackInfo(TrackInfo {
+            .isValid = true, .name = name != nullptr ? name : std::string()});
+    }
+    catch (...)
+    {
+    }
+
+    return result;
+}
+
 void Adapter::mirrorParametersToHost(bool all)
 {
     for (auto index: registered)

@@ -3,6 +3,7 @@
 #include "VST3Common.h"
 #include "../Host/PluginWrapper.h"
 
+#include "pluginterfaces/vst/ivstchannelcontextinfo.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstevents.h"
@@ -16,10 +17,12 @@ namespace MakeASound::VST3
 // The one VST3 class every plugin ships as: component and controller in one
 // object over a PluginWrapper, turning host calls into the wrapper's per-block
 // steps. MIDI controllers arrive through IMidiMapping on hidden shadow
-// parameters; the plugin's own edits leave through HostEditListener.
+// parameters; the plugin's own edits leave through HostEditListener, and the
+// host's channel context reaches the plugin's trackInfo() through IInfoListener.
 class Adapter
     : public Vst::SingleComponentEffect
     , public Vst::IMidiMapping
+    , public Vst::ChannelContext::IInfoListener
     , public HostEditListener
 {
 public:
@@ -65,6 +68,9 @@ public:
                                                    Steinberg::int16 channel,
                                                    Vst::CtrlNumber controller,
                                                    Vst::ParamID& id) override;
+
+    // IInfoListener, UI thread
+    tresult PLUGIN_API setChannelContextInfos(Vst::IAttributeList* list) override;
 
     // HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
