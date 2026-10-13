@@ -30,7 +30,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
             PluginTests.cpp
             EditorTests.cpp
             JuceCompatTests.cpp
-            JuceIdentityTests.cpp)
+            JuceIdentityTests.cpp
+            TamberPlugStateTests.cpp)
 
     # Every id a host stores, against the goldens in Identity/. Each format built
     # adds its own lines (IdentityManifest.h).
