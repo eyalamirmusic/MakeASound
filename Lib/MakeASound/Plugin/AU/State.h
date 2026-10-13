@@ -36,4 +36,15 @@ using CFOwnedPropertyList =
 // copy carrying 0; null for anything else, which goes to the SDK as it is.
 CFOwnedPropertyList copyWithStateVersionZero(CFPropertyListRef classInfo);
 
+// What a JUCE build of the plugin saved beside the SDK's keys: its
+// `jucePluginState` data (AU_1.mm's SaveState), nullopt when the dictionary has
+// none or it is empty.
+std::optional<std::string> readJuceState(CFPropertyListRef classInfo);
+
+// A copy for the SDK's restore of a JUCE build's ClassInfo, as JUCE's own
+// RestoreState makes one: `data` removed, so the JUCE build's parameter ids never
+// reach Globals() (which would grow in map mode), and a `version` of 1 made 0.
+// Null when the list is no dictionary.
+CFOwnedPropertyList copyWithoutParameterData(CFPropertyListRef classInfo);
+
 } // namespace MakeASound::AU

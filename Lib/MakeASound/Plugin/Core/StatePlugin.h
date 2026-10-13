@@ -61,8 +61,27 @@ public:
         state.loadParams(data, context);
     }
 
+    // Routed to loadLegacy(), then the state republished. A load the host asked
+    // for, so the host is not told the document changed, as for a native load.
+    bool loadForeignState(const ForeignState& foreign) override
+    {
+        auto scope = LoadScope {loading};
+
+        if (!loadLegacy(foreign))
+            return false;
+
+        state.markChanged();
+        return true;
+    }
+
     StateT state;
     ParamsType& params = state.params;
+
+protected:
+    // A port's reader of what its earlier framework saved: `params` and whatever
+    // else `state` holds, set from `foreign.bytes` (Compat/ has the readers),
+    // true when it took them. Message thread. The default takes nothing.
+    virtual bool loadLegacy(const ForeignState&) { return false; }
 
 private:
     // A load the host asked for marks nothing modified: the host knows.

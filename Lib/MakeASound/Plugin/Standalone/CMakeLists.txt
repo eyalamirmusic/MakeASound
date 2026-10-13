@@ -2,10 +2,23 @@
 # (StandaloneHost over devices, MIDI, the wrapper, Engine and the settings file).
 # It needs nothing the plugin core does not, so it builds wherever that does,
 # Linux and iOS included; an app of a plugin's own composes it with any UI.
+# Where a JUCE build of the plugin kept its standalone settings, one TU per
+# platform JUCE's PropertiesFile names a folder for.
+if (APPLE)
+    set(juceSettingsPath JuceSettingsPath-Apple.cpp)
+elseif (WIN32)
+    set(juceSettingsPath JuceSettingsPath-Windows.cpp)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(juceSettingsPath JuceSettingsPath-Linux.cpp)
+else ()
+    set(juceSettingsPath JuceSettingsPath-Default.cpp)
+endif ()
+
 add_library(MakeASoundStandaloneCore STATIC
         StandaloneProcessor.cpp
         MidiSender.cpp
         Settings.cpp
+        ${juceSettingsPath}
         StandaloneHost.cpp)
 
 target_link_libraries(MakeASoundStandaloneCore PUBLIC MakeASoundPlugin eacp-core)

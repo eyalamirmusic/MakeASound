@@ -5,6 +5,7 @@
 #include "Text.h"
 #include "../AU/ComponentType.h"
 #include "../AU/HostParameters.h"
+#include "../Core/Identity.h"
 #include "../Realtime/MessageThread.h"
 
 #include <algorithm>
@@ -125,8 +126,21 @@ OwningPointer<Adapter> Adapter::create(AUAudioUnit* unit,
             ? AU::findPlugin(module, description.componentSubType)
             : nullptr;
 
-    auto created = plugin != nullptr && plugin->create ? plugin->create()
-                                                       : OwningPointer<Plugin> {};
+    if (plugin == nullptr)
+    {
+        setError(outError, kAudioUnitErr_InvalidProperty);
+        return {};
+    }
+
+    return create(unit, description, *plugin, outError);
+}
+
+OwningPointer<Adapter> Adapter::create(AUAudioUnit* unit,
+                                       AudioComponentDescription description,
+                                       const PluginDescription& plugin,
+                                       NSError** outError)
+{
+    auto created = plugin.create ? plugin.create() : OwningPointer<Plugin> {};
 
     if (!created)
     {
@@ -134,15 +148,19 @@ OwningPointer<Adapter> Adapter::create(AUAudioUnit* unit,
         return {};
     }
 
-    return new Adapter(unit, description, std::move(created));
+    return new Adapter(unit, description, plugin, std::move(created));
 }
 
 Adapter::Adapter(AUAudioUnit* unitToUse,
                  AudioComponentDescription descriptionToUse,
+                 const PluginDescription& pluginDescription,
                  OwningPointer<Plugin> plugin)
     : unit(unitToUse)
     , description(descriptionToUse)
-    , pluginWrapper(std::move(plugin), PluginFormat::AUv3)
+    , pluginWrapper(std::move(plugin),
+                    PluginFormat::AUv3,
+                    parameterIdentityFor(pluginDescription))
+    , space(pluginDescription)
     , lastPluginValue(pluginWrapper.plugin().parameters().size(), 0.f)
     , undoHostWrite(pluginWrapper.plugin().parameters().size(), false)
 {
@@ -155,7 +173,7 @@ Adapter::Adapter(AUAudioUnit* unitToUse,
     {
         lastPluginValue[i] = pluginWrapper.getParameter(i);
 
-        if (list.isHostExposed(i))
+        if (space.isListed(list, i))
             exposed.add(i);
     }
 
@@ -556,7 +574,8 @@ void Adapter::applyEvents(const AURenderEvent* events,
                 auto index = indexOfExposed(event->parameter.parameterAddress);
 
                 if (index >= 0)
-                    pluginWrapper.setParameter(index, event->parameter.value);
+                    pluginWrapper.setParameter(
+                        index, plainFromTree(index, event->parameter.value));
 
                 break;
             }
@@ -663,17 +682,19 @@ void Adapter::emitMidiOut(const AudioTimeStamp* timestamp) noexcept
 
 int Adapter::indexOfExposed(AUParameterAddress address) const noexcept
 {
-    if (address > 0xffffffffu)
-        return -1;
-
     const auto& list = pluginWrapper.plugin().parameters();
-    auto index = list.indexOfHostId(static_cast<uint32_t>(address));
-    return list.isHostExposed(index) ? index : -1;
+    auto index = list.indexOfAddress(static_cast<uint64_t>(address));
+    return space.isListed(list, index) ? index : -1;
+}
+
+bool Adapter::isListed(int index) const noexcept
+{
+    return space.isListed(pluginWrapper.plugin().parameters(), index);
 }
 
 void Adapter::buildTree()
 {
-    auto* built = makeParameterTree(plugin().parameters());
+    auto* built = makeParameterTree(plugin().parameters(), space);
 
     // A C++ pointer, cleared from the tree when the adapter goes.
     auto* adapter = this;
@@ -682,12 +703,12 @@ void Adapter::buildTree()
       auto index = adapter->indexOfExposed(param.address);
 
       if (index >= 0 && !writingTree)
-          adapter->hostWrites(index, value);
+          adapter->hostWrites(index, adapter->plainFromTree(index, value));
     };
 
     built.implementorValueProvider = ^AUValue(AUParameter* param) {
       auto index = adapter->indexOfExposed(param.address);
-      return index >= 0 ? adapter->pluginWrapper.getParameter(index) : 0.f;
+      return index >= 0 ? adapter->treeValueOf(index) : 0.f;
     };
 
     built.implementorStringFromValueCallback =
@@ -697,10 +718,11 @@ void Adapter::buildTree()
           if (index < 0)
               return @"";
 
-          auto plain =
-              value != nullptr ? *value : adapter->pluginWrapper.getParameter(index);
-          return static_cast<NSString*>(CFBridgingRelease(
-              AU::copyTextForValue(adapter->plugin().parameters()[index], plain)));
+          const auto& parameter = adapter->plugin().parameters()[index];
+          auto plain = value != nullptr ? adapter->plainFromTree(index, *value)
+                                        : adapter->pluginWrapper.getParameter(index);
+          return static_cast<NSString*>(
+              CFBridgingRelease(AU::copyTextForValue(parameter, plain)));
         };
 
     built.implementorValueFromStringCallback =
@@ -710,8 +732,9 @@ void Adapter::buildTree()
           if (index < 0)
               return param.minValue;
 
-          return AU::valueForText(adapter->plugin().parameters()[index],
-                                  (__bridge CFStringRef) text);
+          const auto& entry = adapter->plugin().parameters().entry(index);
+          return adapter->space.toHost(
+              entry, AU::valueForText(*entry.param, (__bridge CFStringRef) text));
         };
 
     tree = built;
@@ -758,19 +781,33 @@ void Adapter::startTreeTimer()
 AUParameter* Adapter::treeParameter(int index) const
 {
     const auto& list = pluginWrapper.plugin().parameters();
-    return [tree parameterWithAddress:list.entry(index).hostId];
+    return [tree parameterWithAddress:list.entry(index).address];
 }
 
 void Adapter::setTreeValue(int index, AUParameterAutomationEventType type)
 {
-    auto value = pluginWrapper.getParameter(index);
-    lastPluginValue[index] = value;
+    lastPluginValue[index] = pluginWrapper.getParameter(index);
 
     if (auto* parameter = treeParameter(index))
     {
         auto writing = ScopedTreeWrite {};
-        [parameter setValue:value originator:nil atHostTime:0 eventType:type];
+        [parameter setValue:treeValueOf(index)
+                 originator:nil
+                 atHostTime:0
+                  eventType:type];
     }
+}
+
+AUValue Adapter::treeValueOf(int index) const noexcept
+{
+    const auto& entry = pluginWrapper.plugin().parameters().entry(index);
+    return space.toHost(entry, pluginWrapper.getParameter(index));
+}
+
+float Adapter::plainFromTree(int index, AUValue value) const noexcept
+{
+    const auto& entry = pluginWrapper.plugin().parameters().entry(index);
+    return space.fromHost(entry, value);
 }
 
 void Adapter::syncTreeFromPlugin()
@@ -891,12 +928,24 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
 {
     try
     {
-        auto document = readState(fullState, description);
-
-        if (!document)
+        if (auto document = readState(fullState, description))
+        {
+            pluginWrapper.loadState(*document, context);
+        }
+        else if (auto juceState = readJuceState(fullState, description))
+        {
+            // What a JUCE build saved; off the message thread it runs later, and
+            // its parameterValuesChanged syncs the tree then.
+            auto foreign = ForeignState {};
+            foreign.origin = ForeignOrigin::JuceAUv3;
+            foreign.bytes = *juceState;
+            foreign.context = context;
+            pluginWrapper.loadForeignState(foreign);
+        }
+        else
+        {
             return;
-
-        pluginWrapper.loadState(*document, context);
+        }
 
         // Off the message thread the timer carries the values into the tree.
         if (isMessageThread())
@@ -923,28 +972,25 @@ void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);
 
-    if (plugin().parameters().isHostExposed(index))
+    if (isListed(index))
         setTreeValue(index, AUParameterAutomationEventTypeTouch);
 }
 
 void Adapter::performParameterEdit(int index, float) noexcept
 {
-    const auto& list = plugin().parameters();
-
-    if (list.isHostExposed(index))
-    {
+    if (isListed(index))
         setTreeValue(index, AUParameterAutomationEventTypeValue);
 
-        if (index == list.bypassIndex())
-            notifyKeyChanged(@"shouldBypassEffect");
-    }
+    // The added bypass under a JUCE scheme is in no tree: the property alone.
+    if (index >= 0 && index == plugin().parameters().bypassIndex())
+        notifyKeyChanged(@"shouldBypassEffect");
 
     notifyHostIfLatencyChanged();
 }
 
 void Adapter::endParameterEdit(int index) noexcept
 {
-    if (plugin().parameters().isHostExposed(index))
+    if (isListed(index))
         setTreeValue(index, AUParameterAutomationEventTypeRelease);
 
     pluginWrapper.releaseParameter(index);

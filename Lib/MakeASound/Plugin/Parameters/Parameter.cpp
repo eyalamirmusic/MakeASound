@@ -30,7 +30,45 @@ Parameter::Parameter(std::string_view nameToUse, ParameterOptions options)
     , bypass(options.bypass)
     , sessionOnly(options.sessionOnly)
     , hostId(options.hostId)
+    , hint(options.versionHint)
+    , paramHostKey(options.hostKey.empty() ? std::string_view {paramId}
+                                           : options.hostKey)
+    , paramAAXId(options.aaxId)
 {
+}
+
+float Parameter::roundToIndex(float plain) noexcept
+{
+    // Half to even under the default rounding mode, as juce::roundToInt's
+    // magic-number addition, and through an integer, so -0.4 gives +0 as JUCE's
+    // does; a NaN passes through for setValue to drop.
+    if (!std::isfinite(plain))
+        return plain;
+
+    return static_cast<float>(std::lrint(static_cast<double>(plain)));
+}
+
+float Parameter::indexToNormalized(float plain) const noexcept
+{
+    auto low = minValue();
+    auto high = maxValue();
+
+    if (high <= low)
+        return 0.f;
+
+    auto snapped = roundToIndex(plain < low ? low : (high < plain ? high : plain));
+    return clampUnit((snapped - low) / (high - low));
+}
+
+float Parameter::indexToPlain(float normalized) const noexcept
+{
+    auto low = minValue();
+    auto high = maxValue();
+    auto proportion = clampUnit(normalized);
+    auto plain = proportion * (high - low) + low;
+
+    plain = plain < low ? low : (high < plain ? high : plain);
+    return roundToIndex(plain);
 }
 
 void Parameter::setNormalized(float normalized) noexcept

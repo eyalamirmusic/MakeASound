@@ -2,6 +2,7 @@
 #include "Conversion.h"
 #include "Describe.h"
 #include "State.h"
+#include "../Core/Identity.h"
 #include "../Realtime/MessageThread.h"
 
 #include <AAX_CString.h>
@@ -44,6 +45,18 @@ MidiTimePoint timeAt(int64_t samples, double sampleRate) noexcept
         std::chrono::duration_cast<MidiTimePoint::duration>(seconds)};
 }
 } // namespace
+
+Adapter::Adapter()
+    : Adapter(module(), moduleBundleId())
+{
+}
+
+Adapter::Adapter(const ModuleDescription& moduleToUse,
+                 std::string_view bundleIdToUse)
+    : described(moduleToUse)
+    , bundleId(bundleIdToUse)
+{
+}
 
 Adapter::~Adapter()
 {
@@ -92,7 +105,7 @@ AAX_Result Adapter::createWrapper()
     auto checked = AAX_CheckedResult {};
     checked = controller->GetEffectID(&effectId);
 
-    auto* description = findPlugin(module(), effectId.StdString());
+    auto* description = findPlugin(described, bundleId, effectId.StdString());
 
     if (description == nullptr)
         return AAX_ERROR_NULL_OBJECT;
@@ -104,8 +117,9 @@ AAX_Result Adapter::createWrapper()
     checked = controller->GetOutputStemFormat(&output);
     checked = controller->GetSampleRate(&rate);
 
-    auto wrapper =
-        EA::makeOwned<PluginWrapper>(description->create(), PluginFormat::AAX);
+    auto wrapper = EA::makeOwned<PluginWrapper>(description->create(),
+                                                PluginFormat::AAX,
+                                                parameterIdentityFor(*description));
     auto layout = layoutFor(wrapper->busLayout(), {input, output});
 
     if (!layout || !wrapper->setLayout(*layout))
@@ -146,25 +160,33 @@ void Adapter::registerParameters()
     {
         lastPluginValue[static_cast<size_t>(index)] = list[index].getNormalized();
 
-        if (!list.isHostExposed(index))
+        if (!list.isRegistered(index))
             continue;
 
-        exposed.add(index);
-        paramIds[index] = paramIdFor(list.entry(index).hostId);
+        registered.add(index);
+        paramIds[index] = std::string(registeredId(list.entry(index).aaxId));
         mParameterManager.AddParameter(makeParameter(list.entry(index)));
     }
+
+    byParamId = registered;
+    std::sort(byParamId.begin(),
+              byParamId.end(),
+              [this](int a, int b) { return paramIds[a] < paramIds[b]; });
 }
 
 int Adapter::indexOf(AAX_CParamID id) const noexcept
 {
-    auto hostId = hostIdOf(id);
-
-    if (!pluginWrapper || !hostId)
+    if (id == nullptr)
         return -1;
 
-    const auto& list = pluginWrapper->plugin().parameters();
-    auto index = list.indexOfHostId(*hostId);
-    return list.isHostExposed(index) ? index : -1;
+    auto key = std::string_view(id);
+    auto found = std::lower_bound(byParamId.begin(),
+                                  byParamId.end(),
+                                  key,
+                                  [this](int index, std::string_view wanted)
+                                  { return paramIds[index] < wanted; });
+
+    return found != byParamId.end() && paramIds[*found] == key ? *found : -1;
 }
 
 AAX_Result
@@ -185,7 +207,7 @@ AAX_Result Adapter::GetMasterBypassParameter(AAX_IString* id) const
 
     auto index =
         pluginWrapper ? pluginWrapper->plugin().parameters().bypassIndex() : -1;
-    id->Set(index >= 0 ? paramIds[index].data() : "");
+    id->Set(index >= 0 ? paramIds[index].c_str() : "");
     return AAX_SUCCESS;
 }
 
@@ -276,16 +298,45 @@ AAX_Result Adapter::SetChunk(AAX_CTypeID id, const AAX_SPlugInChunk* chunk)
     if (chunk == nullptr)
         return AAX_ERROR_NULL_ARGUMENT;
 
-    if (id != chunkId)
+    if (id != chunkId && id != juceChunkId && id != controlsChunkId)
         return AAX_ERROR_INVALID_CHUNK_ID;
 
     if (!pluginWrapper)
         return AAX_ERROR_NULL_OBJECT;
 
     return guarded(
-        [&]
+        [&]() -> AAX_Result
         {
-            pluginWrapper->loadState(readChunk(*chunk), StateContext::Session);
+            if (id == chunkId)
+            {
+                pluginWrapper->loadState(readChunk(*chunk), StateContext::Session);
+            }
+            else if (id == juceChunkId)
+            {
+                // A JUCE build's state. Off the message thread it runs later,
+                // and its parameterValuesChanged mirrors again then.
+                auto foreign = ForeignState {};
+                foreign.origin = ForeignOrigin::JuceAAX;
+                foreign.bytes = readChunk(*chunk);
+                foreign.context = StateContext::Session;
+                pluginWrapper->loadForeignState(foreign);
+            }
+            else
+            {
+                // A JUCE build's controls: the SDK sets every parameter whose id
+                // the chunk names, as JUCE's SetChunk leaves it to, and skips the
+                // rest, so it lands under a JUCE IdScheme. Each value goes to the
+                // host as a set request and comes back through
+                // UpdateParameterNormalizedValue, perhaps later, so the AAX
+                // parameters already hold what they should: nothing to mirror.
+                auto result = AAX_CEffectParameters::SetChunk(id, chunk);
+
+                if (result == AAX_SUCCESS)
+                    notifyHostIfLatencyChanged();
+
+                return result;
+            }
+
             mirrorParametersToHost(true);
             notifyHostIfLatencyChanged();
             return AAX_SUCCESS;
@@ -298,7 +349,8 @@ AAX_Result Adapter::CompareActiveChunk(const AAX_SPlugInChunk* chunk,
     if (chunk == nullptr || isEqual == nullptr)
         return AAX_ERROR_NULL_ARGUMENT;
 
-    // An unknown chunk must not light the compare light.
+    // An unknown chunk must not light the compare light, nor must a JUCE build's
+    // 'juce' or 'elck', which a load reads but a save never writes.
     *isEqual = true;
 
     if (chunk->fChunkID != chunkId || !pluginWrapper)
@@ -330,7 +382,7 @@ AAX_Result Adapter::TimerWakeup()
 
 void Adapter::mirrorParametersToHost(bool all)
 {
-    for (auto index: exposed)
+    for (auto index: registered)
     {
         auto value = pluginWrapper->getNormalizedParameter(index);
         auto& last = lastPluginValue[static_cast<size_t>(index)];
@@ -469,7 +521,7 @@ void Adapter::beginParameterEdit(int index) noexcept
 
     pluginWrapper->holdParameter(index);
 
-    if (pluginWrapper->plugin().parameters().isHostExposed(index))
+    if (pluginWrapper->plugin().parameters().isRegistered(index))
         TouchParameter(paramIds[index].data());
 }
 
@@ -478,7 +530,7 @@ void Adapter::performParameterEdit(int index, float) noexcept
     if (!pluginWrapper)
         return;
 
-    if (pluginWrapper->plugin().parameters().isHostExposed(index))
+    if (pluginWrapper->plugin().parameters().isRegistered(index))
     {
         auto value = pluginWrapper->getNormalizedParameter(index);
         lastPluginValue[static_cast<size_t>(index)] = value;
@@ -493,7 +545,7 @@ void Adapter::endParameterEdit(int index) noexcept
     if (!pluginWrapper)
         return;
 
-    if (pluginWrapper->plugin().parameters().isHostExposed(index))
+    if (pluginWrapper->plugin().parameters().isRegistered(index))
         ReleaseParameter(paramIds[index].data());
 
     pluginWrapper->releaseParameter(index);

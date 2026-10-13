@@ -24,7 +24,10 @@ class Adapter
 {
 public:
     // Installs itself as the plugin's HostEditListener; the destructor removes it.
-    explicit Adapter(OwningPointer<Plugin> plugin);
+    // `identity` is the description's (parameterIdentityFor), which names every
+    // ParamID; under a JUCE scheme every parameter is registered, a
+    // non-automatable one without kCanAutomate, as JUCE's wrapper does.
+    explicit Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity = {});
     ~Adapter() override;
 
     Plugin& plugin() noexcept;
@@ -91,13 +94,17 @@ private:
     void emitEvents(Vst::IEventList& events) noexcept;
     void emitParameterChanges(Vst::IParameterChanges& changes) noexcept;
 
+    // Whether the host knows the parameter at `index`: an exposed one, or under
+    // a JUCE scheme any. Bounds-tolerant.
+    bool isRegistered(int index) const noexcept;
+
     // The host already has the value: the next block sends no point for it.
     void takeAsBaseline(int index) noexcept;
     void takeAllAsBaseline() noexcept;
 
     PluginWrapper pluginWrapper;
 
-    // Host-exposed plugin indices in declaration order, and the normalized value
+    // Registered plugin indices in declaration order, and the normalized value
     // each held when the host last heard of it, by plugin index.
     Vector<int> exposed;
     std::unique_ptr<std::atomic<float>[]> lastPluginValue;

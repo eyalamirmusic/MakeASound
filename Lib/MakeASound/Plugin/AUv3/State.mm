@@ -7,6 +7,9 @@ namespace
 {
 NSString* const stateKey = @"MakeASoundState";
 
+// JUCE_STATE_DICTIONARY_KEY, which a JUCE build's AUv3 and v2 both write.
+NSString* const juceStateKey = @"jucePluginState";
+
 // kAUPresetVersionKey's value: the ClassInfo format, which the SDK reads only at 0.
 constexpr auto savedStateVersion = 0;
 
@@ -20,6 +23,28 @@ bool agrees(NSDictionary<NSString*, id>* state, NSString* key, OSType expected)
 
     return [value isKindOfClass:[NSNumber class]] &&
            [static_cast<NSNumber*>(value) unsignedIntValue] == expected;
+}
+
+// The data under `key`, when the dictionary is this component's.
+std::optional<std::string> readData(NSDictionary<NSString*, id>* state,
+                                    const AudioComponentDescription& description,
+                                    NSString* key)
+{
+    if (![state isKindOfClass:[NSDictionary class]])
+        return std::nullopt;
+
+    if (!agrees(state, @"type", description.componentType)
+        || !agrees(state, @"subtype", description.componentSubType)
+        || !agrees(state, @"manufacturer", description.componentManufacturer))
+        return std::nullopt;
+
+    id value = state[key];
+
+    if (![value isKindOfClass:[NSData class]])
+        return std::nullopt;
+
+    auto* data = static_cast<NSData*>(value);
+    return std::string(static_cast<const char*>(data.bytes), data.length);
 }
 } // namespace
 
@@ -38,21 +63,19 @@ NSDictionary<NSString*, id>* makeState(const AudioComponentDescription& descript
 std::optional<std::string> readState(NSDictionary<NSString*, id>* state,
                                      const AudioComponentDescription& description)
 {
-    if (![state isKindOfClass:[NSDictionary class]])
+    return readData(state, description, stateKey);
+}
+
+std::optional<std::string>
+    readJuceState(NSDictionary<NSString*, id>* state,
+                  const AudioComponentDescription& description)
+{
+    auto bytes = readData(state, description, juceStateKey);
+
+    if (!bytes || bytes->empty())
         return std::nullopt;
 
-    if (!agrees(state, @"type", description.componentType)
-        || !agrees(state, @"subtype", description.componentSubType)
-        || !agrees(state, @"manufacturer", description.componentManufacturer))
-        return std::nullopt;
-
-    id value = state[stateKey];
-
-    if (![value isKindOfClass:[NSData class]])
-        return std::nullopt;
-
-    auto* data = static_cast<NSData*>(value);
-    return std::string(static_cast<const char*>(data.bytes), data.length);
+    return bytes;
 }
 
 } // namespace MakeASound::AUv3

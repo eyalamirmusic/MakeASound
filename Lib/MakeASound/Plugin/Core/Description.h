@@ -1,9 +1,12 @@
 #pragma once
 
 #include "../../Common/Common.h"
+#include "../Parameters/ParameterIdentity.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string_view>
 
 namespace MakeASound
@@ -72,6 +75,52 @@ enum class AAXCategory
 
 using PluginCreateFn = std::function<OwningPointer<Plugin>()>;
 
+// A VST3 class id as the four 32-bit words Steinberg's FUID(l1, l2, l3, l4)
+// takes. The words are the same on every platform; only the 16 bytes a TUID
+// holds differ, which vst3ClassIdBytes() (Core/Identity.h) lays out.
+using Vst3ClassId = std::array<uint32_t, 4>;
+
+// One AAX component's main stems, for the native-id hook: channel counts, 0 for
+// no bus, and the stem pair's index in the AAX adapter's append-only list.
+struct AAXStems
+{
+    int inputChannels = 0;
+    int outputChannels = 0;
+    int index = 0;
+};
+
+using AAXNativeIdFn = std::function<uint32_t(const AAXStems& stems)>;
+
+// The JUCE settings that name a ported plugin and its parameters, with JUCE
+// 8.0.12's defaults. Read only when the description's idScheme is a JUCE one.
+// JUCE_FORCE_USE_LEGACY_PARAM_IDS is not here: it is IdScheme::JUCELegacyIndex.
+struct JuceSettings
+{
+    // JUCE_USE_STUDIO_ONE_COMPATIBLE_PARAMETERS (1): VST3 and AU parameter ids
+    // masked to 31 bits.
+    bool studioOneCompatibleParameters = true;
+
+    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE (0): every AU parameter 0..1,
+    // none Indexed or Boolean, none IsHighResolution.
+    bool forceLegacyParameterAutomationType = false;
+
+    // JUCE_VST3_CAN_REPLACE_VST2 (1 in juce_audio_plugin_client.h, though JUCE's
+    // CMake example sets 0): the VST3 class id is the VST2 one, 'VST' plus the
+    // VST2 id plus the name (Compat::juceVst2ClassId), not JUCE's own
+    // (Compat::juceVst3ClassId). Ask the porting author which they shipped.
+    bool vst3CanReplaceVst2 = true;
+
+    // JucePlugin_Name, which the VST2 class id takes up to nine characters of;
+    // the description's name when empty.
+    std::string_view pluginName = {};
+
+    // JucePlugin_VSTUniqueID; the plugin code when unset, as JUCE's CMake
+    // defaults it.
+    std::optional<FourCC> vstUniqueId = {};
+
+    constexpr bool operator==(const JuceSettings&) const = default;
+};
+
 // One plugin class within a module.
 struct PluginDescription
 {
@@ -85,6 +134,34 @@ struct PluginDescription
     FourCC pluginCode;
 
     PluginCreateFn create;
+
+    // Identity. Every id a host stores for this plugin and its parameters comes
+    // from here: MakeASound's by default, a JUCE build's for a port that must
+    // keep its users' sessions (Core/Identity.h computes them). Per plugin
+    // rather than per module, since JUCE's settings are per binary and a module
+    // may hold a port beside native plugins; on the description rather than the
+    // Plugin, since a VST3 factory names its classes before any instance exists
+    // and a port should not have to change its processor to keep its ids.
+    IdScheme idScheme = IdScheme::MakeASound;
+    JuceSettings juce = {};
+
+    // Overrides, each winning over the scheme. The VST3 component class id.
+    std::optional<Vst3ClassId> vst3ClassId = {};
+
+    // The AU componentType ('aufx', 'aumu', 'aumf', 'aumi'); derived from the
+    // category and layout when unset.
+    std::optional<FourCC> auType = {};
+
+    // The id AAX's AddEffect takes: "<bundle id>.<plugin code>" by default,
+    // the bundle id under a JUCE scheme (JUCE's JucePlugin_AAXIdentifier
+    // defaults to it).
+    std::string_view aaxEffectId = {};
+
+    // AAX_eProperty_PlugInID_Native per component, the hook JUCE calls
+    // AAXClientExtensions::getPluginIDForMainBusConfig: by default the plugin
+    // code plus the stem pair's index, JUCE's 'jcaa' derivation under a JUCE
+    // scheme (aaxNativeIdFor()).
+    AAXNativeIdFn aaxNativeId = {};
 };
 
 // A module may host more than one plugin class: VST3 factories and AU bundles

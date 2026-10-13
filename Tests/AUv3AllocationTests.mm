@@ -6,9 +6,12 @@
 #include "AllocationProbe.h"
 #include "AUv3TestHost.h"
 
+#include <MakeASound/Plugin/AU/HostParameters.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <algorithm>
+#include <cmath>
 
 using namespace nano;
 using namespace TestPlugins;
@@ -17,6 +20,11 @@ using Probe::allocationsIn;
 
 namespace
 {
+bool near(float a, float b)
+{
+    return std::abs(a - b) < 1e-3f;
+}
+
 // Everything a busy host slice carries: an event for every exposed parameter,
 // then a note, a controller and a bend at their frames, built before the ban.
 template <typename P>
@@ -32,7 +40,7 @@ void busyEvents(UnitHost<P>& host, EventList& events, int block, UInt32 frames)
     for (auto i = 0; i < list.size(); ++i)
         if (list.isHostExposed(i))
             events.parameter(
-                list.entry(i).hostId, list[i].toPlain(normalized), start);
+                list.entry(i).address, list[i].toPlain(normalized), start);
 
     if (!host.plugin().getBusLayout().midiInputs.empty())
     {
@@ -130,5 +138,55 @@ auto tHeldRender = test("Allocations/auv3HeldParameterRenderIsOffTheHeap") = []
 {
     checkHeldRenderIsOffTheHeap<GainPlugin>("Gain");
     checkHeldRenderIsOffTheHeap<SynthPlugin>("Echo");
+};
+
+// A JUCE port under both JUCE schemes: an event for every listed parameter at
+// its Entry::address (64-bit hashCode64 under JUCE, the index under legacy ids)
+// in JUCE's space, each found through the sorted address table, over varying
+// slices.
+auto tJucePort = test("Allocations/auv3JucePortEventsAreOffTheHeap") = []
+{
+    for (auto scheme: {IdScheme::JUCE, IdScheme::JUCELegacyIndex})
+    {
+        const auto& description = JucePort::description(scheme);
+        auto host = UnitHost<JucePort::PortPlugin>(description);
+        auto space = AU::ParameterSpace(description);
+        const auto& list = host.plugin().parameters();
+        auto events = EventList {};
+        auto count = 0;
+        auto status = AUAudioUnitStatus {noErr};
+        auto block = 0;
+
+        auto fill = [&](float normalized)
+        {
+            auto start = static_cast<AUEventSampleTime>(host.sampleTime);
+            events.clear();
+
+            for (auto i = 0; i < list.size(); ++i)
+                if (space.isListed(list, i))
+                    events.parameter(
+                        list.entry(i).address,
+                        space.toHost(list.entry(i), list[i].toPlain(normalized)),
+                        start);
+        };
+
+        fill(0.5f);
+        status |= host.renderEvents(maxBlock, events.head());
+
+        for (auto size: {64u, 17u, 1u, 63u, 0u})
+        {
+            auto normalized = block++ % 2 == 0 ? 0.3f : 0.7f;
+            fill(normalized);
+
+            const auto* head = events.head();
+            count +=
+                allocationsIn([&] { status |= host.renderEvents(size, head); });
+
+            check(near(host.plugin().params.cutoff.getNormalized(), normalized));
+        }
+
+        check(status == noErr);
+        check(count == 0);
+    }
 };
 } // namespace

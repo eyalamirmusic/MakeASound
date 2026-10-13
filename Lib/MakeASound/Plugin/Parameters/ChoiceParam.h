@@ -23,6 +23,18 @@ public:
     float maxValue() const noexcept override;
     float defaultValue() const noexcept override;
     int numSteps() const noexcept override { return numChoices() - 1; }
+    bool isDiscrete() const noexcept override { return true; }
+
+    // JUCE's AudioParameterChoice mapping, rounding half to even.
+    float toNormalized(float plain) const noexcept override
+    {
+        return indexToNormalized(plain);
+    }
+
+    float toPlain(float normalized) const noexcept override
+    {
+        return indexToPlain(normalized);
+    }
 
     void setValue(float plain) noexcept override;
     float getValue() const noexcept override;
@@ -43,6 +55,7 @@ public:
 
 private:
     int clampIndex(int choice) const noexcept;
+    int indexFor(float plain) const noexcept;
 
     Vector<std::string> choices;
     int initial;

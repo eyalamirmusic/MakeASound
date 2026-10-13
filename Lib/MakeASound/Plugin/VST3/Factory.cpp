@@ -2,6 +2,7 @@
 #include "Factory.h"
 #include "Adapter.h"
 #include "HostRunLoop.h"
+#include "../Core/Identity.h"
 #include "../Realtime/MessageThread.h"
 
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -26,7 +27,8 @@ FUnknown* createAdapter(void* context)
         if (plugin == nullptr)
             return nullptr;
 
-        return static_cast<Vst::IAudioProcessor*>(new Adapter(std::move(plugin)));
+        return static_cast<Vst::IAudioProcessor*>(
+            new Adapter(std::move(plugin), parameterIdentityFor(*description)));
     }
     catch (...)
     {
@@ -45,10 +47,8 @@ void onHostContext(FUnknown* context)
 Steinberg::FUID classIdFor(const ModuleDescription& module,
                            const PluginDescription& plugin)
 {
-    return Steinberg::FUID(module.manufacturerCode.toUint32(),
-                           plugin.pluginCode.toUint32(),
-                           FourCC("VST3").toUint32(),
-                           0);
+    auto words = vst3ClassIdFor(module, plugin);
+    return Steinberg::FUID(words[0], words[1], words[2], words[3]);
 }
 
 Steinberg::CPluginFactory* makeFactory(const ModuleDescription& module)

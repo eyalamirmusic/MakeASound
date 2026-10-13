@@ -6,6 +6,7 @@
 // pull-input block, the timestamp and the MIDI the unit sends back.
 
 #include "HostBuffers.h"
+#include "JucePort.h"
 #include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AU/ComponentType.h>
@@ -48,6 +49,18 @@ inline AudioComponentDescription descriptionFor(FourCC code)
 {
     static const auto module = describeModule();
     auto info = AU::componentInfoFor(module, pluginFor(code));
+
+    return {.componentType = info.type,
+            .componentSubType = info.subtype,
+            .componentManufacturer = info.manufacturer};
+}
+
+// The description a plugin of the test module's manufacturer registers under,
+// its auType honoured.
+inline AudioComponentDescription descriptionOf(const PluginDescription& plugin)
+{
+    static const auto module = describeModule();
+    auto info = AU::componentInfoFor(module, plugin);
 
     return {.componentType = info.type,
             .componentSubType = info.subtype,
@@ -120,11 +133,38 @@ template <typename P>
 struct UnitHost
 {
     explicit UnitHost(FourCC code, Start start = Start::Allocated)
+        : UnitHost(
+              Creating {},
+              [&](NSError** error) { return instantiate(descriptionFor(code), error); },
+              start)
+    {
+    }
+
+    // A unit over `plugin` (JucePort.h's), which describeModule() does not list,
+    // under the type its plist would register.
+    explicit UnitHost(const PluginDescription& plugin, Start start = Start::Allocated)
+        : UnitHost(
+              Creating {},
+              [&](NSError** error)
+              {
+                  return AUv3::createAudioUnit(
+                      descriptionOf(plugin), plugin, inProcessOption(), error);
+              },
+              start)
+    {
+    }
+
+    struct Creating
+    {
+    };
+
+    template <typename Create>
+    UnitHost(Creating, Create create, Start start)
     {
         TestPlugins::Module::lastCreated = nullptr;
 
         auto* error = static_cast<NSError*>(nil);
-        unit = instantiate(descriptionFor(code), &error);
+        unit = create(&error);
         nano::check(unit != nil && error == nil);
         pluginPtr = static_cast<P*>(TestPlugins::Module::lastCreated);
         sent.reserve(256);
@@ -273,7 +313,7 @@ struct UnitHost
     {
         const auto& list = pluginPtr->parameters();
         return [unit.parameterTree
-            parameterWithAddress:list.entry(list.indexOf(&param)).hostId];
+            parameterWithAddress:list.entry(list.indexOf(&param)).address];
     }
 
     AUAudioUnitStatus pull(AUAudioFrameCount frames, int bus, AudioBufferList* input)

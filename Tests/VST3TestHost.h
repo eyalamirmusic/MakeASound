@@ -278,12 +278,13 @@ struct HostBus
 
 // An adapter set up, activated and processing at 48 kHz in blocks of up to 64,
 // with the host's side of a block ready to fill.
+// `identity` is what the factory passes from the plugin's description.
 template <typename P>
 struct AdapterHost
 {
-    AdapterHost()
-        : adapter(
-              Steinberg::owned(new MakeASound::VST3::Adapter(EA::makeOwned<P>())))
+    explicit AdapterHost(MakeASound::ParameterIdentity identity = {})
+        : adapter(Steinberg::owned(
+              new MakeASound::VST3::Adapter(EA::makeOwned<P>(), identity)))
         , changes(4096)
         , inputEvents(maxEvents)
         , outputEvents(maxEvents)

@@ -105,10 +105,11 @@ if changed after a plugin ships, a set of cheap adapter features, some later wor
 and what a JUCE plugin ported here would need to keep its users' sessions. JUCE
 paths below are relative to `~/Code/JUCE/modules/`, MakeASound paths to
 `Lib/MakeASound/Plugin/`; line numbers are approximate. A fixed what was wrong and
-is done; B settles what cannot change once a plugin ships, C is cheap adapter work,
-D is later, and E is JUCE compatibility. A JUCE plugin ported here keeps no
-sessions today, and E needs B's WP10.7 (ranges equal to JUCE's `NormalisableRange`,
-skew included) and WP10.6, so the recommended order is now B, then E, then C. The
+is done; B settled what cannot change once a plugin ships and is done too, C is
+cheap adapter work, D is later, and E is JUCE compatibility, whose state half
+(WP10.21 to WP10.23) is in: every format reads a JUCE build's saved state. E needed B's WP10.7 (ranges equal to JUCE's
+`NormalisableRange`, skew included) and WP10.6, which are in, so the recommended
+order is now E, then C. The
 proof is the format suites
 covering each fix, pluginval 10, `auval -strict` and aaxval green on both examples,
 and a hand check that a host lane follows a plugin-side change in Logic, Ableton
@@ -159,10 +160,37 @@ examples. What remains of it is under "Done when".
   calls. A toggle crossfades over 10 ms. `PluginWrapper::addsBypass` feeds AAX
   `CanBypass`.
 
-### B. Settle before anything ships
+### B. Settle before anything ships (done)
 
-Each of these changes saved automation once a plugin is out, so it is decided and
-landed before one is.
+Each of these changes saved automation once a plugin is out, so it was decided and
+landed before one is. Landed with cases in `Parameters/`, `AU/` and `AUv3/` and the
+allocation suites; the full suite (AAX on), pluginval 10 and `auval -strict` green
+on both examples; aaxval not run (the user's NDA tools). What it came to:
+
+- WP10.6: `ParameterOptions::versionHint`; the v2 `GetParameterList` is JUCE's
+  order (by host id, then `stable_sort` by hint), computed once per unit; a debug
+  assert, once per process, in the v2 adapter's constructor when an exposed
+  parameter other than the wrapper's added `__bypass` (hint 0, so first and fixed)
+  has hint 0. Both examples and every AU-hosted test plugin carry hints. The AUv3
+  tree stays in declaration order, as JUCE's does: a tree host addresses by address
+  or identifier, and a sort would break the groups.
+- WP10.7: `Parameters/FloatRange.h` (JUCE's arithmetic statement for statement;
+  a 2M-input sweep matched JUCE 8.0.12 bit for bit on arm64 macOS), `FloatParam`
+  over it, `HzParam` centred at √(min·max), `IntParam`, and `ChoiceParam` and
+  `IntParam` rounding half to even through an integer as `juce::roundToInt`. An
+  interval is steps to a host only while the curve is linear (a skewed grid is
+  not evenly spaced in 0..1); otherwise it is continuous and snaps, as every JUCE
+  float is. AU and AUv3: `IsHighResolution` always; the plain range with
+  `DisplaySquareRoot`/`Squared`/`Cubed`/`CubeRoot` for a skew of exactly 0.5, 2,
+  3 or 1/3 (verified against `AUParameterValueToLinear`), 0..1 for any other
+  curve (`Parameter::curve()` `Other`), every host-facing value converted through
+  `AU::toHostValue`/`fromHostValue`; `Indexed` only for whole-number steps. No
+  `FloatRange` is ever logarithmic, so `DisplayLogarithmic` is never set. The
+  Synth example's attack and release are now skewed (100 ms mid-travel).
+- WP10.8: documented in `ParameterOptions`' comment, CLAUDE.md and the README;
+  FNV-1a over the path stays the default.
+
+The original items:
 
 - **WP10.6, the AU parameter list's order.** Logic and GarageBand address an AU's
   parameters by index, so a parameter inserted mid-list breaks their automation
@@ -243,20 +271,27 @@ landed before one is.
   never touches the control being dragged; `GenericEditor` (~148-173) and
   `Web/ParameterApi.cpp` (~50-90) are rebased on them. JUCE's analogue is
   `juce_ParameterAttachments.h:55-104`.
-- **WP10.15, a sturdier VST3 state read.** JUCE (`VST3.cpp:2960-3024`) asks
-  `ISizeableStream` for the size, accepts a read status other than `kResultOk`
-  when bytes arrived (Wavelab), works around Cubase 9's wrong size and reads in
-  4 KiB chunks. Port that into `readAll`, with a guard against an absurd size.
+- **WP10.15, a sturdier VST3 state read (done, with WP10.23).** JUCE
+  (`VST3.cpp:2960-3024`) asks `ISizeableStream` for the size, accepts a read
+  status other than `kResultOk` when bytes arrived (Wavelab), works around Cubase
+  9's wrong size and reads in 4 KiB chunks. `readAll` (`VST3/Stream.cpp`) now
+  reads 4 KiB at a time until a read delivers nothing or a short one fails,
+  counts a delivering read whatever its status, takes the size only as a
+  reservation below 100 MiB, and gives nothing past 2^31 - 1 bytes.
+  `VST3/aStreamThatMisreportsItsSizeAndStatusStillLoads`.
 - **WP10.16, to consider: `setParamNormalized` while playing.** The VST3 adapter
   writes the processor unconditionally (`VST3/Adapter.cpp` ~485-495); JUCE writes
   it only while not playing (`VST3.cpp` ~962-968), so a UI-thread write does not
   race the process queue during automation playback.
-- **WP10.17, an AAX native-id hook.** `nativePluginId` is `pluginCode` plus the
-  stem pair's index (`AAX/Describe.cpp` ~198-201), MakeASound's own derivation, not
-  JUCE's (JUCE: `AAXClientExtensions::getPluginIDForMainBusConfig`,
-  `juce_audio_processors_headless/utilities/juce_AAXClientExtensions.cpp:38-165`,
-  and WP10.20). Expose it as an overridable hook. CLAUDE.md calls the derivation
-  "JUCE's"; that sentence is corrected when this lands.
+- **WP10.17, an AAX native-id hook (done).** `PluginDescription::aaxNativeId`
+  (`AAXNativeIdFn` over `AAXStems {inputChannels, outputChannels, index}`), read
+  through `aaxNativeIdFor` (`Core/Identity.h`), which `AAX/Describe.cpp`'s
+  `nativePluginId` now calls: the hook, else JUCE's `'jcaa'` derivation under a
+  JUCE scheme (WP10.20), else `pluginCode` plus the stem pair's index,
+  MakeASound's own derivation (JUCE's is
+  `AAXClientExtensions::getPluginIDForMainBusConfig`,
+  `juce_audio_processors_headless/utilities/juce_AAXClientExtensions.cpp:133-165`).
+  CLAUDE.md's sentence calling the default "JUCE's" is corrected.
 
 ### D. Later, optional
 
@@ -288,10 +323,160 @@ landed before one is.
 ### E. JUCE compatibility, opt-in
 
 The goal: a JUCE plugin ported to MakeASound keeps its users' sessions, automation
-and presets. Today it keeps nothing in any format. This is a separate opt-in per
+and presets. Every format now reads a JUCE build's saved state into a plugin whose
+`loadLegacy` takes it (WP10.23), and every adapter publishes a port's parameters
+and classes under its JUCE build's ids (WP10.19, WP10.20), so automation keeps its
+lanes. This is a separate opt-in per
 module or plugin; nothing in A to D depends on it, but it depends on WP10.7 and
 WP10.6, so it follows B. Its details depend on the target plugin's `JucePlugin_*`
 settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
+
+- **WP10.19 and WP10.20, the core (done; adapters wired as marked below).** What
+  landed, with `Tests/JuceIdentityTests.cpp` (`Parameters/`, `JuceCompat/`)
+  against numbers JUCE 8.0.12 printed:
+  - *Where it lives:* `PluginDescription` (per plugin, since JUCE's settings are
+    per binary and a module may hold a port beside native plugins; on the
+    description, since a VST3 factory names its classes before any instance
+    exists). `idScheme` (`IdScheme {MakeASound, JUCE, JUCELegacyIndex}`,
+    `Parameters/ParameterIdentity.h`), `juce` (`JuceSettings`:
+    `studioOneCompatibleParameters` true, `forceLegacyParameterAutomationType`
+    false, `vst3CanReplaceVst2` true, `pluginName`, `vstUniqueId`; JUCE's
+    defaults, and `JUCE_FORCE_USE_LEGACY_PARAM_IDS` is `JUCELegacyIndex`), and
+    the overrides `vst3ClassId`, `auType`, `aaxEffectId`, `aaxNativeId`.
+    `parameterIdentityFor(description)` is the `ParameterIdentity {scheme,
+    juceStudioOneMask}` that `PluginWrapper`'s new third constructor argument
+    takes and applies after the added bypass (kept for a list set again).
+  - *Parameters:* `ParameterOptions::hostKey` (JUCE's `paramID`, the leaf id by
+    default) and `aaxId`; every host id on `ParameterList::Entry` (`hostId`,
+    `address`, `identifier`, `aaxId`, `hostKey`, `addedBypass`, `listedInAU`) and
+    `EnclosingGroup::identifier`/`ownId`, with `indexOfAddress` and
+    `indexOfAAXId`; MakeASound's scheme byte for byte as the adapters computed
+    it. `setIdentity`'s debug checks are JUCE's own (unique keys, group ids and
+    31-character-truncated AAX ids, at most 31 characters) plus unique
+    addresses and the 2^31 rule, lifted when unmasked.
+  - *Wrapper parameters:* under `JUCE` the added bypass is `'byps'`
+    (`juceVst3BypassId`), under `JUCELegacyIndex` its index, and in either its AAX
+    id, like a declared bypass's, `"MasterBypassID"`; it is `listedInAU` false.
+    Its state key stays `__bypass` (identity names host ids only), and in
+    MakeASound's scheme it keeps `0x54D1526F`. `'prst'` is `juceVst3ProgramId`,
+    reserved for WP10.12.
+  - *Classes:* `vst3ClassIdFor`, `makeASoundVst3ClassId`, `Compat::juceVst3ClassId`,
+    `Compat::juceVst2ClassId`, `vst3ClassIdBytes(id, TuidLayout)`,
+    `aaxNativeIdFor`, `Compat::juceAAXPluginId`, `aaxEffectIdFor`.
+  - *AU range:* `Compat::juceAUParameterInfo` (`JuceAUParameterInfo`), and
+    `Parameter::isDiscrete`/`isBoolean`. `ChoiceParam::setValue` now rounds half
+    to even like the rest (B's `lround` note).
+  - *Corrections to the text below, from JUCE's source and output:* an
+    `AudioParameterInt` is not discrete (`isDiscrete()` false), so only a choice
+    and a bool take 0..steps on AU, an int and a stepped float 0..1; the AUv3
+    `AUParameter` has no default, and JUCE sets the tree's first value to the
+    *normalized* default (`AUv3.mm` ~1265); JUCE's AAX calls *any* bypass,
+    declared or its own, `"MasterBypassID"` (`AAX.cpp:1744`); `'byps'` only
+    without legacy ids and with managed parameters, else the next index
+    (`VST3.cpp:688-697`); `JUCE_VST3_CAN_REPLACE_VST2` defaults to 1 in
+    `juce_audio_plugin_client.h` (JUCE's CMake example sets 0); the VST2 class
+    id takes `JucePlugin_VSTUniqueID` (the code by default) and
+    `JucePlugin_Name`, and its Windows byte swap is exactly the COM TUID layout
+    of the same four words, so `FUID(words)` needs no per-platform code; the AAX
+    effect id defaults to the bundle id alone (`JucePlugin_AAXIdentifier`), not
+    `<bundle id>.<code>`; the v2 unit answers no value strings under legacy ids,
+    the AUv3 none under `JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE` (a fourth
+    setting: every parameter 0..1, no `IsHighResolution`, no `Indexed`); a JUCE
+    AU and AUv3 list no wrapper bypass, so listing ours (hint 0, first) would
+    move every Logic index by one.
+  - *The adapters (done).* Each passes `parameterIdentityFor(description)` to
+    its `PluginWrapper` and reads the ids from the entries:
+    - VST3 (done): the factory's class id is `FUID(words)` of `vst3ClassIdFor`
+      (MakeASound's words unchanged, pinned by
+      `VST3/theMakeASoundClassIdIsUnchanged`). JUCE checked: under
+      `CAN_REPLACE_VST2` the VST2 id *is* the component's class id
+      (`getVST3InterfaceId`), and `IPluginCompatibility` is exposed only for
+      `JUCE_VST3_COMPATIBLE_CLASSES`, so the factory adds none. Under a JUCE
+      scheme every parameter is registered, a non-automatable one with flags 0
+      rather than `kCanAutomate` (`VST3.cpp` ~922; the native scheme still hides
+      it, WP10.9 not done). Audit for unmasked ids: nothing in the adapter
+      assumed `< 2^31` (`ParamID` is `uint32` throughout, the SDK's container a
+      `std::map`); the shadow range's collision assert holds only under
+      MakeASound's scheme (a JUCE hash there is printed, the parameter winning);
+      `'byps'` is below 2^31 and gets `kIsBypass`. `'prst'` with WP10.12; JUCE's
+      MIDI CC parameters skipped. JUCE's `stepCount` is 0 for every
+      non-discrete parameter (an `AudioParameterInt` included) where ours is
+      `numSteps()`: display only, not an id, left as is.
+    - AU v2 (done): the wrapper takes `parameterIdentityFor`, and
+      `componentInfoFor` the description's `auType`, so both plists register it;
+      the factory's dispatch is `AU/Factory.h`'s `dispatchFactory` (by the
+      requested type, `augn`, `aumx`, `aupn` and `aufc` on `AUBaseFactory`
+      besides `aufx`; a type other than a set `auType` refused). Every
+      scheme-dependent answer goes through `AU::ParameterSpace`
+      (`HostParameters.h`, shared with the AUv3): MakeASound's scheme is today's
+      code path byte for byte; under a JUCE scheme the listed entries are those
+      `listedInAU` (non-automatable ones `NonRealTime`, the added bypass none:
+      `SetParameter`/`GetParameterInfo` refuse `'byps'`, `Globals()` never holds
+      it, and `kAudioUnitProperty_BypassEffect` writes the wrapper directly), in
+      (hint, host id) order; info, values, text and value strings come from
+      `juceAUParameterInfo` (`ValuesHaveStrings` on every parameter, `CanRamp` on
+      a continuous one, strings only when `v2ValueStrings`, JUCE's count of the
+      text of `min(i / maxValue, 1)`). Under `JUCELegacyIndex`
+      `Globals()->UseIndexedParameters(n)` in `PostConstructor` and the SDK's own
+      `GetParameterList`; no version-hint assert there. JUCE checked
+      (`AU_1.mm` 1037-1189, 2270-2415): JUCE's factory dispatches by MIDI
+      capability rather than type, its `GetParameter` reads the processor where
+      ours reads `Globals()` (the reconcile keeps them equal), its value-strings
+      call answers `InvalidParameter` for a continuous parameter where ours
+      answers `InvalidProperty`, and turning bypass off resets JUCE's processor
+      where ours crossfades. Clumps (WP10.10) and meters (WP10.18) have no
+      MakeASound counterpart yet.
+    - AUv3 (done): the wrapper takes `parameterIdentityFor`; the tree is built
+      by `makeParameterTree(list, space)` from `Entry::identifier`,
+      `Entry::address` and `EnclosingGroup::identifier`, leaving out entries
+      `space` does not list, with `juceAUParameterInfo`'s range, unit and flags
+      (`HasCFNameString` kept, as JUCE's) and `v3ValueStrings`, each
+      `AUParameter` seeded with the normalized default as JUCE's (`AUv3.mm`
+      ~1269; the provider answers live). Every address lookup (observer,
+      provider, string callbacks, render parameter and ramp events) is
+      `indexOfAddress`, 64-bit and allocation-free. The added bypass under a
+      JUCE scheme is `shouldBypassEffect` alone. The extension plist's type is
+      `auType` through `componentInfoFor`. `Adapter::create` and
+      `createAudioUnit` gained a form over a given `PluginDescription`, which
+      the tests use, as the v2 `Adapter` gained a constructor over one (the
+      test module's `MakeASoundAUTestPortFactory`). Cases over
+      `Tests/JucePort.h` in `AU/`, `AUv3/`, `AUPlist/` and both allocation
+      suites; still to see by hand: Logic opening a JUCE build's session and
+      automation on a port (E's proof).
+    - AAX (done): the wrapper takes `parameterIdentityFor`; every `AAX_CParamID`
+      is the entry's `aaxId` (`paramIdFor`/`hostIdOf` gone; MakeASound's hex ids
+      byte for byte, pinned by `AAX/theParameterIdsAreTheHostIdsInHex`),
+      registered as its first 31 bytes, since the SDK's `InitIdentifier` keeps
+      no more and a JUCE build's non-ASCII id of up to 31 code points was cut
+      there too; lookups binary-search the adapter's own sorted ids rather than
+      `indexOfAAXId`'s linear scan, allocation-free (the SDK's
+      `GetParameterByID` still builds a `std::string`, so an id past 22 bytes
+      allocates inside the SDK on a host write). `GetMasterBypassParameter` is
+      the bypass entry's, `"MasterBypassID"` under a JUCE scheme. Under a JUCE
+      scheme every parameter is registered, a non-automatable one not
+      automatable (`AAX.cpp` ~1764). `AddEffect` takes `aaxEffectIdFor`;
+      `EffectInit` finds the plugin whose `aaxEffectIdFor` the controller names,
+      the bundle id being `moduleBundleId()`, defined by `EntryPoint.cpp` from
+      `MAKEASOUND_AAX_BUNDLE_ID` (the tests define theirs, and an
+      `Adapter(module, bundleId)` hosts any module). `'elck'` checked against the
+      SDK: `AAX_CChunkDataParser`'s `0x01010101` plus `d_<id>\0`, padding and a
+      big-endian double per parameter, the float value over a 0..1 taper, so
+      JUCE's normalized; the master bypass filtered from save and load; it now
+      restores a JUCE-scheme port (`AAX/aJuceBuildsControlsChunkRestoresAJuceSchemePlugin`)
+      and no longer mirrors after, its values returning through
+      `UpdateParameterNormalizedValue`. Not matched: JUCE's AAX gives an
+      instrument a `"MasterBypassID"` too, the wrapper adds a bypass to effects
+      only. An AudioSuite id (`juceAAXPluginId(..., true)`) if AudioSuite is
+      ever added. Pro Tools by hand: a JUCE build's session (automation on a
+      JUCE id, its `'elck'` and `'juce'`) opening in the port; aaxval on a
+      JUCE-scheme build.
+    - Standalone (done): the wrapper's identity only (no host ids), for
+      symmetry: the module constructor passes the first plugin's, the
+      plugin-and-path one takes an optional `ParameterIdentity`.
+    - Then E's proof: a JUCE build of one example and this one opening each
+      other's sessions and automation.
+
+  The original items:
 
 - **WP10.19, identity: parameter ids.** A per module or plugin `IdScheme
   {MakeASound, JUCE, JUCELegacyIndex}`, plus `juceStudioOneMask` (default true);
@@ -335,20 +520,32 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   gains nothing, since an old JUCE build cannot parse the JSON inside it.
   - *The bytes.* `copyXmlToBinary` is `"VC2!"` (`0x21324356` LE), a `u32` LE XML
     length N, N bytes of single-line UTF-8 XML and a `\0`; the reader ignores
-    trailing bytes (`juce_AudioProcessor.cpp:946-980`). APVTS: the root's type is
+    trailing bytes and cuts at a NUL
+    (`juce_audio_processors_headless/processors/juce_AudioProcessor.cpp:946-980`;
+    8.0.12 moved `AudioProcessor` into the headless module). The single-line XML
+    keeps its `<?xml ?>` declaration, a space before the root, and writes every
+    non-ASCII character as `&#N;`. APVTS: the root's type is
     the plugin's identifier, every `PARAM id= value=` a direct child (groups
     flattened), values **plain** (a choice's index, a bool's 0 or 1, an int, a
-    float in its units), a missing parameter keeping its value
+    float in its units, written as `var`'s double, `"5.0"`), a missing parameter
+    keeping its value, a `PARAM` with no `value` taking the default
     (`juce_AudioProcessorValueTreeState.cpp:117-169, 389-436`). A binary
-    `ValueTree` and JUCE's non-RFC base64 (`"<size>.<chars>"`, alphabet
-    `.A-Za-z0-9+`, LSB first, `juce_MemoryBlock.cpp:366-385`) appear too.
+    `ValueTree` (`ValueTree::writeToStream`) and JUCE's non-RFC base64
+    (`"<size>.<chars>"`, alphabet `.A-Za-z0-9+`, LSB first, other characters
+    skipped, `juce_MemoryBlock.cpp:366-423`) appear too.
   - *VST3*: the component state is the plugin's bytes plus a trailer `[i64 0]
     [private ValueTree?] [i64 privSize] ["JUCEPrivateData"]`, the private tree
     `JUCEPrivateData {Bypass}` present only when the plugin has no bypass parameter
     (`VST3.cpp:2857-2943`); under `CAN_REPLACE_VST2` it is wrapped big-endian in
-    `'VstW' size version bypass` and `'CcnK' size 'FBCh' ver fxID fxVersion
+    `'VstW' size(8) version(1) bypass` and `'CcnK' size 'FBCh' ver(2) fxID fxVersion
     numPrograms currentProgram 124×0 chunkSize chunk` (`VST3.cpp:3065-3082`, the
-    SDK's `vst2persistence.cpp`). JUCE does nothing with `kStateType`.
+    SDK's `vst2persistence.cpp`). The chunk is the plugin's bytes *with* the
+    trailer (the wrapper appends it before wrapping), so a reader unwraps and then
+    strips. JUCE writes the bank under `CAN_REPLACE_VST2` only, but reads one
+    whenever it has a compatible class (`CAN_REPLACE_VST2` or
+    `JUCE_VST3_COMPATIBLE_CLASSES`); a bank of values (`'FxBk'`) gives its plugin
+    nothing. A private tree with no `Bypass` reads as off. JUCE does nothing with
+    `kStateType`.
   - *AU v2*: the SDK's ClassInfo dictionary plus `jucePluginState` (`CFData`);
     JUCE's `RestoreState` removes `data` before the base call so foreign ids never
     enter `Globals()`, and maps `version` 1 to 0 (`AU_1.mm:831-923`). Here the base
@@ -359,43 +556,94 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   - *AAX*: the SDK's `'elck'` controls chunk (normalized values by AAX id string)
     plus a `'juce'` chunk of raw state (`AAX.cpp:104-108, 794, 851-924`); MakeASound
     refuses any other chunk id.
-  - *Standalone*: `~/Library/Application Support/<Name>.settings`, a
-    `PropertiesFile` whose `filterState` is the JUCE-base64 state
-    (`juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h:365-386`).
-- **WP10.22, the foreign-state hook and its helpers.** SDK-free, in
-  `Core/Plugin.h`: `enum class ForeignOrigin { JuceVST3, JuceVST2Bank, JuceAU,
-  JuceAAX, JuceStandalone }`, `struct ForeignState { origin; std::string_view
-  bytes; StateContext context; std::optional<bool> bypass; std::optional<int>
-  program; }` and `virtual bool loadForeignState(const ForeignState&) { return
-  false; }` (message thread); `PluginWrapper::loadForeignState` mirroring
-  `loadState`'s deferral, stamp and `weak_ptr`; `StatePlugin` forwarding to
-  `loadLegacy` and ending in `markChanged()`. Pure helpers in
-  `Compat/JuceState.{h,cpp}` (`isJuceXmlBlob`, `juceXmlText`, `stripJucePrivateData`,
-  `readVst2Bank` with `FxBk`, `fromJuceBase64`, `juceStringHash`) and
-  `Compat/ApvtsXml.{h,cpp}` (a ~150-line XML subset reader; `loadApvtsXml(xml,
-  params, mapId, MissingPolicy {Default, Keep})` setting plain values;
-  `loadJuceApvtsBlob`). Detection is safe, since a MakeASound document starts with
-  `{`.
-- **WP10.23, the adapters.** VST3 `setState`: native if `{`, otherwise the bank,
-  the trailer stripped, the hook. AU `RestoreState`, when `MakeASoundState` is
-  absent: copy the dictionary, remove `data`, normalise the version, the base, the
-  hook, mirror to the host. AUv3 `setFullState` reads `jucePluginState`. AAX
-  accepts `'juce'` in `SetChunk`, answers `'elck'` and `'juce'` equal in
-  `CompareActiveChunk`, and optionally reads `'elck'` for a plugin of parameters
-  only. The standalone imports the old settings file when `settings.json` is
-  missing. A session moves to the native JSON on its first save. Later, if wanted:
-  a legacy XML written beside the native document, for downgrade safety.
+  - *Standalone*: `~/Library/Application Support/<Name>.settings` on macOS,
+    `%APPDATA%\<Name>\<Name>.settings` on Windows, `~/.config/<Name>.settings` on
+    Linux, a `PropertiesFile` (XML, `<PROPERTIES><VALUE name val>`) whose
+    `filterState` is the JUCE-base64 state
+    (`juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h:365-386`,
+    `juce_data_structures/app_properties/juce_PropertiesFile.cpp:60-118`).
+- **WP10.22, the foreign-state hook and its helpers (done).** `Core/Plugin.h`:
+  `ForeignOrigin { JuceVST3, JuceVST2Bank, JuceAU, JuceAUv3, JuceAAX,
+  JuceStandalone }`, `ForeignState { origin, bytes, context, optional bypass,
+  optional program }` (`bytes` exactly what JUCE's `setStateInformation` got, every
+  framing off) and `virtual bool loadForeignState(const ForeignState&)`, false by
+  default. `PluginWrapper::loadForeignState`: inline on the message thread,
+  returning the plugin's answer; off it, queued with a copy under `loadState`'s
+  stamp counter and `weak_ptr`, returning true, and raising
+  `notifyHostParameterValuesChanged()` once taken. A taken `Session` state's
+  `bypass` sets the wrapper's added bypass (none: left as is, as JUCE; a `Preset`:
+  never); a plugin with its own bypass reads `bypass` itself. `StatePlugin`
+  forwards to the protected `loadLegacy` under its load flag and ends in
+  `markChanged()`, so no `notifyHostStateChanged`, as for a native load. Helpers in
+  `Compat/`: `JuceTree.{h,cpp}` (`JuceTree`, `parseJuceXml`, a binary
+  `readJuceValueTree`, which was small enough to have, and `juceStringToDouble`),
+  `JuceState.{h,cpp}` (`juceStringHash`/`juceStringHash64`, `isJuceXmlBlob`,
+  `juceXmlText`, `stripJucePrivateData`, `readVst2Bank` with `FxBk`,
+  `juceVST3State` doing the whole VST3 unpacking, `fromJuceBase64`,
+  `juceSettingsValue`, `juceStandaloneState`) and `ApvtsXml.{h,cpp}`
+  (`loadApvtsTree`/`loadApvtsXml`/`loadJuceApvtsBlob` with `ApvtsOptions
+  {rootType, mapId, missing}`, `MissingPolicy::Keep` the default as in JUCE).
+  Cases in `JuceCompat/` against bytes JUCE 8.0.12 wrote, and in `Plugin/` for the
+  wrapper. Detection is safe, since a MakeASound document starts with `{`.
+- **WP10.23, the adapters (done).** Each adapter's part is one
+  `PluginWrapper::loadForeignState` call followed by its native-load epilogue
+  (mirror every value, the latency check); off the message thread the wrapper
+  queues the load and its values notification repeats the epilogue later.
+  - VST3 `setState`: a stream that is not JSON and is a VST2 bank, carries the
+    trailer JUCE's wrapper always appends, or is a bare `copyXmlToBinary` blob
+    goes through `Compat::juceVST3State(bytes, context)`; anything else, a
+    plugin's own non-JSON document included, to `loadState`. WP10.15 came along.
+  - AU `RestoreState`, when `MakeASoundState` is absent and `jucePluginState` is
+    there: the base gets a copy with `data` removed (`Globals()` never grows) and
+    `version` 1 made 0, then `JuceAU`, then the values mirrored into
+    `Globals()`; `ClassInfoFromDocument` takes the same path.
+  - AUv3 `setFullState`/`setFullStateForDocument`: `jucePluginState` of a
+    dictionary under this component's codes as `JuceAUv3`, in the call's context
+    (`Preset`/`Session`), then the tree synced.
+  - AAX `SetChunk`: `'juce'` as `JuceAAX`; `'elck'` through the SDK's own
+    `SetChunk`, which sets every parameter whose AAX id the chunk names (so it
+    lands where a port kept JUCE's AAX ids, WP10.19, and is a no-op otherwise),
+    for a plugin of parameters only or beside `'juce'`, harmlessly; both answer
+    equal in `CompareActiveChunk`. Neither is listed or written.
+  - Standalone: with no settings file to read, `StandaloneHost` imports
+    `Compat::juceStandaloneState` of the JUCE build's settings file as
+    `JuceStandalone`, from `juceSettingsPath(name())` (per-platform TUs) for the
+    module constructors, or from the path a port passes to the plugin-and-path
+    constructor when its `JucePlugin_Name` was not its `name()`. The audio and
+    MIDI setup are not imported.
+  - A session moves to the native JSON on its first save; nothing writes JUCE's
+    framing. Later, if wanted: a legacy XML written beside the native document,
+    for downgrade safety.
+  - Cases in every format suite over `Tests/JuceFixtures.h`'s `FixturePlugin` and
+    the bytes JUCE 8.0.12 wrote, each format's framing built as JUCE's wrapper
+    builds it: values restored, the next save native, refusals, foreign codes,
+    `Globals()` not grown (AU), loads from a worker. Not yet proved against a
+    JUCE-built plugin in a real host; that is "Done when"'s E check.
 - **Open:** whether Pro Tools calls `SetChunk` for a chunk id the plugin does not
-  list in `GetChunkIDFromIndex`; if not, list `'juce'` with size 0. A check in Pro
-  Tools Developer decides it.
+  list in `GetChunkIDFromIndex`. The adapter reads `'juce'` and `'elck'` without
+  listing them, which keeps the listed surface aaxval has passed unchanged; if a
+  check in Pro Tools Developer shows a JUCE session's `'juce'` never arrives, list
+  `'juce'` second with size 0 (an empty `SetChunk` of it a no-op, `GetChunk` an
+  empty chunk) and rerun aaxval's chunk tests.
 
 ### Done when
 
 - A to C are in, each with its cases in the format suites (`VST3/`, `AU/`, `AUv3/`,
   `AAX/`, `Parameters/`, `State/`, `PluginUI/`, `Web/`) and the allocation suites
-  covering every new audio-thread path. A is in, with them.
-- pluginval 10, `auval -strict` and aaxval stay green on both examples. After A:
-  aaxval not yet run on both examples.
+  covering every new audio-thread path. A and B are in, with them.
+- pluginval 10, `auval -strict` and aaxval stay green on both examples. After A
+  and B: aaxval not yet run on both examples.
+- By hand, open from B: Logic keeps an automation lane on the right parameter
+  when a later build adds one with a higher `versionHint`, and draws the Synth's
+  skewed attack lane (published 0..1) as the editor's slider moves.
+- Known limits of B: a `FloatParam` with an interval and a skew is continuous to
+  every host (JUCE reports every float continuous; here a linear grid is steps);
+  a custom `toNormalized` that does not override `curve()` is published with the
+  plain range as `Linear`, which is correct in value but drawn linearly. E's JUCE
+  mode takes the AU range from `juceAUParameterInfo` (every parameter 0..1,
+  0..numSteps-1 when discrete, a float never discrete) rather than
+  `fillParameterInfo`, and `ChoiceParam` and `IntParam` round half to even like
+  JUCE.
 - By hand, open from A: a plugin-side change moves a host lane in Logic (AU),
   Ableton (VST3) and Pro Tools (AAX); a session saved by the AUv3 on an iPad loads
   in the v2 component on a Mac; an effect without its own bypass parameter
@@ -404,8 +652,8 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   change is posted only while the host renders; a latency change detected off the
   message thread leaves the bypass delay clamped at its old length until the next
   message-thread latency check.
-- E, when it is taken up, has a JUCE build of one example and the MakeASound build
-  of it opening each other's sessions in every format the JUCE build shipped.
+- E's proof, still to do by hand: a JUCE build of one example and the MakeASound
+  build of it opening each other's sessions in every format the JUCE build shipped.
 - CLAUDE.md, README and this plan describe it as it is, CLAUDE.md's AAX
   native-id sentence included.
 

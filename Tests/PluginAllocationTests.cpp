@@ -46,12 +46,16 @@ auto tSwapExchange = test("Allocations/realtimeSwapExchangeIsOffTheHeap") = []
 
 struct AllocationParams : ParameterGroup
 {
-    AllocationParams() { add(gain, cutoff, mode, bypass); }
+    AllocationParams() { add(gain, cutoff, mode, bypass, pan, voices); }
 
     DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
     HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f};
     ChoiceParam mode {"Mode", {"Low", "Band", "High"}, 1};
     BoolParam bypass {"Bypass", false};
+
+    // A symmetric skew on a grid and an integer: every curve's maths.
+    FloatParam pan {"Pan", {-1.f, 1.f, 0.01f, 0.5f, true}, 0.f};
+    IntParam voices {"Voices", 1, 16, 8};
 };
 
 auto tParameterValues = test("Allocations/parameterValueIoIsOffTheHeap") = []

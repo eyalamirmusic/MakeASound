@@ -41,6 +41,12 @@ OSStatus restoreInto(AUHost::UnitHost<GainPlugin>& host,
 
 auto tAUv3ToV2 = test("AUv3/aSessionTheAUv3SavedLoadsInTheV2Component") = []
 {
+    // The v2 factory first: once registerSubclass has claimed a description,
+    // AudioComponentRegister of the same one hands back a component that
+    // AudioComponentInstanceNew cannot open in process. A full run registers the
+    // v2 suite's components long before; a run of this case alone does not.
+    AUHost::registerTestComponents();
+
     auto source = AUv3Host::UnitHost<GainPlugin>("Gain");
     auto& saved = source.plugin().params;
     saved.gain.setValue(-11.f);

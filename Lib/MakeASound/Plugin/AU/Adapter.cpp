@@ -4,11 +4,14 @@
 #include "Conversion.h"
 #include "HostParameters.h"
 #include "State.h"
+#include "../Core/Identity.h"
 #include "../Realtime/MessageThread.h"
 
 #include <dispatch/dispatch.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
@@ -28,15 +31,23 @@ const ModuleDescription& thisModule()
     return module;
 }
 
-OwningPointer<Plugin> createPluginFor(AudioComponentInstance instance)
+const PluginDescription& descriptionOf(AudioComponentInstance instance)
 {
     auto description = AudioComponentDescription {};
     AudioComponentGetDescription(AudioComponentInstanceGetComponent(instance),
                                  &description);
 
     const auto* plugin = Adapter::describe(description.componentSubType);
-    auto created = plugin != nullptr && plugin->create ? plugin->create()
-                                                       : OwningPointer<Plugin> {};
+
+    if (plugin == nullptr)
+        au::Throw(kAudioUnitErr_InvalidProperty);
+
+    return *plugin;
+}
+
+OwningPointer<Plugin> createPlugin(const PluginDescription& plugin)
+{
+    auto created = plugin.create ? plugin.create() : OwningPointer<Plugin> {};
 
     if (!created)
         au::Throw(kAudioUnitErr_InvalidProperty);
@@ -76,6 +87,27 @@ bool hasCocoaView()
     }();
 
     return present;
+}
+
+// JUCE's AU check (juce_AudioProcessor.cpp, validateParameter), once per process:
+// a parameter with no versionHint has no place in the list a later release can
+// keep. The bypass the wrapper adds is exempt, since its hint is the framework's,
+// and so is JUCELegacyIndex, whose list is by index.
+void assertVersionHints(const ParameterList& list, const ParameterSpace& space)
+{
+    static auto asserted = std::atomic<bool> {false};
+
+    if (space.scheme() == IdScheme::JUCELegacyIndex)
+        return;
+
+    auto bypass = list.bypassIndex();
+    auto added = bypass >= 0 && list.entry(bypass).addedBypass;
+    auto unhinted = space.firstUnhinted(list, added ? bypass : -1);
+
+    // Give every parameter ParameterOptions::versionHint (1 for the first
+    // release), so Logic's automation survives a parameter added later.
+    if (unhinted >= 0 && !asserted.exchange(true))
+        assert(unhinted < 0 && "A parameter has no ParameterOptions::versionHint");
 }
 
 constexpr auto valueTimerInterval = static_cast<int64_t>(NSEC_PER_SEC / 30);
@@ -149,13 +181,23 @@ private:
 };
 
 Adapter::Adapter(AudioComponentInstance instance)
-    : Adapter(instance, createPluginFor(instance))
+    : Adapter(instance, descriptionOf(instance))
 {
 }
 
-Adapter::Adapter(AudioComponentInstance instance, OwningPointer<Plugin> plugin)
+Adapter::Adapter(AudioComponentInstance instance,
+                 const PluginDescription& description)
+    : Adapter(instance, description, createPlugin(description))
+{
+}
+
+Adapter::Adapter(AudioComponentInstance instance,
+                 const PluginDescription& description,
+                 OwningPointer<Plugin> plugin)
     : MusicDeviceBase(instance, inputBusCount(plugin), outputBusCount(plugin))
-    , pluginWrapper(std::move(plugin), PluginFormat::AU)
+    , pluginWrapper(
+          std::move(plugin), PluginFormat::AU, parameterIdentityFor(description))
+    , space(description)
 {
     adoptHostMessageThread();
     this->plugin().setHostEditListener(this);
@@ -163,8 +205,13 @@ Adapter::Adapter(AudioComponentInstance instance, OwningPointer<Plugin> plugin)
     const auto& list = this->plugin().parameters();
 
     for (auto i = 0; i < list.size(); ++i)
-        if (list.isHostExposed(i))
+        if (space.isListed(list, i))
             exposed.add(i);
+
+    for (auto index: space.listOrder(list))
+        listOrder.add(list.entry(index).hostId);
+
+    assertVersionHints(list, space);
 
     lastHostValue.resize(exposed.size());
     lastPluginValue.resize(exposed.size());
@@ -270,6 +317,19 @@ void Adapter::PostConstructor()
         output.SetWillAllocateBuffer(true);
     }
 
+    // JUCE_FORCE_USE_LEGACY_PARAM_IDS: the SDK's own indexed list, as JUCE's
+    // addParameters, the listed entries being exactly indices 0..n-1 (the added
+    // bypass, unlisted, is last).
+    if (space.scheme() == IdScheme::JUCELegacyIndex)
+    {
+        Globals()->UseIndexedParameters(static_cast<UInt32>(exposed.size()));
+
+        for ([[maybe_unused]] auto slot = 0; slot < exposed.size(); ++slot)
+            assert(plugin().parameters().entry(exposed[slot]).hostId
+                       == static_cast<uint32_t>(slot)
+                   && "JUCELegacyIndex lists every entry but the added bypass");
+    }
+
     // Every id now, so no SetParameterRT ever inserts on the render thread.
     mirrorParametersToHost();
 }
@@ -337,7 +397,7 @@ OSStatus Adapter::Initialize()
         auto index = exposed[slot];
         auto host = Globals()->GetParameterOrError(list.entry(index).hostId);
         lastPluginValue[slot] = pluginWrapper.getParameter(index);
-        lastHostValue[slot] = host ? *host : lastPluginValue[slot];
+        lastHostValue[slot] = host ? *host : hostValueOf(index);
     }
 
     resetPending = false;
@@ -404,22 +464,26 @@ int Adapter::indexOfExposed(AudioUnitParameterID id) const noexcept
 {
     const auto& list = pluginWrapper.plugin().parameters();
     auto index = list.indexOfHostId(id);
-    return list.isHostExposed(index) ? index : -1;
+    return space.isListed(list, index) ? index : -1;
+}
+
+bool Adapter::isListed(int index) const noexcept
+{
+    return space.isListed(pluginWrapper.plugin().parameters(), index);
 }
 
 OSStatus Adapter::GetParameterList(AudioUnitScope scope,
                                    AudioUnitParameterID* outList,
                                    UInt32& outCount)
 {
-    if (scope != kAudioUnitScope_Global)
+    if (scope != kAudioUnitScope_Global
+        || space.scheme() == IdScheme::JUCELegacyIndex)
         return MusicDeviceBase::GetParameterList(scope, outList, outCount);
 
-    const auto& list = plugin().parameters();
-    outCount = static_cast<UInt32>(exposed.size());
+    outCount = static_cast<UInt32>(listOrder.size());
 
     if (outList != nullptr)
-        for (auto slot = 0; slot < exposed.size(); ++slot)
-            outList[slot] = list.entry(exposed[slot]).hostId;
+        std::copy(listOrder.begin(), listOrder.end(), outList);
 
     return noErr;
 }
@@ -436,7 +500,7 @@ OSStatus Adapter::GetParameterInfo(AudioUnitScope scope,
     if (index < 0)
         return kAudioUnitErr_InvalidParameter;
 
-    fillParameterInfo(plugin().parameters().entry(index), info);
+    space.fillInfo(plugin().parameters().entry(index), info);
     return noErr;
 }
 
@@ -452,13 +516,13 @@ OSStatus Adapter::GetParameterValueStrings(AudioUnitScope scope,
     if (index < 0)
         return kAudioUnitErr_InvalidParameter;
 
-    const auto& param = plugin().parameters()[index];
+    const auto& entry = plugin().parameters().entry(index);
 
-    if (!hasValueStrings(param))
+    if (!space.hasValueStrings(entry, AUFlavour::V2))
         return kAudioUnitErr_InvalidProperty;
 
     if (outStrings != nullptr)
-        *outStrings = copyValueStrings(param);
+        *outStrings = space.copyValueStrings(entry, AUFlavour::V2);
 
     return noErr;
 }
@@ -486,7 +550,7 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
     // choose between the host's value and one the plugin moved itself.
     if (result == noErr)
     {
-        pluginWrapper.setParameter(index, value);
+        setFromHost(index, value);
 
         if (isMessageThread())
         {
@@ -509,14 +573,27 @@ bool Adapter::isBypassed() const noexcept
 }
 
 // SetParameter's path, so a gesture holding the parameter drops the write; the
-// SDK posts the property itself once SetProperty succeeds.
+// SDK posts the property itself once SetProperty succeeds. A bypass the host does
+// not list (the added one under a JUCE scheme, as JUCE's AU lists none) is the
+// property alone.
 OSStatus Adapter::setBypass(bool on) noexcept
 {
     const auto& list = plugin().parameters();
     auto index = list.bypassIndex();
     auto plain = list[index].toPlain(on ? 1.f : 0.f);
-    auto result = MusicDeviceBase::SetParameter(
-        list.entry(index).hostId, kAudioUnitScope_Global, 0, plain, 0);
+
+    if (!isListed(index))
+    {
+        pluginWrapper.setParameter(index, plain);
+        return noErr;
+    }
+
+    auto result =
+        MusicDeviceBase::SetParameter(list.entry(index).hostId,
+                                      kAudioUnitScope_Global,
+                                      0,
+                                      space.toHost(list.entry(index), plain),
+                                      0);
 
     if (result != noErr)
         return result;
@@ -635,11 +712,11 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
                 if (index < 0)
                     return kAudioUnitErr_InvalidParameter;
 
+                const auto& entry = plugin().parameters().entry(index);
                 auto plain = request->inValue != nullptr
-                                 ? *request->inValue
+                                 ? space.fromHost(entry, *request->inValue)
                                  : pluginWrapper.getParameter(index);
-                request->outString =
-                    copyTextForValue(plugin().parameters()[index], plain);
+                request->outString = copyTextForValue(*entry.param, plain);
                 return noErr;
             }
 
@@ -655,8 +732,9 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
                 if (request->inString == nullptr)
                     return kAudioUnitErr_InvalidPropertyValue;
 
-                request->outValue =
-                    valueForText(plugin().parameters()[index], request->inString);
+                const auto& entry = plugin().parameters().entry(index);
+                request->outValue = space.toHost(
+                    entry, valueForText(*entry.param, request->inString));
                 return noErr;
             }
 
@@ -774,7 +852,7 @@ void Adapter::pushParametersToPlugin()
 
     for (auto index: exposed)
         if (auto value = Globals()->GetParameterOrError(list.entry(index).hostId))
-            pluginWrapper.setParameter(index, *value);
+            setFromHost(index, *value);
 }
 
 void Adapter::mirrorParametersToHost()
@@ -783,7 +861,19 @@ void Adapter::mirrorParametersToHost()
 
     for (auto index: exposed)
         std::ignore = Globals()->SetParameterOrError(
-            list.entry(index).hostId, pluginWrapper.getParameter(index), true);
+            list.entry(index).hostId, hostValueOf(index), true);
+}
+
+float Adapter::hostValueOf(int index) const noexcept
+{
+    const auto& entry = pluginWrapper.plugin().parameters().entry(index);
+    return space.toHost(entry, pluginWrapper.getParameter(index));
+}
+
+void Adapter::setFromHost(int index, float hostValue) noexcept
+{
+    const auto& entry = pluginWrapper.plugin().parameters().entry(index);
+    pluginWrapper.setParameter(index, space.fromHost(entry, hostValue));
 }
 
 OSStatus Adapter::SaveState(CFPropertyListRef* outData)
@@ -806,8 +896,24 @@ OSStatus Adapter::SaveState(CFPropertyListRef* outData)
 
 OSStatus Adapter::RestoreState(CFPropertyListRef plist)
 {
-    // An AUAudioUnit's own state (the AUv3's on an iPad) carries version 1.
-    auto normalized = copyWithStateVersionZero(plist);
+    auto document = std::optional<std::string> {};
+    auto juceState = std::optional<std::string> {};
+
+    try
+    {
+        document = readState(plist);
+
+        if (!document)
+            juceState = readJuceState(plist);
+    }
+    catch (...)
+    {
+    }
+
+    // A JUCE build's dictionary loses its parameter data, whose ids are not
+    // ours; an AUAudioUnit's own state (the AUv3's on an iPad) carries version 1.
+    auto normalized = juceState ? copyWithoutParameterData(plist)
+                                : copyWithStateVersionZero(plist);
 
     if (normalized)
         plist = normalized.get();
@@ -819,9 +925,21 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
 
     try
     {
-        if (auto document = readState(plist))
+        if (document)
         {
             pluginWrapper.loadState(*document, StateContext::Session);
+            mirrorParametersToHost();
+        }
+        else if (juceState)
+        {
+            auto foreign = ForeignState {};
+            foreign.origin = ForeignOrigin::JuceAU;
+            foreign.bytes = *juceState;
+            foreign.context = StateContext::Session;
+
+            // Off the message thread the load runs later, and its
+            // parameterValuesChanged mirrors again.
+            pluginWrapper.loadForeignState(foreign);
             mirrorParametersToHost();
         }
         else
@@ -855,7 +973,7 @@ void Adapter::reconcileParameters() noexcept
 
         if (hostMoved && !pluginWrapper.isParameterHeld(index))
         {
-            pluginWrapper.setParameter(index, *host);
+            setFromHost(index, *host);
             lastHostValue[slot] = *host;
             lastPluginValue[slot] = pluginWrapper.getParameter(index);
             continue;
@@ -866,17 +984,19 @@ void Adapter::reconcileParameters() noexcept
 
         if (hostMoved || value != lastPluginValue[slot])
         {
+            auto hostValue = space.toHost(list.entry(index), value);
+
             // Listeners hear of it from the message thread; a held parameter is
             // the editor's gesture, which reports its own values.
-            if (value != *host)
+            if (hostValue != *host)
             {
-                std::ignore = Globals()->SetParameterOrError(id, value);
+                std::ignore = Globals()->SetParameterOrError(id, hostValue);
 
                 if (!pluginWrapper.isParameterHeld(index))
                     movedByPlugin[slot].store(true, std::memory_order_relaxed);
             }
 
-            lastHostValue[slot] = value;
+            lastHostValue[slot] = hostValue;
         }
 
         lastPluginValue[slot] = value;
@@ -1160,7 +1280,7 @@ void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);
 
-    if (plugin().parameters().isHostExposed(index))
+    if (isListed(index))
         notifyHost(index, kAudioUnitEvent_BeginParameterChangeGesture);
 }
 
@@ -1168,23 +1288,22 @@ void Adapter::performParameterEdit(int index, float) noexcept
 {
     const auto& list = plugin().parameters();
 
-    if (list.isHostExposed(index))
+    if (isListed(index))
     {
         std::ignore = Globals()->SetParameterOrError(
-            list.entry(index).hostId, pluginWrapper.getParameter(index), true);
+            list.entry(index).hostId, hostValueOf(index), true);
         notifyHost(index, kAudioUnitEvent_ParameterValueChange);
-
-        if (index == list.bypassIndex())
-            PropertyChanged(
-                kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
     }
+
+    if (index >= 0 && index == list.bypassIndex())
+        PropertyChanged(kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
 
     notifyHostIfLatencyChanged();
 }
 
 void Adapter::endParameterEdit(int index) noexcept
 {
-    if (plugin().parameters().isHostExposed(index))
+    if (isListed(index))
         notifyHost(index, kAudioUnitEvent_EndParameterChangeGesture);
 
     pluginWrapper.releaseParameter(index);

@@ -8,6 +8,7 @@
 #include "../Parameters/ParameterList.h"
 #include "../State/StateContext.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -23,6 +24,48 @@ enum class PluginFormat
     AUv3,
     AAX,
     Standalone
+};
+
+// Which format of which framework wrote a state that is not ours.
+enum class ForeignOrigin
+{
+    // A JUCE VST3's component state, its private-data trailer already stripped.
+    JuceVST3,
+
+    // A JUCE VST3 built with JUCE_VST3_CAN_REPLACE_VST2, or a VST2 session the
+    // host converted: the chunk out of the 'FBCh' bank, trailer stripped. For a
+    // bank of plain values ('FxBk'), the whole bank: Compat::readVst2Bank reads it.
+    JuceVST2Bank,
+
+    // The `jucePluginState` data of an AU v2 ClassInfo dictionary.
+    JuceAU,
+
+    // The `jucePluginState` data of an AUv3's fullState.
+    JuceAUv3,
+
+    // The 'juce' chunk of an AAX session.
+    JuceAAX,
+
+    // The `filterState` of a JUCE standalone's settings file, base64 decoded.
+    JuceStandalone
+};
+
+// A document another framework's build of this plugin saved, handed over by an
+// adapter that found no MakeASound document. `bytes` are exactly what that
+// build's AudioProcessor::setStateInformation was given, every format's framing
+// taken off; they live only for the call.
+struct ForeignState
+{
+    ForeignOrigin origin = ForeignOrigin::JuceVST3;
+    std::string_view bytes;
+    StateContext context = StateContext::Session;
+
+    // The wrapper's bypass the format saved beside the plugin's bytes (the VST3
+    // trailer's `Bypass`, the VST2 bank's 'VstW' flag), when it saved one.
+    std::optional<bool> bypass;
+
+    // The VST2 bank's current program, when there was a bank.
+    std::optional<int> program;
 };
 
 // A Processor with a host behind it: a name, a layout it negotiates, latency and
@@ -89,6 +132,12 @@ public:
     virtual void loadStateExceptParameters(std::string_view data,
                                            StateContext context);
 
+    // A state another framework wrote (a JUCE build's session, say), which the
+    // adapters hand over when the host's data holds no MakeASound document. True
+    // when the plugin took it; the default takes nothing. Parameters and the rest
+    // alike, on the message thread: Compat/ has the readers.
+    virtual bool loadForeignState(const ForeignState& state);
+
     const ParameterList& parameters() const noexcept { return parameterList; }
 
     // Message thread; null where there is no host.
@@ -124,6 +173,11 @@ private:
 
     // Message thread: grows the added bypass's delay to latencySamples().
     void fitBypassDelay() noexcept;
+
+    // The wrapper's, after the bypass: every host id under the plugin's
+    // description's scheme, kept for a list set again later.
+    void setParameterIdentity(ParameterIdentity identity);
+    std::optional<ParameterIdentity> parameterIdentity;
 
     // Before the list, which points at it.
     OwningPointer<BoolParam> hostBypass;

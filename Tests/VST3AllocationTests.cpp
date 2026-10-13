@@ -5,6 +5,7 @@
 
 #include "AllocationProbe.h"
 #include "VST3TestHost.h"
+#include "JuceFixtures.h"
 
 #include <NanoTest/NanoTest.h>
 
@@ -22,9 +23,11 @@ std::vector<Vst::ParamID> exposedIds(MakeASound::VST3::Adapter& adapter)
 {
     auto ids = std::vector<Vst::ParamID> {};
     const auto& list = adapter.plugin().parameters();
+    auto everyOne = MakeASound::isJuceScheme(list.identity().scheme);
 
+    // A JUCE scheme registers the non-automatable ones too.
     for (auto i = 0; i < list.size(); ++i)
-        if (list.isHostExposed(i))
+        if (everyOne || list.isHostExposed(i))
             ids.push_back(list.entry(i).hostId);
 
     return ids;
@@ -201,6 +204,53 @@ auto tPluginSideChanges =
     }
 
     check(count == 0);
+};
+
+// A JUCE port's ids, unmasked (2^31 and more, the 'byps' bypass) and by index:
+// the queue, the lookups and the plugin's own moves stay off the heap.
+auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
+{
+    using MakeASound::IdScheme;
+    using MakeASound::ParameterIdentity;
+
+    // The fixture's cutoff is 2945903597 unmasked.
+    auto unmasked = AdapterHost<JuceFixtures::FixturePlugin> {
+        ParameterIdentity {IdScheme::JUCE, false}};
+    check(allocationsOverBlocks(unmasked, false, maxBlock) == 0);
+
+    auto ids = exposedIds(*unmasked.adapter);
+    check(std::any_of(
+        ids.begin(), ids.end(), [](auto id) { return id >= 0x80000000u; }));
+
+    const auto& list = unmasked.plugin().parameters();
+    auto& wrapper = unmasked.adapter->wrapper();
+    auto count = 0;
+
+    for (auto value: {0.2f, 0.8f})
+    {
+        unmasked.clearQueues();
+
+        for (auto i = 0; i < list.size(); ++i)
+            wrapper.setNormalizedParameter(i, value);
+
+        unmasked.fillBlock(maxBlock);
+        count += allocationsIn([&] { unmasked.run(); });
+        check(unmasked.outputChanges.getParameterCount()
+              == static_cast<Steinberg::int32>(ids.size()));
+    }
+
+    count += allocationsIn(
+        [&]
+        {
+            for (auto id: ids)
+                unmasked.adapter->setParamNormalized(id, 0.5);
+        });
+
+    check(count == 0);
+
+    auto legacy = AdapterHost<SynthPlugin> {
+        ParameterIdentity {IdScheme::JUCELegacyIndex}};
+    check(allocationsOverBlocks(legacy, false, maxBlock) == 0);
 };
 
 auto tHeldPath = test("Allocations/vst3HeldParameterPathIsOffTheHeap") = []

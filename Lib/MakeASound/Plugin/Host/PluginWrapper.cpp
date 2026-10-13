@@ -26,10 +26,12 @@ float stepTowards(float from, float target, float step) noexcept
 }
 } // namespace
 
-PluginWrapper::PluginWrapper(OwningPointer<Plugin> pluginToUse, PluginFormat format)
+PluginWrapper::PluginWrapper(OwningPointer<Plugin> pluginToUse,
+                             PluginFormat format,
+                             ParameterIdentity identity)
     : pluginPtr(std::move(pluginToUse))
     , layout(pluginPtr->getBusLayout())
-    , holdCounts(addBypassAndCount(*pluginPtr, layout), 0)
+    , holdCounts(addBypassAndCount(*pluginPtr, layout, identity), 0)
     , live(std::make_shared<Live>())
 {
     live->plugin = pluginPtr.get();
@@ -50,11 +52,15 @@ bool PluginWrapper::addsBypass(const Plugin& plugin)
 
 // Decided once, on the declared layout, so the parameter list a host reads at
 // construction never changes under it, whatever layout is negotiated later.
-int PluginWrapper::addBypassAndCount(Plugin& plugin, const BusLayout& declared)
+int PluginWrapper::addBypassAndCount(Plugin& plugin,
+                                     const BusLayout& declared,
+                                     ParameterIdentity identity)
 {
     if (plugin.parameters().bypassIndex() < 0 && !declared.inputs.empty())
         plugin.addHostBypass();
 
+    // After the bypass, so it takes its scheme's id too.
+    plugin.setParameterIdentity(identity);
     return plugin.parameters().size();
 }
 
@@ -238,6 +244,57 @@ void PluginWrapper::loadState(std::string_view document, StateContext stateConte
             if (alive && alive->latestLoad.load(std::memory_order_acquire) == stamp)
                 alive->plugin->loadStateExceptParameters(document, stateContext);
         });
+}
+
+bool PluginWrapper::loadForeignState(const ForeignState& state)
+{
+    // A stamp like loadState's, so a queued load of either kind gives way.
+    auto stamp = live->latestLoad.fetch_add(1, std::memory_order_acq_rel) + 1;
+
+    if (isMessageThread())
+        return applyForeignState(*pluginPtr, state);
+
+    callOnMessageThread(
+        [weak = std::weak_ptr<Live>(live),
+         bytes = std::string(state.bytes),
+         foreign = state,
+         stamp]
+        {
+            auto alive = weak.lock();
+
+            if (!alive || alive->latestLoad.load(std::memory_order_acquire) != stamp)
+                return;
+
+            auto copy = foreign;
+            copy.bytes = bytes;
+
+            // The host read its values when the load returned, before this ran.
+            if (applyForeignState(*alive->plugin, copy))
+                alive->plugin->notifyHostParameterValuesChanged();
+        });
+
+    return true;
+}
+
+bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
+{
+    try
+    {
+        if (!plugin.loadForeignState(state))
+            return false;
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    // Session-only, as the added bypass is in a document of ours; one the state
+    // did not carry stays as it was, as in JUCE.
+    if (state.bypass && state.context == StateContext::Session)
+        if (auto* bypass = plugin.activeHostBypass())
+            bypass->setValue(*state.bypass ? 1.f : 0.f);
+
+    return true;
 }
 
 Parameter* PluginWrapper::parameterAt(int index) const noexcept

@@ -7,6 +7,7 @@
 // the SDK is C++23 and these suites are not.
 
 #include "HostBuffers.h"
+#include "JucePort.h"
 #include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AU/ComponentType.h>
@@ -25,6 +26,7 @@
 #include <vector>
 
 extern "C" void* MakeASoundAUFactory(const AudioComponentDescription* desc);
+extern "C" void* MakeASoundAUTestPortFactory(const AudioComponentDescription* desc);
 
 namespace AUHost
 {
@@ -97,6 +99,54 @@ inline AudioComponent componentFor(FourCC code)
     return registerComponent(descriptionFor(code));
 }
 
+// JucePort.h's descriptions, which are no part of describeModule(): the test
+// module's MakeASoundAUTestPortFactory builds the module's adapter over them.
+inline AudioComponentPlugInInterface*
+    portFactory(const AudioComponentDescription* desc)
+{
+    return static_cast<AudioComponentPlugInInterface*>(
+        MakeASoundAUTestPortFactory(desc));
+}
+
+inline const ModuleDescription& portModule()
+{
+    static const auto module = []
+    {
+        auto result = ModuleDescription {};
+        result.vendor = "MakeASound Tests";
+        result.manufacturerCode = JucePort::manufacturer;
+        result.plugins.add(JucePort::description(IdScheme::JUCE));
+        result.plugins.add(JucePort::description(IdScheme::JUCELegacyIndex));
+        return result;
+    }();
+
+    return module;
+}
+
+inline AudioComponentDescription portDescriptionFor(IdScheme scheme)
+{
+    auto info = AU::componentInfoFor(portModule(), JucePort::description(scheme));
+
+    return {.componentType = info.type,
+            .componentSubType = info.subtype,
+            .componentManufacturer = info.manufacturer};
+}
+
+// Once per scheme, under the type its plist would register.
+inline AudioComponent portComponentFor(IdScheme scheme)
+{
+    static auto registered = std::map<IdScheme, AudioComponent> {};
+
+    if (auto found = registered.find(scheme); found != registered.end())
+        return found->second;
+
+    auto desc = portDescriptionFor(scheme);
+    auto* component = AudioComponentRegister(
+        &desc, CFSTR("MakeASound Tests: Port"), 0x10000, &portFactory);
+    registered.emplace(scheme, component);
+    return component;
+}
+
 using HostBuffers::HostBus;
 using HostBuffers::SentMidi;
 
@@ -113,9 +163,14 @@ template <typename P>
 struct UnitHost
 {
     explicit UnitHost(FourCC code, Start start = Start::Initialized)
+        : UnitHost(componentFor(code), start)
+    {
+    }
+
+    explicit UnitHost(AudioComponent component, Start start = Start::Initialized)
     {
         TestPlugins::Module::lastCreated = nullptr;
-        status = AudioComponentInstanceNew(componentFor(code), &unit);
+        status = AudioComponentInstanceNew(component, &unit);
         nano::check(status == noErr && unit != nullptr);
         pluginPtr = static_cast<P*>(TestPlugins::Module::lastCreated);
         sent.reserve(256);

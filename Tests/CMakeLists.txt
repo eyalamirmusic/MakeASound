@@ -28,7 +28,9 @@ if (MAKEASOUND_BUILD_PLUGIN)
             ParameterTests.cpp
             StateTests.cpp
             PluginTests.cpp
-            EditorTests.cpp)
+            EditorTests.cpp
+            JuceCompatTests.cpp
+            JuceIdentityTests.cpp)
 
     # eacp-core so the swap's and the wrapper's cases can pump the message loop.
     list(APPEND MAKEASOUND_TEST_SOURCES RealtimeSwapTests.cpp)
@@ -78,7 +80,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
         get_target_property(au_view_source MakeASoundAU MAKEASOUND_AU_VIEW_SOURCE)
         get_target_property(au_view_libraries MakeASoundAU MAKEASOUND_AU_VIEW_LIBRARIES)
 
-        add_library(MakeASoundAUTestModule STATIC "${au_entry}" "${au_view_source}")
+        # AUTestPortFactory.cpp: the factory over JucePort.h's JUCE-scheme
+        # descriptions, an adapter of the module's built over a description of
+        # the tests' own.
+        add_library(MakeASoundAUTestModule STATIC
+                "${au_entry}" "${au_view_source}" AUTestPortFactory.cpp)
         target_link_libraries(MakeASoundAUTestModule PRIVATE
                 MakeASoundAU ${au_view_libraries})
         target_compile_definitions(MakeASoundAUTestModule PRIVATE

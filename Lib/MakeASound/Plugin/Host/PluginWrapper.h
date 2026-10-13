@@ -26,8 +26,12 @@ public:
     // The key the added bypass is saved under in a Session document.
     static constexpr const char* bypassStateKey = "__bypass";
 
+    // `identity` is the plugin's description's (parameterIdentityFor()): every
+    // entry of parameters() then carries the ids that scheme gives it, the added
+    // bypass's included.
     explicit PluginWrapper(OwningPointer<Plugin> pluginToUse,
-                           PluginFormat format = PluginFormat::Unknown);
+                           PluginFormat format = PluginFormat::Unknown,
+                           ParameterIdentity identity = {});
 
     // Whether a wrapper around `plugin` adds a bypass: it has none of its own and
     // its declared layout has a main input. For code that describes a plugin
@@ -70,6 +74,15 @@ public:
     // turns the bypass off. A Preset never carries it.
     std::string saveState(StateContext context);
     void loadState(std::string_view data, StateContext context);
+
+    // A document another framework wrote, for the plugin's loadForeignState: on
+    // the message thread now, returning the plugin's answer; from any other
+    // thread queued there with a copy of the bytes, ordered against loadState as
+    // a load of its own (a later load of either kind wins, teardown drops it),
+    // returning true and telling the host every value moved once the plugin took
+    // it. A `bypass` in a Session state the plugin took sets the added bypass,
+    // where there is one; a plugin with its own bypass reads it from the state.
+    bool loadForeignState(const ForeignState& state);
 
     // Host writes; each is dropped while the parameter is held.
     void setNormalizedParameter(int index, float normalized) noexcept;
@@ -138,12 +151,15 @@ private:
         int startSample = 0;
     };
 
-    static int addBypassAndCount(Plugin& plugin, const BusLayout& declared);
+    static int addBypassAndCount(Plugin& plugin,
+                                 const BusLayout& declared,
+                                 ParameterIdentity identity);
 
     Parameter* parameterAt(int index) const noexcept;
     Parameter* writableParameterAt(int index) const noexcept;
 
     std::string savePluginState(StateContext context);
+    static bool applyForeignState(Plugin& plugin, const ForeignState& state);
     std::string withBypass(std::string document, StateContext context) const;
     std::string_view takeBypass(std::string_view document,
                                 StateContext context,

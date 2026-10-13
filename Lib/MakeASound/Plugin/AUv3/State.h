@@ -24,4 +24,12 @@ NSDictionary<NSString*, id>* makeState(const AudioComponentDescription& descript
 std::optional<std::string> readState(NSDictionary<NSString*, id>* state,
                                      const AudioComponentDescription& description);
 
+// What a JUCE build of the plugin saved in the same dictionary (AUv3.mm's
+// getFullState, for fullState and fullStateForDocument alike): its
+// `jucePluginState` data, or nullopt when the dictionary is another
+// component's or carries none.
+std::optional<std::string>
+    readJuceState(NSDictionary<NSString*, id>* state,
+                  const AudioComponentDescription& description);
+
 } // namespace MakeASound::AUv3

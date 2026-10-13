@@ -36,6 +36,15 @@ void Plugin::setParameters(ParameterList list)
 
     if (hostBypass != nullptr)
         parameterList.addHostBypass(*hostBypass);
+
+    if (parameterIdentity)
+        parameterList.setIdentity(*parameterIdentity);
+}
+
+void Plugin::setParameterIdentity(ParameterIdentity identity)
+{
+    parameterIdentity = identity;
+    parameterList.setIdentity(identity);
 }
 
 void Plugin::addHostBypass()
@@ -77,6 +86,11 @@ std::string Plugin::saveStateWithoutMessageThread(StateContext)
 
 void Plugin::loadParameters(std::string_view, StateContext)
 {
+}
+
+bool Plugin::loadForeignState(const ForeignState&)
+{
+    return false;
 }
 
 void Plugin::loadStateExceptParameters(std::string_view data, StateContext context)

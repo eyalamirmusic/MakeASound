@@ -3,6 +3,7 @@
 // loopback, the settings file and StandaloneHost.
 
 #include "TestPlugins.h"
+#include "JuceFixtures.h"
 
 #include <MakeASound/Plugin/Standalone/StandaloneProcessor.h>
 #include <MakeASound/Plugin/Standalone/MidiSender.h>
@@ -15,6 +16,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -345,14 +347,26 @@ auto tSenderNoOutput = test("Standalone/theSenderDropsWithNoOutputOpen") = []
 
 // Settings.
 
+// A folder of its own per instance: ctest runs every case in a process of its
+// own, in parallel under -j, and one shared folder had each case's constructor
+// and destructor delete the files another case was in the middle of reading.
+std::filesystem::path uniqueTempDirectory()
+{
+    static auto counter = std::atomic<unsigned> {0};
+    static auto processTag = std::random_device {}();
+
+    auto name = "MakeASoundStandaloneTests-" + std::to_string(processTag) + "-"
+                + std::to_string(counter++);
+    return std::filesystem::temp_directory_path() / name;
+}
+
 struct TempFile
 {
     TempFile() { std::filesystem::remove_all(directory); }
 
     ~TempFile() { std::filesystem::remove_all(directory); }
 
-    std::filesystem::path directory =
-        std::filesystem::temp_directory_path() / "MakeASoundStandaloneTests";
+    std::filesystem::path directory = uniqueTempDirectory();
     std::string path = (directory / "nested" / "settings.json").string();
 };
 
@@ -630,6 +644,16 @@ auto tHostLayout = test("Standalone/hostReportsThePluginsLayout") = []
     check(instrument.injectMidi(MIDI::Event::noteOn(0, 60, 1.f)));
 };
 
+auto tHostIdentity = test("Standalone/hostAppliesTheDescriptionsIdentity") = []
+{
+    auto native = StandaloneHost {EA::makeOwned<GainPlugin>(), {}};
+    check(native.plugin().parameters().identity() == ParameterIdentity {});
+
+    auto juce = ParameterIdentity {IdScheme::JUCE, false};
+    auto port = StandaloneHost {EA::makeOwned<GainPlugin>(), {}, {}, juce};
+    check(port.plugin().parameters().identity() == juce);
+};
+
 auto tHostStart = test("Standalone/hostStartsOnAGoneDeviceWithoutCrashing") = []
 {
     auto file = TempFile {};
@@ -667,5 +691,103 @@ auto tHostStart = test("Standalone/hostStartsOnAGoneDeviceWithoutCrashing") = []
     check(loaded->midiOutputPort.empty());
     check(!loaded->audio.output
           || loaded->audio.output->device.name != "No Such Device");
+};
+
+// What a JUCE build of the plugin's standalone saved.
+
+using JuceFixtures::FixturePlugin;
+
+FixturePlugin& fixtureOf(StandaloneHost& host)
+{
+    return static_cast<FixturePlugin&>(host.plugin());
+}
+
+// A JUCE settings file beside the native one, holding `contents`.
+std::string writeJuceSettings(const TempFile& file, const std::string& contents)
+{
+    auto path = file.directory / "Fixture.settings";
+    std::filesystem::create_directories(file.directory);
+    std::ofstream(path, std::ios::binary) << contents;
+    return path.string();
+}
+
+auto tJucePath = test("Standalone/juceSettingsPathIsNamedAfterTheJuceBuild") = []
+{
+    auto path = juceSettingsPath("Fixture");
+
+    // The folder is the platform's; there may be none where JUCE knew none.
+    check(path.empty() || path.ends_with("Fixture.settings"));
+    check(juceSettingsPath("").empty());
+};
+
+auto tJuceImport = test("Standalone/hostImportsAJuceBuildsSettingsOnce") = []
+{
+    auto file = TempFile {};
+    auto juceFile = writeJuceSettings(
+        file, JuceFixtures::standaloneSettings(JuceFixtures::apvtsBase64));
+
+    {
+        auto host =
+            StandaloneHost {EA::makeOwned<FixturePlugin>(), file.path, juceFile};
+        check(host.juceSettingsFile() == juceFile);
+
+        auto& plugin = fixtureOf(host);
+        check(plugin.legacyLoads == 1);
+        check(plugin.origin == ForeignOrigin::JuceStandalone);
+        check(plugin.context == StateContext::Session);
+        check(JuceFixtures::holdsFixtureValues(plugin.params));
+    }
+
+    // The host's save wrote the native file, so the next launch reads that.
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(loaded->pluginState.starts_with("{"));
+
+    auto host = StandaloneHost {EA::makeOwned<FixturePlugin>(), file.path, juceFile};
+    check(fixtureOf(host).legacyLoads == 0);
+    check(JuceFixtures::holdsFixtureValues(fixtureOf(host).params));
+};
+
+auto tJuceNotNeeded = test("Standalone/aNativeSettingsFileWinsOverAJuceOne") = []
+{
+    auto file = TempFile {};
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<FixturePlugin>(), file.path};
+        fixtureOf(host).params.cutoff.setValue(2000.f);
+    }
+
+    auto juceFile = writeJuceSettings(
+        file, JuceFixtures::standaloneSettings(JuceFixtures::apvtsBase64));
+    auto host = StandaloneHost {EA::makeOwned<FixturePlugin>(), file.path, juceFile};
+    check(fixtureOf(host).legacyLoads == 0);
+    check(fixtureOf(host).params.cutoff.getValue() == 2000.f);
+};
+
+auto tJuceRefused =
+    test("Standalone/aJuceImportThePluginCannotReadMovesNothing") = []
+{
+    auto file = TempFile {};
+
+    // No such file, a file with no state, and a state the plugin refuses.
+    {
+        auto host = StandaloneHost {
+            EA::makeOwned<FixturePlugin>(), {}, (file.directory / "Gone").string()};
+        check(fixtureOf(host).legacyLoads == 0);
+    }
+
+    auto noState = writeJuceSettings(file, "<PROPERTIES/>");
+    {
+        auto host = StandaloneHost {EA::makeOwned<FixturePlugin>(), {}, noState};
+        check(fixtureOf(host).legacyLoads == 0);
+        check(JuceFixtures::holdsDefaults(fixtureOf(host).params));
+    }
+
+    // The blob's first 12 bytes: no XML the plugin can read.
+    auto truncated = writeJuceSettings(
+        file, JuceFixtures::standaloneSettings("12.VMjLgfS....O+fWarAhckI2bo8la"));
+    auto host = StandaloneHost {EA::makeOwned<FixturePlugin>(), {}, truncated};
+    check(fixtureOf(host).legacyLoads == 1);
+    check(JuceFixtures::holdsDefaults(fixtureOf(host).params));
 };
 } // namespace

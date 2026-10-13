@@ -7,27 +7,30 @@ namespace MakeASound::AUv3
 
 namespace
 {
-AUParameter* makeParameter(const ParameterList::Entry& entry)
+AUParameter* makeParameter(const ParameterList::Entry& entry,
+                           const AU::ParameterSpace& space)
 {
     const auto& param = *entry.param;
 
     auto info = AudioUnitParameterInfo {};
-    AU::fillParameterInfo(entry, info);
+    space.fillInfo(entry, info);
 
     if (info.cfNameString != nullptr)
         CFRelease(info.cfNameString);
 
-    auto flags = info.flags
-                 & ~(kAudioUnitParameterFlag_HasCFNameString
-                     | kAudioUnitParameterFlag_CFNameRelease);
+    // JUCE's AUv3 passes HasCFNameString through; MakeASound's tree never did.
+    auto flags = info.flags & ~kAudioUnitParameterFlag_CFNameRelease;
+
+    if (!space.isJuce())
+        flags &= ~kAudioUnitParameterFlag_HasCFNameString;
 
     auto* strings = static_cast<NSArray<NSString*>*>(
-        CFBridgingRelease(AU::copyValueStrings(param)));
+        CFBridgingRelease(space.copyValueStrings(entry, AU::AUFlavour::V3)));
 
     auto* parameter =
-        [AUParameterTree createParameterWithIdentifier:toNSString(entry.id)
+        [AUParameterTree createParameterWithIdentifier:toNSString(entry.identifier)
                                                   name:toNSString(entry.displayName)
-                                               address:entry.hostId
+                                               address:entry.address
                                                    min:info.minValue
                                                    max:info.maxValue
                                                   unit:info.unit
@@ -36,7 +39,9 @@ AUParameter* makeParameter(const ParameterList::Entry& entry)
                                           valueStrings:strings
                                    dependentParameters:nil];
 
-    parameter.value = param.getValue();
+    // JUCE seeds its tree with the normalized default, whatever the range.
+    parameter.value = space.isJuce() ? param.toNormalized(param.defaultValue())
+                                     : space.toHost(entry, param.getValue());
     return parameter;
 }
 
@@ -54,7 +59,7 @@ void closeLevel(Vector<Level>& levels)
     levels.pop_back();
 
     auto* node =
-        [AUParameterTree createGroupWithIdentifier:toNSString(level.group->id)
+        [AUParameterTree createGroupWithIdentifier:toNSString(level.group->identifier)
                                               name:toNSString(level.group->name)
                                           children:level.children];
     [levels.back().children addObject:node];
@@ -69,7 +74,8 @@ bool isOpen(const Vector<Level>& levels,
 }
 } // namespace
 
-AUParameterTree* makeParameterTree(const ParameterList& list)
+AUParameterTree* makeParameterTree(const ParameterList& list,
+                                   const AU::ParameterSpace& space)
 {
     // levels[0] is the root; levels[d + 1] the entry's d-th enclosing group.
     auto levels = Vector<Level> {};
@@ -77,7 +83,7 @@ AUParameterTree* makeParameterTree(const ParameterList& list)
 
     for (auto index = 0; index < list.size(); ++index)
     {
-        if (!list.isHostExposed(index))
+        if (!space.isListed(list, index))
             continue;
 
         const auto& entry = list.entry(index);
@@ -92,7 +98,7 @@ AUParameterTree* makeParameterTree(const ParameterList& list)
         for (auto depth = shared; depth < entry.groups.size(); ++depth)
             levels.add({&entry.groups[depth], [NSMutableArray array]});
 
-        [levels.back().children addObject:makeParameter(entry)];
+        [levels.back().children addObject:makeParameter(entry, space)];
     }
 
     while (levels.size() > 1)

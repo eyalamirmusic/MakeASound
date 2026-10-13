@@ -1222,4 +1222,296 @@ auto tBypassChecked = test("Plugin/theLatencyCheckWidensTheAddedBypassDelay") = 
     for (auto k = 0; k < static_cast<int>(heard.size()); ++k)
         check(heard[k] == (k < 150 ? 0.f : 1.f + static_cast<float>(k - 150)));
 };
+
+// A port of a JUCE effect: its APVTS was "Legacy" with `cutoff` and `mode`, and
+// it kept a `preset` property on the root.
+struct LegacyParams : ParameterGroup
+{
+    LegacyParams() { add(cutoff, mode); }
+
+    FloatParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f, {.id = "cutoff"}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.id = "mode"}};
+};
+
+struct LegacyOwnBypassParams : ParameterGroup
+{
+    LegacyOwnBypassParams() { add(cutoff, mode, bypass); }
+
+    FloatParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f, {.id = "cutoff"}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.id = "mode"}};
+    BoolParam bypass {"Bypass", false, {.id = "bypass", .bypass = true}};
+};
+
+std::atomic<int> legacyLoadsEver {0};
+
+template <typename ParamsT>
+struct LegacyEffectOf : StatePlugin<GainStateOf<ParamsT>>
+{
+    std::string_view name() const override { return "Legacy"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    bool loadLegacy(const ForeignState& foreign) override
+    {
+        ++legacyLoads;
+        ++legacyLoadsEver;
+        lastOrigin = foreign.origin;
+        lastBypass = foreign.bypass;
+
+        auto root = Compat::loadJuceApvtsBlob(
+            foreign.bytes, this->params, {.rootType = "Legacy"});
+
+        if (!root)
+            return false;
+
+        if (const auto* preset = root->property("preset"))
+            this->state.preset = *preset;
+
+        return true;
+    }
+
+    int legacyLoads = 0;
+    ForeignOrigin lastOrigin = ForeignOrigin::JuceVST3;
+    std::optional<bool> lastBypass;
+};
+
+using LegacyEffect = LegacyEffectOf<LegacyParams>;
+using LegacyOwnBypassEffect = LegacyEffectOf<LegacyOwnBypassParams>;
+
+struct NotificationCounter : HostEditListener
+{
+    void beginParameterEdit(int) noexcept override {}
+    void performParameterEdit(int, float) noexcept override {}
+    void endParameterEdit(int) noexcept override {}
+    void parameterValuesChanged() noexcept override { ++values; }
+    void stateChanged() noexcept override { ++states; }
+
+    std::atomic<int> values {0};
+    int states = 0;
+};
+
+// copyXmlToBinary's framing around a single-line XML.
+std::string juceBlob(std::string_view xml)
+{
+    auto blob = std::string {"VC2!"};
+    auto size = static_cast<uint32_t>(xml.size());
+
+    for (auto i = 0; i < 4; ++i)
+        blob += static_cast<char>((size >> (8 * i)) & 0xff);
+
+    blob += xml;
+    blob += '\0';
+    return blob;
+}
+
+const auto legacyBlob =
+    juceBlob("<Legacy preset=\"Old\"><PARAM id=\"cutoff\" value=\"440.0\"/>"
+             "<PARAM id=\"mode\" value=\"2.0\"/></Legacy>");
+
+ForeignState foreignState(std::string_view bytes,
+                          std::optional<bool> bypass = std::nullopt,
+                          StateContext context = StateContext::Session)
+{
+    auto state = ForeignState {};
+    state.origin = ForeignOrigin::JuceAU;
+    state.bytes = bytes;
+    state.context = context;
+    state.bypass = bypass;
+    return state;
+}
+
+std::string legacyDocument(float cutoff, const std::string& preset)
+{
+    auto source = makeWrapper<LegacyEffect>();
+    source.setParameter(0, cutoff);
+    pluginOf<LegacyEffect>(source).state.preset = preset;
+    pluginOf<LegacyEffect>(source).state.markChanged();
+    return source.saveState(StateContext::Session);
+}
+
+auto tForeignDefault = test("Plugin/aPluginTakesNoForeignStateByDefault") = []
+{
+    auto wrapper = makeWrapper();
+    check(!wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(!isBypassed(wrapper));
+
+    auto plain = PluginWrapper(EA::makeOwned<ThrowingPlugin>());
+    check(!plain.loadForeignState(foreignState(legacyBlob)));
+};
+
+auto tForeignInline = test("Plugin/aForeignStateLoadsAtOnceOnTheMessageThread") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto state = foreignState(legacyBlob, true);
+    state.origin = ForeignOrigin::JuceAAX;
+    check(wrapper.loadForeignState(state));
+
+    check(plugin.legacyLoads == 1);
+    check(plugin.lastOrigin == ForeignOrigin::JuceAAX);
+    check(plugin.lastBypass == std::optional {true});
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(plugin.params.mode.getIndex() == 2);
+    check(plugin.state.preset == "Old");
+    check(isBypassed(wrapper));
+
+    // Republished, and a load the host asked for: no dirty mark, and the
+    // values are the adapter's to re-read on its own thread.
+    check(plugin.isStateSnapshotCurrent());
+    check(contains(wrapper.saveState(StateContext::Session), "Old"));
+    check(listener.states == 0);
+    check(listener.values == 0);
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tForeignRefused = test("Plugin/aRefusedForeignStateLeavesTheBypass") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    check(!wrapper.loadForeignState(foreignState("not a JUCE state", true)));
+    check(plugin.legacyLoads == 1);
+    check(!isBypassed(wrapper));
+
+    auto otherRoot =
+        juceBlob("<Other><PARAM id=\"cutoff\" value=\"440.0\"/></Other>");
+    check(!wrapper.loadForeignState(foreignState(otherRoot, true)));
+    check(near(plugin.params.cutoff.get(), 1000.f));
+};
+
+auto tForeignPreset = test("Plugin/aForeignPresetLeavesTheAddedBypass") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+
+    check(wrapper.loadForeignState(
+        foreignState(legacyBlob, true, StateContext::Preset)));
+    check(near(pluginOf<LegacyEffect>(wrapper).params.cutoff.get(), 440.f));
+    check(!isBypassed(wrapper));
+
+    // A state that carries no bypass leaves it where it was, as JUCE does.
+    setBypass(wrapper, true);
+    check(wrapper.loadForeignState(foreignState(legacyBlob)));
+    check(isBypassed(wrapper));
+};
+
+auto tForeignOwnBypass =
+    test("Plugin/aForeignBypassIsThePluginsWhenItHasItsOwn") = []
+{
+    auto wrapper = makeWrapper<LegacyOwnBypassEffect>();
+    auto& plugin = pluginOf<LegacyOwnBypassEffect>(wrapper);
+    check(!PluginWrapper::addsBypass(plugin));
+
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(plugin.lastBypass == std::optional {true});
+    check(!plugin.params.bypass.isOn());
+};
+
+auto tForeignDeferred = test("Plugin/aForeignStateFromAnotherThreadLoadsLater") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto taken = false;
+
+    {
+        // The bytes go before the load runs: the wrapper keeps its own copy.
+        auto bytes = std::string {legacyBlob};
+        auto host = std::thread(
+            [&] { taken = wrapper.loadForeignState(foreignState(bytes, true)); });
+        host.join();
+    }
+
+    check(taken);
+    check(plugin.legacyLoads == 0);
+    check(near(plugin.params.cutoff.get(), 1000.f));
+
+    check(pumpUntil([&] { return plugin.legacyLoads == 1; }));
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(plugin.state.preset == "Old");
+    check(isBypassed(wrapper));
+    check(listener.values == 1);
+    check(listener.states == 0);
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tForeignThenNative =
+    test("Plugin/aLaterNativeLoadDropsAQueuedForeignState") = []
+{
+    auto document = legacyDocument(100.f, "Native");
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    auto host =
+        std::thread([&] { wrapper.loadForeignState(foreignState(legacyBlob)); });
+    host.join();
+
+    wrapper.loadState(document, StateContext::Session);
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+
+    check(plugin.legacyLoads == 0);
+    check(near(plugin.params.cutoff.get(), 100.f));
+    check(plugin.state.preset == "Native");
+};
+
+auto tNativeThenForeign = test("Plugin/aForeignStateDropsAQueuedNativeLoad") = []
+{
+    auto document = legacyDocument(100.f, "Native");
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    auto host =
+        std::thread([&] { wrapper.loadState(document, StateContext::Session); });
+    host.join();
+    check(near(plugin.params.cutoff.get(), 100.f));
+
+    check(wrapper.loadForeignState(foreignState(legacyBlob)));
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(plugin.state.preset == "Old");
+};
+
+auto tForeignTwice = test("Plugin/onlyTheLatestQueuedForeignStateRuns") = []
+{
+    const auto second = juceBlob(
+        "<Legacy preset=\"Second\"><PARAM id=\"cutoff\" value=\"220\"/></Legacy>");
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+
+    for (const auto* bytes: {&legacyBlob, &second})
+    {
+        auto host =
+            std::thread([&] { wrapper.loadForeignState(foreignState(*bytes)); });
+        host.join();
+    }
+
+    check(pumpUntil([&] { return plugin.state.preset == "Second"; }));
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {50});
+
+    check(plugin.legacyLoads == 1);
+    check(near(plugin.params.cutoff.get(), 220.f));
+};
+
+auto tForeignTeardown = test("Plugin/aForeignStateQueuedPastTeardownDrops") = []
+{
+    legacyLoadsEver = 0;
+
+    {
+        auto wrapper = makeWrapper<LegacyEffect>();
+        auto host =
+            std::thread([&] { wrapper.loadForeignState(foreignState(legacyBlob)); });
+        host.join();
+    }
+
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
+    check(legacyLoadsEver == 0);
+};
 } // namespace

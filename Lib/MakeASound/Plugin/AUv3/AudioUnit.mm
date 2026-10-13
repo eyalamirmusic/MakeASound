@@ -11,6 +11,11 @@ using MakeASound::StateContext;
 using MakeASound::AUv3::Adapter;
 
 @interface MAKEASOUND_AUV3_UNIT : AUAudioUnit
+- (instancetype)initWithComponentDescription:(AudioComponentDescription)description
+                                      plugin:(const MakeASound::PluginDescription*)plugin
+                                     options:
+                                         (AudioComponentInstantiationOptions)options
+                                       error:(NSError**)outError;
 - (Adapter*)adapter;
 @end
 
@@ -24,6 +29,19 @@ using MakeASound::AUv3::Adapter;
                                          (AudioComponentInstantiationOptions)options
                                        error:(NSError**)outError
 {
+    return [self initWithComponentDescription:description
+                                       plugin:nullptr
+                                      options:options
+                                        error:outError];
+}
+
+// `plugin` null: the module's plugin of the description's codes.
+- (instancetype)initWithComponentDescription:(AudioComponentDescription)description
+                                      plugin:(const MakeASound::PluginDescription*)plugin
+                                     options:
+                                         (AudioComponentInstantiationOptions)options
+                                       error:(NSError**)outError
+{
     self = [super initWithComponentDescription:description
                                        options:options
                                          error:outError];
@@ -31,7 +49,9 @@ using MakeASound::AUv3::Adapter;
     if (self == nil)
         return nil;
 
-    adapter = Adapter::create(self, description, outError);
+    adapter = plugin != nullptr
+                  ? Adapter::create(self, description, *plugin, outError)
+                  : Adapter::create(self, description, outError);
     return adapter ? self : nil;
 }
 
@@ -162,6 +182,18 @@ using MakeASound::AUv3::Adapter;
 Class MakeASound::AUv3::audioUnitClass() noexcept
 {
     return [MAKEASOUND_AUV3_UNIT class];
+}
+
+AUAudioUnit*
+    MakeASound::AUv3::createAudioUnit(AudioComponentDescription description,
+                                      const PluginDescription& plugin,
+                                      AudioComponentInstantiationOptions options,
+                                      NSError** outError)
+{
+    return [[MAKEASOUND_AUV3_UNIT alloc] initWithComponentDescription:description
+                                                               plugin:&plugin
+                                                              options:options
+                                                                error:outError];
 }
 
 Adapter* MakeASound::AUv3::adapterOf(AUAudioUnit* unit) noexcept

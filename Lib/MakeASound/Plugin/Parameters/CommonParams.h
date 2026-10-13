@@ -19,6 +19,14 @@ struct DecibelParam : FloatParam
     {
     }
 
+    DecibelParam(std::string_view nameToUse,
+                 FloatRange rangeDb,
+                 float defaultDb,
+                 ParameterOptions options = {})
+        : FloatParam(nameToUse, rangeDb, defaultDb, options)
+    {
+    }
+
     float decibels() const noexcept { return get(); }
     float gain() const noexcept { return std::pow(10.f, get() / 20.f); }
 
@@ -28,7 +36,10 @@ struct DecibelParam : FloatParam
     }
 };
 
-// A linearly mapped frequency. Typed text may use kHz.
+// A frequency, skewed so the geometric mean √(min·max) sits at the middle of the
+// travel (20 Hz–20 kHz puts 632 Hz there), or linear when the range starts at 0
+// Hz or below. The FloatRange overload takes any other curve. Typed text may use
+// kHz.
 struct HzParam : FloatParam
 {
     HzParam(std::string_view nameToUse,
@@ -36,8 +47,24 @@ struct HzParam : FloatParam
             float maxHz,
             float defaultHz,
             ParameterOptions options = {})
-        : FloatParam(nameToUse, minHz, maxHz, defaultHz, options)
+        : FloatParam(nameToUse, rangeFor(minHz, maxHz), defaultHz, options)
     {
+    }
+
+    HzParam(std::string_view nameToUse,
+            FloatRange rangeHz,
+            float defaultHz,
+            ParameterOptions options = {})
+        : FloatParam(nameToUse, rangeHz, defaultHz, options)
+    {
+    }
+
+    static FloatRange rangeFor(float minHz, float maxHz) noexcept
+    {
+        if (minHz <= 0.f || maxHz <= minHz)
+            return {minHz, maxHz};
+
+        return FloatRange::withCentre(minHz, maxHz, std::sqrt(minHz * maxHz));
     }
 
     std::string valueToText(float hz) const override
@@ -65,6 +92,14 @@ struct TimeParam : FloatParam
               float defaultSeconds,
               ParameterOptions options = {})
         : FloatParam(nameToUse, minSeconds, maxSeconds, defaultSeconds, options)
+    {
+    }
+
+    TimeParam(std::string_view nameToUse,
+              FloatRange rangeSeconds,
+              float defaultSeconds,
+              ParameterOptions options = {})
+        : FloatParam(nameToUse, rangeSeconds, defaultSeconds, options)
     {
     }
 

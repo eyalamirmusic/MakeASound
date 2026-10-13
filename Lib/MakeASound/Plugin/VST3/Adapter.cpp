@@ -5,6 +5,7 @@
 #include "PlugViewFactory.h"
 #include "Stream.h"
 #include "Text.h"
+#include "../Compat/JuceState.h"
 #include "../Realtime/MessageThread.h"
 
 #include "pluginterfaces/gui/iplugview.h"
@@ -19,8 +20,27 @@
 namespace MakeASound::VST3
 {
 
-Adapter::Adapter(OwningPointer<Plugin> plugin)
-    : pluginWrapper(std::move(plugin), PluginFormat::VST3)
+namespace
+{
+// What a JUCE VST3 writes, as positively as it can be told: a VST2 bank, the
+// private-data trailer its wrapper always appends, or a copyXmlToBinary blob
+// from one old enough to have had no trailer. A MakeASound document is JSON, and
+// a plugin's own non-JSON document carries none of these.
+bool isJuceState(std::string_view bytes)
+{
+    auto first = bytes.find_first_not_of(" \t\r\n");
+
+    if (first == std::string_view::npos || bytes[first] == '{')
+        return false;
+
+    return Compat::readVst2Bank(bytes).has_value()
+           || Compat::stripJucePrivateData(bytes).pluginState.size() != bytes.size()
+           || Compat::isJuceXmlBlob(bytes);
+}
+} // namespace
+
+Adapter::Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity)
+    : pluginWrapper(std::move(plugin), PluginFormat::VST3, identity)
     , numMidiInputs(
           std::min(pluginWrapper.busLayout().midiInputs.size(), maxShadowBuses))
 {
@@ -31,7 +51,7 @@ Adapter::Adapter(OwningPointer<Plugin> plugin)
         static_cast<size_t>(std::max(0, list.size())));
 
     for (auto i = 0; i < list.size(); ++i)
-        if (list.isHostExposed(i))
+        if (isRegistered(i))
             exposed.add(i);
 
     takeAllAsBaseline();
@@ -44,6 +64,9 @@ Adapter::Adapter(OwningPointer<Plugin> plugin)
         .needCycleMusic();
 
 #ifndef NDEBUG
+    // The parameter wins and the shadow is not registered. A JUCE port's ids are
+    // a JUCE build's, which it cannot move without losing automation, so there
+    // the collision is only reported.
     for (const auto& entry: this->plugin().parameters())
     {
         if (!decodeShadowId(entry.hostId, numMidiInputs))
@@ -55,9 +78,15 @@ Adapter::Adapter(OwningPointer<Plugin> plugin)
                      "hostId\n",
                      entry.id.c_str(),
                      static_cast<unsigned>(entry.hostId));
-        assert(false && "a parameter's host id collides with a shadow parameter");
+        assert(isJuceScheme(list.identity().scheme)
+               && "a parameter's host id collides with a shadow parameter");
     }
 #endif
+}
+
+bool Adapter::isRegistered(int index) const noexcept
+{
+    return pluginWrapper.plugin().parameters().isRegistered(index);
 }
 
 Adapter::~Adapter()
@@ -132,7 +161,7 @@ void Adapter::registerParameters()
     const auto& list = plugin().parameters();
 
     for (auto i = 0; i < list.size(); ++i)
-        if (list.isHostExposed(i))
+        if (isRegistered(i))
             parameters.addParameter(new ProxyParameter(list.entry(i)));
 }
 
@@ -196,7 +225,16 @@ tresult PLUGIN_API Adapter::setState(IBStream* state)
 
     try
     {
-        pluginWrapper.loadState(readAll(*state), stateContextOf(state));
+        auto document = readAll(*state);
+        auto context = stateContextOf(state);
+
+        // A session a JUCE build of the plugin saved goes to the plugin's
+        // loadForeignState; off the message thread the wrapper queues it and
+        // raises parameterValuesChanged once it ran, which repeats what follows.
+        if (isJuceState(document))
+            pluginWrapper.loadForeignState(Compat::juceVST3State(document, context));
+        else
+            pluginWrapper.loadState(document, context);
 
         // The host re-reads every value, so the next block sends none of them.
         takeAllAsBaseline();
@@ -621,19 +659,15 @@ void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);
 
-    const auto& list = plugin().parameters();
-
-    if (list.isHostExposed(index))
-        beginEdit(list.entry(index).hostId);
+    if (isRegistered(index))
+        beginEdit(plugin().parameters().entry(index).hostId);
 }
 
 void Adapter::performParameterEdit(int index, float normalized) noexcept
 {
-    const auto& list = plugin().parameters();
-
-    if (list.isHostExposed(index))
+    if (isRegistered(index))
     {
-        performEdit(list.entry(index).hostId, normalized);
+        performEdit(plugin().parameters().entry(index).hostId, normalized);
         takeAsBaseline(index);
     }
 
@@ -642,10 +676,8 @@ void Adapter::performParameterEdit(int index, float normalized) noexcept
 
 void Adapter::endParameterEdit(int index) noexcept
 {
-    const auto& list = plugin().parameters();
-
-    if (list.isHostExposed(index))
-        endEdit(list.entry(index).hostId);
+    if (isRegistered(index))
+        endEdit(plugin().parameters().entry(index).hostId);
 
     pluginWrapper.releaseParameter(index);
 }
@@ -670,7 +702,7 @@ void Adapter::parameterInfoChanged() noexcept
     const auto& list = plugin().parameters();
 
     for (auto i = 0; i < list.size(); ++i)
-        if (list.isHostExposed(i))
+        if (isRegistered(i))
             if (auto* proxy = parameters.getParameter(list.entry(i).hostId))
                 static_cast<ProxyParameter*>(proxy)->refreshInfo();
 

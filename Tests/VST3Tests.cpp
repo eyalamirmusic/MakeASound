@@ -4,6 +4,7 @@
 // reporting and the editor view with its size policy.
 
 #include "VST3TestHost.h"
+#include "JuceFixtures.h"
 
 #include <MakeASound/Plugin/VST3/Factory.h>
 #include <MakeASound/Plugin/VST3/Text.h>
@@ -23,6 +24,7 @@
 
 #include <climits>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <string>
 #include <thread>
@@ -707,6 +709,463 @@ auto tControllerState = test("VST3/theControllerHalfOfStateIsNotImplemented") = 
 
     check(controller->setComponentState(&stream) == Steinberg::kResultOk);
     check(near(host.plugin().params.gain.getValue(), -9.f));
+};
+
+// A JUCE build's session, through the component as a host hands it over.
+
+using JuceFixtures::FixturePlugin;
+
+void writeBytes(Steinberg::IBStream& stream, const std::string& bytes)
+{
+    auto written = int32 {0};
+    stream.write(
+        const_cast<char*>(bytes.data()), static_cast<int32>(bytes.size()), &written);
+    rewind(stream);
+}
+
+// Answers ISizeableStream with a size of its own and, when asked, every read
+// with kResultFalse while still delivering, as Wavelab does.
+struct QuirkyStream final
+    : Steinberg::MemoryStream
+    , Steinberg::ISizeableStream
+{
+    tresult PLUGIN_API read(void* buffer,
+                            int32 numBytes,
+                            int32* numBytesRead) override
+    {
+        auto result = Steinberg::MemoryStream::read(buffer, numBytes, numBytesRead);
+        return failingReads ? Steinberg::kResultFalse : result;
+    }
+
+    tresult PLUGIN_API getStreamSize(Steinberg::int64& size) override
+    {
+        size = reportedSize;
+        return Steinberg::kResultOk;
+    }
+
+    tresult PLUGIN_API setStreamSize(Steinberg::int64) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID _iid,
+                                      void** obj) override
+    {
+        QUERY_INTERFACE(
+            _iid, obj, Steinberg::ISizeableStream::iid, Steinberg::ISizeableStream)
+        return Steinberg::MemoryStream::queryInterface(_iid, obj);
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override
+    {
+        return Steinberg::MemoryStream::addRef();
+    }
+
+    Steinberg::uint32 PLUGIN_API release() override
+    {
+        return Steinberg::MemoryStream::release();
+    }
+
+    bool failingReads = false;
+    Steinberg::int64 reportedSize = 0;
+};
+
+auto tJuceState = test("VST3/aJuceSessionLoadsThroughThePluginsReader") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   JuceFixtures::blob(),
+                   JuceFixtures::bytesOf(JuceFixtures::bypassedTrailer)));
+
+    check(host.adapter->setState(&stream) == Steinberg::kResultOk);
+
+    auto& plugin = host.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::JuceVST3);
+    check(plugin.context == StateContext::Session);
+    check(JuceFixtures::holdsFixtureValues(plugin.params));
+
+    // The trailer's bypass is the one the wrapper added, as JUCE's was.
+    check(plugin.bypass == std::optional {true});
+    check(JuceFixtures::addedBypassOf(plugin) == 1.f);
+    check(host.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+    check(host.handler.dirtyCalls == 0);
+
+    // The next save is the native document, and it loads as one.
+    auto saved = Steinberg::MemoryStream {};
+    check(host.adapter->getState(&saved) == Steinberg::kResultOk);
+    check(streamText(saved).starts_with("{"));
+    rewind(saved);
+
+    auto target = AdapterHost<FixturePlugin> {};
+    target.adapter->setState(&saved);
+    check(target.plugin().legacyLoads == 0);
+    check(JuceFixtures::holdsFixtureValues(target.plugin().params));
+    check(JuceFixtures::addedBypassOf(target.plugin()) == 1.f);
+};
+
+auto tJuceVst2Bank = test("VST3/aJuceVst2BankLoadsItsChunk") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    auto stream = Steinberg::MemoryStream {};
+    auto chunk = JuceFixtures::withTrailer(
+        JuceFixtures::blob(), JuceFixtures::bytesOf(JuceFixtures::emptyTrailer));
+    writeBytes(stream, JuceFixtures::chunkBank(chunk, true, 3));
+
+    host.adapter->setState(&stream);
+
+    auto& plugin = host.plugin();
+    check(plugin.origin == ForeignOrigin::JuceVST2Bank);
+    check(plugin.program == std::optional {3});
+    check(JuceFixtures::holdsFixtureValues(plugin.params));
+
+    // No private tree in the trailer: the 'VstW' header's bypass.
+    check(JuceFixtures::addedBypassOf(plugin) == 1.f);
+};
+
+auto tJuceRefused = test("VST3/aJuceSessionThePluginRefusesMovesNothing") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    host.plugin().refuse = true;
+
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   JuceFixtures::blob(),
+                   JuceFixtures::bytesOf(JuceFixtures::bypassedTrailer)));
+
+    check(host.adapter->setState(&stream) == Steinberg::kResultOk);
+    check(host.plugin().legacyLoads == 1);
+    check(JuceFixtures::holdsDefaults(host.plugin().params));
+    check(JuceFixtures::addedBypassOf(host.plugin()) == 0.f);
+
+    // Bytes that are neither ours nor JUCE's go to the native load.
+    auto garbage = Steinberg::MemoryStream {};
+    writeBytes(garbage, "not a document");
+    host.adapter->setState(&garbage);
+    check(host.plugin().legacyLoads == 1);
+    check(JuceFixtures::holdsDefaults(host.plugin().params));
+};
+
+auto tJuceOffThread =
+    test("VST3/aJuceSessionFromAWorkerLoadsOnTheMessageThread") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   JuceFixtures::blob(),
+                   JuceFixtures::bytesOf(JuceFixtures::emptyTrailer)));
+
+    auto loader = std::thread([&] { host.adapter->setState(&stream); });
+    loader.join();
+
+    check(host.plugin().legacyLoads == 0);
+    check(pumpUntil([&] { return host.plugin().legacyLoads == 1; }));
+    check(JuceFixtures::holdsFixtureValues(host.plugin().params));
+    check(pumpUntil(
+        [&] { return host.handler.restartsWith(Vst::kParamValuesChanged) >= 2; }));
+};
+
+// The identity a description names (WP10.19, WP10.20): the class id and every
+// ParamID, MakeASound's unchanged and a JUCE build's for a port.
+
+// JUCE's numbers, as JUCE 8.0.12 printed them (Tests/JuceIdentityTests.cpp).
+constexpr auto juceCutoffMasked = Vst::ParamID {798419949u};
+constexpr auto juceCutoffUnmasked = Vst::ParamID {2945903597u};
+constexpr auto juceBypass = Vst::ParamID {0x62797073u}; // 'byps'
+
+// JUCE's masked id for a key: String::hashCode & 0x7fffffff.
+Vst::ParamID juceId(std::string_view key)
+{
+    return MakeASound::Compat::juceStringHash(key) & 0x7fffffffu;
+}
+
+// The fixture's cutoff (20..20000, linear here) at 440.
+constexpr auto fixtureCutoffNormalized = (440.0 - 20.0) / 19980.0;
+
+const ModuleDescription& juceModule()
+{
+    static const auto module = []
+    {
+        auto description = ModuleDescription {};
+        description.vendor = "MakeASound Tests";
+        description.manufacturerCode = "MaSo";
+
+        auto create = [] { return EA::makeOwned<FixturePlugin>(); };
+
+        // JUCE's default, JUCE_VST3_CAN_REPLACE_VST2 on.
+        description.plugins.add({.name = "Juce Compat Fixture",
+                                 .pluginCode = "Jcmp",
+                                 .create = create,
+                                 .idScheme = IdScheme::JUCE});
+
+        // Off: JUCE's own component id.
+        description.plugins.add({.name = "Juce Compat Fixture",
+                                 .pluginCode = "Jcmp",
+                                 .create = create,
+                                 .idScheme = IdScheme::JUCE,
+                                 .juce = {.vst3CanReplaceVst2 = false}});
+        return description;
+    }();
+
+    return module;
+}
+
+Steinberg::FUID classIdAt(Steinberg::IPluginFactory2& factory, int index)
+{
+    auto info = Steinberg::PClassInfo2 {};
+    factory.getClassInfo2(index, &info);
+    return Steinberg::FUID::fromTUID(info.cid);
+}
+
+bool hasWords(const Steinberg::FUID& id, const MakeASound::Vst3ClassId& words)
+{
+    return id.getLong1() == words[0] && id.getLong2() == words[1]
+           && id.getLong3() == words[2] && id.getLong4() == words[3];
+}
+
+std::optional<Vst::ParameterInfo> infoFor(Vst::IEditController& controller,
+                                          Vst::ParamID id)
+{
+    for (auto i = 0; i < controller.getParameterCount(); ++i)
+    {
+        auto info = Vst::ParameterInfo {};
+
+        if (controller.getParameterInfo(i, info) == Steinberg::kResultOk
+            && info.id == id)
+            return info;
+    }
+
+    return std::nullopt;
+}
+
+bool flagged(const Vst::ParameterInfo& info, int32 flag)
+{
+    return (info.flags & flag) != 0;
+}
+
+auto tNativeClassId = test("VST3/theMakeASoundClassIdIsUnchanged") = []
+{
+    const auto& module = testModule();
+    auto factory = Steinberg::owned(MakeASound::VST3::makeFactory(module));
+
+    // FUID('MaSo', <plugin code>, 'VST3', 0), as every shipped build had it.
+    check(hasWords(classIdAt(*factory, 0),
+                   {0x4d61536fu, 0x4761696eu, 0x56535433u, 0u}));
+    check(hasWords(classIdAt(*factory, 1),
+                   {0x4d61536fu, 0x53796e74u, 0x56535433u, 0u}));
+};
+
+auto tJuceClassIds = test("VST3/aJucePortsClassIdIsTheJuceBuilds") = []
+{
+    const auto& module = juceModule();
+    auto factory = Steinberg::owned(MakeASound::VST3::makeFactory(module));
+
+    check(factory->countClasses() == 2);
+
+    // Under JUCE_VST3_CAN_REPLACE_VST2 the component is the VST2 plugin's id,
+    // 'VST' + 'Jcmp' + "juce comp", which is what has a host replace the VST2.
+    check(hasWords(classIdAt(*factory, 0),
+                   {0x5653544au, 0x636d706au, 0x75636520u, 0x636f6d70u}));
+
+    // Without it, FUID(0xABCDEF01, 0x9182FAEB, 'MaSo', 'Jcmp').
+    check(hasWords(classIdAt(*factory, 1),
+                   {0xabcdef01u, 0x9182faebu, 0x4d61536fu, 0x4a636d70u}));
+};
+
+// Through the factory as a host does: a JUCE build's session loads, and its
+// automation lanes (the ids a host saved beside it) address the same parameters.
+auto tJuceSessionIds = test("VST3/aJuceSessionKeepsItsAutomationIds") = []
+{
+    const auto& module = juceModule();
+    auto factory = Steinberg::owned(MakeASound::VST3::makeFactory(module));
+    auto cid = classIdAt(*factory, 0);
+
+    auto* object = static_cast<void*>(nullptr);
+    check(
+        factory->createInstance(reinterpret_cast<Steinberg::FIDString>(cid.toTUID()),
+                                Vst::IComponent::iid,
+                                &object)
+        == Steinberg::kResultOk);
+
+    auto component = Steinberg::owned(static_cast<Vst::IComponent*>(object));
+    auto controller = Steinberg::FUnknownPtr<Vst::IEditController>(component);
+    check(controller != nullptr);
+    check(component->initialize(nullptr) == Steinberg::kResultOk);
+
+    auto cutoff = infoFor(*controller, juceCutoffMasked);
+    check(cutoff.has_value());
+    check(cutoff && flagged(*cutoff, Vst::ParameterInfo::kCanAutomate));
+
+    auto bypass = infoFor(*controller, juceBypass);
+    check(bypass.has_value());
+    check(bypass && flagged(*bypass, Vst::ParameterInfo::kIsBypass));
+
+    // Every other fixture parameter under JUCE's hash of its id.
+    for (const auto* key: {"mode", "enabled", "voices", "attack", "extra"})
+        check(infoFor(*controller, juceId(key)).has_value());
+
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   JuceFixtures::blob(),
+                   JuceFixtures::bytesOf(JuceFixtures::bypassedTrailer)));
+    check(component->setState(&stream) == Steinberg::kResultOk);
+
+    check(near(controller->getParamNormalized(juceCutoffMasked),
+               fixtureCutoffNormalized));
+    check(controller->getParamNormalized(juceBypass) == 1.0);
+
+    // A lane on JUCE's id moves the parameter it moved in the JUCE build.
+    check(controller->setParamNormalized(juceCutoffMasked, 0.25)
+          == Steinberg::kResultTrue);
+    check(near(controller->getParamNormalized(juceCutoffMasked), 0.25));
+    check(controller->setParamNormalized(juceBypass, 0.0)
+          == Steinberg::kResultTrue);
+    check(controller->getParamNormalized(juceBypass) == 0.0);
+
+    component->terminate();
+};
+
+// JUCE publishes a non-automatable parameter, without kCanAutomate; MakeASound's
+// scheme keeps hiding it.
+auto tJuceNonAutomatable =
+    test("VST3/aJucePortListsItsNonAutomatableParameters") = []
+{
+    auto host = AdapterHost<LatencyPlugin> {ParameterIdentity {IdScheme::JUCE}};
+    auto& adapter = *host.adapter;
+    auto hiddenId = juceId("Hidden");
+
+    check(adapter.getParameterCount() == 3);
+
+    auto hidden = infoFor(adapter, hiddenId);
+    check(hidden.has_value());
+    check(hidden && !flagged(*hidden, Vst::ParameterInfo::kCanAutomate));
+    check(hidden && !flagged(*hidden, Vst::ParameterInfo::kIsHidden));
+
+    auto latency = infoFor(adapter, juceId("Latency"));
+    check(latency && flagged(*latency, Vst::ParameterInfo::kCanAutomate));
+
+    auto bypass = infoFor(adapter, juceBypass);
+    check(bypass && flagged(*bypass, Vst::ParameterInfo::kIsBypass));
+    check(bypass && flagged(*bypass, Vst::ParameterInfo::kCanAutomate));
+
+    // The host may set and read it, and the editor's gesture on it reaches the
+    // host, as JUCE's does.
+    auto& param = host.plugin().params.hidden;
+    check(adapter.setParamNormalized(hiddenId, 0.75) == Steinberg::kResultTrue);
+    check(near(param.getNormalized(), 0.75));
+    check(near(adapter.getParamNormalized(hiddenId), 0.75));
+
+    auto index = host.plugin().parameters().indexOf(&param);
+    auto& listener = *host.plugin().hostEditListener();
+    listener.beginParameterEdit(index);
+    param.setNormalized(0.5f);
+    listener.performParameterEdit(index, 0.5f);
+    listener.endParameterEdit(index);
+
+    const auto& edits = host.handler.edits;
+    check(edits.size() == 3);
+    check(edits.size() == 3 && edits[1].id == hiddenId
+          && near(edits[1].value, 0.5));
+
+    auto native = AdapterHost<LatencyPlugin> {};
+    check(native.adapter->getParameterCount() == 2);
+    check(!infoFor(*native.adapter, native.hostIdOf(native.plugin().params.hidden))
+               .has_value());
+};
+
+// JUCE_USE_STUDIO_ONE_COMPATIBLE_PARAMETERS off: ids of 2^31 and more, through
+// the automation queue, the controller and the plugin's own moves.
+auto tJuceUnmasked = test("VST3/aJucePortsUnmaskedIdsReachThePlugin") = []
+{
+    auto host =
+        AdapterHost<FixturePlugin> {ParameterIdentity {IdScheme::JUCE, false}};
+    auto& cutoff = host.plugin().params.cutoff;
+
+    check(host.hostIdOf(cutoff) == juceCutoffUnmasked);
+    check(infoFor(*host.adapter, juceCutoffUnmasked).has_value());
+
+    // The bypass stays 'byps'.
+    check(infoFor(*host.adapter, juceBypass).has_value());
+
+    host.addPoint(juceCutoffUnmasked, 0, 0.5);
+    host.fillBlock(blockSize);
+    host.run();
+    check(near(cutoff.getNormalized(), 0.5));
+    check(near(host.adapter->getParamNormalized(juceCutoffUnmasked), 0.5));
+
+    host.clearQueues();
+    cutoff.setNormalized(0.125f);
+    host.fillBlock(blockSize);
+    host.run();
+
+    auto points = outputPoints(host.outputChanges, juceCutoffUnmasked);
+    check(points.size() == 1);
+    check(points.size() == 1 && near(points[0].second, 0.125));
+};
+
+// JUCE_FORCE_USE_LEGACY_PARAM_IDS: every parameter by its index, the bypass the
+// next one.
+auto tJuceLegacy = test("VST3/aJuceLegacyPortAddressesParametersByIndex") = []
+{
+    auto host = AdapterHost<FixturePlugin> {
+        ParameterIdentity {IdScheme::JUCELegacyIndex}};
+    auto& adapter = *host.adapter;
+    const auto& list = host.plugin().parameters();
+
+    check(adapter.getParameterCount() == list.size());
+
+    for (auto i = 0; i < list.size(); ++i)
+    {
+        auto info = Vst::ParameterInfo {};
+        adapter.getParameterInfo(i, info);
+        check(info.id == static_cast<Vst::ParamID>(i));
+    }
+
+    auto bypass = infoFor(adapter, static_cast<Vst::ParamID>(list.size() - 1));
+    check(bypass && flagged(*bypass, Vst::ParameterInfo::kIsBypass));
+
+    // Index 0 is the cutoff.
+    host.addPoint(0, 0, 0.75);
+    host.fillBlock(blockSize);
+    host.run();
+    check(near(host.plugin().params.cutoff.getNormalized(), 0.75));
+};
+
+auto tQuirkyStream =
+    test("VST3/aStreamThatMisreportsItsSizeAndStatusStillLoads") = []
+{
+    auto source = AdapterHost<GainPlugin> {};
+    source.plugin().params.gain.setValue(-6.f);
+
+    // Long enough to take several reads.
+    source.plugin().state.preset = std::string(10000, 'p');
+    source.plugin().state.markChanged();
+
+    auto saved = Steinberg::MemoryStream {};
+    source.adapter->getState(&saved);
+
+    auto quirky = QuirkyStream {};
+    quirky.failingReads = true;
+    quirky.reportedSize = 3;
+    writeBytes(quirky, streamText(saved));
+
+    auto target = AdapterHost<GainPlugin> {};
+    target.adapter->setState(&quirky);
+    check(near(target.plugin().params.gain.getValue(), -6.f));
+    check(pumpUntil([&] { return target.plugin().state.preset.size() == 10000; }));
+
+    // A size past any reservation is only a hint too.
+    quirky.failingReads = false;
+    quirky.reportedSize = std::numeric_limits<Steinberg::int64>::max();
+    rewind(quirky);
+    auto other = AdapterHost<GainPlugin> {};
+    other.adapter->setState(&quirky);
+    check(near(other.plugin().params.gain.getValue(), -6.f));
 };
 
 auto tMidiInOut = test("VST3/notesReachThePluginInOrderAndEchoBack") = []

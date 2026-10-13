@@ -5,6 +5,7 @@
 // bypass.
 
 #include "AUv3TestHost.h"
+#include "JuceFixtures.h"
 
 #include <MakeASound/Plugin/AUv3/Parameters.h>
 
@@ -512,11 +513,16 @@ auto tTree = test("AUv3/theParameterTreeMirrorsTheList") = []
         check(node.address == entry.hostId);
         check(toUtf8(node.identifier) == entry.id);
         check(toUtf8(node.displayName) == entry.displayName);
-        check(node.minValue == param.minValue());
-        check(node.maxValue == param.maxValue());
-        check(near(node.value, param.defaultValue()));
+        // The v2 info's space: the cutoff's skew is no display flag's, so 0..1.
+        auto normalized = &param == &params.filter.cutoff;
+        check(node.minValue == (normalized ? 0.f : param.minValue()));
+        check(node.maxValue == (normalized ? 1.f : param.maxValue()));
+        check(near(node.value,
+                   normalized ? param.toNormalized(param.defaultValue())
+                              : param.defaultValue()));
         check((node.flags & kAudioUnitParameterFlag_IsReadable) != 0);
         check((node.flags & kAudioUnitParameterFlag_IsWritable) != 0);
+        check((node.flags & kAudioUnitParameterFlag_IsHighResolution) != 0);
 
         auto hasStrings = &param == &params.mode || &param == &params.bypass;
         check(((node.flags & kAudioUnitParameterFlag_ValuesHaveStrings) != 0)
@@ -608,14 +614,27 @@ auto tText = test("AUv3/textAndValuesGoThroughTheParameter") = []
     for (auto* param: std::initializer_list<Parameter*> {
              &params.gain, &params.filter.cutoff, &params.mode})
     {
+        // A tree value is in the v2 info's space, 0..1 for the skewed cutoff.
+        auto normalized = param == &params.filter.cutoff;
+        auto inTree = [&](float plain)
+        { return normalized ? param->toNormalized(plain) : plain; };
+
         auto* node = host.parameterFor(*param);
         auto plain = param->toPlain(0.4f);
+        auto value = inTree(plain);
         auto expected = param->valueToText(plain);
 
-        auto* text = [node stringFromValue:&plain];
+        auto* text = [node stringFromValue:&value];
         check(toUtf8(text) == expected);
-        check(near([node valueFromString:text], param->textToValue(expected), 1e-2));
+        check(near([node valueFromString:text],
+                   inTree(param->textToValue(expected)),
+                   1e-2));
     }
+
+    // A tree write and a plugin move cross in that space too.
+    auto& cutoff = params.filter.cutoff;
+    host.parameterFor(cutoff).value = 0.3f;
+    check(cutoff.getValue() == cutoff.toPlain(0.3f));
 
     params.gain.setValue(-3.f);
     check(toUtf8([host.parameterFor(params.gain) stringFromValue:nullptr])
@@ -903,6 +922,102 @@ auto tSaveOffThread =
     check(near(target.plugin().params.gain.getValue(), -6.f));
 };
 
+// A JUCE build's state, as its AUv3 saves one: the base class's dictionary plus
+// jucePluginState, here over the codes `ours` carries.
+
+using JuceFixtures::FixturePlugin;
+
+NSDictionary<NSString*, id>* juceFullState(NSDictionary<NSString*, id>* ours)
+{
+    auto* state = [NSMutableDictionary<NSString*, id> dictionaryWithDictionary:ours];
+    [state removeObjectForKey:@"MakeASoundState"];
+
+    auto bytes = JuceFixtures::blob();
+    state[@"jucePluginState"] = [NSData dataWithBytes:bytes.data()
+                                               length:bytes.size()];
+    return state;
+}
+
+auto tJuceState = test("AUv3/aJuceStateLoadsThroughThePluginsReader") = []
+{
+    auto standIn = ScopedStandIn<FixturePlugin>(Module::gainStandIn);
+    auto source = UnitHost<FixturePlugin>("Gain");
+    auto* juce = juceFullState(source.unit.fullStateForDocument);
+
+    auto target = UnitHost<FixturePlugin>("Gain");
+    target.unit.fullStateForDocument = juce;
+
+    auto& plugin = target.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::JuceAUv3);
+    check(plugin.context == StateContext::Session);
+    check(JuceFixtures::holdsFixtureValues(plugin.params));
+
+    // The tree follows the load at once.
+    check(near(target.parameterFor(plugin.params.cutoff).value, 440.f, 1e-2));
+    check(near(target.parameterFor(plugin.params.mode).value, 2.f));
+
+    // The next save is the native document, and it loads as one.
+    auto* saved = target.unit.fullStateForDocument;
+    check([saved[@"MakeASoundState"] isKindOfClass:[NSData class]]);
+    check(saved[@"jucePluginState"] == nil);
+
+    auto again = UnitHost<FixturePlugin>("Gain");
+    again.unit.fullStateForDocument = saved;
+    check(again.plugin().legacyLoads == 0);
+    check(JuceFixtures::holdsFixtureValues(again.plugin().params));
+
+    // fullState is a preset, for JUCE's state as for ours.
+    auto preset = UnitHost<FixturePlugin>("Gain");
+    preset.unit.fullState = juce;
+    check(preset.plugin().context == StateContext::Preset);
+    check(JuceFixtures::holdsFixtureValues(preset.plugin().params));
+};
+
+auto tJuceRefused = test("AUv3/aJuceStateThePluginRefusesMovesNothing") = []
+{
+    auto standIn = ScopedStandIn<FixturePlugin>(Module::gainStandIn);
+    auto source = UnitHost<FixturePlugin>("Gain");
+    auto* juce = juceFullState(source.unit.fullStateForDocument);
+
+    auto target = UnitHost<FixturePlugin>("Gain");
+    target.plugin().refuse = true;
+    target.unit.fullStateForDocument = juce;
+    check(target.plugin().legacyLoads == 1);
+    check(JuceFixtures::holdsDefaults(target.plugin().params));
+    check(near(target.parameterFor(target.plugin().params.cutoff).value, 1000.f));
+
+    // Another component's codes never reach a plugin.
+    auto echo = UnitHost<SynthPlugin>("Echo");
+    echo.plugin().params.level.setValue(0.8f);
+    echo.unit.fullStateForDocument = juce;
+    check(near(echo.plugin().params.level.getValue(), 0.8f));
+
+    // Nor does an empty one.
+    auto* empty = [NSMutableDictionary<NSString*, id> dictionaryWithDictionary:juce];
+    empty[@"jucePluginState"] = [NSData data];
+    auto other = UnitHost<FixturePlugin>("Gain");
+    other.unit.fullStateForDocument = empty;
+    check(other.plugin().legacyLoads == 0);
+};
+
+auto tJuceOffThread = test("AUv3/aJuceStateFromAWorkerLoadsOnTheMessageThread") = []
+{
+    auto standIn = ScopedStandIn<FixturePlugin>(Module::gainStandIn);
+    auto source = UnitHost<FixturePlugin>("Gain");
+    auto* juce = juceFullState(source.unit.fullStateForDocument);
+
+    auto target = UnitHost<FixturePlugin>("Gain");
+    auto* unit = target.unit;
+    auto loader = std::thread([&] { unit.fullStateForDocument = juce; });
+    loader.join();
+
+    check(target.plugin().legacyLoads == 0);
+    check(pumpUntil([&] { return target.plugin().legacyLoads == 1; }));
+    check(JuceFixtures::holdsFixtureValues(target.plugin().params));
+    check(near(target.parameterFor(target.plugin().params.cutoff).value, 440.f, 1e-2));
+};
+
 auto tNotes = test("AUv3/notesReachTheInstrumentAtTheirOffsets") = []
 {
     auto host = UnitHost<SynthPlugin>("Echo");
@@ -1184,5 +1299,191 @@ auto tAddedBypass = test("AUv3/theWrappersBypassAnswersShouldBypassEffect") = []
 
     host.unit.shouldBypassEffect = NO;
     check(list[index].getValue() == 0.f);
+};
+
+// A JUCE port under its JUCE build's ids (JucePort.h), a unit over its own
+// description.
+
+using JucePort::PortPlugin;
+
+const PluginDescription& juceDescription()
+{
+    return JucePort::description(IdScheme::JUCE);
+}
+
+auto tPortTree = test("AUv3/aJucePortsTreeIsJuces") = []
+{
+    auto host = UnitHost<PortPlugin>(juceDescription());
+    auto& p = host.plugin().params;
+    auto* tree = host.unit.parameterTree;
+
+    check(host.unit.componentDescription.componentType
+          == kAudioUnitType_MusicEffect);
+
+    // Every parameter but the added bypass, the non-automatable one included,
+    // each at JUCE's 64-bit address under its bare key.
+    check(tree.allParameters.count == 6);
+    check([tree parameterWithAddress:juceVst3BypassId] == nil);
+
+    for (const auto& ids: JucePort::juceIds)
+    {
+        auto* node = [tree parameterWithAddress:ids.address];
+        check(node != nil);
+        check(toUtf8(node.identifier) == ids.id);
+    }
+
+    auto* cutoff = host.parameterFor(p.cutoff);
+    check(cutoff.address == 1052795674147ull);
+    check(cutoff.minValue == 0.f && cutoff.maxValue == 1.f);
+    check(cutoff.unit == kAudioUnitParameterUnit_Generic);
+    check((cutoff.flags & kAudioUnitParameterFlag_CanRamp) != 0);
+    check((cutoff.flags & kAudioUnitParameterFlag_IsHighResolution) != 0);
+    check((cutoff.flags & kAudioUnitParameterFlag_NonRealTime) == 0);
+    check(cutoff.valueStrings == nil);
+    check(near(cutoff.value, 0.404752135, 1e-6));
+
+    auto* voices = host.parameterFor(p.voices);
+    check(voices.maxValue == 1.f && voices.unit == kAudioUnitParameterUnit_Generic);
+    check(near(voices.value, 0.466666669, 1e-6));
+
+    auto* mode = host.parameterFor(p.mode);
+    check(mode.maxValue == 2.f && mode.unit == kAudioUnitParameterUnit_Indexed);
+    check([mode.valueStrings isEqualToArray:@[ @"Clean", @"Warm", @"Hot" ]]);
+    check(mode.value == 1.f);
+
+    auto* enabled = host.parameterFor(p.enabled);
+    check(enabled.maxValue == 1.f
+          && enabled.unit == kAudioUnitParameterUnit_Boolean);
+    check(enabled.valueStrings.count == 2);
+
+    auto* quality = host.parameterFor(p.quality);
+    check((quality.flags & kAudioUnitParameterFlag_NonRealTime) != 0);
+
+    // A group is named by its own id, as JUCE's tree names it.
+    auto* env = static_cast<AUParameterGroup*>(tree.children[4]);
+    check([env isKindOfClass:[AUParameterGroup class]]);
+    check([env.identifier isEqualToString:@"env"]);
+    check([env.children[0].identifier isEqualToString:@"attack"]);
+    check(static_cast<AUParameter*>(env.children[0]).address == 1031671269632ull);
+};
+
+auto tPortSeed = test("AUv3/aJuceTreeIsSeededWithTheNormalizedDefault") = []
+{
+    // JUCE sets each AUParameter's first value to the normalized default, not
+    // the current value in the host's space; seen with no value provider.
+    auto params = JucePort::PortParams {};
+    params.cutoff.setValue(5000.f);
+    params.enabled.setValue(0.f);
+
+    auto list = ParameterList {params, ParameterIdentity {IdScheme::JUCE}};
+    auto* tree = AUv3::makeParameterTree(
+        list, AU::ParameterSpace(IdScheme::JUCE, JuceSettings {}));
+    auto* cutoff = [tree parameterWithAddress:1052795674147ull];
+    auto* enabled = [tree parameterWithAddress:108379842206215ull];
+
+    check(near(cutoff.value, 0.404752135, 1e-6));
+    check(enabled.value == 1.f);
+
+    // MakeASound's tree starts at the current value.
+    auto native = ParameterList {params};
+    auto* nativeTree = AUv3::makeParameterTree(native);
+    auto* nativeEnabled =
+        [nativeTree parameterWithAddress:native.entry(2).address];
+    check(nativeEnabled.value == 0.f);
+};
+
+auto tPortEvents = test("AUv3/aJucePortsEventsAndTreeFindThe64BitAddress") = []
+{
+    auto host = UnitHost<PortPlugin>(juceDescription());
+    auto& p = host.plugin().params;
+    auto now = static_cast<AUEventSampleTime>(host.sampleTime);
+
+    auto events = EventList {};
+    events.parameter(1052795674147ull, 0.25f, now);
+    events.parameter(113445321ull, 2.f, now);
+    events.parameter(1031671269632ull, p.env.attack.toNormalized(0.5f), now);
+    check(host.renderEvents(maxBlock, events.head()) == noErr);
+
+    check(near(p.cutoff.getValue(), p.cutoff.toPlain(0.25f), 1e-2));
+    check(p.mode.getIndex() == 2);
+    check(near(p.env.attack.getValue(), 0.5f, 1e-4));
+
+    // An address no parameter has, 32 bits of a real one included, moves nothing.
+    events.clear();
+    events.parameter(1052795674147ull & 0xffffffffu, 0.9f, now);
+    check(host.renderEvents(maxBlock, events.head()) == noErr);
+    check(near(p.cutoff.getValue(), p.cutoff.toPlain(0.25f), 1e-2));
+
+    // A tree write, a plugin move and the text, in JUCE's space.
+    host.parameterFor(p.voices).value = 1.f;
+    check(near(p.voices.getValue(), 16.f));
+
+    p.enabled.setValue(0.f);
+    check(pumpUntil([&] { return host.parameterFor(p.enabled).value == 0.f; }));
+
+    auto two = AUValue {2.f};
+    check(toUtf8([host.parameterFor(p.mode) stringFromValue:&two]) == "Hot");
+    check([host.parameterFor(p.mode) valueFromString:@"Warm"] == 1.f);
+};
+
+auto tPortBypass = test("AUv3/aJucePortsAddedBypassIsShouldBypassEffectAlone") = []
+{
+    auto host = UnitHost<PortPlugin>(juceDescription());
+    auto& plugin = host.plugin();
+
+    check(!host.unit.shouldBypassEffect);
+    host.unit.shouldBypassEffect = YES;
+    check(host.unit.shouldBypassEffect);
+    check(JuceFixtures::addedBypassOf(plugin) == 1.f);
+    check([host.unit.parameterTree parameterWithAddress:juceVst3BypassId] == nil);
+
+    host.unit.shouldBypassEffect = NO;
+    check(JuceFixtures::addedBypassOf(plugin) == 0.f);
+};
+
+auto tPortLegacy = test("AUv3/aJucePortWithLegacyIdsIsAddressedByIndex") = []
+{
+    auto host =
+        UnitHost<PortPlugin>(JucePort::description(IdScheme::JUCELegacyIndex));
+    auto& p = host.plugin().params;
+    auto* tree = host.unit.parameterTree;
+
+    check(tree.allParameters.count == 6);
+
+    for (NSUInteger i = 0; i < tree.allParameters.count; ++i)
+        check(tree.allParameters[i].address == i);
+
+    check([host.parameterFor(p.cutoff).identifier isEqualToString:@"cutoff"]);
+
+    // The AUv3 keeps its value strings under legacy ids, as JUCE's does.
+    check(host.parameterFor(p.mode).valueStrings.count == 3);
+
+    auto events = EventList {};
+    events.parameter(1, 2.f, static_cast<AUEventSampleTime>(host.sampleTime));
+    check(host.renderEvents(maxBlock, events.head()) == noErr);
+    check(p.mode.getIndex() == 2);
+};
+
+auto tPortJuceState = test("AUv3/aJuceStateRestoresIntoAJucePort") = []
+{
+    auto source = UnitHost<PortPlugin>(juceDescription());
+    auto* juce = juceFullState(source.unit.fullStateForDocument);
+
+    auto target = UnitHost<PortPlugin>(juceDescription());
+    target.unit.fullStateForDocument = juce;
+
+    auto& p = target.plugin().params;
+    check(target.plugin().legacyLoads == 1);
+    check(near(p.cutoff.getValue(), 440.f, 1e-2));
+    check(p.mode.getIndex() == 2);
+    check(!p.enabled.isOn());
+    check(near(p.voices.getValue(), 5.f));
+    check(near(p.env.attack.getValue(), 0.25f));
+
+    // The tree, in JUCE's space.
+    check(near(target.parameterFor(p.cutoff).value,
+               p.cutoff.toNormalized(440.f),
+               1e-5));
+    check(target.parameterFor(p.mode).value == 2.f);
 };
 } // namespace

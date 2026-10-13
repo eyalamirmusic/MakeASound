@@ -21,8 +21,10 @@ struct ComponentInfo
     int numOutputBuses = 0;
 };
 
-// Constructs the plugin once to read its layout: an instrument is 'aumu', a MIDI
-// effect 'aumi', an effect with a MIDI input 'aumf', any other effect 'aufx'.
+// Constructs the plugin once to read its layout: the description's auType when
+// set (a port keeping its JUCE build's JucePlugin_AUMainType), otherwise an
+// instrument is 'aumu', a MIDI effect 'aumi', an effect with a MIDI input 'aumf',
+// any other effect 'aufx'.
 ComponentInfo componentInfoFor(const ModuleDescription& module,
                                const PluginDescription& plugin);
 

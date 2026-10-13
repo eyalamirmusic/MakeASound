@@ -18,8 +18,11 @@ using MakeASound::BoolParam;
 using MakeASound::ChoiceParam;
 using MakeASound::DecibelParam;
 using MakeASound::FloatParam;
+using MakeASound::FloatRange;
 using MakeASound::hostIdFor;
 using MakeASound::HzParam;
+using MakeASound::IntParam;
+using MakeASound::Parameter;
 using MakeASound::ParameterGroup;
 using MakeASound::ParameterList;
 using MakeASound::PercentParam;
@@ -570,5 +573,160 @@ auto tPercent = test("Parameters/percentReadsWholePercentages") = []
     check(near(param.textToValue("75 %"), 0.75f));
     check(near(param.textToValue("??"), 0.5f));
     check(near(param.getNormalized(), 0.5f));
+};
+
+// The expected figures are JUCE 8.0.12's NormalisableRange<float> answers, printed
+// from JUCE itself; a bit-for-bit sweep of ~2M inputs against JUCE matched too,
+// but the transcendental ones are compared within a tolerance here because
+// another platform's libm may round powf/expf/logf in their last bit.
+auto tSkew = test("Parameters/aSkewedRangeMapsAsJuceDoes") = []
+{
+    auto range = FloatRange {20.f, 20000.f, 0.f, 0.3f};
+    check(near(range.toPlain(0.25f), 216.665802f, 1e-3f));
+    check(near(range.toNormalized(1000.f), 0.404752135f, 1e-6f));
+    check(range.toPlain(0.f) == 20.f);
+    check(range.toPlain(1.f) == 20000.f);
+    check(range.toNormalized(20.f) == 0.f);
+    check(range.toNormalized(20000.f) == 1.f);
+
+    auto symmetric = FloatRange {-1.f, 1.f, 0.f, 0.5f, true};
+    check(near(symmetric.toPlain(0.3f), -0.159999967f, 1e-6f));
+    check(near(symmetric.toNormalized(0.2f), 0.723606825f, 1e-6f));
+    check(near(symmetric.toNormalized(-0.2f), 0.276393205f, 1e-6f));
+    check(symmetric.toPlain(0.5f) == 0.f);
+
+    auto param = FloatParam {"Cutoff", range, 1000.f};
+    check(param.curve() == Parameter::Curve::Other);
+    check(param.numSteps() == 0);
+    check(near(param.toPlain(param.toNormalized(1000.f)), 1000.f, 1e-2f));
+
+    param.setNormalized(0.25f);
+    check(near(param.get(), 216.665802f, 1e-3f));
+};
+
+auto tCentre = test("Parameters/withCentrePutsTheCentreMidTravel") = []
+{
+    auto range = FloatRange::withCentre(20.f, 20000.f, std::sqrt(20.f * 20000.f));
+    check(near(range.skew, 0.19889383f, 1e-6f));
+    check(!range.symmetricSkew);
+    check(near(range.toPlain(0.5f), 632.455322f, 1e-2f));
+    check(near(range.toNormalized(1000.f), 0.549002707f, 1e-5f));
+
+    // HzParam is that range: the geometric mean at the middle.
+    auto hz = HzParam {"Cutoff", 20.f, 20000.f, 1000.f};
+    check(hz.range().skew == range.skew);
+    check(near(hz.toPlain(0.5f), 632.455322f, 1e-2f));
+    check(hz.curve() == Parameter::Curve::Other);
+
+    // From 0 Hz no geometric mean exists: linear.
+    auto fromZero = HzParam {"Shift", 0.f, 100.f, 0.f};
+    check(fromZero.range().isLinear());
+    check(near(fromZero.toPlain(0.5f), 50.f));
+};
+
+auto tInterval = test("Parameters/anIntervalSnapsAndSteps") = []
+{
+    auto range = FloatRange {0.f, 10.f, 0.25f};
+    check(range.snap(3.13f) == 3.25f);
+    check(range.snap(3.125f) == 3.25f);
+    check(range.snap(-4.f) == 0.f);
+    check(range.snap(11.f) == 10.f);
+    check(range.numSteps() == 40);
+
+    auto param = FloatParam {"Amount", range, 3.1f};
+    check(param.defaultValue() == 3.f);
+    check(param.numSteps() == 40);
+
+    param.setValue(7.4f);
+    check(param.get() == 7.5f);
+
+    param.setNormalized(0.51f);
+    check(param.get() == 5.f);
+    check(param.toNormalized(5.1f) == 0.5f);
+
+    // A skewed grid is not evenly spaced in 0..1: the host sees it continuous,
+    // and the values still snap.
+    auto skewed = FloatParam {"Skewed", {0.f, 10.f, 1.f, 0.5f}, 2.f};
+    check(skewed.numSteps() == 0);
+    skewed.setNormalized(0.3f);
+    check(skewed.get() == std::round(skewed.get()));
+};
+
+auto tCurves = test("Parameters/aCurveIsNamedOnlyWhenExact") = []
+{
+    using Curve = Parameter::Curve;
+
+    auto curveOf = [](FloatRange range)
+    { return FloatParam {"P", range, range.min}.curve(); };
+
+    check(curveOf({0.f, 1.f}) == Curve::Linear);
+    check(curveOf({0.f, 1.f, 0.1f}) == Curve::Linear);
+    check(curveOf({0.f, 1.f, 0.f, 0.5f}) == Curve::SquareRoot);
+    check(curveOf({0.f, 1.f, 0.f, 2.f}) == Curve::Squared);
+    check(curveOf({0.f, 1.f, 0.f, 3.f}) == Curve::Cubed);
+    check(curveOf({0.f, 1.f, 0.f, 1.f / 3.f}) == Curve::CubeRoot);
+    check(curveOf({0.f, 1.f, 0.f, 0.3f}) == Curve::Other);
+    check(curveOf({-1.f, 1.f, 0.f, 0.5f, true}) == Curve::Other);
+    check(curveOf({-1.f, 1.f, 0.f, 1.f, true}) == Curve::Linear);
+
+    check(ChoiceParam {"C", {"A", "B"}}.curve() == Curve::Linear);
+    check(BoolParam {"B"}.curve() == Curve::Linear);
+};
+
+auto tInt = test("Parameters/anIntStepsByOneAndRoundsAsJuceDoes") = []
+{
+    auto param = IntParam {"Voices", 1, 3, 1, {.label = "v"}};
+
+    check(param.numSteps() == 2);
+    check(param.minValue() == 1.f && param.maxValue() == 3.f);
+    check(param.curve() == Parameter::Curve::Linear);
+
+    // JUCE's own AudioParameterInt cases.
+    for (auto [normalized, expected]: std::array<std::pair<float, int>, 6> {
+             {{0.f, 1}, {0.2f, 1}, {0.3f, 2}, {0.7f, 2}, {0.8f, 3}, {1.f, 3}}})
+    {
+        param.setNormalized(normalized);
+        check(param.get() == expected);
+    }
+
+    // Half to even, as juce::roundToInt: 0.25 of 1..3 is 1.5, which rounds to 2,
+    // and 0.75 is 2.5, which rounds to 2 too.
+    check(param.toPlain(0.25f) == 2.f);
+    check(param.toPlain(0.75f) == 2.f);
+
+    param.setValue(-7.f);
+    check(param.get() == 1);
+    param.setValue(2.6f);
+    check(param.get() == 3);
+    param.setValue(NAN);
+    check(param.get() == 3);
+
+    check(param.valueToText(2.f) == "2 v");
+    check(param.textToValue("2.7") == 3.f);
+    check(param.textToValue("none") == 1.f);
+    check(param.toStateText() == "3");
+
+    // -0.4 of an int range from -1 rounds to +0, never -0.
+    auto signedParam = IntParam {"Offset", -1, 2, 0};
+    check(!std::signbit(signedParam.toPlain(0.2f)));
+};
+
+auto tChoiceRounding = test("Parameters/aChoiceRoundsHalfToEvenAsJuceDoes") = []
+{
+    auto param = ChoiceParam {"Mode", {"A", "B", "C"}, 0};
+
+    // 0.25 of 0..2 is 0.5: JUCE's roundToInt gives 0, 0.75 is 1.5 and gives 2.
+    check(param.toPlain(0.25f) == 0.f);
+    check(param.toPlain(0.75f) == 2.f);
+    check(param.toNormalized(1.f) == 0.5f);
+};
+
+auto tVersionHint = test("Parameters/theVersionHintIsCarried") = []
+{
+    auto hinted = FloatParam {"Drive", 0.f, 1.f, 0.f, {.versionHint = 3}};
+    auto unset = FloatParam {"Tone"};
+
+    check(hinted.versionHint() == 3);
+    check(unset.versionHint() == 0);
 };
 } // namespace

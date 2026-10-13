@@ -1,4 +1,8 @@
 #include "StandaloneHost.h"
+#include "../Compat/JuceState.h"
+#include "../Core/Identity.h"
+
+#include <eacp/Core/Utils/Files.h>
 
 #include <cassert>
 #include <iostream>
@@ -53,16 +57,22 @@ StandaloneHost::StandaloneHost()
 }
 
 StandaloneHost::StandaloneHost(const ModuleDescription& module)
-    : pluginWrapper(createFirstPlugin(module), PluginFormat::Standalone)
+    : pluginWrapper(createFirstPlugin(module),
+                    PluginFormat::Standalone,
+                    parameterIdentityFor(module.plugins[0]))
     , settingsPathName(settingsPath(module.vendor, pluginWrapper.plugin().name()))
+    , juceSettingsName(juceSettingsPath(pluginWrapper.plugin().name()))
 {
     restoreSession();
 }
 
 StandaloneHost::StandaloneHost(OwningPointer<Plugin> plugin,
-                               std::string settingsFile)
-    : pluginWrapper(std::move(plugin), PluginFormat::Standalone)
+                               std::string settingsFile,
+                               std::string juceSettingsFile,
+                               ParameterIdentity identity)
+    : pluginWrapper(std::move(plugin), PluginFormat::Standalone, identity)
     , settingsPathName(std::move(settingsFile))
+    , juceSettingsName(std::move(juceSettingsFile))
 {
     restoreSession();
 }
@@ -82,8 +92,34 @@ void StandaloneHost::restoreSession()
 
     if (saved && !saved->pluginState.empty())
         pluginWrapper.loadState(saved->pluginState, StateContext::Session);
+    else if (!saved)
+        importJuceSettings();
 
     fallback = deviceManager.getDefaultOutputConfig();
+}
+
+void StandaloneHost::importJuceSettings()
+{
+    if (juceSettingsName.empty())
+        return;
+
+    try
+    {
+        auto state =
+            Compat::juceStandaloneState(eacp::Files::readFile(juceSettingsName));
+
+        if (!state)
+            return;
+
+        auto foreign = ForeignState {};
+        foreign.origin = ForeignOrigin::JuceStandalone;
+        foreign.bytes = *state;
+        foreign.context = StateContext::Session;
+        pluginWrapper.loadForeignState(foreign);
+    }
+    catch (...)
+    {
+    }
 }
 
 void StandaloneHost::start()

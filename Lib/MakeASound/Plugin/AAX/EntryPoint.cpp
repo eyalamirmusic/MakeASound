@@ -11,6 +11,11 @@
 #include <AAXLibrary/source/AAX_Init.cpp>
 #undef AAXShutdown
 
+std::string_view MakeASound::AAX::moduleBundleId() noexcept
+{
+    return MAKEASOUND_AAX_BUNDLE_ID;
+}
+
 AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 {
     if (collection == nullptr)
@@ -23,7 +28,7 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         MakeASound::adoptHostMessageThread();
         return Format::describeEffects(*collection,
                                        Format::Adapter::module(),
-                                       MAKEASOUND_AAX_BUNDLE_ID,
+                                       Format::moduleBundleId(),
                                        MAKEASOUND_AAX_PACKAGE_NAME);
     }
     catch (...)

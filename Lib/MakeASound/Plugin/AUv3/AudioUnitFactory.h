@@ -8,6 +8,7 @@
 namespace MakeASound
 {
 class Plugin;
+struct PluginDescription;
 }
 
 namespace MakeASound::AUv3
@@ -32,6 +33,15 @@ inline AUAudioUnit* createAudioUnit(AudioComponentDescription description,
     return [[audioUnitClass() alloc] initWithComponentDescription:description
                                                             error:outError];
 }
+
+// A new unit of audioUnitClass() over `plugin` rather than the module's plugin
+// of the description's codes (Adapter::create's second form): what a host of
+// several descriptions in one process, such as the tests, constructs. `plugin`
+// must outlive the unit.
+AUAudioUnit* createAudioUnit(AudioComponentDescription description,
+                             const PluginDescription& plugin,
+                             AudioComponentInstantiationOptions options,
+                             NSError** outError);
 
 // The two below are defined by the view source the module compiles (the
 // MAKEASOUND_AUV3_VIEW_SOURCE on MakeASoundAUv3), which is the choice between a

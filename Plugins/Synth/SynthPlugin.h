@@ -11,11 +11,21 @@ struct SynthParams : ParameterGroup
 {
     SynthParams() { add(waveform, attack, release, level, legato); }
 
-    ChoiceParam waveform {"Waveform", {"Sine", "Saw", "Square"}, 0};
-    TimeParam attack {"Attack", 0.001f, 2.f, 0.005f};
-    TimeParam release {"Release", 0.001f, 2.f, 0.2f};
-    DecibelParam level {"Level", -60.f, 0.f, -12.f};
-    BoolParam legato {"Legato", false};
+    // Every parameter of the first release carries versionHint 1, so one added
+    // later (with 2) keeps Logic's automation of these on their indices. The
+    // times are skewed so 100 ms sits mid-travel.
+    ChoiceParam waveform {
+        "Waveform", {"Sine", "Saw", "Square"}, 0, {.versionHint = 1}};
+    TimeParam attack {"Attack",
+                      FloatRange::withCentre(0.001f, 2.f, 0.1f),
+                      0.005f,
+                      {.versionHint = 1}};
+    TimeParam release {"Release",
+                       FloatRange::withCentre(0.001f, 2.f, 0.1f),
+                       0.2f,
+                       {.versionHint = 1}};
+    DecibelParam level {"Level", -60.f, 0.f, -12.f, {.versionHint = 1}};
+    BoolParam legato {"Legato", false, {.versionHint = 1}};
 };
 
 // The TestSynth with its settings on parameters.

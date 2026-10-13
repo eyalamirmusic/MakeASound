@@ -41,31 +41,34 @@ struct FilterParams : ParameterGroup
         add(cutoff);
     }
 
-    HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f};
+    // Skewed about √(20·20000), so an AU publishes it as 0..1.
+    HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f, {.versionHint = 1}};
 };
 
 struct GainParams : ParameterGroup
 {
     GainParams() { add(gain, filter, mode, bypass, width); }
 
-    DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
     FilterParams filter;
-    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0};
-    BoolParam bypass {"Bypass", false, {.bypass = true}};
-    FloatParam width {"Width", 0.f, 1.f, 0.5f, {.sessionOnly = true}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+    FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
 };
 
-// A later release: `drive` inserted mid-list.
+// A later release: `drive` inserted mid-list, with that release's hint.
 struct NewerGainParams : ParameterGroup
 {
     NewerGainParams() { add(gain, drive, filter, mode, bypass, width); }
 
-    DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
-    FloatParam drive {"Drive", 0.f, 1.f, 0.25f};
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
+    FloatParam drive {"Drive", 0.f, 1.f, 0.25f, {.versionHint = 2}};
     FilterParams filter;
-    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0};
-    BoolParam bypass {"Bypass", false, {.bypass = true}};
-    FloatParam width {"Width", 0.f, 1.f, 0.5f, {.sessionOnly = true}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+    FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
 };
 
 template <typename ParamsT>
@@ -170,10 +173,11 @@ struct UnbypassedGainParams : ParameterGroup
 {
     UnbypassedGainParams() { add(gain, filter, mode, width); }
 
-    DecibelParam gain {"Gain", -60.f, 12.f, 0.f};
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
     FilterParams filter;
-    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0};
-    FloatParam width {"Width", 0.f, 1.f, 0.5f, {.sessionOnly = true}};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
 };
 
 using UnbypassedGainPlugin = GainPluginOf<UnbypassedGainParams>;
@@ -182,7 +186,7 @@ struct LatentParams : ParameterGroup
 {
     LatentParams() { add(gain); }
 
-    FloatParam gain {"Gain", 0.f, 4.f, 2.f};
+    FloatParam gain {"Gain", 0.f, 4.f, 2.f, {.versionHint = 1}};
 };
 
 // An effect with no bypass parameter and everything the added bypass must
@@ -229,7 +233,7 @@ struct SynthParams : ParameterGroup
 {
     SynthParams() { add(level); }
 
-    FloatParam level {"Level", 0.f, 1.f, 0.5f};
+    FloatParam level {"Level", 0.f, 1.f, 0.5f, {.versionHint = 1}};
 };
 
 // Writes `level` into every output sample and echoes each MIDI event it is
