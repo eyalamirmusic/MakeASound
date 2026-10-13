@@ -1,8 +1,10 @@
 #pragma once
 
 #include "FloatParam.h"
+#include "ChoiceParam.h"
 
 #include <cmath>
+#include <string>
 
 namespace MakeASound
 {
@@ -158,6 +160,125 @@ struct PercentParam : FloatParam
         auto percent = parseNumber(text);
         return percent ? *percent * 0.01f : defaultValue();
     }
+};
+
+// A -1..1 amount shown as a signed whole percentage: a modulation depth, where a
+// negative one inverts the source.
+struct BipolarParam : FloatParam
+{
+    BipolarParam(std::string_view nameToUse,
+                 float defaultFraction,
+                 ParameterOptions options = {})
+        : FloatParam(nameToUse, -1.f, 1.f, defaultFraction, options)
+    {
+    }
+
+    std::string valueToText(float fraction) const override
+    {
+        return formatNumber("%+.0f %%", fraction * 100.f);
+    }
+
+    float textToValue(std::string_view text) const override
+    {
+        auto percent = parseNumber(text);
+        return percent ? *percent * 0.01f : defaultValue();
+    }
+};
+
+// A pitch offset in semitones, -12..+12 unless given a range, shown signed and
+// whole. The value stays continuous, so a host lane moves smoothly;
+// semitones() rounds it.
+struct SemitoneParam : FloatParam
+{
+    SemitoneParam(std::string_view nameToUse,
+                  int defaultSemitones,
+                  ParameterOptions options = {})
+        : SemitoneParam(nameToUse, -12, 12, defaultSemitones, options)
+    {
+    }
+
+    SemitoneParam(std::string_view nameToUse,
+                  int minSemitones,
+                  int maxSemitones,
+                  int defaultSemitones,
+                  ParameterOptions options = {})
+        : FloatParam(nameToUse,
+                     static_cast<float>(minSemitones),
+                     static_cast<float>(maxSemitones),
+                     static_cast<float>(defaultSemitones),
+                     options)
+    {
+    }
+
+    int semitones() const noexcept { return static_cast<int>(std::lround(get())); }
+
+    std::string valueToText(float semitones) const override
+    {
+        return formatNumber("%+.0f st", static_cast<float>(std::lround(semitones)));
+    }
+};
+
+// A MIDI note number, 0..127, shown whole. The value stays continuous, so a host
+// lane moves smoothly; note() rounds it.
+struct NoteParam : FloatParam
+{
+    NoteParam(std::string_view nameToUse,
+              int defaultNote,
+              ParameterOptions options = {})
+        : FloatParam(nameToUse, 0.f, 127.f, static_cast<float>(defaultNote), options)
+    {
+    }
+
+    int note() const noexcept { return static_cast<int>(std::lround(get())); }
+
+    std::string valueToText(float note) const override
+    {
+        return formatNumber("%.0f", static_cast<float>(std::lround(note)));
+    }
+};
+
+// A transpose in whole octaves, -2..+2 unless given a range: a choice per
+// octave named by its signed offset ("-1", "0", "+1"), so saved state keeps the
+// octave if the range grows. octaves() is the offset, semitones() the same in
+// semitones.
+struct OctaveParam : ChoiceParam
+{
+    explicit OctaveParam(std::string_view nameToUse,
+                         int defaultOctaves = 0,
+                         ParameterOptions options = {})
+        : OctaveParam(nameToUse, -2, 2, defaultOctaves, options)
+    {
+    }
+
+    OctaveParam(std::string_view nameToUse,
+                int minOctaves,
+                int maxOctaves,
+                int defaultOctaves,
+                ParameterOptions options = {})
+        : ChoiceParam(nameToUse,
+                      choicesFor(minOctaves, maxOctaves),
+                      defaultOctaves - minOctaves,
+                      options)
+        , lowest(minOctaves)
+    {
+    }
+
+    int octaves() const noexcept { return getIndex() + lowest; }
+    int semitones() const noexcept { return octaves() * 12; }
+
+private:
+    static Vector<std::string> choicesFor(int minOctaves, int maxOctaves)
+    {
+        auto choices = Vector<std::string> {};
+
+        for (auto octave = minOctaves; octave <= maxOctaves; ++octave)
+            choices.add(octave > 0 ? '+' + std::to_string(octave)
+                                   : std::to_string(octave));
+
+        return choices;
+    }
+
+    int lowest;
 };
 
 } // namespace MakeASound

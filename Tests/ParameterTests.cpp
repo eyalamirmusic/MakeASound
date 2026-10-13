@@ -14,6 +14,7 @@
 
 using namespace nano;
 
+using MakeASound::BipolarParam;
 using MakeASound::BoolParam;
 using MakeASound::ChoiceParam;
 using MakeASound::DecibelParam;
@@ -22,10 +23,13 @@ using MakeASound::FloatRange;
 using MakeASound::hostIdFor;
 using MakeASound::HzParam;
 using MakeASound::IntParam;
+using MakeASound::NoteParam;
+using MakeASound::OctaveParam;
 using MakeASound::Parameter;
 using MakeASound::ParameterGroup;
 using MakeASound::ParameterList;
 using MakeASound::PercentParam;
+using MakeASound::SemitoneParam;
 using MakeASound::TimeParam;
 
 // A Parameter in a MIRO_REFLECT list does not compile: parameters are
@@ -750,6 +754,80 @@ auto tPercent = test("Parameters/percentReadsWholePercentages") = []
     check(near(param.textToValue("75 %"), 0.75f));
     check(near(param.textToValue("??"), 0.5f));
     check(near(param.getNormalized(), 0.5f));
+};
+
+// Bipolar, Semitone, Note and Octave are Tamber Plug's: the same ranges,
+// mappings and readouts, so a port moves no lane and shows the same text.
+auto tBipolar = test("Parameters/bipolarReadsSignedPercentages") = []
+{
+    auto param = BipolarParam {"To Pitch", 0.f};
+
+    check(param.minValue() == -1.f && param.maxValue() == 1.f);
+    check(near(param.getNormalized(), 0.5f));
+    check(param.valueToText(-0.25f) == "-25 %");
+    check(param.valueToText(0.f) == "+0 %");
+    check(param.valueToText(1.f) == "+100 %");
+    check(near(param.textToValue("-40 %"), -0.4f));
+    check(near(param.textToValue("??"), 0.f));
+};
+
+auto tSemitone = test("Parameters/semitonesStayContinuousAndReadWhole") = []
+{
+    auto param = SemitoneParam {"Semitone", 3};
+
+    check(param.minValue() == -12.f && param.maxValue() == 12.f);
+    check(param.numSteps() == 0);
+    check(param.semitones() == 3);
+    check(near(param.toNormalized(0.f), 0.5f));
+
+    param.setValue(-4.6f);
+    check(near(param.get(), -4.6f));
+    check(param.semitones() == -5);
+    check(param.valueToText(-4.6f) == "-5 st");
+    check(param.valueToText(0.2f) == "+0 st");
+    check(param.valueToText(7.f) == "+7 st");
+    check(near(param.textToValue("+7 st"), 7.f));
+
+    auto wide = SemitoneParam {"Transpose", -24, 24, 0};
+    check(wide.minValue() == -24.f && wide.maxValue() == 24.f);
+};
+
+auto tNote = test("Parameters/notesStayContinuousAndReadWhole") = []
+{
+    auto param = NoteParam {"High Note", 127};
+
+    check(param.minValue() == 0.f && param.maxValue() == 127.f);
+    check(param.note() == 127);
+    check(param.numSteps() == 0);
+
+    param.setValue(60.4f);
+    check(param.note() == 60);
+    check(param.valueToText(60.6f) == "61");
+    check(near(param.textToValue("64"), 64.f));
+};
+
+auto tOctave = test("Parameters/octavesAreSignedChoices") = []
+{
+    auto param = OctaveParam {"Octave", -1};
+
+    check(param.numChoices() == 5);
+    check(param.choiceName(0) == "-2");
+    check(param.choiceName(2) == "0");
+    check(param.choiceName(4) == "+2");
+    check(param.getIndex() == 1);
+    check(param.octaves() == -1);
+    check(param.semitones() == -12);
+    check(param.toStateText() == "-1");
+
+    check(param.fromStateText("+2"));
+    check(param.octaves() == 2);
+
+    check(OctaveParam {"Octave", 5}.octaves() == 2);
+    check(OctaveParam {"Octave"}.octaves() == 0);
+
+    auto wide = OctaveParam {"Octave", -3, 3, 0};
+    check(wide.numChoices() == 7);
+    check(wide.getIndex() == 3);
 };
 
 // The expected figures are JUCE 8.0.12's NormalisableRange<float> answers, printed
