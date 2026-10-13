@@ -105,12 +105,17 @@ public:
     // own id's host id. A no-op when the list already has a bypass.
     void addHostBypass(Parameter& param);
 
-    // Recomputes every entry's ids under `identity` and checks them in a debug
-    // build: no two host ids, addresses, JUCE host keys, group ids or truncated
-    // AAX ids alike, an explicit host id below 2^31 unless JUCE's mask is off,
-    // an AAX id at most 31 characters. PluginWrapper calls it at construction.
+    // Recomputes every entry's ids under `identity`; a debug build prints and
+    // asserts on identityProblems(). PluginWrapper calls it at construction,
+    // so every hosted plugin is checked; a list built on its own is not.
     void setIdentity(ParameterIdentity identityToUse);
     const ParameterIdentity& identity() const noexcept { return ids; }
+
+    // Every clash between the entries' ids, one line each, empty when none: no
+    // two host ids, addresses, JUCE host keys, group ids or truncated AAX ids
+    // alike, an explicit host id below 2^31 unless JUCE's mask is off, an AAX
+    // id at most 31 characters. In any build, so a Release test can run it.
+    Vector<std::string> identityProblems() const;
 
     int size() const noexcept { return entries.size(); }
     bool empty() const noexcept { return entries.empty(); }
@@ -165,7 +170,7 @@ private:
     void assignIds();
     void indexHostIds();
     void findBypass();
-    void checkIds() const;
+    void findDuplicateHostIds(Vector<std::string>& problems) const;
 
     Vector<Entry> entries;
     Vector<HostSlot> byHostId;

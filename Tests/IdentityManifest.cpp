@@ -380,6 +380,100 @@ auto tJucePort = test("Identity/jucePortMatchesItsManifest") = []
 auto tTamberPlug = test("Identity/tamberPlugPortsMatchTheirManifest") = []
 { check(IdentityManifest::matchesGolden("TamberPlug")); };
 
+// CI builds Release, where nothing asserts: every plugin a manifest describes
+// is checked here as well.
+auto tNoProblems = test("Identity/noTestPluginHasAnIdentityProblem") = []
+{
+    for (const auto& golden: IdentityManifest::cases())
+    {
+        for (const auto& plugin: golden.module.plugins)
+        {
+            auto wrapper =
+                MakeASound::PluginWrapper(plugin.create(),
+                                          MakeASound::PluginFormat::Unknown,
+                                          MakeASound::parameterIdentityFor(plugin));
+            auto problems = wrapper.plugin().parameters().identityProblems();
+
+            for (const auto& problem: problems)
+                std::fprintf(
+                    stderr, "%s: %s\n", plugin.name.data(), problem.c_str());
+
+            check(problems.empty());
+        }
+    }
+};
+
+struct ClashingParams : MakeASound::ParameterGroup
+{
+    ClashingParams() { add(first, second); }
+
+    MakeASound::FloatParam first {
+        "First", 0.f, 1.f, 0.f, {.hostId = 7u, .versionHint = 1}};
+    MakeASound::FloatParam second {
+        "Second", 0.f, 1.f, 0.f, {.hostId = 7u, .versionHint = 1}};
+};
+
+auto tHostIdClash = test("Identity/aHostIdClashIsAProblem") = []
+{
+    auto params = ClashingParams {};
+    auto list = MakeASound::ParameterList {params};
+    auto problems = list.identityProblems();
+
+    // The host id, and the AUv3 address that is the host id.
+    check(problems.size() == 2);
+    check(problems[0].find("share host id 7") != std::string::npos);
+    check(problems[1].find("an AUv3 address") != std::string::npos);
+};
+
+struct ReservedParams : MakeASound::ParameterGroup
+{
+    ReservedParams() { add(high); }
+
+    MakeASound::FloatParam high {
+        "High", 0.f, 1.f, 0.f, {.hostId = 0x80000001u, .versionHint = 1}};
+};
+
+auto tReserved = test("Identity/aPinBeyondThirtyOneBitsIsAProblem") = []
+{
+    using MakeASound::IdScheme;
+
+    auto params = ReservedParams {};
+    auto list = MakeASound::ParameterList {params};
+    check(list.identityProblems().size() == 1);
+
+    list.setIdentity({IdScheme::JUCE, false});
+    check(list.identityProblems().empty());
+};
+
+// JUCE's own duplicate check: one key twice, the host ids pinned apart.
+struct RepeatedKeyParams : MakeASound::ParameterGroup
+{
+    RepeatedKeyParams() { add(first, second); }
+
+    MakeASound::FloatParam first {
+        "First", 0.f, 1.f, 0.f, {.hostId = 1u, .hostKey = "gain", .versionHint = 1}};
+    MakeASound::FloatParam second {
+        "Second",
+        0.f,
+        1.f,
+        0.f,
+        {.hostId = 2u, .hostKey = "gain", .versionHint = 1}};
+};
+
+auto tRepeatedKey = test("Identity/aRepeatedJuceKeyIsAProblemUnderJuceOnly") = []
+{
+    auto params = RepeatedKeyParams {};
+    auto list = MakeASound::ParameterList {params};
+    check(list.identityProblems().empty());
+
+    auto juce = MakeASound::ParameterList {
+        params, MakeASound::ParameterIdentity {MakeASound::IdScheme::JUCE}};
+    auto problems = juce.identityProblems();
+
+    // The key, the AUv3 address hashed from it, and the AAX id that is the key.
+    check(problems.size() == 3);
+};
+
 // A golden names every format's lines, so a build without some format still
 // compares the rest; this one compares at least the core's.
 auto tSections = test("Identity/theCoreSectionIsAlwaysDescribed") = []

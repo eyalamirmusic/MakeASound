@@ -24,7 +24,7 @@ std::string hexId(uint32_t hostId)
 }
 
 // Characters as JUCE counts them: one per UTF-8 sequence, a lead byte each.
-[[maybe_unused]] int codePoints(std::string_view utf8) noexcept
+int codePoints(std::string_view utf8) noexcept
 {
     return static_cast<int>(std::count_if(
         utf8.begin(),
@@ -49,15 +49,11 @@ std::string_view firstCodePoints(std::string_view utf8, int count) noexcept
     return utf8;
 }
 
-[[maybe_unused]] void reportDuplicate(const char* what,
-                                      const std::string& first,
-                                      const std::string& second)
+std::string shared(const std::string& what,
+                   const std::string& first,
+                   const std::string& second)
 {
-    std::fprintf(stderr,
-                 "MakeASound: parameters \"%s\" and \"%s\" share %s\n",
-                 first.c_str(),
-                 second.c_str(),
-                 what);
+    return "parameters \"" + first + "\" and \"" + second + "\" share " + what;
 }
 } // namespace
 
@@ -98,8 +94,23 @@ void ParameterList::setIdentity(ParameterIdentity identityToUse)
     indexHostIds();
 
 #ifndef NDEBUG
-    checkIds();
+    auto problems = identityProblems();
+
+    for (const auto& problem: problems)
+        std::fprintf(stderr, "MakeASound: %s\n", problem.c_str());
+
+    assert(problems.empty() && "the parameters' ids clash; see identityProblems()");
 #endif
+}
+
+void ParameterList::findDuplicateHostIds(Vector<std::string>& problems) const
+{
+    for (auto i = 1; i < byHostId.size(); ++i)
+        if (byHostId[i].hostId == byHostId[i - 1].hostId)
+            problems.add(shared("host id " + std::to_string(byHostId[i].hostId)
+                                    + "; give one an explicit hostId",
+                                entries[byHostId[i - 1].index].id,
+                                entries[byHostId[i].index].id));
 }
 
 void ParameterList::add(Parameter& param,
@@ -200,49 +211,30 @@ void ParameterList::indexHostIds()
               byAddress.end(),
               [](const AddressSlot& a, const AddressSlot& b)
               { return a.address < b.address; });
-
-#ifndef NDEBUG
-    for (auto i = 1; i < byHostId.size(); ++i)
-    {
-        if (byHostId[i].hostId != byHostId[i - 1].hostId)
-            continue;
-
-        std::fprintf(stderr,
-                     "MakeASound: parameters \"%s\" and \"%s\" share host id %u; "
-                     "give one an explicit hostId\n",
-                     entries[byHostId[i - 1].index].id.c_str(),
-                     entries[byHostId[i].index].id.c_str(),
-                     static_cast<unsigned>(byHostId[i].hostId));
-        assert(false && "two parameters share a host id");
-    }
-#endif
 }
 
-void ParameterList::checkIds() const
+Vector<std::string> ParameterList::identityProblems() const
 {
-    [[maybe_unused]] auto unmasked =
-        ids.scheme == IdScheme::JUCE && !ids.juceStudioOneMask;
+    auto problems = Vector<std::string> {};
+    findDuplicateHostIds(problems);
+
+    auto unmasked = ids.scheme == IdScheme::JUCE && !ids.juceStudioOneMask;
 
     for (const auto& entry: entries)
-    {
-        [[maybe_unused]] auto pinned = entry.param->explicitHostId();
-        assert((unmasked || pinned.value_or(0) < 0x80000000u)
-               && "VST3 reserves host ids from 2^31 up");
-    }
+        if (auto pinned = entry.param->explicitHostId();
+            !unmasked && pinned.value_or(0) >= 0x80000000u)
+            problems.add("parameter \"" + entry.id + "\" pins host id "
+                         + std::to_string(*pinned)
+                         + ", which VST3 reserves (2^31 and up)");
 
     for (auto i = 1; i < byAddress.size(); ++i)
-    {
-        if (byAddress[i].address != byAddress[i - 1].address)
-            continue;
-
-        reportDuplicate("an AUv3 address",
-                        entries[byAddress[i - 1].index].id,
-                        entries[byAddress[i].index].id);
-        assert(false && "two parameters share an AUv3 address");
-    }
+        if (byAddress[i].address == byAddress[i - 1].address)
+            problems.add(shared("an AUv3 address",
+                                entries[byAddress[i - 1].index].id,
+                                entries[byAddress[i].index].id));
 
     if (!isJuceScheme(ids.scheme))
-        return;
+        return problems;
 
     // JUCE's own checks (AudioProcessor::checkForDuplicateParamID,
     // checkForDuplicateTrimmedParamID and checkForDuplicateGroupIDs), which a
@@ -254,26 +246,21 @@ void ParameterList::checkIds() const
     for (const auto& entry: entries)
     {
         if (!keys.insert(entry.hostKey).second)
-        {
-            reportDuplicate("a host key", entry.hostKey, entry.hostKey);
-            assert(false && "two parameters share a hostKey under a JUCE scheme");
-        }
+            problems.add(shared("a host key", entry.hostKey, entry.hostKey));
 
         if (entry.bypass)
             continue;
 
-        assert(codePoints(entry.aaxId) <= juceAAXMaxIdLength
-               && "an AAX parameter id longer than 31 characters");
+        if (codePoints(entry.aaxId) > juceAAXMaxIdLength)
+            problems.add("parameter \"" + entry.id + "\" has the AAX id \""
+                         + entry.aaxId + "\", longer than 31 characters");
 
         auto trimmed =
             std::string {firstCodePoints(entry.aaxId, juceAAXMaxIdLength)};
 
         if (!aaxIds.insert(trimmed).second)
-        {
-            reportDuplicate(
-                "an AAX id once truncated to 31 characters", trimmed, entry.aaxId);
-            assert(false && "two parameters share an AAX id under a JUCE scheme");
-        }
+            problems.add(shared(
+                "an AAX id once truncated to 31 characters", trimmed, entry.aaxId));
     }
 
     // A group is listed once per entry inside it; the same path is the same
@@ -284,10 +271,11 @@ void ParameterList::checkIds() const
         for (const auto& group: entry.groups)
             if (groupPaths.insert(group.id).second
                 && !groupIds.insert(group.identifier).second)
-            {
-                reportDuplicate("a group id", group.id, group.identifier);
-                assert(false && "two groups share an id under a JUCE scheme");
-            }
+                problems.add("groups \"" + group.id
+                             + "\" and another share the id \"" + group.identifier
+                             + "\"");
+
+    return problems;
 }
 
 void ParameterList::findBypass()
