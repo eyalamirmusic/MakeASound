@@ -11,7 +11,7 @@ MakeASound is a C++20 library for platform-agnostic audio, MIDI and audio plugin
 - **`MakeASoundPlugin`** (`Plugin/`): the SDK-free plugin core: `Plugin`, `StatePlugin`, parameters, state, `PluginWrapper` (the per-block pipeline every format shares) and `Compat/` (readers for state that JUCE builds saved).
 - **Formats on top:** Standalone (`StandaloneCore` with no window, plus `Standalone` with windows), VST3 (vendored SDK), AU v2 (macOS, fetched AudioUnitSDK), AUv3 (Apple, no SDK), AAX (macOS, opt-in through `MAKEASOUND_BUILD_AAX`). Each one is a static target that exists only where its dependency target exists. A format whose target is missing is skipped with a status line.
 - **UI:** `MakeASoundPluginUI` (eacp-ui: `GenericEditor`, `ResizeGrip`) and `MakeASoundPluginWeb` (React editors over eacp's `WebView`).
-- **Hosting:** `MakeASoundHosting` (`Hosting/`, beside `Plugin/` since `Plugin/Host` is the plugin's view of a host): third-party plugin scanning through a `FormatManager` (VST3; AU on macOS), out of process, into a `PluginCache`, plus `Apps/PluginScanner`. Loading and hosted editors come later. See `Docs/PluginScanning.md`.
+- **Hosting:** `MakeASoundHosting` (`Hosting/`, beside `Plugin/` since `Plugin/Host` is the plugin's view of a host): third-party plugin scanning through a `FormatManager` (VST3; AU on macOS), out of process, into a `PluginCache`, plus `Apps/PluginScanner`. Loading and hosted editors come later. See `Docs/Hosting.md` and `Docs/PluginScanning.md`.
 - **Tools:** `PluginValidator` (pluginval, auval and the user's own aaxval) and `AUv3Probe` (iOS simulator).
 
 Public umbrellas: `<MakeASound/MakeASound.h>` and `<MakeASound/Plugin/MakeASoundPlugin.h>`. The include root is `Lib/`.

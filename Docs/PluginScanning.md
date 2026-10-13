@@ -209,8 +209,8 @@ database, a vendor's family of apps say, pass one path to all of them.
   behind a prompt.
 - **Seal the exports:** `makeasound_enable_hosting(<target>)` links the library and
   stops an executable exporting its C++ weak symbols on macOS, so a loaded plugin
-  never binds to the host's copies of inline functions (the rationale is in
-  `CMake/MakeASoundHosting.cmake`).
+  never binds to the host's copies of inline functions (see
+  [Hosting.md](Hosting.md)).
 
 ## Writing a custom front end
 
