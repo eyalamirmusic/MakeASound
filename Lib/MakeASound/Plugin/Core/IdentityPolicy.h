@@ -48,11 +48,19 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
                                    const JuceSettings& juce) noexcept
 {
     auto policy = IdentityPolicy {};
+    auto& params = policy.parameters;
+
+    if (scheme == IdScheme::TamberPlug)
+    {
+        params.paramIds = ParamIdRule::Index;
+        params.addedBypassInAU = BypassPlacement::Unlisted;
+        params.auOrder = AUOrder::IndexThenHintId;
+        return policy;
+    }
 
     if (!isJuceScheme(scheme))
         return policy;
 
-    auto& params = policy.parameters;
     auto legacy = scheme == IdScheme::JUCELegacyIndex;
 
     params.paramIds = legacy ? ParamIdRule::Index : ParamIdRule::JuceKeyHash;

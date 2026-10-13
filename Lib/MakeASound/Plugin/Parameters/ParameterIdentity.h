@@ -30,7 +30,16 @@ enum class IdScheme
 
     // JUCE_FORCE_USE_LEGACY_PARAM_IDS: every format addresses a parameter by its
     // index among all of them, the AAX id that index in decimal.
-    JUCELegacyIndex
+    JUCELegacyIndex,
+
+    // A plugin ported from Tamber Plug: VST3 and AU ids the index among every
+    // leaf, hidden ones included (so sparse where one is hidden), only the
+    // exposed ones registered and listed, the AU list by index; the bypass
+    // PluginWrapper adds is left to the AU bypass property; AUv3 and AAX ids,
+    // the VST3 class id and the AAX plug-in ids MakeASound's (Plug shipped no
+    // AUv3 or AAX, and its class id is MakeASound's). A post-port parameter
+    // (IdentityOverrides::indexedThroughVersion) takes FNV-1a of its path.
+    TamberPlug
 };
 
 // Whether the profile is one of JUCE's. Read only by policyFor(): everything
@@ -138,7 +147,11 @@ enum class AUOrder
     // The AudioUnitSDK's own indexed list, ids 0..n-1 (JUCE's legacy ids). With
     // post-port entries, the indexed entries by index and then the post-port
     // ones by (hint, id), as a list of the adapter's own.
-    SdkIndexed
+    SdkIndexed,
+
+    // The indexed entries by index, then the post-port ones by (hint, id), as a
+    // list of the adapter's own: Plug's ascending index, sparse ids allowed.
+    IndexThenHintId
 };
 
 // The range and value space an AU host sees.

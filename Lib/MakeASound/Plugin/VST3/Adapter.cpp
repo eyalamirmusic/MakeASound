@@ -82,7 +82,7 @@ Adapter::Adapter(OwningPointer<Plugin> plugin,
                      "hostId\n",
                      entry.id.c_str(),
                      static_cast<unsigned>(entry.hostId));
-        assert(list.identity().paramIds != ParamIdRule::PathHash
+        assert(list.identity().paramIds == ParamIdRule::JuceKeyHash
                && "a parameter's host id collides with a shadow parameter");
     }
 #endif

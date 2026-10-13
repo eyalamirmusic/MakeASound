@@ -29,6 +29,8 @@ std::string_view schemeName(IdScheme scheme)
             return "JUCE";
         case IdScheme::JUCELegacyIndex:
             return "JUCELegacyIndex";
+        case IdScheme::TamberPlug:
+            return "TamberPlug";
     }
 
     return "?";
@@ -140,8 +142,10 @@ ModuleDescription moduleOf(FourCC manufacturer,
     return module;
 }
 
-constexpr auto everyScheme = {
-    IdScheme::Native, IdScheme::JUCE, IdScheme::JUCELegacyIndex};
+constexpr auto everyScheme = {IdScheme::Native,
+                              IdScheme::JUCE,
+                              IdScheme::JUCELegacyIndex,
+                              IdScheme::TamberPlug};
 
 ModuleDescription testPluginModule(PluginDescription plugin)
 {
@@ -233,6 +237,20 @@ Vector<Case> cases()
     plug.plugins.add({.name = "Chorus",
                       .pluginCode = "Chr1",
                       .create = creator<TamberPlugFixtures::ChorusPort>()});
+
+    // The same under Plug's own ids, and a hidden leaf's sparse ones.
+    plug.plugins.add({.name = "SVFFilter",
+                      .pluginCode = "Svf1",
+                      .create = creator<TamberPlugFixtures::SVFPort>(),
+                      .idScheme = IdScheme::TamberPlug});
+    plug.plugins.add({.name = "Chorus",
+                      .pluginCode = "Chr1",
+                      .create = creator<TamberPlugFixtures::ChorusPort>(),
+                      .idScheme = IdScheme::TamberPlug});
+    plug.plugins.add({.name = "Sparse",
+                      .pluginCode = "Sprs",
+                      .create = creator<TamberPlugFixtures::SparsePort>(),
+                      .idScheme = IdScheme::TamberPlug});
     result.add({"TamberPlug", plug});
 
     return result;

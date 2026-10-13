@@ -34,7 +34,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
     # Every id a host stores, against the goldens in Identity/. Each format built
     # adds its own lines (IdentityManifest.h).
-    list(APPEND MAKEASOUND_TEST_SOURCES IdentityManifest.cpp)
+    list(APPEND MAKEASOUND_TEST_SOURCES IdentityManifest.cpp TamberPlugIdentityTests.cpp)
     set(MAKEASOUND_TEST_IDENTITY ON)
 
     # eacp-core so the swap's and the wrapper's cases can pump the message loop.

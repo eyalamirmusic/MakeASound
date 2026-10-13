@@ -115,6 +115,45 @@ aax param entry 2 id "2" automatable 1
 aax param entry 3 id "3" automatable 1
 aax param entry 4 id "MasterBypassID" automatable 1
 aax param entry 5 id "5" automatable 1
+plugin "Newer Gain" code Gnw2 scheme TamberPlug category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Gain" aaxId "00000000" groups {}
+core entry 1 "Drive" key "Drive" hint 2 automatable 1 session 0 bypass no hostId 1 address 1 identifier "Drive" aaxId "00000001" groups {}
+core entry 2 "Filter/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 2 address 2 identifier "Filter/Cutoff" aaxId "00000002" groups {[Filter|Filter]}
+core entry 3 "Mode" key "Mode" hint 1 automatable 1 session 0 bypass no hostId 3 address 3 identifier "Mode" aaxId "00000003" groups {}
+core entry 4 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 4 address 4 identifier "Bypass" aaxId "00000004" groups {}
+core entry 5 "Width" key "Width" hint 1 automatable 1 session 1 bypass no hostId 5 address 5 identifier "Width" aaxId "00000005" groups {}
+vst3 class 0x4d61536f 0x476e7732 0x56535433 0x00000000
+vst3 param 0 entry 0 id 0 steps 0 default 0.833333313 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1 steps 0 default 0.25 flags 0x1 unit 0
+vst3 param 2 entry 2 id 2 steps 0 default 0.549002707 flags 0x1 unit 0
+vst3 param 3 entry 3 id 3 steps 2 default 0 flags 0x9 unit 0
+vst3 param 4 entry 4 id 4 steps 1 default 0 flags 0x10001 unit 0
+vst3 param 5 entry 5 id 5 steps 0 default 0.5 flags 0x1 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Gnw2 MaSo
+au list 0 1 2 3 4 5
+au param entry 0 id 0 position 0 min -60 max 12 default 0 unit 0 flags 0xc8800010 mid -24 strings 0
+auv3 param entry 0 address 0 identifier "Gain" strings 0
+au param entry 1 id 1 position 1 min 0 max 1 default 0.25 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 1 address 1 identifier "Drive" strings 0
+au param entry 2 id 2 position 2 min 0 max 1 default 0.549002707 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 2 address 2 identifier "Filter/Cutoff" strings 0
+au param entry 3 id 3 position 3 min 0 max 2 default 0 unit 1 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 3 address 3 identifier "Mode" strings 1
+au param entry 4 id 4 position 4 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 4 address 4 identifier "Bypass" strings 1
+au param entry 5 id 5 position 5 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 5 address 5 identifier "Width" strings 0
+aax effect "com.makeasound.tests.Gnw2"
+aax native 0:0x476e7732 2:0x476e7734
+aax param entry 0 id "00000000" automatable 1
+aax param entry 1 id "00000001" automatable 1
+aax param entry 2 id "00000002" automatable 1
+aax param entry 3 id "00000003" automatable 1
+aax param entry 4 id "00000004" automatable 1
+aax param entry 5 id "00000005" automatable 1
 plugin "Newer Gain Post-port" code Gnw3 scheme JUCELegacyIndex category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core overrides indexedThroughVersion 1

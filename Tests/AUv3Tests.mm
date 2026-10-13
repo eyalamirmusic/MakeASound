@@ -1553,4 +1553,27 @@ auto tPortJuceState = test("AUv3/aJuceStateRestoresIntoAJucePort") = []
                1e-5));
     check(target.parameterFor(p.mode).value == 2.f);
 };
+
+// A Tamber Plug port (IdScheme::TamberPlug): the tree has every exposed
+// parameter at its index, under its id path, but not the added bypass, which
+// shouldBypassEffect drives.
+auto tPlugTree = test("AUv3/aTamberPlugPortsTreeLeavesTheBypassOut") = []
+{
+    using TamberPlugFixtures::SVFPort;
+
+    auto host = UnitHost<SVFPort>(*TamberPlugFixtures::plugDescriptionFor(
+        FourCC("Psvf").toUint32()));
+    auto* tree = host.unit.parameterTree;
+    const auto& list = host.plugin().parameters();
+
+    check(tree.allParameters.count
+          == static_cast<NSUInteger>(TamberPlugFixtures::svfParameterCount));
+    check([tree parameterWithAddress:4].identifier != nil);
+    check([[tree parameterWithAddress:4].identifier isEqualToString:@"BP/Cutoff"]);
+    check([tree parameterWithAddress:list.entry(list.bypassIndex()).hostId] == nil);
+
+    host.unit.shouldBypassEffect = YES;
+    check(host.unit.shouldBypassEffect);
+    check(list[list.bypassIndex()].getValue() == 1.f);
+};
 } // namespace

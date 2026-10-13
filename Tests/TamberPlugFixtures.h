@@ -20,6 +20,8 @@
 // SVFPort and ChorusPort are those plugins ported: the same ids, ranges and
 // plain values, each taking Plug's document through loadLegacy.
 
+#include "TestPlugins.h"
+
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
 #include <atomic>
@@ -231,7 +233,88 @@ struct PlugPort : StatePlugin<State<ParamsT>>
     StateContext context = StateContext::Preset;
 };
 
+// No Plug example hides a parameter, but Plug's ids count one all the same
+// (TamberGestures' 7 exposed ids sit among 2989): a hidden leaf between two
+// exposed ones, so the second's id is 2.
+struct SparseParams : ParameterGroup
+{
+    SparseParams() { add(level, internal, tone); }
+
+    FloatParam level {"Level", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    FloatParam internal {
+        "Internal", 0.f, 1.f, 0.f, {.automatable = false, .versionHint = 1}};
+    FloatParam tone {"Tone", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+};
+
+// SVFFilter's next release as a port: a Drive inserted mid-tree, in the BP
+// band, with that release's hint, for IdentityOverrides::indexedThroughVersion 1.
+struct DrivenSVFBand : ParameterGroup
+{
+    DrivenSVFBand()
+        : ParameterGroup("BP")
+    {
+        add(enabled, drive, cutoff, resonance);
+    }
+
+    BoolParam enabled {"Enable", false, {.versionHint = 1}};
+    FloatParam drive {"Drive", 0.f, 1.f, 0.f, {.versionHint = 2}};
+    FloatParam cutoff {"Cutoff", 0.f, 1.f, 0.5663233399391174f, {.versionHint = 1}};
+    FloatParam resonance {"Resonance", 0.f, 1.f, 0.2f, {.versionHint = 1}};
+};
+
+struct NewerSVFParams : ParameterGroup
+{
+    NewerSVFParams() { add(highPass, bandPass, lowPass); }
+
+    SVFBand highPass {"HP", false, 0.23298999667167664f};
+    DrivenSVFBand bandPass;
+    SVFBand lowPass {"LP", true, 0.7253637313842773f};
+};
+
 using SVFPort = PlugPort<SVFParams>;
 using ChorusPort = PlugPort<ChorusParams>;
+using SparsePort = PlugPort<SparseParams>;
+using NewerSVFPort = PlugPort<NewerSVFParams>;
+
+// The ports under IdScheme::TamberPlug, for the AU suites' port factory and the
+// AUv3 suite, under codes of their own: SVFFilter 'Psvf', Chorus 'Pchr', Sparse
+// 'Pspr', and SVFFilter's next release 'Psv2' (indexedThroughVersion 1).
+template <typename P>
+PluginDescription plugDescription(std::string_view name,
+                                  FourCC code,
+                                  std::optional<int> indexedThrough = {})
+{
+    return {.name = name,
+            .pluginCode = code,
+            .create = []
+            { return TestPlugins::Module::create<P>(PluginCreateFn {}); },
+            .idScheme = IdScheme::TamberPlug,
+            .overrides = {.indexedThroughVersion = indexedThrough}};
+}
+
+inline const Vector<PluginDescription>& plugDescriptions()
+{
+    static const auto all = []
+    {
+        auto result = Vector<PluginDescription> {};
+        result.add(plugDescription<SVFPort>("Plug SVFFilter", "Psvf"));
+        result.add(plugDescription<ChorusPort>("Plug Chorus", "Pchr"));
+        result.add(plugDescription<SparsePort>("Plug Sparse", "Pspr"));
+        result.add(plugDescription<NewerSVFPort>("Plug SVFFilter 2", "Psv2", 1));
+        return result;
+    }();
+
+    return all;
+}
+
+// Null for any other subtype.
+inline const PluginDescription* plugDescriptionFor(uint32_t subtype)
+{
+    for (const auto& description: plugDescriptions())
+        if (description.pluginCode.toUint32() == subtype)
+            return &description;
+
+    return nullptr;
+}
 
 } // namespace TamberPlugFixtures

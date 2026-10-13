@@ -53,6 +53,24 @@ aax effect "com.makeasound.tests"
 aax native 2:0x6a636363
 aax param entry 0 id "0" automatable 1
 aax param entry 1 id "MasterBypassID" automatable 1
+plugin "Latent" code Latn scheme TamberPlug category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Gain" aaxId "00000000" groups {}
+core entry 1 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1423004271 address 1423004271 identifier "__bypass" aaxId "54d1526f" groups {}
+vst3 class 0x4d61536f 0x4c61746e 0x56535433 0x00000000
+vst3 param 0 entry 0 id 0 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aumf Latn MaSo
+au list 0
+au param entry 0 id 0 position 0 min 0 max 4 default 2 unit 0 flags 0xc8800010 mid 2 strings 0
+auv3 param entry 0 address 0 identifier "Gain" strings 0
+au param entry 1 unlisted
+aax effect "com.makeasound.tests.Latn"
+aax native 2:0x4c617470
+aax param entry 0 id "00000000" automatable 1
+aax param entry 1 id "54d1526f" automatable 1
 plugin "Latent CC" code Lcc1 scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
@@ -108,3 +126,21 @@ aax effect "com.makeasound.tests"
 aax native 2:0x6a636363
 aax param entry 0 id "0" automatable 1
 aax param entry 1 id "MasterBypassID" automatable 1
+plugin "Latent CC" code Lcc1 scheme TamberPlug category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Gain" aaxId "00000000" groups {}
+core entry 1 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1423004271 address 1423004271 identifier "__bypass" aaxId "54d1526f" groups {}
+vst3 class 0x4d61536f 0x4c636331 0x56535433 0x00000000
+vst3 param 0 entry 0 id 0 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 2096 ids 0x7fff0000..0x7fff0f82 flags 0x11/0x11
+vst3 midimap 0/0/0 0x7fff0000 0/0/1 0x7fff0001 0/0/127 0x7fff007f 0/0/128 0x7fff0080 0/0/129 0x7fff0081 0/0/130 0x7fff0082 0/15/127 0x7fff0f7f 0/15/129 0x7fff0f81 1/0/1 none
+au component aumf Lcc1 MaSo
+au list 0
+au param entry 0 id 0 position 0 min 0 max 4 default 2 unit 0 flags 0xc8800010 mid 2 strings 0
+auv3 param entry 0 address 0 identifier "Gain" strings 0
+au param entry 1 unlisted
+aax effect "com.makeasound.tests.Lcc1"
+aax native 2:0x4c636333
+aax param entry 0 id "00000000" automatable 1
+aax param entry 1 id "54d1526f" automatable 1

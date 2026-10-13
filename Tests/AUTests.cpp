@@ -2749,4 +2749,74 @@ auto tPortJuceState = test("AU/aJuceClassInfoRestoresIntoAJucePort") = []
     check(target.hostValue(3357091u) == 2.f);
     check(target.hostValue(537889601u) == 0.f);
 };
+
+// Tamber Plug ports under IdScheme::TamberPlug (TamberPlugFixtures.h), against
+// what Plug's own SVFFilter AU listed (auval and an AudioToolbox probe of the
+// installed component): ids 0..8 in that order, and no BypassEffect of Plug's.
+
+using TamberPlugFixtures::NewerSVFPort;
+using TamberPlugFixtures::SparsePort;
+
+std::vector<AudioUnitParameterID> idsUpTo(int count)
+{
+    auto ids = std::vector<AudioUnitParameterID> {};
+
+    for (auto id = 0; id < count; ++id)
+        ids.push_back(static_cast<AudioUnitParameterID>(id));
+
+    return ids;
+}
+
+auto tPlugIds = test("AU/aTamberPlugPortListsPlugsIds") = []
+{
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    check(parameterListOf(host.unit)
+          == idsUpTo(TamberPlugFixtures::svfParameterCount));
+
+    for (auto id: idsUpTo(TamberPlugFixtures::svfParameterCount))
+        check(publishedInfo(host.unit, id).status == noErr);
+
+    check(publishedInfo(host.unit, 4).name == "BP Cutoff");
+};
+
+// The bypass the wrapper adds is in no list, so no Logic automation index
+// moves, and the bypass property drives it.
+auto tPlugBypass = test("AU/aTamberPlugPortsBypassIsTheBypassProperty") = []
+{
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    const auto& list = host.plugin().parameters();
+    auto bypassId = list.entry(list.bypassIndex()).hostId;
+
+    check(publishedInfo(host.unit, bypassId).status
+          == kAudioUnitErr_InvalidParameter);
+    check(!hasGlobalParameter(host.unit, bypassId));
+
+    auto size = UInt32 {};
+    auto writable = Boolean {};
+    check(bypassInfo(host, size, writable) == noErr && writable);
+    check(readBypass(host) == 0);
+
+    check(writeBypass(host, 1) == noErr);
+    check(readBypass(host) == 1);
+    check(list[list.bypassIndex()].getValue() == 1.f);
+};
+
+auto tPlugSparse = test("AU/aTamberPlugPortSkipsAHiddenLeafsId") = []
+{
+    auto host = UnitHost<SparsePort>(plugPortComponentFor("Pspr"));
+    check(parameterListOf(host.unit) == std::vector<AudioUnitParameterID> {0, 2});
+    check(publishedInfo(host.unit, 1).status == kAudioUnitErr_InvalidParameter);
+};
+
+auto tPlugPostPort = test("AU/aTamberPlugPostPortParameterListsLast") = []
+{
+    auto host = UnitHost<NewerSVFPort>(plugPortComponentFor("Psv2"));
+    auto expected = idsUpTo(TamberPlugFixtures::svfParameterCount);
+    expected.push_back(MakeASound::hostIdFor("BP/Drive"));
+    check(parameterListOf(host.unit) == expected);
+
+    check(host.hostWrites(MakeASound::hostIdFor("BP/Drive"), 0.75f) == noErr);
+    check(host.render(blockSize) == noErr);
+    check(host.plugin().params.bandPass.drive.getValue() == 0.75f);
+};
 } // namespace

@@ -224,22 +224,25 @@ Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
     auto hint = [&](int index) { return list[index].versionHint(); };
     auto postPort = [&](int index) { return list.entry(index).postPort; };
 
-    std::sort(order.begin(),
-              order.end(),
-              [&](int a, int b) { return hostId(a) < hostId(b); });
-
-    // The SDK's indexed list is ids 0..n-1 in order; any post-port entries
-    // follow, by (hint, id).
-    if (rules.auOrder == AUOrder::SdkIndexed)
+    // An index profile's indexed entries by index, which is declaration order
+    // (the SDK's indexed list, ids 0..n-1, or Plug's ascending sparse ids); any
+    // post-port entries follow, by (hint, id).
+    if (rules.auOrder != AUOrder::HintThenId)
     {
         auto firstPostPort = std::stable_partition(
             order.begin(), order.end(), [&](int index) { return !postPort(index); });
+        std::sort(firstPostPort,
+                  order.end(),
+                  [&](int a, int b) { return hostId(a) < hostId(b); });
         std::stable_sort(firstPostPort,
                          order.end(),
                          [&](int a, int b) { return hint(a) < hint(b); });
         return order;
     }
 
+    std::sort(order.begin(),
+              order.end(),
+              [&](int a, int b) { return hostId(a) < hostId(b); });
     std::stable_sort(
         order.begin(), order.end(), [&](int a, int b) { return hint(a) < hint(b); });
     return order;
