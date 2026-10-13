@@ -6,6 +6,7 @@
 // callback, the timestamp and the MIDI the unit sends back. No adapter header:
 // the SDK is C++23 and these suites are not.
 
+#include "HostBuffers.h"
 #include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AU/ComponentType.h>
@@ -31,9 +32,6 @@ using namespace MakeASound;
 
 constexpr auto maxBlock = TestPlugins::blockSize;
 constexpr auto sampleRate = 48000.0;
-
-// What a host buffer can hold, past any block a case renders.
-constexpr auto bufferCapacity = 1024;
 
 inline AudioComponentPlugInInterface* factory(const AudioComponentDescription* desc)
 {
@@ -99,58 +97,8 @@ inline AudioComponent componentFor(FourCC code)
     return registerComponent(descriptionFor(code));
 }
 
-// A packet the unit sent, kept in fixed storage so collecting it never allocates.
-struct SentMidi
-{
-    UInt32 bus = 0;
-    MIDITimeStamp offset = 0;
-    UInt16 length = 0;
-    std::array<Byte, 64> bytes {};
-
-    bool is(std::initializer_list<int> expected) const
-    {
-        return std::equal(
-            bytes.begin(), bytes.begin() + length, expected.begin(), expected.end());
-    }
-};
-
-// One bus of host memory and the AudioBufferList a host hands over.
-struct HostBus
-{
-    explicit HostBus(int numChannels)
-        : storage(static_cast<size_t>(numChannels),
-                  std::vector<float>(bufferCapacity))
-        , listStorage(offsetof(AudioBufferList, mBuffers)
-                      + std::max(1, numChannels) * sizeof(AudioBuffer))
-    {
-    }
-
-    int numChannels() const { return static_cast<int>(storage.size()); }
-
-    void fill(float value)
-    {
-        for (auto& channel: storage)
-            std::fill(channel.begin(), channel.end(), value);
-    }
-
-    // Null data asks the unit for its own buffers, which it hands back.
-    AudioBufferList& list(UInt32 frames, bool hostMemory = true)
-    {
-        auto& result = *reinterpret_cast<AudioBufferList*>(listStorage.data());
-        result.mNumberBuffers = static_cast<UInt32>(storage.size());
-
-        for (auto ch = 0; ch < numChannels(); ++ch)
-            result.mBuffers[ch] = {
-                1,
-                static_cast<UInt32>(frames * sizeof(float)),
-                hostMemory ? storage[static_cast<size_t>(ch)].data() : nullptr};
-
-        return result;
-    }
-
-    std::vector<std::vector<float>> storage;
-    std::vector<std::byte> listStorage;
-};
+using HostBuffers::HostBus;
+using HostBuffers::SentMidi;
 
 enum class Start
 {

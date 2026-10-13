@@ -49,6 +49,21 @@ std::string fourCCString(OSType code)
             static_cast<char>(code & 0xff)};
 }
 
+std::string_view componentTag(Category category) noexcept
+{
+    switch (category)
+    {
+        case Category::Instrument:
+            return "Synthesizer";
+        case Category::MidiEffect:
+            return "MIDI";
+        case Category::Effect:
+            break;
+    }
+
+    return "Effects";
+}
+
 UInt32 versionNumber(std::string_view version) noexcept
 {
     constexpr auto limits = std::array<UInt32, 3> {0xffff, 0xff, 0xff};

@@ -1,3 +1,28 @@
+# MakeASoundAUDescribe: the component's description, both plists, the host's view
+# of a parameter and the v2 view's placement geometry. SDK-free and C++20, so it
+# builds on every Apple platform, iOS included, where the AUv3 adapter uses it.
+if (NOT APPLE)
+    return()
+endif ()
+
+add_library(MakeASoundAUDescribe STATIC
+        ComponentType.cpp
+        HostParameters.cpp
+        Plist.cpp
+        ViewPlacement.cpp)
+target_link_libraries(MakeASoundAUDescribe PUBLIC MakeASoundPlugin
+        "-framework AudioToolbox" "-framework CoreFoundation")
+set_makeasound_target_settings(MakeASoundAUDescribe)
+
+if (MAKEASOUND_UNITY_BUILD)
+    set_target_properties(MakeASoundAUDescribe PROPERTIES UNITY_BUILD ON)
+endif ()
+
+# The main of <Name>-Describe, which an iOS tree's host sub-build links against
+# the plugin's core to write the AUv3 app extension's Info.plist.
+set_target_properties(MakeASoundAUDescribe PROPERTIES
+        MAKEASOUND_AU_DESCRIBE_MAIN "${CMAKE_CURRENT_LIST_DIR}/DescribeMain.cpp")
+
 # MakeASoundAU: the AU format, one MusicDeviceBase Adapter over PluginWrapper and
 # Apple's AudioUnitSDK. Each <Name>-AU module links it and compiles the entry and
 # view files recorded on this target, since an archive would let the linker drop
@@ -7,16 +32,8 @@ if (NOT TARGET ausdk)
     return()
 endif ()
 
-# The component's description and plist and the view's placement geometry,
-# SDK-free and C++20.
-add_library(MakeASoundAUDescribe STATIC ComponentType.cpp Plist.cpp ViewPlacement.cpp)
-target_link_libraries(MakeASoundAUDescribe PUBLIC MakeASoundPlugin
-        "-framework AudioToolbox")
-set_makeasound_target_settings(MakeASoundAUDescribe)
-
 add_library(MakeASoundAU STATIC
         Adapter.cpp
-        HostParameters.cpp
         Conversion.cpp
         State.cpp)
 
@@ -46,7 +63,7 @@ add_executable(MakeASoundAUPlistGen PlistGen.cpp)
 set_makeasound_target_settings(MakeASoundAUPlistGen)
 
 if (MAKEASOUND_UNITY_BUILD)
-    set_target_properties(MakeASoundAU MakeASoundAUDescribe PROPERTIES UNITY_BUILD ON)
+    set_target_properties(MakeASoundAU PROPERTIES UNITY_BUILD ON)
 endif ()
 
 set_makeasound_target_settings(MakeASoundAU)

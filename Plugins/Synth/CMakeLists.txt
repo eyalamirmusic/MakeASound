@@ -1,7 +1,7 @@
 # Not "Synth": Apps/Synth, the Engine demo that plays the same TestSynth, owns that name.
 # An instrument, so the app asks for no microphone.
 makeasound_add_plugin(SynthPlugin
-        FORMATS Standalone VST3 AU
+        FORMATS Standalone VST3 AU AUv3
         NO_AUDIO_INPUT
         OUTPUT_NAME "MakeASound Synth"
         BUNDLE_ID com.makeasound.synth

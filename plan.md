@@ -21,7 +21,7 @@ it.
 | 5 | AU | `auval -strict` on both examples after an install step — **landed 2026-10-10** |
 | 6 | editor size policy and host resize in every format, Logic's view service, AU bypass, a React editor for the Synth example | pluginval 10 and `auval -strict` with the new editors; the Synth's web editor opens in all three formats — **landed 2026-10-11** (DAW hand checks pending) |
 | 7 | `StandaloneHost` without a window, a plugin's own standalone app, the standalone on iOS | desktop standalones unchanged, a custom-app example builds, both examples run as iOS standalones in the simulator — **landed 2026-10-12** |
-| 8 | AUv3, shipped on iOS inside the standalone | `AUv3/` suites on macOS and the iOS simulator, Ninja and Xcode iOS builds in CI, a hand check in AUM and GarageBand |
+| 8 | AUv3, shipped on iOS inside the standalone | `AUv3/` suites on macOS and the iOS simulator, Ninja and Xcode iOS builds in CI, a hand check in AUM and GarageBand — **landed 2026-10-12** (hand checks pending) |
 
 ## Stage 0: `Buffer`
 
@@ -2621,6 +2621,109 @@ the `AUv3/` suites green on macOS and in the iOS simulator, both generators buil
 the iOS tree in CI, and a hand check of both examples in AUM and GarageBand on a
 device, the Synth's web editor opening in both.
 
+Landed, WP8.1 to WP8.8: `MakeASoundAUDescribe` on every Apple platform with
+`HostParameters` moved into it, `writeAppExtensionPlist` and `componentTag`;
+`MakeASoundAUv3` in `Plugin/AUv3/` (`Adapter`, `Parameters`, `State`, `Conversion`,
+and `AudioUnit.mm`, the per-module `AUAudioUnit` subclass over `Adapter`);
+`PluginFormat::AUv3`; `ParameterList::Entry::groups`, the named groups around an
+entry, which the tree is built from; the view (`MakeASoundAUv3View`'s
+`EmbeddedEditor`, shared, and per module `AUv3View-iOS.mm` or `AUv3View-macOS.mm`,
+the view controller that is the extension's principal class, or `NoAUv3View.mm`
+without the UI tier), over eacp's new `EmbeddedView-iOS.mm`; the packaging,
+`FORMATS ... AUv3` (`<Name>-AUv3`, the appex inside `<Name>-Standalone`, over
+`ExtensionMain.cpp`, its plist written by `<Name>-Describe` from a macOS sub-build,
+`MakeASoundDescribeBuild`), under Ninja and Xcode, on both examples; `AUv3Probe`,
+the out-of-process smoke check; and the suites `AUv3/` (`AUv3Tests.mm` over
+`Tests/AUv3TestHost.h`, `AUv3ViewTests.mm`), `AUPlist/` and
+`AUv3AllocationTests.mm`, green on macOS (479 cases) and in the iOS simulator
+(380). The v2 components still pass `auval -strict`. In the simulator both
+examples' extensions register (`kAudioComponentFlag_IsV3AudioUnit`), instantiate
+out of process (`AUAudioUnit_XH`), render (Gain a sine at peak 0.500, the Synth a
+note at 0.198) and hand back a view controller, the Synth's extension starting
+WebKit for its page, from the Ninja tree and from the Xcode one; the Xcode tree
+also builds every target for a device, unsigned, as does a Ninja device tree.
+CI gains the probe step in the iOS job and an `ios-xcode` job (device, unsigned).
+Where it differs from the plan below:
+
+- **The tree learns render-thread values from a 30 Hz main-queue timer.** A
+  parameter event applied in the render block, or a value the plugin moved
+  itself, does not reach the tree's cached value, so the adapter keeps the
+  plugin's value at the last sync per entry and writes the moved ones with
+  `setValue:originator:` off the audio thread; a load on the message thread syncs
+  at once. A thread-local flag keeps the implementor's observer from writing a
+  value the adapter itself is mirroring back into the plugin. A host write that
+  a gesture dropped is undone in the tree at the next tick.
+- **An indexed parameter snaps in the tree.** `AUParameter` rounds a value written
+  to an `Indexed` or `Boolean` parameter before the observer sees it, so the v2
+  rule that the host keeps its off-grid value has nothing to keep here; the
+  adapter still records the plugin's value after each host write, so the sync
+  never replaces a host's value with the plugin's form of it.
+- **The class suffix is `MAKEASOUND_AUV3_CLASS_SUFFIX`**, defined on the
+  per-module sources (`MAKEASOUND_AUV3_SOURCES` on the target, today
+  `AudioUnit.mm`), and `MAKEASOUND_AUV3_CLASS(name)` makes `name_<suffix>`. The
+  static library defines no class; `audioUnitClass()` is the seam the view
+  controller's factory (WP8.5) instantiates through.
+- **The test host constructs the registered subclass directly.** The v2 suite
+  registers the same descriptions with its factory in the same process, so a
+  lookup by description could find those; one case instantiates through
+  `instantiateWithComponentDescription:` under a type the v2 suite never registers.
+- **`AUv3AllocationTests.mm`, not `.cpp`**: driving the internal block needs
+  Objective-C++. A gesture is not measured under the ban, since it goes through
+  the tree; the render is, while every parameter is held.
+- **The view controller holds the unit weakly** and opens the editor once both
+  exist, whichever came first, on the main queue when the extension asks for the
+  unit on another thread. The editor closes with the controller or through the
+  adapter's view closer, as v2's does, whichever goes first.
+- **`supportedViewConfigurations:` is the unit's**, as AudioToolbox declares it,
+  so `AudioUnit.mm` forwards it to a function the view source defines. A
+  configuration is supported when the smallest size the editor can take
+  (`constrain(minimum)` when resizable, its opening size when fixed) fits inside
+  it, a zero side matching any; one larger than the maximum still fits, since a
+  host's size reaches the editor unconstrained. It is answered over a throwaway
+  editor, `createEditor()` being cheap by contract.
+- **Without eacp's UI tier the principal class is a plain factory**
+  (`MakeASoundAUv3Factory_<suffix>`, `NSObject <AUAudioUnitFactory>`) and the
+  extension is `com.apple.AudioUnit`; the packaging reads which from
+  `MAKEASOUND_AUV3_HAS_VIEW` and `MAKEASOUND_AUV3_PRINCIPAL_CLASS`, and links
+  `MAKEASOUND_AUV3_VIEW_LIBRARIES`. `MAKEASOUND_AUV3_SOURCES` carries the view
+  source beside `AudioUnit.mm`.
+- **The plist tool for a cross build is the whole consumer project again, not a
+  generated one.** `MakeASoundDescribeBuild` is an `ExternalProject` over
+  `CMAKE_SOURCE_DIR` (ours, or a CPM consumer's), configured for macOS with
+  `MAKEASOUND_DESCRIBE_BUILD` on: `makeasound_add_plugin` builds each core and its
+  `<Name>-Describe` (`DescribeMain.cpp` in `MakeASoundAUDescribe`) and returns, and
+  the formats, the UI tier, apps, tools, tests and SDKs are never configured, so a
+  web editor builds its fallback and runs no npm. Only the project itself knows a
+  plugin's sources, include paths and libraries (the Synth's `MakeASoundDSP`), so a
+  generated project could not rebuild a consumer's core; this one fetches nothing,
+  every `CPM_PACKAGES` entry pointed at the source the iOS tree already has. It is
+  scheduled with `cmake_language(DEFER)` at the end of the top-level configure, so
+  it sees every plugin and package; its steps clear `SDKROOT` and the deployment
+  targets an Xcode build exports to scripts. `MAKEASOUND_DESCRIBE_CMAKE_ARGS` is a
+  consumer's escape hatch. On the development machine the cold sub-build and
+  both extensions took about ten seconds of a unity build.
+- **The extension's version is the app's.** `plutil` replaces the writer's
+  `ModuleDescription::version` with `VERSION`, since an extension must match its
+  app; the app's own version was eacp's `0.0.0` until `EACP_APP_VERSION` was set
+  (a stage 3 slip, fixed for every platform). The components' `version` stays
+  `PluginDescription::version`.
+- **The platform keys** (`CFBundleSupportedPlatforms`, `UIDeviceFamily` 1 and 2,
+  `MinimumOSVersion`) are written by `plutil` into the extension's plist and by
+  `eacp_append_plist_xml` into the app's under Ninja only; Xcode adds its own.
+  The simulator or a device is read from `CMAKE_OSX_SYSROOT`; a Ninja device build
+  now leaves the app unsigned too, where stage 7 signed it ad hoc.
+- **Xcode needed two things the spike did not show:** `XCODE_EMBED_APP_EXTENSIONS`
+  copies the extension without building it, so the app depends on it under both
+  generators, and Xcode drops `$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc`, so the
+  extension sets `CLANG_ENABLE_OBJC_ARC`. Without `MAKEASOUND_IOS_TEAM`,
+  `CODE_SIGNING_ALLOWED[sdk=iphoneos*]` NO leaves a device build unsigned with no
+  flag on the command line.
+- **The smoke check is a tool, `Tools/AUv3Probe`, not a test case**: it needs the
+  apps installed, which a test binary cannot do, so it runs through `simctl spawn`
+  after the install, as the spike's host did. In a windowless process the remote
+  view controller reports the screen's size, not the editor's, so the probe
+  checks only that one comes back.
+
 - **WP8.0, spikes, before anything else is fixed.**
   1. *The framework.* The container app and the appex share one
      `<Name>.framework` holding the plugin core, the adapter and eacp, so the code
@@ -2628,6 +2731,17 @@ device, the Synth's web editor opening in both.
      `Apps::run` would then schedule onto a host loop the standalone does not have;
      find out whether eacp needs a way to say "this framework's process owns the
      loop", and add it there if so.
+     *Spiked, and dropped: there is no shared framework.* In a framework `isDLL()`
+     is true, so `Apps::run` takes its plugin path, and on iOS that only stores the
+     launch: `UIApplicationMain` never runs and the app exits. eacp also has two
+     extension-unsafe call sites (`[UIApplication sharedApplication]` in
+     `App-iOS.mm` and `Window-iOS.mm`) that only matter once one image serves both
+     an app and an appex. And a dylib's exports defeat LTO: eacp-core alone is
+     479 KB as a framework and 107 KB linked statically. The static plugin core
+     links into the app and into the appex instead, each an `MH_EXECUTE`, so
+     `isDLL()` stays false in both and eacp needs no change; JUCE ships AUv3 the
+     same way. The eacp fix that would make a framework work (`isDLL()` false on
+     iOS and Android) is recorded as a follow-up for eacp, not made here.
   2. *Registration in process.* `[AUAudioUnit registerSubclass:asComponentDescription:
      name:version:]` in the iOS simulator and on macOS, then
      `instantiateWithComponentDescription:options:`, as the test host's route, the
@@ -2644,7 +2758,9 @@ device, the Synth's web editor opening in both.
   type/subtype/manufacturer/name/version entries less `factoryFunction`, plus
   `tags` and `sandboxSafe`. The plist generator runs on the host against a module
   built for the host, since an iOS binary cannot be `dlopen`ed by a macOS tool; how
-  it reads `describeModule()` for a cross build is part of this package.
+  it reads `describeModule()` for a cross build is part of this package: a
+  `<Name>-Describe` tool in a host sub-build links the plugin's core built a
+  second time for macOS (WP8.6 has it).
 - **WP8.2, the adapter.** `Plugin/AUv3/`, target `MakeASoundAUv3`, namespace
   `MakeASound::AUv3`, `-fobjc-arc`. An `AUAudioUnit` subclass owning a
   `PluginWrapper` built with a new `PluginFormat::AUv3`, driving it in the
@@ -2702,14 +2818,34 @@ device, the Synth's web editor opening in both.
   same weak closer the v2 view registers.
 - **WP8.6, packaging, `FORMATS AUv3`.** iOS only (a status line elsewhere), and it
   requires `Standalone` in the same call, since the appex rides inside it:
-  `<Name>-Standalone.app/PlugIns/<OUTPUT_NAME>.appex` and
-  `<Name>-Standalone.app/Frameworks/<Name>.framework`, the appex's executable a
-  stub over `NSExtensionMain`, bundle id `<BUNDLE_ID>.auv3`. Both generators:
-  - *Ninja* lays the bundles out by hand, as stage 5 does the `.component`, and
-    signs inside out: ad hoc for the simulator, unsigned for a device build.
-  - *Xcode* uses `XCODE_EMBED_APP_EXTENSIONS`/`XCODE_EMBED_FRAMEWORKS` and
-    automatic signing with `MAKEASOUND_IOS_TEAM`, the route to a signed device
-    build.
+  `<Name>-Standalone.app/PlugIns/<OUTPUT_NAME>.appex`, bundle id
+  `<BUNDLE_ID>.auv3`, `CFBundlePackageType` `XPC!`. No framework (WP8.0.1): the
+  appex is an executable of its own over `NSExtensionMain`, linking the static
+  plugin core, `MakeASoundAUv3` and the module's AUv3 sources with
+  `-fapplication-extension`, and the app links the same core again. The app's
+  plist needs `UIApplicationSceneManifest` (iOS 27 traps without one). Both
+  generators, as spiked:
+  - *Ninja* lays the bundles out by hand, as stage 5 does the `.component`
+    (`MACOSX_BUNDLE FALSE`, `$<1:...>` output directories into the bundle
+    folders, plists copied after the link, `add_dependencies(<app> <appex>)`,
+    `CFBundleSupportedPlatforms` written by us), and signs inside out with
+    `codesign --force --sign - --timestamp=none`: ad hoc for the simulator,
+    unsigned for a device build.
+  - *Xcode* makes the appex a `MACOSX_BUNDLE` with `BUNDLE_EXTENSION appex`,
+    `XCODE_PRODUCT_TYPE com.apple.product-type.app-extension` and
+    `APPLICATION_EXTENSION_API_ONLY YES`, embeds it with
+    `XCODE_EMBED_APP_EXTENSIONS`, and signs automatically with
+    `MAKEASOUND_IOS_TEAM` for a device (the simulator: `CODE_SIGN_IDENTITY "-"`,
+    `CODE_SIGNING_REQUIRED NO`, manual style); the plist template leaves
+    `CFBundleSupportedPlatforms` and `UIDeviceFamily` to Xcode.
+  - *The appex plist* comes from `writeAppExtensionPlist` (WP8.1) run by a host
+    tool, since an iOS binary can neither be `dlopen`ed nor run on the build
+    machine: the iOS tree builds a host sub-tree of this repository as an
+    `ExternalProject` (macOS, plugin core on, apps, tests and formats off) whose
+    `<Name>-Describe` executables link each plugin's static core, built a second
+    time for the host from the same sources, with `MakeASoundAUDescribe`, and
+    write the plist from `describeModule()` directly. The plugin's sources must
+    therefore build for macOS as well, which every example already does.
   A custom standalone from stage 7 gets the same embedding.
 - **WP8.7, tests and CI.** `AUv3Tests.mm` (suite `AUv3/`) registers the subclass in
   process and follows `AUTests.cpp`: buses and capabilities, a block in place and
@@ -2721,11 +2857,25 @@ device, the Synth's web editor opening in both.
   unsigned, beside the Ninja one; the simulator job runs the suite.
 - **WP8.8, docs.** `CLAUDE.md`, `README.md`, this section's "Landed" paragraph.
 
-Risks: eacp inside a framework (WP8.0.1); the iOS extension memory limit with
+Risks: the plugin core twice in one app bundle, once in the app and once in the
+appex, which costs download size and is what a framework would have saved
+(WP8.0.1 found it would not have worked); the iOS extension memory limit with
 eacp's Metal drawing beside a `WKWebView` in the Synth; an Objective-C message
 slipping into the render block, which the allocation tests do not see, so it is a
 review rule; and two generators, each of which stays working only while CI builds
 it.
+
+Follow-ups:
+
+- **eacp.** The iOS `EmbeddedView` landed in eacp's `develop` (eyalamirmusic/eacp#126),
+  which `Findeacp.cmake` fetches, so the iOS jobs build against it; a pin, if one is
+  introduced, must name that merge or later.
+- **eacp's `isDLL()` on iOS** (WP8.0.1): `false` on iOS and Android would let a
+  framework carry eacp, should one ever be wanted; proposed to eacp, not made.
+- **eacp's iOS tests**: 13 of eacp's own cases fail in the iOS simulator, before
+  any change here, and eacp's CI does not run its iOS tests.
+- **Hand checks** of both examples in AUM and GarageBand on a device, the Synth's
+  web editor opening in both, with a `MAKEASOUND_IOS_TEAM` Xcode build.
 
 ## Later stages, in brief
 
@@ -2898,6 +3048,31 @@ it.
   Synth's page runs `npm install` at configure and vite in the build wherever eacp
   has a web runtime, iOS included; Linux builds the fallback editor.
 - 2026-10-12: AUv3 ships on iOS only; macOS keeps the v2 `.component` as its AU.
+- 2026-10-12: no shared framework for AUv3. The static plugin core links into both
+  the iOS app and its appex, each an executable. In a framework eacp's `isDLL()`
+  is true, so `Apps::run` never starts `UIApplicationMain` and the app exits; two
+  eacp call sites reach `[UIApplication sharedApplication]`, which an extension
+  may not; and a dylib's exports defeat LTO (eacp-core 479 KB as a framework, 107
+  KB static). JUCE ships AUv3 the same way. The eacp change that would allow a
+  framework, `isDLL()` false on iOS, is a follow-up for eacp.
+- 2026-10-12: the AUv3 adapter is one C++ class, `AUv3::Adapter`, in the static
+  `MakeASoundAUv3`; each module compiles a thin `AUAudioUnit` subclass over it,
+  named with `MAKEASOUND_AUV3_CLASS_SUFFIX`, so no Objective-C class lives in an
+  archive and two extensions in one process never share one. The render block
+  captures the adapter's C++ pointer and calls the host's blocks through
+  unretained copies of strong references taken at allocate, so no retain, release
+  or message runs on the audio thread. Null output data gets the adapter's own
+  buffers, and a block past `maximumFramesToRender` is refused there, since the
+  base class checks neither.
+- 2026-10-12: an `AUParameter`'s identifier is the parameter's id path and its
+  address the 31-bit host id: the v2 bridge hashes the identifier into the
+  `AudioUnitParameterID` a v2 host saves, so it must be as stable as the id. Each
+  named group is an `AUParameterGroup` identified by its id path, which needed the
+  enclosing groups' names on `ParameterList::Entry` (`groups`).
+- 2026-10-12: the AUv3 plist for an iOS build is written by a host tool linking the
+  plugin's core built a second time for macOS, in an `ExternalProject` sub-build:
+  an iOS binary can be neither `dlopen`ed nor run on the build machine, and the
+  component type needs the plugin constructed to read its layout.
   The adapter still builds and is tested on macOS, where the allocation tests run.
 - 2026-10-12: the iOS AUv3 ships inside the plugin's full iOS standalone, not a
   placeholder container, and the app and the extension share one framework so
@@ -2926,3 +3101,18 @@ it.
 - 2026-10-12: AUv3 packaging works under both Ninja (bundles laid out by hand,
   as the `.component` is) and the Xcode generator (embedding and automatic
   signing, for signed device builds); CI builds both.
+- 2026-10-12: the AUv3 view is one view controller class per platform TU, compiled
+  into each module under its suffix, over a shared C++ `EmbeddedEditor` in a
+  static target of its own (`MakeASoundAUv3View`), so `MakeASoundAUv3` links no
+  UI tier. It asks for a size through `preferredContentSize` and answers
+  `supportedViewConfigurations:` by whether the editor's smallest size fits.
+- 2026-10-12: the AUv3 plist tool's host build is an `ExternalProject` over the
+  top-level project itself (ours or a consumer's) with `MAKEASOUND_DESCRIBE_BUILD`
+  on and every CPM package pointed at the iOS tree's sources, not a generated
+  project: only the project knows how a plugin's core is built.
+- 2026-10-12: an AUv3 extension's `CFBundleVersion` is `VERSION`, its app's, rather
+  than `ModuleDescription::version`: an extension must match its container. The
+  components' `version` integers still come from `PluginDescription::version`.
+- 2026-10-12: a Ninja iOS device build is unsigned, app and extension alike; the
+  simulator is signed ad hoc, and a signed device build is Xcode's, through
+  `MAKEASOUND_IOS_TEAM`.

@@ -133,13 +133,15 @@ bool ParameterGroup::hasKey(std::string_view key) const
 
 void ParameterGroup::forEach(const Visitor& visitor) const
 {
-    walk(visitor, {}, {}, true);
+    auto enclosing = Vector<const ParameterGroup*> {};
+    walk(visitor, {}, {}, true, enclosing);
 }
 
 void ParameterGroup::walk(const Visitor& visitor,
                           const std::string& idPrefix,
                           const std::string& displayPrefix,
-                          bool inheritedAutomatable) const
+                          bool inheritedAutomatable,
+                          Vector<const ParameterGroup*>& enclosing) const
 {
     auto groupAutomatable = inheritedAutomatable && automatable;
 
@@ -151,15 +153,27 @@ void ParameterGroup::walk(const Visitor& visitor,
             visitor(param,
                     join(idPrefix, param.id(), '/'),
                     join(displayPrefix, param.name(), ' '),
-                    groupAutomatable && param.isAutomatable());
+                    groupAutomatable && param.isAutomatable(),
+                    std::span<const ParameterGroup* const>(enclosing.data(),
+                                                           enclosing.size()));
             continue;
         }
 
+        // A nameless group adds no segment, so it is no group to a host either.
         auto& group = *entry.group;
+        auto named = !group.id().empty();
+
+        if (named)
+            enclosing.add(&group);
+
         group.walk(visitor,
                    join(idPrefix, group.id(), '/'),
                    join(displayPrefix, group.name(), ' '),
-                   groupAutomatable);
+                   groupAutomatable,
+                   enclosing);
+
+        if (named)
+            enclosing.pop_back();
     }
 }
 

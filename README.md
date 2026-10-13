@@ -9,7 +9,7 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
-On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)) and, on macOS, AU (see [AU](#au)).
+On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)), on macOS AU (see [AU](#au)) and on iOS AUv3 (see [AUv3 on iOS](#auv3-on-ios)).
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -40,12 +40,13 @@ manager.start(manager.getDefaultConfig(),
 - **Web editors.** One more CMake call gives a plugin a React page as its editor, with typed bindings to its parameters generated from C++; the Synth example has one.
 - **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
 - **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the plugin's editor or the generic one, sample-accurate MIDI in and out, the host's bypass button and the plugin's state in the session; both examples pass `auval -strict`.
+- **An AUv3 format on iOS.** The same call puts an Audio Unit extension inside the iOS app, so AUM, GarageBand and every other iOS host find the plugin once the app is installed, with its editor in the host's window.
 - **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset`, `Smoother`, `ScopedNoDenormals` and the `Algorithms` helpers neither allocate nor lock.
 
 ## Requirements
 
 - CMake 3.31+ and a C++20 compiler.
-- macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
+- macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator (Ninja, and the device again with Xcode), Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
 - Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds; Linux has no web runtime, so the Synth example falls back to the generic editor there.
 - Node and npm, to configure the example plugins on macOS, Windows and iOS: the Synth's web editor runs `npm install` at configure and `vite build` in the build. `-DMAKEASOUND_BUILD_EXAMPLES=OFF` needs neither.
 
@@ -75,6 +76,8 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on macOS, Windows and iOS, also the standalone format's app (the windowless `StandaloneHost` builds everywhere). |
 | `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). Needs Node and npm where the Synth's web editor builds. |
 | `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`). A failed copy is a warning. |
+| `MAKEASOUND_IOS_TEAM` | empty | The Apple development team an iOS tree signs its apps and AUv3 extensions with under the Xcode generator. Empty: ad hoc for the simulator, unsigned for a device. |
+| `MAKEASOUND_DESCRIBE_CMAKE_ARGS` | empty | Extra configure arguments for an iOS tree's macOS sub-build that writes the AUv3 plists. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
 | `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
 
@@ -392,7 +395,7 @@ Every format opens the editor at its initial size put through `constraints().con
 An editor can be a React page instead. `makeasound_add_web_editor` builds the page with vite, embeds it into the plugin's core so every format carries it, and generates TypeScript bindings for `MakeASound::Web::ParameterApi` (and any API of your own) into the page's `src/generated`:
 
 ```cmake
-makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU SOURCES SynthPlugin.cpp)
+makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU AUv3 SOURCES SynthPlugin.cpp)
 
 makeasound_add_web_editor(SynthPlugin
         WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
@@ -508,12 +511,12 @@ One CMake call builds it:
 
 ```cmake
 makeasound_add_plugin(Gain
-        FORMATS Standalone VST3 AU
+        FORMATS Standalone VST3 AU AUv3
         OUTPUT_NAME "MakeASound Gain"
         SOURCES GainPlugin.cpp)
 ```
 
-That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), `Gain-VST3`, the VST3 plug-in (see [VST3](#vst3)), and on macOS `Gain-AU`, the Audio Unit (see [AU](#au)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional. A format the machine cannot build, AU off macOS for one, is skipped with a status line, so one list of formats serves every platform. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
+That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), `Gain-VST3`, the VST3 plug-in (see [VST3](#vst3)), on macOS `Gain-AU`, the Audio Unit (see [AU](#au)), and on iOS `Gain-AUv3`, the Audio Unit extension inside the app (see [AUv3 on iOS](#auv3-on-ios)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional. A format the machine cannot build, AU off macOS or AUv3 off iOS for two, is skipped with a status line, so one list of formats serves every platform. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
 
 ```bash
 open "./build/Plugins/Gain/MakeASound Gain.app"
@@ -590,7 +593,29 @@ auval only finds a component that is installed, so `PluginValidator` copies each
 
 macOS caches a bundle's `AudioComponents` by its `CFBundleVersion`, which is `ModuleDescription::version`, not the CMake `VERSION` argument. Bump it whenever a plugin's codes, name, type or list change, or hosts keep seeing the old ones; during development `killall -9 AudioComponentRegistrar` clears the cache.
 
-## The probe app
+## AUv3 on iOS
+
+On iOS the `AUv3` format builds an app extension inside the standalone app, `<OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex` with identifier `<BUNDLE_ID>.auv3`, so it needs `Standalone` in the same call (your own app from `STANDALONE_SOURCES` works too). Installing the app registers the plugin with every host on the device. The extension is an `AUAudioUnit` over the same `PluginWrapper`, running out of the host's process: parameters as an `AUParameterTree` grouped like your `ParameterGroup`s, MIDI and automation at their sample offsets, both a preset and a session state, the host's bypass, latency and tail, and the plugin's editor (or the generic one) in the host's window, sized by the editor's constraints. macOS keeps the `.component` and gets no AUv3.
+
+The extension's `Info.plist` lists the components from `describeModule()`, but an iOS binary cannot run on the Mac that builds it, so an iOS tree builds a small tool from your plugin's sources a second time for macOS, in a sub-build of the same project that reuses every source CPM already fetched, and runs it. Your plugin's sources must therefore compile for macOS as well; `MAKEASOUND_DESCRIBE_CMAKE_ARGS` passes that sub-build any configure arguments your tree needs.
+
+```bash
+# Ninja: the simulator, signed ad hoc (a device build comes out unsigned)
+cmake -S . -B build-ios-sim -G Ninja -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+cmake --build build-ios-sim
+xcrun simctl install booted "build-ios-sim/Plugins/Gain/MakeASound Gain.app"
+xcrun simctl spawn booted "$PWD/build-ios-sim/Tools/AUv3Probe/AUv3Probe" \
+      "$PWD/build-ios-sim/Plugins/Gain/MakeASound Gain.app"
+
+# Xcode: signed for a device with your team, or ad hoc for the simulator without one
+cmake -S . -B build-ios-xcode -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DMAKEASOUND_IOS_TEAM=<team id>
+```
+
+`AUv3Probe` does what a host does first: it finds each installed component, instantiates it out of process, renders a sine through an effect or a note through an instrument, and opens the view; CI runs it on both examples in the simulator.
+
 
 `Apps/AudioProbe` is the example that runs everywhere eacp draws — macOS,
 Windows and iOS — and it is deliberately two things at once.

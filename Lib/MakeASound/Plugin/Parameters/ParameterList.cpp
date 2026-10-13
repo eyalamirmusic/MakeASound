@@ -12,8 +12,9 @@ ParameterList::ParameterList(ParameterGroup& group)
     group.forEach([this](Parameter& param,
                          std::string_view id,
                          std::string_view displayName,
-                         bool automatable)
-                  { add(param, id, displayName, automatable); });
+                         bool automatable,
+                         std::span<const ParameterGroup* const> groups)
+                  { add(param, id, displayName, automatable, groups); });
 
     indexHostIds();
     findBypass();
@@ -22,17 +23,28 @@ ParameterList::ParameterList(ParameterGroup& group)
 void ParameterList::add(Parameter& param,
                         std::string_view id,
                         std::string_view displayName,
-                        bool automatable)
+                        bool automatable,
+                        std::span<const ParameterGroup* const> groups)
 {
     assert(param.explicitHostId().value_or(0) < 0x80000000u
            && "VST3 reserves host ids from 2^31 up");
 
-    entries.add(Entry {&param,
-                       std::string {id},
-                       std::string {displayName},
-                       param.explicitHostId().value_or(hostIdFor(id)),
-                       automatable,
-                       param.isSessionOnly()});
+    auto& entry = entries.add(Entry {&param,
+                                     std::string {id},
+                                     std::string {displayName},
+                                     param.explicitHostId().value_or(hostIdFor(id)),
+                                     automatable,
+                                     param.isSessionOnly(),
+                                     false,
+                                     {}});
+
+    auto path = std::string {};
+
+    for (const auto* group: groups)
+    {
+        path += (path.empty() ? "" : "/") + group->id();
+        entry.groups.add({path, group->name()});
+    }
 }
 
 void ParameterList::indexHostIds()
