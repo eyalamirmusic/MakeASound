@@ -942,6 +942,15 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
             foreign.context = context;
             pluginWrapper.loadForeignState(foreign);
         }
+        else if (auto plugState = readTamberPlugState(fullState, description))
+        {
+            // A Tamber Plug build's v2 ClassInfo, as the JUCE one above.
+            auto foreign = ForeignState {};
+            foreign.origin = ForeignOrigin::TamberPlugAU;
+            foreign.bytes = *plugState;
+            foreign.context = context;
+            pluginWrapper.loadForeignState(foreign);
+        }
         else
         {
             return;

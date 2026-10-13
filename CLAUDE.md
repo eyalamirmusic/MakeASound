@@ -82,6 +82,7 @@ NanoTest, one executable (`MakeASoundTests`). Suites are gated on which targets 
 
 - `Tests/TestPlugins.h`
 - `Tests/JuceFixtures.h` (bytes written by JUCE 8.0.12)
+- `Tests/TamberPlugFixtures.h` (ClassInfo written by Tamber Plug's AU)
 - `Tests/JucePort.h`
 - `Tests/*TestHost.h`, one per format
 

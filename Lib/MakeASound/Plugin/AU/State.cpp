@@ -17,9 +17,33 @@ const auto dataKey = CFSTR("data");
 // juce_AU_Shared.h): where a JUCE build keeps its plugin's state.
 const auto juceStateKey = CFSTR("jucePluginState");
 
+// TAMBERPLUG_AU_STATE_KEY (Plug's Lib/TamberPlug/AU/Adapter.cpp).
+const auto tamberPlugStateKey = CFSTR("TamberPlugState");
+
 bool isDictionary(CFPropertyListRef list) noexcept
 {
     return list != nullptr && CFGetTypeID(list) == CFDictionaryGetTypeID();
+}
+
+// The non-empty data under `key`.
+std::optional<std::string> readForeignData(CFPropertyListRef classInfo,
+                                           CFStringRef key)
+{
+    if (!isDictionary(classInfo))
+        return std::nullopt;
+
+    auto value = CFDictionaryGetValue(static_cast<CFDictionaryRef>(classInfo), key);
+
+    if (value == nullptr || CFGetTypeID(value) != CFDataGetTypeID())
+        return std::nullopt;
+
+    auto* data = static_cast<CFDataRef>(value);
+
+    if (CFDataGetLength(data) <= 0)
+        return std::nullopt;
+
+    return std::string(reinterpret_cast<const char*>(CFDataGetBytePtr(data)),
+                       static_cast<size_t>(CFDataGetLength(data)));
 }
 } // namespace
 
@@ -82,22 +106,12 @@ CFOwnedPropertyList copyWithStateVersionZero(CFPropertyListRef classInfo)
 
 std::optional<std::string> readJuceState(CFPropertyListRef classInfo)
 {
-    if (!isDictionary(classInfo))
-        return std::nullopt;
+    return readForeignData(classInfo, juceStateKey);
+}
 
-    auto value =
-        CFDictionaryGetValue(static_cast<CFDictionaryRef>(classInfo), juceStateKey);
-
-    if (value == nullptr || CFGetTypeID(value) != CFDataGetTypeID())
-        return std::nullopt;
-
-    auto* data = static_cast<CFDataRef>(value);
-
-    if (CFDataGetLength(data) <= 0)
-        return std::nullopt;
-
-    return std::string(reinterpret_cast<const char*>(CFDataGetBytePtr(data)),
-                       static_cast<size_t>(CFDataGetLength(data)));
+std::optional<std::string> readTamberPlugState(CFPropertyListRef classInfo)
+{
+    return readForeignData(classInfo, tamberPlugStateKey);
 }
 
 CFOwnedPropertyList copyWithoutParameterData(CFPropertyListRef classInfo)

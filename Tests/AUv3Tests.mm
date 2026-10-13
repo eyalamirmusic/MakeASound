@@ -6,6 +6,7 @@
 
 #include "AUv3TestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/AUv3/Parameters.h>
 
@@ -999,6 +1000,54 @@ auto tJuceRefused = test("AUv3/aJuceStateThePluginRefusesMovesNothing") = []
     auto other = UnitHost<FixturePlugin>("Gain");
     other.unit.fullStateForDocument = empty;
     check(other.plugin().legacyLoads == 0);
+};
+
+// A Tamber Plug build's AU v2 ClassInfo, which a Mac host hands the AUv3 standing
+// in for it, here over the codes `ours` carries.
+NSDictionary<NSString*, id>* plugFullState(NSDictionary<NSString*, id>* ours,
+                                           std::string_view fixture)
+{
+    auto* xml = [NSData dataWithBytes:fixture.data() length:fixture.size()];
+    NSDictionary* parsed = [NSPropertyListSerialization propertyListWithData:xml
+                                                                     options:0
+                                                                      format:nil
+                                                                       error:nil];
+    auto* state = [NSMutableDictionary<NSString*, id> dictionaryWithDictionary:parsed];
+
+    for (NSString* key in @[ @"type", @"subtype", @"manufacturer" ])
+        state[key] = ours[key];
+
+    return state;
+}
+
+auto tPlugState = test("AUv3/aTamberPlugClassInfoLoadsThroughThePluginsReader") = []
+{
+    using TamberPlugFixtures::SVFPort;
+
+    auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+    auto source = UnitHost<SVFPort>("Gain");
+    auto* plug = plugFullState(source.unit.fullStateForDocument,
+                               TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<SVFPort>("Gain");
+    target.unit.fullStateForDocument = plug;
+
+    auto& plugin = target.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::TamberPlugAU);
+    check(plugin.context == StateContext::Session);
+    check(TamberPlugFixtures::holdsSVFValues(plugin.params));
+    check(near(target.parameterFor(plugin.params.highPass.cutoff).value, 0.4f));
+
+    auto* saved = target.unit.fullStateForDocument;
+    check([saved[@"MakeASoundState"] isKindOfClass:[NSData class]]);
+    check(saved[@"TamberPlugState"] == nil);
+
+    // Another component's codes never reach a plugin.
+    auto echo = UnitHost<SynthPlugin>("Echo");
+    echo.plugin().params.level.setValue(0.8f);
+    echo.unit.fullStateForDocument = plug;
+    check(near(echo.plugin().params.level.getValue(), 0.8f));
 };
 
 auto tJuceOffThread = test("AUv3/aJuceStateFromAWorkerLoadsOnTheMessageThread") = []
