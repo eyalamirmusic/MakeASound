@@ -62,7 +62,9 @@ enum class AUFlavour
 // AU (Compat::juceAUParameterInfo): every entry listedInAU (a non-automatable
 // one NonRealTime, the added bypass left to the bypass property), 0..1 or
 // 0..steps for a choice and a bool, every value the normalized one times the
-// maximum. Pure and allocation-free but for the info and the value strings.
+// maximum. Tamber Plug's are the plain range always and Plug's units and flags.
+// The range follows ParameterIdentity::auValues, the unit, flags and value
+// strings auUnits. Pure and allocation-free but for the info and the strings.
 class ParameterSpace
 {
 public:

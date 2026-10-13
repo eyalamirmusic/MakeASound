@@ -278,7 +278,8 @@ using NewerSVFPort = PlugPort<NewerSVFParams>;
 
 // The ports under IdScheme::TamberPlug, for the AU suites' port factory and the
 // AUv3 suite, under codes of their own: SVFFilter 'Psvf', Chorus 'Pchr', Sparse
-// 'Pspr', and SVFFilter's next release 'Psv2' (indexedThroughVersion 1).
+// 'Pspr', SVFFilter's next release 'Psv2' (indexedThroughVersion 1), and the
+// tests' gain 'Pgan', for its skewed (curve Other) cutoff.
 template <typename P>
 PluginDescription plugDescription(std::string_view name,
                                   FourCC code,
@@ -301,6 +302,7 @@ inline const Vector<PluginDescription>& plugDescriptions()
         result.add(plugDescription<ChorusPort>("Plug Chorus", "Pchr"));
         result.add(plugDescription<SparsePort>("Plug Sparse", "Pspr"));
         result.add(plugDescription<NewerSVFPort>("Plug SVFFilter 2", "Psv2", 1));
+        result.add(plugDescription<TestPlugins::GainPlugin>("Plug Gain", "Pgan"));
         return result;
     }();
 

@@ -101,6 +101,24 @@ auto tOtherIds = test("TamberPlug/auv3AndAAXIdsAreNative") = []
     check(policy.aaxPlugin == AAXPluginRule::Native);
 };
 
+// Plug's AU space and flags by default; each overridable alone.
+auto tAUOverrides = test("TamberPlug/theAUSpaceUnitsAndBypassAreOverridable") = []
+{
+    auto description = plugPort<TamberPlugFixtures::SVFPort>();
+    auto plug = identityPolicyFor(description).parameters;
+    check(plug.auValues == AUValueSpace::Plain);
+    check(plug.auUnits == AUUnits::Plug);
+    check(plug.addedBypassInAU == BypassPlacement::Unlisted);
+
+    description.overrides.auUnits = AUUnits::Native;
+    description.overrides.addedBypassInAU = BypassPlacement::Listed;
+    auto mixed = identityPolicyFor(description).parameters;
+    check(mixed.auValues == AUValueSpace::Plain);
+    check(mixed.auUnits == AUUnits::Native);
+    check(mixed.addedBypassInAU == BypassPlacement::Listed);
+    check(mixed.paramIds == ParamIdRule::Index);
+};
+
 auto tInserted = test("TamberPlug/aPostPortParameterMidTreeMovesNoOldId") = []
 {
     auto shipped = wrap(plugPort<TamberPlugFixtures::SVFPort>());

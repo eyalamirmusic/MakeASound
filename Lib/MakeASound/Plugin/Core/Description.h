@@ -131,6 +131,13 @@ struct IdentityOverrides
     // the first release that adds a parameter other than at the end.
     std::optional<int> indexedThroughVersion = {};
 
+    // The AU value space, units and flags, and whether an AU lists the bypass
+    // PluginWrapper adds (ParameterIdentity's auValues, auUnits and
+    // addedBypassInAU): e.g. MakeASound's display flags over Plug's ids.
+    std::optional<AUValueSpace> auValues = {};
+    std::optional<AUUnits> auUnits = {};
+    std::optional<BypassPlacement> addedBypassInAU = {};
+
     constexpr bool operator==(const IdentityOverrides&) const = default;
 };
 

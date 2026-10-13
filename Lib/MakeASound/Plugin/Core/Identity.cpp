@@ -9,8 +9,19 @@ IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept
     auto policy = policyFor(plugin.idScheme, plugin.juce);
     const auto& overrides = plugin.overrides;
 
+    auto& params = policy.parameters;
+
     if (overrides.indexedThroughVersion)
-        policy.parameters.indexedThroughVersion = *overrides.indexedThroughVersion;
+        params.indexedThroughVersion = *overrides.indexedThroughVersion;
+
+    if (overrides.auValues)
+        params.auValues = *overrides.auValues;
+
+    if (overrides.auUnits)
+        params.auUnits = *overrides.auUnits;
+
+    if (overrides.addedBypassInAU)
+        params.addedBypassInAU = *overrides.addedBypassInAU;
 
     return policy;
 }

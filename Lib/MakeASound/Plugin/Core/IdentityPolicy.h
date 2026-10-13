@@ -55,6 +55,8 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
         params.paramIds = ParamIdRule::Index;
         params.addedBypassInAU = BypassPlacement::Unlisted;
         params.auOrder = AUOrder::IndexThenHintId;
+        params.auValues = AUValueSpace::Plain;
+        params.auUnits = AUUnits::Plug;
         return policy;
     }
 

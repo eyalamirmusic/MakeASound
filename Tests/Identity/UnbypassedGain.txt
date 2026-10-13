@@ -115,13 +115,13 @@ vst3 controllers 0
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Gnub MaSo
 au list 0 1 2 3
-au param entry 0 id 0 position 0 min -60 max 12 default 0 unit 0 flags 0xc8800010 mid -24 strings 0
+au param entry 0 id 0 position 0 min -60 max 12 default 0 unit 0 flags 0xc8000010 mid -24 strings 0
 auv3 param entry 0 address 0 identifier "Gain" strings 0
-au param entry 1 id 1 position 1 min 0 max 1 default 0.549002707 unit 0 flags 0xc8800010 mid 0.5 strings 0
+au param entry 1 id 1 position 1 min 20 max 20000 default 1000 unit 0 flags 0xc8000010 mid 632.455322 strings 0
 auv3 param entry 1 address 1 identifier "Filter/Cutoff" strings 0
-au param entry 2 id 2 position 2 min 0 max 2 default 0 unit 1 flags 0xc8a00010 mid 1 strings 1
-auv3 param entry 2 address 2 identifier "Mode" strings 1
-au param entry 3 id 3 position 3 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+au param entry 2 id 2 position 2 min 0 max 2 default 0 unit 1 flags 0xc8000010 mid 1 strings 0
+auv3 param entry 2 address 2 identifier "Mode" strings 0
+au param entry 3 id 3 position 3 min 0 max 1 default 0.5 unit 0 flags 0xc8000010 mid 0.5 strings 0
 auv3 param entry 3 address 3 identifier "Width" strings 0
 au param entry 4 unlisted
 aax effect "com.makeasound.tests.Gnub"

@@ -2819,4 +2819,60 @@ auto tPlugPostPort = test("AU/aTamberPlugPostPortParameterListsLast") = []
     check(host.render(blockSize) == noErr);
     check(host.plugin().params.bandPass.drive.getValue() == 0.75f);
 };
+
+// Plug's AU info bit for bit: plain ranges, Indexed for anything with steps (a
+// bool too), Generic otherwise, readable, writable and the CF name only, and
+// no value strings.
+auto tPlugInfo = test("AU/aTamberPlugPortPublishesPlugsInfo") = []
+{
+    constexpr auto plugFlags = kAudioUnitParameterFlag_IsReadable
+                               | kAudioUnitParameterFlag_IsWritable
+                               | kAudioUnitParameterFlag_HasCFNameString
+                               | kAudioUnitParameterFlag_CFNameRelease;
+    static_assert(plugFlags == 0xC8000010u);
+
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+
+    auto enable = publishedInfo(host.unit, 0);
+    check(enable.info.minValue == 0.f && enable.info.maxValue == 1.f);
+    check(enable.info.defaultValue == 0.f);
+    check(enable.info.unit == kAudioUnitParameterUnit_Indexed);
+    check(enable.info.flags == plugFlags);
+
+    auto cutoff = publishedInfo(host.unit, 1);
+    check(cutoff.info.unit == kAudioUnitParameterUnit_Generic);
+    check(cutoff.info.flags == plugFlags);
+    check(near(cutoff.info.defaultValue, 0.23299, 1e-5));
+
+    auto result = OSStatus {};
+    valueStringsOf(host.unit, 0, result);
+    check(result != noErr);
+
+    auto chorus = UnitHost<ChorusPort>(plugPortComponentFor("Pchr"));
+    auto mode = publishedInfo(chorus.unit, 6);
+    check(mode.name == "Mode");
+    check(mode.info.maxValue == 1.f
+          && mode.info.unit == kAudioUnitParameterUnit_Indexed);
+    check(publishedInfo(chorus.unit, 1).info.maxValue == 10.f);
+};
+
+// A skewed float (curve Other), which MakeASound's own space publishes 0..1, is
+// plain under Plug's, both ways through SetParameter and Globals().
+auto tPlugPlain = test("AU/aTamberPlugPortsSkewedFloatIsPlain") = []
+{
+    auto host = UnitHost<GainPlugin>(plugPortComponentFor("Pgan"));
+    auto& cutoff = host.plugin().params.filter.cutoff;
+    auto id = host.hostIdOf(cutoff);
+    check(id == 1u);
+
+    auto info = publishedInfo(host.unit, id);
+    check(info.info.minValue == 20.f && info.info.maxValue == 20000.f);
+    check(near(info.info.defaultValue, 1000.f));
+    check((info.info.flags & kAudioUnitParameterFlag_DisplayMask) == 0);
+
+    check(host.hostWrites(id, 440.f) == noErr);
+    check(host.render(blockSize) == noErr);
+    check(near(cutoff.getValue(), 440.f, 1e-2));
+    check(near(host.hostValue(id), 440.f, 1e-2));
+};
 } // namespace

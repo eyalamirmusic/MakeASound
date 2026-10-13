@@ -64,7 +64,7 @@ vst3 controllers 0
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Latn MaSo
 au list 0
-au param entry 0 id 0 position 0 min 0 max 4 default 2 unit 0 flags 0xc8800010 mid 2 strings 0
+au param entry 0 id 0 position 0 min 0 max 4 default 2 unit 0 flags 0xc8000010 mid 2 strings 0
 auv3 param entry 0 address 0 identifier "Gain" strings 0
 au param entry 1 unlisted
 aax effect "com.makeasound.tests.Latn"
@@ -137,7 +137,7 @@ vst3 controllers 2096 ids 0x7fff0000..0x7fff0f82 flags 0x11/0x11
 vst3 midimap 0/0/0 0x7fff0000 0/0/1 0x7fff0001 0/0/127 0x7fff007f 0/0/128 0x7fff0080 0/0/129 0x7fff0081 0/0/130 0x7fff0082 0/15/127 0x7fff0f7f 0/15/129 0x7fff0f81 1/0/1 none
 au component aumf Lcc1 MaSo
 au list 0
-au param entry 0 id 0 position 0 min 0 max 4 default 2 unit 0 flags 0xc8800010 mid 2 strings 0
+au param entry 0 id 0 position 0 min 0 max 4 default 2 unit 0 flags 0xc8000010 mid 2 strings 0
 auv3 param entry 0 address 0 identifier "Gain" strings 0
 au param entry 1 unlisted
 aax effect "com.makeasound.tests.Lcc1"

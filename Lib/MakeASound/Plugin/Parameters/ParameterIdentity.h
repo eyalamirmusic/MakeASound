@@ -162,7 +162,10 @@ enum class AUValueSpace
 
     // JUCE's: 0..1, or 0..steps for a choice and a bool, every value the
     // normalized one times the maximum (Compat::juceAUParameterInfo).
-    JuceScaled
+    JuceScaled,
+
+    // Plain min..max always, whatever the curve, as Tamber Plug's AU publishes.
+    Plain
 };
 
 // An AU parameter's unit, flags and value strings.
@@ -174,7 +177,12 @@ enum class AUUnits
     Native,
 
     // JUCE's AU (Compat::juceAUParameterInfo).
-    Juce
+    Juce,
+
+    // Tamber Plug's AU, bit for bit: Indexed when the parameter has steps (a
+    // bool included), Generic otherwise; readable, writable and the CF name,
+    // no other flag; no value strings in AU v2 or AUv3.
+    Plug
 };
 
 // The half of a plugin's identity its ParameterList computes and the AU and
