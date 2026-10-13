@@ -134,8 +134,8 @@ void Adapter::addBuses()
 
     auto busType = [](const Bus& bus)
     { return bus.isMain ? Vst::kMain : Vst::kAux; };
-    auto busFlags = [](const Bus& bus)
-    { return bus.isMain ? Vst::BusInfo::kDefaultActive : 0; };
+    auto busFlags = [](const auto& bus)
+    { return bus.activeByDefault ? Vst::BusInfo::kDefaultActive : 0; };
 
     for (const auto& bus: layout.inputs)
     {
@@ -154,13 +154,13 @@ void Adapter::addBuses()
     for (const auto& bus: layout.midiInputs)
     {
         copyTo(name, bus.name);
-        addEventInput(name, 16);
+        addEventInput(name, 16, Vst::kMain, busFlags(bus));
     }
 
     for (const auto& bus: layout.midiOutputs)
     {
         copyTo(name, bus.name);
-        addEventOutput(name, 16);
+        addEventOutput(name, 16, Vst::kMain, busFlags(bus));
     }
 }
 

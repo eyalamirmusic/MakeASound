@@ -256,6 +256,47 @@ auto tBuses = test("VST3/busesFollowTheLayout") = []
     }
 };
 
+// A main input, a sidechain left off until routed, an aux on, and MIDI buses
+// one of each.
+struct InactiveBusPlugin : GainPlugin
+{
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+        layout.inputs.add({.name = "Sidechain",
+                           .numChannels = 1,
+                           .isMain = false,
+                           .activeByDefault = false});
+        layout.inputs.add({.name = "Aux", .numChannels = 2, .isMain = false});
+        layout.midiInputs.add({.name = "MIDI"});
+        layout.midiOutputs.add({.name = "MIDI Out", .activeByDefault = false});
+        return layout;
+    }
+
+    bool acceptsLayout(const BusLayout&) const override { return true; }
+};
+
+auto tDefaultActive = test("VST3/busesSayWhetherTheyStartActive") = []
+{
+    auto host = AdapterHost<InactiveBusPlugin> {};
+    auto& adapter = *host.adapter;
+
+    auto flagsOf =
+        [&adapter](Vst::MediaType type, Vst::BusDirection direction, int i)
+    {
+        auto info = Vst::BusInfo {};
+        check(adapter.getBusInfo(type, direction, i, info) == Steinberg::kResultOk);
+        return info.flags;
+    };
+
+    check(adapter.getBusCount(Vst::kAudio, Vst::kInput) == 3);
+    check(flagsOf(Vst::kAudio, Vst::kInput, 0) == Vst::BusInfo::kDefaultActive);
+    check(flagsOf(Vst::kAudio, Vst::kInput, 1) == 0);
+    check(flagsOf(Vst::kAudio, Vst::kInput, 2) == Vst::BusInfo::kDefaultActive);
+    check(flagsOf(Vst::kEvent, Vst::kInput, 0) == Vst::BusInfo::kDefaultActive);
+    check(flagsOf(Vst::kEvent, Vst::kOutput, 0) == 0);
+};
+
 auto tArrangements = test("VST3/busArrangementsNegotiateThroughTheWrapper") = []
 {
     auto host = AdapterHost<GainPlugin> {};
