@@ -121,8 +121,11 @@ private:
     Vector<int> exposed;
     std::unique_ptr<std::atomic<float>[]> lastPluginValue;
 
-    // MIDI input buses with shadow parameters: none with MIDI controllers off,
-    // otherwise every one up to maxShadowBuses.
+    // The shadow parameters' layout (ParameterIdentity::vst3Controllers), and
+    // the MIDI input buses with shadow parameters: none with MIDI controllers
+    // off, otherwise every one up to maxShadowBuses, or the first alone under
+    // JUCE's layout, which ignores the bus.
+    Vst3Controllers controllers;
     int numShadowBuses = 0;
     bool active = false;
 

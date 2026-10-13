@@ -79,6 +79,8 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     params.auValues = AUValueSpace::JuceScaled;
     params.auUnits = AUUnits::Juce;
     params.juceLegacyAutomationType = juce.forceLegacyParameterAutomationType;
+    params.vst3Controllers.layout = Vst3ControllerLayout::JuceContiguous;
+    params.vst3Controllers.base = juceMidiControllerBase;
 
     policy.vst3Class =
         juce.vst3CanReplaceVst2 ? Vst3ClassRule::JuceVst2 : Vst3ClassRule::JuceVst3;

@@ -43,9 +43,13 @@ Adapter::Adapter(OwningPointer<Plugin> plugin,
                  ParameterIdentity identity,
                  bool midiControllers)
     : pluginWrapper(std::move(plugin), PluginFormat::VST3, identity)
+    , controllers(identity.vst3Controllers)
     , numShadowBuses(
           midiControllers
-              ? std::min(pluginWrapper.busLayout().midiInputs.size(), maxShadowBuses)
+              ? std::min(pluginWrapper.busLayout().midiInputs.size(),
+                         controllers.layout == Vst3ControllerLayout::JuceContiguous
+                             ? 1
+                             : maxShadowBuses)
               : 0)
 {
     this->plugin().setHostEditListener(this);
@@ -73,7 +77,7 @@ Adapter::Adapter(OwningPointer<Plugin> plugin,
     // the collision is only reported.
     for (const auto& entry: this->plugin().parameters())
     {
-        if (!decodeShadowId(entry.hostId, numShadowBuses))
+        if (!decodeShadowId(controllers, entry.hostId, numShadowBuses))
             continue;
 
         std::fprintf(stderr,
@@ -171,8 +175,11 @@ void Adapter::registerParameters()
 
 void Adapter::registerShadowParameters()
 {
-    constexpr auto flags =
-        Vst::ParameterInfo::kCanAutomate | Vst::ParameterInfo::kIsHidden;
+    // JUCE's are registered with no flag and a default of 0, pitch bend too.
+    auto juce = controllers.layout == Vst3ControllerLayout::JuceContiguous;
+    auto flags =
+        juce ? 0 : Vst::ParameterInfo::kCanAutomate | Vst::ParameterInfo::kIsHidden;
+    auto perChannel = shadowControllersFor(controllers);
 
     const auto& list = plugin().parameters();
     Vst::String128 title {};
@@ -181,17 +188,18 @@ void Adapter::registerShadowParameters()
     {
         for (auto channel = 0; channel < 16; ++channel)
         {
-            for (auto controller = 0; controller < shadowControllers; ++controller)
+            for (auto controller = 0; controller < perChannel; ++controller)
             {
-                auto id = shadowIdFor(bus, channel, controller);
+                auto id = shadowIdFor(controllers, bus, channel, controller);
 
                 if (list.indexOfHostId(id) >= 0)
                     continue;
 
                 auto target = ShadowTarget {bus, channel, controller};
-                auto defaultValue = controller == Vst::kPitchBend ? 0.5 : 0.0;
+                auto defaultValue =
+                    !juce && controller == Vst::kPitchBend ? 0.5 : 0.0;
 
-                copyTo(title, shadowName(target, numShadowBuses));
+                copyTo(title, shadowName(controllers, target, numShadowBuses));
                 parameters.addParameter(
                     new Vst::Parameter(title, id, nullptr, defaultValue, 0, flags));
             }
@@ -514,7 +522,7 @@ void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
             continue;
         }
 
-        auto target = decodeShadowId(id, numShadowBuses);
+        auto target = decodeShadowId(controllers, id, numShadowBuses);
 
         if (!target)
             continue;
@@ -646,11 +654,15 @@ tresult PLUGIN_API Adapter::getMidiControllerAssignment(int32 busIndex,
                                                         Vst::CtrlNumber controller,
                                                         Vst::ParamID& id)
 {
-    if (busIndex < 0 || busIndex >= numShadowBuses || channel < 0 || channel > 15
-        || controller < 0 || controller >= shadowControllers)
+    // JUCE's layout answers for any bus, as JUCE does, with bus 0's ids.
+    auto juce = controllers.layout == Vst3ControllerLayout::JuceContiguous;
+
+    if (busIndex < 0 || (!juce && busIndex >= numShadowBuses) || numShadowBuses == 0
+        || channel < 0 || channel > 15 || controller < 0
+        || controller >= shadowControllersFor(controllers))
         return Steinberg::kResultFalse;
 
-    auto shadow = shadowIdFor(busIndex, channel, controller);
+    auto shadow = shadowIdFor(controllers, juce ? 0 : busIndex, channel, controller);
 
     if (plugin().parameters().indexOfHostId(shadow) >= 0)
         return Steinberg::kResultFalse;

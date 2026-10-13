@@ -119,7 +119,9 @@ public:
     // Every clash between the entries' ids, one line each, empty when none: no
     // two host ids, addresses, JUCE host keys, group ids or truncated AAX ids
     // alike, an explicit host id below 2^31 unless JUCE's mask is off, an AAX
-    // id at most 31 characters. In any build, so a Release test can run it.
+    // id at most 31 characters, and no host id among the VST3 MIDI controller
+    // parameters' where there are any (a JUCE port's only reported, never
+    // asserted). In any build, so a Release test can run it.
     Vector<std::string> identityProblems() const;
 
     int size() const noexcept { return entries.size(); }
@@ -177,6 +179,10 @@ private:
     void indexHostIds();
     void findBypass();
     void findDuplicateHostIds(Vector<std::string>& problems) const;
+    Vector<std::string> problemsWith(bool controllerClashes) const;
+
+    // Among the VST3 MIDI controller parameters' ids, where there are any.
+    bool isMidiControllerId(uint32_t hostId) const noexcept;
 
     Vector<Entry> entries;
     Vector<HostSlot> byHostId;

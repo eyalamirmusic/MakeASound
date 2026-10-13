@@ -94,13 +94,27 @@ void ParameterList::setIdentity(ParameterIdentity identityToUse)
     indexHostIds();
 
 #ifndef NDEBUG
-    auto problems = identityProblems();
-
-    for (const auto& problem: problems)
+    for (const auto& problem: identityProblems())
         std::fprintf(stderr, "MakeASound: %s\n", problem.c_str());
 
-    assert(problems.empty() && "the parameters' ids clash; see identityProblems()");
+    // A JUCE port's hashed ids are a JUCE build's, which it cannot move without
+    // losing automation: a clash with a MIDI controller is only reported.
+    auto blocking = problemsWith(ids.paramIds != ParamIdRule::JuceKeyHash);
+    assert(blocking.empty() && "the parameters' ids clash; see identityProblems()");
 #endif
+}
+
+bool ParameterList::isMidiControllerId(uint32_t hostId) const noexcept
+{
+    if (!ids.vst3MidiControllers)
+        return false;
+
+    const auto& controllers = ids.vst3Controllers;
+
+    if (controllers.layout == Vst3ControllerLayout::JuceContiguous)
+        return hostId - controllers.base < 16u * 130u;
+
+    return (hostId & 0xffff0000u) == controllers.base;
 }
 
 void ParameterList::findDuplicateHostIds(Vector<std::string>& problems) const
@@ -284,8 +298,21 @@ void ParameterList::indexHostIds()
 
 Vector<std::string> ParameterList::identityProblems() const
 {
+    return problemsWith(true);
+}
+
+Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
+{
     auto problems = Vector<std::string> {};
     findDuplicateHostIds(problems);
+
+    if (controllerClashes)
+        for (const auto& entry: entries)
+            if (isMidiControllerId(entry.hostId))
+                problems.add("parameter \"" + entry.id + "\" has host id "
+                             + std::to_string(entry.hostId)
+                             + ", which a VST3 MIDI controller parameter uses; "
+                               "the parameter wins");
 
     auto unmasked = ids.paramIds == ParamIdRule::JuceKeyHash && !ids.juceMask31;
 

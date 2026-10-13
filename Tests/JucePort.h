@@ -140,6 +140,33 @@ constexpr JucePublishedVST3 juceVST3[] = {
     {"__bypass", 0x62797073u, 6, 1, 0.0, 0x10001},
 };
 
+// The MIDI controller parameters JUCE's VST3 registered for the twin (it wants
+// MIDI input), in both id modes: 16 x 130 from 0x6d636d00, flags 0, default 0,
+// titled "MIDI CC <channel>|<controller>"; and what getMidiControllerAssignment
+// answered (any bus the same; JUCE's controller 130 reads past its table and
+// is not a mapping).
+struct JuceMidiMapping
+{
+    int bus;
+    int channel;
+    int controller;
+    uint32_t id;
+};
+
+constexpr int juceMidiControllerCount = 2080;
+
+constexpr JuceMidiMapping juceMidiMappings[] = {
+    {0, 0, 0, 0x6D636D00u},
+    {0, 0, 1, 0x6D636D01u},
+    {0, 0, 127, 0x6D636D7Fu},
+    {0, 0, 128, 0x6D636D80u},
+    {0, 0, 129, 0x6D636D81u},
+    {0, 15, 0, 0x6D63749Eu},
+    {0, 15, 127, 0x6D63751Du},
+    {0, 15, 129, 0x6D63751Fu},
+    {1, 0, 1, 0x6D636D01u},
+};
+
 // The component class id under JUCE_VST3_CAN_REPLACE_VST2=0.
 constexpr std::array<uint32_t, 4> juceVST3ClassId = {
     0xABCDEF01u, 0x9182FAEBu, 0x4D61536Fu, 0x4A707274u};

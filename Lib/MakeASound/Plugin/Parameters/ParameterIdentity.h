@@ -185,6 +185,37 @@ enum class AUUnits
     Plug
 };
 
+// How the VST3 adapter lays out the hidden parameters a host maps MIDI
+// controllers onto (IMidiMapping), when the plugin has them
+// (vst3MidiControllersFor()).
+enum class Vst3ControllerLayout
+{
+    // MakeASound's: base | bus << 12 | channel << 8 | controller, 131 per
+    // channel (CC 0-127, aftertouch, pitch bend, program change) on each MIDI
+    // input bus, each hidden and automatable.
+    Native,
+
+    // JUCE 8.0.12's (juce_audio_plugin_client_VST3.cpp, the managed-parameter
+    // case): juceMidiControllerBase + channel * 130 + controller, CC 0-127 then
+    // aftertouch and pitch bend, for one bus whatever the host asks, no program
+    // change, registered with no flag (neither automatable nor hidden).
+    JuceContiguous
+};
+
+// JUCE's first MIDI controller parameter id, 'mcm' << 8.
+constexpr uint32_t juceMidiControllerBase = 0x6d636d00u;
+
+struct Vst3Controllers
+{
+    Vst3ControllerLayout layout = Vst3ControllerLayout::Native;
+
+    // Native's base. Plug's builds used 0x80000000 (VST3's host-reserved
+    // range); MakeASound keeps to the plugin's 31 bits.
+    uint32_t base = 0x7fff0000u;
+
+    constexpr bool operator==(const Vst3Controllers&) const = default;
+};
+
 // The half of a plugin's identity its ParameterList computes and the AU and
 // AUv3 adapters publish: the parameter rules of the resolved IdentityPolicy.
 // PluginWrapper applies it, from the plugin's PluginDescription
@@ -229,6 +260,13 @@ struct ParameterIdentity
     // when the plugin's loadForeignState declines it. A port that kept Plug's
     // ids and plain ranges has Plug's schema, so needs no loadLegacy for it.
     bool foreignPlugStateIsNative = false;
+
+    // The VST3 adapter's MIDI controller parameters: their layout, and whether
+    // there are any (vst3MidiControllersFor() of the description, which
+    // identityPolicyFor() fills in). A plugin parameter whose id lands among
+    // them wins over the controller; identityProblems() lists it.
+    Vst3Controllers vst3Controllers = {};
+    bool vst3MidiControllers = false;
 
     constexpr bool operator==(const ParameterIdentity&) const = default;
 };

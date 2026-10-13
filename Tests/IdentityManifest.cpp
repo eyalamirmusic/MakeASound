@@ -615,6 +615,70 @@ auto tPostPortClash = test("Identity/aPostPortIdOnAnIndexIsAProblem") = []
     check(problems[0].find("share host id 0") != std::string::npos);
 };
 
+// A parameter whose id lands among the VST3 MIDI controller parameters', under
+// either layout, is listed; with the controllers off it is no clash.
+struct ControllerClashParams : MakeASound::ParameterGroup
+{
+    ControllerClashParams() { add(native, juce); }
+
+    MakeASound::FloatParam native {
+        "Native", 0.f, 1.f, 0.f, {.hostId = 0x7fff0005u, .versionHint = 1}};
+    MakeASound::FloatParam juce {
+        "Juce", 0.f, 1.f, 0.f, {.hostId = 0x6d636d05u, .versionHint = 1}};
+};
+
+auto tControllerClash = test("Identity/aMidiControllerIdClashIsAProblem") = []
+{
+    using namespace MakeASound;
+
+    auto params = ControllerClashParams {};
+
+    auto description = PluginDescription {
+        .name = "Clash", .category = Category::Instrument, .pluginCode = "Clsh"};
+
+    auto native = ParameterList {params, identityPolicyFor(description).parameters};
+    auto problems = native.identityProblems();
+    check(problems.size() == 1);
+    check(problems[0].find("\"Native\"") != std::string::npos);
+
+    description.idScheme = IdScheme::JUCE;
+    auto juce = ParameterList {params, identityPolicyFor(description).parameters};
+    problems = juce.identityProblems();
+    check(problems.size() == 1);
+    check(problems[0].find("\"Juce\"") != std::string::npos);
+
+    description.vst3MidiControllers = false;
+    auto off = ParameterList {params, identityPolicyFor(description).parameters};
+    check(off.identityProblems().empty());
+};
+
+auto tControllerPolicy = test("Identity/eachProfileHasItsControllerLayout") = []
+{
+    using namespace MakeASound;
+
+    for (auto scheme: {IdScheme::JUCE, IdScheme::JUCELegacyIndex})
+        check(policyFor(scheme, {}).parameters.vst3Controllers
+              == Vst3Controllers {Vst3ControllerLayout::JuceContiguous,
+                                  juceMidiControllerBase});
+
+    for (auto scheme: {IdScheme::Native, IdScheme::TamberPlug})
+        check(policyFor(scheme, {}).parameters.vst3Controllers
+              == Vst3Controllers {});
+
+    // On by category, whatever the profile, and the override wins.
+    auto description = PluginDescription {
+        .name = "Port", .pluginCode = "Prt1", .idScheme = IdScheme::JUCE};
+    check(!identityPolicyFor(description).parameters.vst3MidiControllers);
+
+    description.vst3MidiControllers = true;
+    description.overrides.vst3Controllers =
+        Vst3Controllers {Vst3ControllerLayout::Native, 0x7ffe0000u};
+    auto overridden = identityPolicyFor(description).parameters;
+    check(overridden.vst3MidiControllers);
+    check(overridden.vst3Controllers.layout == Vst3ControllerLayout::Native);
+    check(overridden.vst3Controllers.base == 0x7ffe0000u);
+};
+
 // A golden names every format's lines, so a build without some format still
 // compares the rest; this one compares at least the core's.
 auto tSections = test("Identity/theCoreSectionIsAlwaysDescribed") = []

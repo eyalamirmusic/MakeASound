@@ -138,6 +138,12 @@ struct IdentityOverrides
     std::optional<AUUnits> auUnits = {};
     std::optional<BypassPlacement> addedBypassInAU = {};
 
+    // The VST3 MIDI controller parameters' layout (ParameterIdentity::
+    // vst3Controllers): JUCE's for a JUCE profile, MakeASound's at 0x7fff0000
+    // otherwise. E.g. {Native, 0x80000000} for a port that must keep Plug's.
+    // Whether there are any is vst3MidiControllers, below.
+    std::optional<Vst3Controllers> vst3Controllers = {};
+
     constexpr bool operator==(const IdentityOverrides&) const = default;
 };
 
@@ -184,7 +190,10 @@ struct PluginDescription
     // pressure, SysEx and any controller a host sends as an event still arrive,
     // but a host's mapped CC, bend, aftertouch and program change never reach
     // the plugin. AU, AUv3 and AAX deliver every MIDI message natively and
-    // ignore this.
+    // ignore this. The ids follow the profile's layout (Vst3ControllerLayout,
+    // overrides.vst3Controllers). JUCE turns its own on for any plugin that
+    // wants MIDI input, so a JUCE port that was an effect with a MIDI input sets
+    // this true to keep its mapped controllers.
     std::optional<bool> vst3MidiControllers = {};
 
     // The id AAX's AddEffect takes: "<bundle id>.<plugin code>" by default,

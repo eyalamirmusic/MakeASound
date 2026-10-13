@@ -2260,6 +2260,96 @@ auto tJuceGoldens = test("VST3/aJucePortPublishesWhatJucesVST3Did") = []
     check(MakeASound::vst3ClassIdFor(module, port) == JucePort::juceVST3ClassId);
 };
 
+// A JUCE port's MIDI controller parameters are JUCE's (JucePort.h): the
+// mapping's answers, the count, the flags, the titles, under either id mode,
+// and a point on one reaches the plugin as that controller.
+auto tJuceControllers = test("VST3/aJucePortsMidiControllersAreJuces") = []
+{
+    for (auto scheme:
+         {MakeASound::IdScheme::JUCE, MakeASound::IdScheme::JUCELegacyIndex})
+    {
+        auto host = AdapterHost<SynthPlugin> {
+            MakeASound::policyFor(scheme, {}).parameters, withMidiControllers};
+        auto& adapter = *host.adapter;
+
+        for (const auto& juce: JucePort::juceMidiMappings)
+        {
+            auto id = Vst::ParamID {};
+            check(adapter.getMidiControllerAssignment(
+                      juce.bus,
+                      static_cast<Steinberg::int16>(juce.channel),
+                      static_cast<Vst::CtrlNumber>(juce.controller),
+                      id)
+                  == Steinberg::kResultTrue);
+            check(id == juce.id);
+        }
+
+        // No program change slot.
+        auto id = Vst::ParamID {};
+        check(adapter.getMidiControllerAssignment(0, 0, Vst::kCtrlProgramChange, id)
+              == Steinberg::kResultFalse);
+
+        auto plugins = adapter.plugin().parameters().size();
+        check(adapter.getParameterCount()
+              == plugins + JucePort::juceMidiControllerCount);
+
+        auto last = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(adapter.getParameterCount() - 1, last)
+              == Steinberg::kResultOk);
+        check(last.id == 0x6D63751Fu);
+        check(last.flags == 0 && last.stepCount == 0);
+        check(last.defaultNormalizedValue == 0.0);
+        check(MakeASound::VST3::toUtf8(last.title) == "MIDI CC 15|129");
+    }
+
+    auto host = AdapterHost<SynthPlugin> {
+        MakeASound::policyFor(MakeASound::IdScheme::JUCE, {}).parameters,
+        withMidiControllers};
+    host.addPoint(0x6D636D00u + 3 * 130 + 74, 0, 0.5);
+    host.fillBlock(blockSize);
+    host.run();
+
+    const auto& plugin = host.plugin();
+    check(plugin.numEvents == 1);
+    const auto* cc = plugin.events[0].asControlChange();
+    check(cc != nullptr && cc->controller == 74 && plugin.events[0].channel == 3);
+};
+
+// MakeASound's layout at another base, here Plug's: Plug's ids for CC, bend and
+// aftertouch (probed from Plug's Synth), plus a program change slot Plug had
+// not.
+auto tControllerBase = test("VST3/theNativeControllerLayoutTakesABase") = []
+{
+    auto identity =
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters;
+    identity.vst3Controllers = {MakeASound::Vst3ControllerLayout::Native,
+                                0x80000000u};
+
+    auto host = AdapterHost<SynthPlugin> {identity, withMidiControllers};
+    auto& adapter = *host.adapter;
+    auto id = Vst::ParamID {};
+
+    check(adapter.getMidiControllerAssignment(0, 0, 1, id)
+          == Steinberg::kResultTrue);
+    check(id == 0x80000001u);
+    check(adapter.getMidiControllerAssignment(0, 15, 127, id)
+          == Steinberg::kResultTrue);
+    check(id == 0x80000F7Fu);
+    check(adapter.getMidiControllerAssignment(0, 0, Vst::kPitchBend, id)
+          == Steinberg::kResultTrue);
+    check(id == 0x80000081u);
+    check(adapter.getMidiControllerAssignment(1, 0, 1, id)
+          == Steinberg::kResultFalse);
+
+    // The default is MakeASound's base, for TamberPlug as for Native.
+    auto plug = AdapterHost<SynthPlugin> {
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters,
+        withMidiControllers};
+    check(plug.adapter->getMidiControllerAssignment(0, 0, 1, id)
+          == Steinberg::kResultTrue);
+    check(id == MakeASound::VST3::shadowIdFor(0, 0, 1));
+};
+
 auto tPlugGoldens = test("VST3/aTamberPlugPortPublishesWhatPlugsVST3Did") = []
 {
     checkPlugsVST3<TamberPlugFixtures::SVFPort>(TamberPlugFixtures::svfPublished);
