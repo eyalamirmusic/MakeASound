@@ -4,7 +4,7 @@
 # since the entry holds the SDK's ACF glue and the module's own bundle id.
 if (NOT TARGET aaxsdk)
     if (MAKEASOUND_BUILD_AAX)
-        message(STATUS "MakeASoundAAX skipped (needs the AAX SDK, macOS only)")
+        message(STATUS "MakeASoundAAX skipped (needs the AAX SDK, macOS or Windows x64)")
     endif ()
 
     return()
@@ -21,9 +21,18 @@ target_link_libraries(MakeASoundAAX PUBLIC MakeASoundPlugin aaxsdk)
 
 # The view TUs or their null twin define createAAXView and hasAAXView, so the
 # choice is made here at link time; the native container type is per platform.
+# HiDPI in Pro Tools for Windows is unverified: eacp scales the child HWND by the
+# parent's DPI, while GetViewSize reports the editor's logical size.
 if (TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
-    target_sources(MakeASoundAAX PRIVATE View.cpp View-macOS.mm)
-    set_source_files_properties(View-macOS.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+    target_sources(MakeASoundAAX PRIVATE View.cpp)
+
+    if (APPLE)
+        target_sources(MakeASoundAAX PRIVATE View-macOS.mm)
+        set_source_files_properties(View-macOS.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+    elseif (WIN32)
+        target_sources(MakeASoundAAX PRIVATE View-Windows.cpp)
+    endif ()
+
     target_link_libraries(MakeASoundAAX PRIVATE MakeASoundPluginUI eacp-graphics)
     target_compile_definitions(MakeASoundAAX PUBLIC MAKEASOUND_AAX_HAS_VIEW=1)
 else ()

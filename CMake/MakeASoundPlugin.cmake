@@ -15,8 +15,8 @@
 # the bundle <build>/VST3/<OUTPUT_NAME>.vst3; and on macOS <Name>-AU, a module
 # built into <build>/AU/<OUTPUT_NAME>.component, whose Info.plist <Name>-AUPlistGen
 # writes from describeModule() after every link; and with MAKEASOUND_BUILD_AAX on
-# macOS <Name>-AAX, a module built into <build>/AAX/<OUTPUT_NAME>.aaxplugin. The
-# company and display name go into eacp's embedded app info; the app's settings are filed under the module's
+# macOS or Windows x64 <Name>-AAX, a module built into
+# <build>/AAX/<OUTPUT_NAME>.aaxplugin. The company and display name go into eacp's embedded app info; the app's settings are filed under the module's
 # vendor and the plugin's name. VERSION (default 1.0.0) is the app's and the
 # VST3 bundle's version string; a VST3 host reads the version from the factory
 # instead, and the AU bundle takes ModuleDescription::version. Every target
@@ -27,7 +27,7 @@
 # bundle is also copied into the user's plug-in folder after every build.
 # AAX_WCGUID, with MAKEASOUND_PACE_SIGN_ID set and wraptool at
 # MAKEASOUND_PACE_WRAPTOOL, has PACE sign the AAX bundle after the build, as
-# MAKEASOUND_PACE_ACCOUNT or wraptool's default account.
+# MAKEASOUND_PACE_ACCOUNT or wraptool's default account; on macOS only so far.
 #
 # On Apple the app's plist carries NSMicrophoneUsageDescription, which the
 # standalone needs the moment a user picks an input, unless NO_AUDIO_INPUT says
@@ -749,14 +749,12 @@ function(_makeasound_add_describe name)
 endfunction()
 
 # <Name>-AAX: the module, our GetEffectDescriptions with the SDK's ACF glue and its
-# exports, laid out as the .aaxplugin bundle Pro Tools scans. AAX hosts read
-# identity from GetEffectDescriptions, so the plist is configured here rather than
-# generated after the link. Reads the caller's ARG_* variables.
+# exports, laid out as the .aaxplugin bundle Pro Tools scans: on macOS the bundle
+# with its plist, PkgInfo and signature, on Windows the DLL in Contents/x64. AAX
+# hosts read identity from GetEffectDescriptions, so the plist is configured here
+# rather than generated after the link. Reads the caller's ARG_* variables.
 function(_makeasound_add_aax name)
     get_target_property(aax_entry MakeASoundAAX MAKEASOUND_AAX_ENTRY)
-    get_target_property(aax_exports MakeASoundAAX MAKEASOUND_AAX_EXPORTS)
-    get_target_property(aax_plist MakeASoundAAX MAKEASOUND_AAX_PLIST)
-    get_target_property(aax_pkginfo MakeASoundAAX MAKEASOUND_AAX_PKGINFO)
     get_target_property(aax_sdk_exports aaxsdk MAKEASOUND_AAX_SDK_EXPORTS)
 
     set(target ${name}-AAX)
@@ -776,10 +774,26 @@ function(_makeasound_add_aax name)
             FOLDER "${ARG_FOLDER}"
             OUTPUT_NAME "${ARG_OUTPUT_NAME}"
             PREFIX ""
-            SUFFIX ""
-            LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle}/Contents/MacOS>"
             INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
             MAKEASOUND_AAX_BUNDLE "${bundle}")
+
+    if (APPLE)
+        _makeasound_add_aax_macos(${name} ${target} "${bundle}")
+    else ()
+        _makeasound_add_aax_windows(${name} ${target} "${bundle}")
+    endif ()
+endfunction()
+
+# The macOS half of <Name>-AAX: the image in Contents/MacOS, exactly the seven ACF
+# entry points exported, the plist and PkgInfo beside it and a signature over all.
+function(_makeasound_add_aax_macos name target bundle)
+    get_target_property(aax_exports MakeASoundAAX MAKEASOUND_AAX_EXPORTS)
+    get_target_property(aax_plist MakeASoundAAX MAKEASOUND_AAX_PLIST)
+    get_target_property(aax_pkginfo MakeASoundAAX MAKEASOUND_AAX_PKGINFO)
+
+    set_target_properties(${target} PROPERTIES
+            SUFFIX ""
+            LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle}/Contents/MacOS>")
 
     # Exactly the seven ACF entry points leave the image.
     target_link_options(${target} PRIVATE "LINKER:-exported_symbols_list,${aax_exports}")
@@ -823,6 +837,45 @@ function(_makeasound_add_aax name)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
                         -D "DEST_DIR=/Library/Application Support/Avid/Audio/Plug-Ins"
+                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
+                VERBATIM)
+    endif ()
+endfunction()
+
+# The Windows half of <Name>-AAX: the DLL, itself named <OUTPUT_NAME>.aaxplugin,
+# in Contents/x64, with no plist, PkgInfo or signature. AAX_Exports.cpp marks the
+# seven ACF entry points __declspec(dllexport) wherever __GNUC__ is undefined,
+# which is cl and clang-cl alike, so no export list is needed.
+function(_makeasound_add_aax_windows name target bundle)
+    # The import library, .exp and .pdb stay out of the bundle, each named apart
+    # from the standalone's and the VST3's, which share the output name and the
+    # folder: two links writing one program database fail (LNK1201), and the
+    # VST3's .exp is held open while this one would replace it (LNK1104).
+    set_target_properties(${target} PROPERTIES
+            SUFFIX .aaxplugin
+            LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle}/Contents/x64>"
+            ARCHIVE_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            ARCHIVE_OUTPUT_NAME "${ARG_OUTPUT_NAME}-AAX"
+            PDB_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            PDB_NAME "${ARG_OUTPUT_NAME}-AAX"
+            COMPILE_PDB_NAME "${ARG_OUTPUT_NAME}-AAX")
+
+    if (ARG_AAX_WCGUID)
+        message(STATUS "${name}: AAX bundle not PACE signed "
+                "(PACE signing is not wired up on Windows yet)")
+    endif ()
+
+    if (MAKEASOUND_INSTALL_PLUGINS)
+        set(common_files "$ENV{CommonProgramFiles}")
+
+        if (NOT common_files)
+            set(common_files "C:/Program Files/Common Files")
+        endif ()
+
+        file(TO_CMAKE_PATH "${common_files}/Avid/Audio/Plug-Ins" install_dir)
+
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${install_dir}"
                         -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
                 VERBATIM)
     endif ()
