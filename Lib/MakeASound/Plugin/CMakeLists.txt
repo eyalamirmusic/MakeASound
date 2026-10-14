@@ -32,7 +32,9 @@ else ()
     target_sources(MakeASoundPlugin PRIVATE Realtime/MessageThread-Default.cpp)
 endif ()
 
-target_link_libraries(MakeASoundPlugin PUBLIC MakeASound PRIVATE eacp-core)
+# The core, not the device library: a plugin's host is its audio and MIDI. Only
+# the standalone format links MakeASound.
+target_link_libraries(MakeASoundPlugin PUBLIC MakeASoundCore PRIVATE eacp-core)
 
 if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundPlugin PROPERTIES UNITY_BUILD ON)

@@ -299,6 +299,39 @@ jobs:
             echo "ERROR: found objects with a minos != 11.0"; exit 1
           fi
 
+  # MakeASoundCore on its own, as a consumer that wants only the vocabulary builds
+  # it: no device library, so no miniaudio fetch and no ALSA package, and no plugin
+  # core. The configure fails if the core's link closure names a backend, and
+  # MakeASoundCoreTests is an executable linking the core alone.
+  core:
+    name: Core only (Linux, no devices)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DMAKEASOUND_BUILD_DEVICES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF
+          -DMAKEASOUND_BUILD_HOSTING=OFF -DMAKEASOUND_BUILD_EXAMPLES=OFF
+
+      - name: No backend fetched
+        run: |
+          set -euo pipefail
+          if grep '^CPM_PACKAGES:' build-core/CMakeCache.txt | grep -qi miniaudio; then
+            echo "ERROR: a core-only configure fetched miniaudio"; exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-core
+
+      - name: Test
+        run: ctest --test-dir build-core --output-on-failure --no-tests=error
+
   # iOS is cross-compiled, so it gets its own job rather than another matrix
   # entry: the configure needs a sysroot/architecture pair, and the suite can
   # only be executed through a booted simulator.

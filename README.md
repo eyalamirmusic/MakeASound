@@ -9,6 +9,8 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
+Beneath them is `MakeASoundCore` (alias `MakeASound::Core`): the audio and MIDI vocabulary and the processing types (`Buffer`, `ReadOnlyBuffer`, `BusLayout`, `Playhead`, `ProcessSpec`, `ProcessContext`, `Processor`, MIDI events and `MidiParser`, the realtime helpers), with no device backend. It links only Miro, and `<MakeASound/MakeASoundCore.h>` is its umbrella header. The `MakeASound` target links it `PUBLIC`, so linking `MakeASound` gives you both. Code that only processes audio (DSP, a plugin) links the core alone, and a project that wants nothing else sets `MAKEASOUND_BUILD_DEVICES` off, so miniaudio is never fetched.
+
 On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)), on macOS AU (see [AU](#au)), on iOS AUv3 (see [AUv3 on iOS](#auv3-on-ios)), and on macOS, when asked for, AAX (see [AAX](#aax)).
 
 ```cpp
@@ -72,6 +74,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 
 | Option | Default | Effect |
 | --- | --- | --- |
+| `MAKEASOUND_BUILD_DEVICES` | `ON` | Build `MakeASound`, the device library over `MakeASoundCore`, and fetch miniaudio. Off, only the core is built: no miniaudio, no platform audio or MIDI framework, and no apps, standalone format or main test suite (`MakeASoundCoreTests` still builds). |
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on macOS, Windows and iOS, also the standalone format's app (the windowless `StandaloneHost` builds everywhere). |
@@ -132,6 +135,14 @@ target_link_libraries(MyApp PRIVATE MakeASound)
 ```
 
 Either way the apps and tests are skipped, since they only build for a top-level MakeASound. `Lib/` is the include root, and `<MakeASound/MakeASound.h>` is the single public header.
+
+For the vocabulary alone, with no device backend fetched or linked:
+
+```cmake
+CPMAddPackage(NAME MakeASound GITHUB_REPOSITORY eyalamirmusic/MakeASound GIT_TAG main
+        OPTIONS "MAKEASOUND_BUILD_DEVICES OFF")
+target_link_libraries(MyDSP PRIVATE MakeASound::Core)   # <MakeASound/MakeASoundCore.h>
+```
 
 ## Audio
 
@@ -712,6 +723,8 @@ hardware no simulator provides.
 ```
 Lib/MakeASound/
   MakeASound.h      umbrella public header
+  MakeASoundCore.h  the core's umbrella: Audio/, Common/, Realtime/ and MIDI's
+                    events and parser, no device header
   Audio/            Buffer, Channel, and the Processor / ProcessContext / BusLayout vocabulary
   Devices/          DeviceInfo data types, DeviceManager façade, Engine, device queries
   MIDI/             typed events, port info, block sync, MidiManager façade
@@ -767,4 +780,4 @@ an AAX binary built with it is too (see [AAX](#aax)).
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` by `MakeASoundCore` (it leaks through the reflected data structs), and is all the core links; miniaudio and whichever MIDI library the platform selected are `PRIVATE` to `MakeASound`, fully hidden behind the façades, and `MakeASound` links the core `PUBLIC`. `MakeASoundPlugin` and `MakeASoundDSP` link `MakeASoundCore` `PUBLIC`, not the device library; only `MakeASoundStandaloneCore` adds `MakeASound`. `MakeASoundPlugin` links `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.

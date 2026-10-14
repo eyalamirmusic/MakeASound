@@ -6,15 +6,16 @@ Guidance for Claude Code in this repository. It is deliberately short: it lists 
 
 MakeASound is a C++20 library for platform-agnostic audio, MIDI and audio plugins.
 
-- **`MakeASound`** (`Lib/MakeASound/`): `DeviceManager` (audio, backed by miniaudio) and `MidiManager` (Core MIDI, WinMM or ALSA sequencer, chosen per platform). Each façade hides its backend behind a pimpl, and no backend type reaches a public header.
-- **`MakeASoundDSP`** (`DSP/`): an optional DSP library. Today it holds `TestSynth`.
-- **`MakeASoundPlugin`** (`Plugin/`): the SDK-free plugin core: `Plugin`, `StatePlugin`, parameters, state, `PluginWrapper` (the per-block pipeline every format shares) and `Compat/` (readers for state that JUCE builds saved).
+- **`MakeASoundCore`** (alias `MakeASound::Core`; `Audio/`, `Common/`, `Realtime/`, and `MIDI.h`, `MidiInfo.h`, `MidiParser.h` from `MIDI/`; umbrella `MakeASoundCore.h`): the audio and MIDI vocabulary and the processing types. It links only Miro. It includes no `Devices/` header and links no miniaudio and no platform audio or MIDI framework; `MakeASoundCoreTests` links it alone and `Tests/CMakeLists.txt` fails the configure if its link closure names a backend.
+- **`MakeASound`** (`Lib/Devices.cmake`; `Devices/`, the backends, the rest of `MIDI/`, `UI/`): `DeviceManager` (audio, backed by miniaudio), `MidiManager` (Core MIDI, WinMM or ALSA sequencer, chosen per platform) and `Engine`, over the core, which it links `PUBLIC`. Each façade hides its backend behind a pimpl, and no backend type reaches a public header. Built only with `MAKEASOUND_BUILD_DEVICES` (default on); off, miniaudio is not fetched and the apps, the standalone format and `MakeASoundTests` are skipped.
+- **`MakeASoundDSP`** (`DSP/`): an optional DSP library over the core. Today it holds `TestSynth`.
+- **`MakeASoundPlugin`** (`Plugin/`): the SDK-free plugin core, over the core rather than the device library: `Plugin`, `StatePlugin`, parameters, state, `PluginWrapper` (the per-block pipeline every format shares) and `Compat/` (readers for state that JUCE builds saved). Of the formats only `MakeASoundStandaloneCore` links `MakeASound`.
 - **Formats on top:** Standalone (`StandaloneCore` with no window, plus `Standalone` with windows), VST3 (vendored SDK), AU v2 (macOS, fetched AudioUnitSDK), AUv3 (Apple, no SDK), AAX (macOS, opt-in through `MAKEASOUND_BUILD_AAX`). Each one is a static target that exists only where its dependency target exists. A format whose target is missing is skipped with a status line.
 - **UI:** `MakeASoundPluginUI` (eacp-ui: `GenericEditor`, `ResizeGrip`) and `MakeASoundPluginWeb` (React editors over eacp's `WebView`).
 - **Hosting:** `MakeASoundHosting` (`Hosting/`, beside `Plugin/` since `Plugin/Host` is the plugin's view of a host): third-party plugin scanning through a `FormatManager` (VST3; AU on macOS), out of process, into a `PluginCache`, plus `Apps/PluginScanner`; and loading VST3 plugins and Audio Units as `HostedPlugin`s (a `Plugin`, never in a `PluginWrapper`). Their editors are `MakeASoundHostedEditor`'s, handed to a load as `HostInfo::editors`, so the hosting library itself never links graphics. `Apps/PluginHost` is the example host (`PluginHost.h` is the headless part the tests drive). See `Docs/Hosting.md` and `Docs/PluginScanning.md`.
 - **Tools:** `PluginValidator` (pluginval, auval and the user's own aaxval) and `AUv3Probe` (iOS simulator).
 
-Public umbrellas: `<MakeASound/MakeASound.h>` and `<MakeASound/Plugin/MakeASoundPlugin.h>`. The include root is `Lib/`.
+Public umbrellas: `<MakeASound/MakeASoundCore.h>`, `<MakeASound/MakeASound.h>` (the core plus devices) and `<MakeASound/Plugin/MakeASoundPlugin.h>`. The include root is `Lib/`.
 
 ## Build
 
@@ -29,7 +30,7 @@ ctest --test-dir build
 
 On Windows ARM64, build from a VS dev shell (see memory).
 
-- Options: `MAKEASOUND_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES` (the plugin examples need Node/npm at configure time), `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
+- Options: `MAKEASOUND_BUILD_DEVICES`, `_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES` (the plugin examples need Node/npm at configure time), `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
 - `CMAKE_CXX_SCAN_FOR_MODULES` is OFF on purpose. A scanned source falls out of its unity chunk, which silently un-unities MSVC and clang-cl builds.
 - `-DCPM_<Name>_SOURCE=/path` points a dependency at a local checkout.
 - Plugins are declared with `makeasound_add_plugin(<Name> FORMATS ... SOURCES ...)` (`CMake/MakeASoundPlugin.cmake`) and web editors with `makeasound_add_web_editor` (`CMake/MakeASoundWebEditor.cmake`). Read those files before changing packaging, bundle layout or signing.
@@ -41,7 +42,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - Always use `auto` for variables. Use RAII. Everything that does not allocate is `noexcept`. Sizes and indices are `int`.
 - Platform-specific code goes in per-platform TUs (`Name-macOS.cpp`, `-iOS.mm`, `-Windows.cpp`, `-Linux.cpp`, `-Default.cpp`) selected in CMake. Never use `#if` in a shared TU or header.
 - `.clang-format`: Allman, 4 spaces, 85 columns. **Never reorder includes**, since the order is intentional.
-- To add a library file, create `Lib/MakeASound/<Folder>/<Name>.{h,cpp}` and list it in that target's `CMakeLists.txt`. Sources are listed individually. Siblings are included as `"Name.h"`, other folders as `"../Folder/Name.h"`.
+- To add a library file, create `Lib/MakeASound/<Folder>/<Name>.{h,cpp}` and list it in that target's `CMakeLists.txt` (`Lib/CMakeLists.txt` for the core, `Lib/Devices.cmake` for `MakeASound`). A core file must not include a `Devices/` header or anything that does. Sources are listed individually. Siblings are included as `"Name.h"`, other folders as `"../Folder/Name.h"`.
 - IDE folders are set with `CMAKE_FOLDER`. `CMake/ExternalFolders.cmake` files every dependency target under `External/`.
 - **Git:** never commit or push without explicit confirmation in the conversation. Feature branches come off `develop` and their PRs go into `develop`. Only `develop` goes into `main`.
 
@@ -87,7 +88,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 
 ## Tests
 
-NanoTest, one executable (`MakeASoundTests`). Suites are gated on which targets exist (see `Tests/CMakeLists.txt`). Allocation suites run only on Apple and Linux, because they need `dlsym(RTLD_NEXT)`. Shared fixtures:
+NanoTest, one executable (`MakeASoundTests`), plus `MakeASoundCoreTests`, which links only the core. Suites are gated on which targets exist (see `Tests/CMakeLists.txt`). Allocation suites run only on Apple and Linux, because they need `dlsym(RTLD_NEXT)`. Shared fixtures:
 
 - `Tests/TestPlugins.h`
 - `Tests/JuceFixtures.h` (bytes written by JUCE 8.0.12)

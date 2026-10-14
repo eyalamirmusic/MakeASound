@@ -1,9 +1,14 @@
 # MakeASoundStandaloneCore: a plugin run without a host and without a window
 # (StandaloneHost over devices, MIDI, the wrapper, Engine and the settings file).
-# It needs nothing the plugin core does not, so it builds wherever that does,
+# It needs the plugin core and the device library, so it builds wherever both do,
 # Linux and iOS included; an app of a plugin's own composes it with any UI.
 # Where a JUCE build of the plugin kept its standalone settings, one TU per
 # platform JUCE's PropertiesFile names a folder for.
+if (NOT TARGET MakeASound)
+    message(STATUS "MakeASoundStandaloneCore skipped (needs MAKEASOUND_BUILD_DEVICES)")
+    return()
+endif ()
+
 if (APPLE)
     set(juceSettingsPath JuceSettingsPath-Apple.cpp)
 elseif (WIN32)
@@ -21,7 +26,7 @@ add_library(MakeASoundStandaloneCore STATIC
         ${juceSettingsPath}
         StandaloneHost.cpp)
 
-target_link_libraries(MakeASoundStandaloneCore PUBLIC MakeASoundPlugin eacp-core)
+target_link_libraries(MakeASoundStandaloneCore PUBLIC MakeASoundPlugin MakeASound eacp-core)
 
 if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundStandaloneCore PROPERTIES UNITY_BUILD ON)

@@ -27,7 +27,7 @@ else ()
             AAXValidator-Default.cpp)
 endif ()
 
-target_link_libraries(MakeASoundPluginval PUBLIC MakeASound eacp-network)
+target_link_libraries(MakeASoundPluginval PUBLIC MakeASoundCore eacp-network)
 
 if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundPluginval PROPERTIES UNITY_BUILD ON)

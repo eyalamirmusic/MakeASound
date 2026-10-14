@@ -25,6 +25,12 @@ if (MAKEASOUND_CI_BUILD)
     set(MIRO_UNITY_BUILD ON CACHE BOOL "Enable CMake unity build for the Miro library" FORCE)
     set(ESIMD_UNITY_BUILD ON CACHE BOOL "Compile ESIMD as a CMake unity build" FORCE)
 endif ()
+# Off for a consumer that wants only MakeASoundCore (the audio and MIDI vocabulary,
+# the processing types): no MakeASound target then, so no miniaudio fetch, no
+# platform audio or MIDI framework, and nothing that needs devices (the apps, the
+# standalone format, the main test suite).
+option(MAKEASOUND_BUILD_DEVICES
+       "Build MakeASound, the device library (audio and MIDI I/O; fetches miniaudio)" ON)
 option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
 option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
@@ -79,7 +85,10 @@ function(set_makeasound_target_settings target)
     set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endfunction()
 
-find_package(Miniaudio REQUIRED)
+if (MAKEASOUND_BUILD_DEVICES)
+    find_package(Miniaudio REQUIRED)
+endif ()
+
 find_package(Miro REQUIRED)
 
 if (PROJECT_IS_TOP_LEVEL)
@@ -94,7 +103,8 @@ endif ()
 
 add_subdirectory(Lib)
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS AND NOT MAKEASOUND_DESCRIBE_BUILD)
+if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS AND MAKEASOUND_BUILD_DEVICES
+        AND NOT MAKEASOUND_DESCRIBE_BUILD)
     add_subdirectory(Apps)
 endif ()
 

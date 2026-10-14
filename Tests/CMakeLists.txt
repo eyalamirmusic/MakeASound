@@ -3,6 +3,51 @@ set(CMAKE_FOLDER Tests)
 
 find_package(NanoTest REQUIRED)
 
+# MakeASoundCoreTests: MakeASoundCore linked into an executable on its own, built
+# whether or not the device library is. The link proves no core TU needs a device
+# symbol; the walk below proves nothing the core links brings a backend in.
+function(_makeasound_check_core_links target)
+    get_target_property(links ${target} LINK_LIBRARIES)
+    get_target_property(interfaceLinks ${target} INTERFACE_LINK_LIBRARIES)
+
+    foreach (link IN LISTS links interfaceLinks)
+        if (link MATCHES "^(MakeASound|miniaudio|ALSA::ALSA|winmm)$"
+                OR link MATCHES "CoreAudio|CoreMIDI|AudioToolbox|AVFoundation")
+            message(FATAL_ERROR "MakeASoundCore links a device backend: ${link} "
+                    "(through ${target})")
+        endif ()
+
+        if (TARGET ${link})
+            get_target_property(aliased ${link} ALIASED_TARGET)
+
+            if (aliased)
+                set(link ${aliased})
+            endif ()
+
+            if (NOT link IN_LIST _makeasound_core_walked)
+                list(APPEND _makeasound_core_walked ${link})
+                set(_makeasound_core_walked ${_makeasound_core_walked} PARENT_SCOPE)
+                _makeasound_check_core_links(${link})
+                set(_makeasound_core_walked ${_makeasound_core_walked} PARENT_SCOPE)
+            endif ()
+        endif ()
+    endforeach ()
+endfunction()
+
+_makeasound_check_core_links(MakeASoundCore)
+
+nano_add_executable(MakeASoundCoreTests
+        SOURCES CoreTests.cpp
+        TARGETS MakeASoundCore)
+set_target_properties(MakeASoundCoreTests PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
+# The main suite covers the device library, so a core-only build stops here.
+if (NOT TARGET MakeASound)
+    message(STATUS "MakeASoundTests skipped (needs MAKEASOUND_BUILD_DEVICES)")
+    return()
+endif ()
+
 set(MAKEASOUND_TEST_SOURCES
         SPSCQueueTests.cpp
         BufferTests.cpp

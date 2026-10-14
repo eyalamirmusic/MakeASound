@@ -1,11 +1,11 @@
 set(CMAKE_FOLDER Lib/DSP)
 
-# MakeASoundDSP: processors built on the device library alone, for an app or a
+# MakeASoundDSP: processors built on the core vocabulary alone, for an app or a
 # plugin to link when it wants one. Nothing in the library links it.
 add_library(MakeASoundDSP STATIC
         TestSynth.cpp)
 
-target_link_libraries(MakeASoundDSP PUBLIC MakeASound)
+target_link_libraries(MakeASoundDSP PUBLIC MakeASoundCore)
 
 if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundDSP PROPERTIES UNITY_BUILD ON)
