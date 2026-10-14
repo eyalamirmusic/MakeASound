@@ -102,7 +102,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
     # The web editor's page API, with no WebView constructed.
     if (TARGET MakeASoundPluginWeb)
-        list(APPEND MAKEASOUND_TEST_SOURCES WebEditorTests.cpp)
+        list(APPEND MAKEASOUND_TEST_SOURCES WebEditorTests.cpp WebEditorApiTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginWeb)
 
         # The page side: tsc over the Synth example's page, whose controls call

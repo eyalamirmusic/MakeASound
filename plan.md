@@ -1017,3 +1017,22 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   are whole and miniaudio's rates are `ma_uint32`. `Engine::prepare` is the one
   conversion into `ProcessSpec`, and it is exact. `PluginWrapper::prepare` and
   `Smoother::setSampleRate` take a `double`.
+- 2026-10-13: a `/` inside one id is doubled in its id path (`Parameters/IdPath.h`),
+  rather than rejected. Tamber Plug's Vocoder has the leaf `Dry/Wet`, which is
+  also its key in every document Plug saved, so rejecting it would have needed
+  an escape hatch that keeps the key while changing the path, which is the
+  escaping again under another name. Doubling leaves every id without a `/` its
+  own segment, so no path, host id, AUv3 identifier or golden manifest of such
+  ids moves; backslash or percent escaping would also have changed the ids that
+  hold a `\` or a `%`. The document is nested objects keyed by each id as
+  written, so it never sees the escaping. The one case doubling cannot delimit,
+  an id that begins or ends with `/`, is an `identityProblems()` entry. Only a
+  Native plugin with a `/` in an id sees a host id move; none has shipped, and
+  under TamberPlug the index ids are untouched.
+- 2026-10-13: the web layer's product hooks, found missing while porting Plug's
+  React pages: `ParameterApi` gained `editText`, `resetParam`, `resetAll`, the
+  defaults in its schema and the keyed `parameterValues` event (Miro's
+  `keyedEvent`, so the generated hooks give each control its own store);
+  `makeasound_add_web_editor` gained `SHARED_UI` and `PRE_BUILD`; `WebEditor`
+  polls any API with a `poll()` at its own rate (`PagePolls`), plus `addPoll`
+  and `bind`, so a product's channels need no fork of it.

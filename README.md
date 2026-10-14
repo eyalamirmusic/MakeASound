@@ -444,7 +444,18 @@ The page calls `getParameters()` for each parameter's id path, name, steps, choi
 | `resetParam` | one parameter back to its default |
 | `resetAll` | every parameter back to its default but the host-facing bypass, one gesture each, skipping those already there |
 
-Every change reaches the host as begin, perform and end, so a host records it as ordinary automation. The editor polls 30 times a second and, when anything moved (automation included), publishes two events: `values` holds only the entries that moved, and `parameterValues` holds every entry and is *keyed* by id, so the generated hooks give each control a store of its own. `useWebParameterValue(id)` re-renders only when that parameter changes, and `getParameterValues()` is its initial fetch. `Plugins/Synth/web/src/useParameters.ts` shows the pattern, and its knobs reset on double-click and take typed values. Two options hook into the page's build, and a call without them builds exactly as before:
+Every change reaches the host as begin, perform and end, so a host records it as ordinary automation. The editor polls 30 times a second and, when anything moved (automation included), publishes two events: `values` holds only the entries that moved, and `parameterValues` holds every entry and is *keyed* by id, so the generated hooks give each control a store of its own. `useWebParameterValue(id)` re-renders only when that parameter changes, and `getParameterValues()` is its initial fetch. `Plugins/Synth/web/src/useParameters.ts` shows the pattern, and its knobs reset on double-click and take typed values. A product adds channels of its own (spectrum frames, a file picker, a preset browser) as further Miro APIs, without touching `WebEditor`: name each in `makeasound_add_web_editor(... API MyProduct::SpectrumApi API_HEADER Spectrum.h)` for its TypeScript, and hand the instance to the editor:
+
+```cpp
+auto editor = EA::makeOwned<MS::Web::WebEditor>(plugin, std::move(options));
+editor->use(spectrum, {.pollHz = 60});   // spectrum.poll() 60 times a second while shown
+editor->use(files);                      // no poll(): commands and pushed events only
+editor->addPoll([&] { meters.publish(levels()); }, 15);
+```
+
+Commands are request/response; one shaped `void pick(const Req&, Miro::Completer<Res>)` answers later, when a native dialog closes. An API with a `void poll()` is called at its `pollHz` (default 30) while the page is attached, the place to drain what the audio thread queued and publish it through the API's events; `addPoll` adds any other periodic call. An event published on the message thread at any other time reaches the page at once. `WebEditor::bind(bridge)` binds the same APIs to another `Miro::Bridge`, for a second transport or a test, and `poll()` makes every call once.
+
+Two options hook into the page's build, and a call without them builds exactly as before:
 
 ```cmake
 makeasound_add_web_editor(VocoderPlugin

@@ -7,6 +7,7 @@ if (NOT TARGET eacp-webview OR NOT TARGET MakeASoundPluginUI)
 endif ()
 
 add_library(MakeASoundPluginWeb STATIC
+        PagePolls.cpp
         ParameterApi.cpp
         WebEditor.cpp)
 

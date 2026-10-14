@@ -12,8 +12,6 @@ using namespace eacp::Graphics;
 
 namespace
 {
-constexpr auto refreshHz = 30;
-
 WebView::Options webViewOptions(const WebEditorOptions& options)
 {
     auto result = embeddedOptions(options.category);
@@ -42,14 +40,6 @@ struct WebEditor::Page final : View
 
     ~Page() override { hideGrip(); }
 
-    void startPolling(ParameterApi& api)
-    {
-        api.poll();
-        timer.emplace([&api] { api.poll(); }, refreshHz);
-    }
-
-    void stopPolling() { timer.reset(); }
-
     void showGrip(Editor& editor)
     {
         grip.emplace(editor);
@@ -76,7 +66,6 @@ struct WebEditor::Page final : View
 
     WebView webView;
     WebViewBridge bridge {webView};
-    std::optional<eacp::Threads::Timer> timer;
     std::optional<ResizeGrip> grip;
 };
 
@@ -89,6 +78,7 @@ WebEditor::WebEditor(Plugin& pluginToUse, WebEditorOptions optionsToUse)
 
 WebEditor::~WebEditor()
 {
+    polls.stop();
     parameters.endAllEdits();
 }
 
@@ -98,6 +88,22 @@ void WebEditor::addApi(Binder binder)
         binder(page->bridge.getBridge());
 
     binders.add(std::move(binder));
+}
+
+void WebEditor::addPoll(std::function<void()> poll, int hz)
+{
+    polls.add(std::move(poll), hz);
+}
+
+void WebEditor::poll()
+{
+    polls.pollAll();
+}
+
+void WebEditor::bind(Miro::Bridge& bridge)
+{
+    for (auto& binder: binders)
+        binder(bridge);
 }
 
 View& WebEditor::view()
@@ -116,7 +122,7 @@ View& WebEditor::view()
 void WebEditor::onAttached()
 {
     view();
-    page->startPolling(parameters);
+    polls.start();
 
     if (ResizeGrip::isWantedBy(*this))
         page->showGrip(*this);
@@ -125,11 +131,11 @@ void WebEditor::onAttached()
 void WebEditor::onRemoved()
 {
     parameters.endAllEdits();
+    polls.stop();
 
     if (page == nullptr)
         return;
 
-    page->stopPolling();
     page->hideGrip();
 }
 
