@@ -8,6 +8,8 @@
 //   Sidechain      written by the plugin: the sidechain's peak
 //   Seen Tempo     written by the plugin: the playhead's tempo
 //   Seen Playing   written by the plugin: whether the playhead is playing
+//   Rate Fraction  written by the plugin: the fractional part of the rate it was
+//                  prepared at, so a host sees whether its rate arrived unrounded
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
@@ -28,7 +30,14 @@ struct EffectParams : ParameterGroup
 {
     EffectParams()
     {
-        add(cutoff, latency, altNames, peak, sidechain, seenTempo, seenPlaying);
+        add(cutoff,
+            latency,
+            altNames,
+            peak,
+            sidechain,
+            seenTempo,
+            seenPlaying,
+            rateFraction);
     }
 
     RenamableParam cutoff {"Cutoff",
@@ -41,6 +50,7 @@ struct EffectParams : ParameterGroup
     FloatParam sidechain {"Sidechain", 0.f, 1.f, 0.f};
     FloatParam seenTempo {"Seen Tempo", 0.f, 1000.f, 0.f};
     BoolParam seenPlaying {"Seen Playing", false};
+    FloatParam rateFraction {"Rate Fraction", 0.f, 1.f, 0.f};
 };
 
 float peakOf(const Buffer& buffer) noexcept
@@ -92,7 +102,11 @@ struct EffectPlugin : StatePlugin<State<EffectParams>>
         refreshParameterNames();
     }
 
-    void prepare(const ProcessSpec&) override {}
+    void prepare(const ProcessSpec& spec) override
+    {
+        rateFraction =
+            static_cast<float>(spec.sampleRate - std::floor(spec.sampleRate));
+    }
 
     void process(ProcessContext& context) noexcept override
     {
@@ -108,7 +122,10 @@ struct EffectPlugin : StatePlugin<State<EffectParams>>
             context.inputs.size() > 1 ? peakOf(context.inputs[1]) : 0.f);
         params.seenTempo.setValue(static_cast<float>(context.playhead.bpm));
         params.seenPlaying.setValue(context.playhead.isPlaying ? 1.f : 0.f);
+        params.rateFraction.setValue(rateFraction);
     }
+
+    float rateFraction = 0.f;
 };
 } // namespace
 

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
-#include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -372,7 +371,7 @@ OSStatus Adapter::Initialize()
     if (!pluginWrapper.setLayout(negotiatedLayout()))
         return kAudioUnitErr_FormatNotSupported;
 
-    pluginWrapper.prepare(static_cast<int>(std::lround(outputSampleRate())),
+    pluginWrapper.prepare(outputSampleRate(),
                           static_cast<int>(GetMaxFramesPerSlice()));
 
     const auto& layout = pluginWrapper.busLayout();

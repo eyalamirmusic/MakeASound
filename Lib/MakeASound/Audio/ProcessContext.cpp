@@ -1,7 +1,14 @@
 #include "ProcessContext.h"
 
+#include <cmath>
+
 namespace MakeASound
 {
+
+int roundSampleRate(double sampleRate) noexcept
+{
+    return static_cast<int>(std::lround(sampleRate));
+}
 
 void ProcessContext::prepare(const BusLayout& layout, int midiCapacity)
 {

@@ -54,8 +54,9 @@ public:
     // accepts it; false and nothing changes otherwise.
     bool setLayout(const BusLayout& proposed);
 
-    // Host thread.
-    void prepare(int sampleRate, int maxBlockSize);
+    // Host thread. The rate is the host's own, unrounded: it reaches the plugin's
+    // ProcessSpec as given.
+    void prepare(double sampleRate, int maxBlockSize);
 
     // Audio thread, after a gap in the stream.
     void reset() noexcept;
@@ -173,7 +174,7 @@ private:
                                 StateContext context,
                                 std::string& stripped);
 
-    void prepareBypass(int sampleRate, int maxBlockSize);
+    void prepareBypass(double sampleRate, int maxBlockSize);
     void processBypassable(const BoolParam& bypass) noexcept;
     bool canCrossfade() const noexcept;
     void crossfade(float target) noexcept;

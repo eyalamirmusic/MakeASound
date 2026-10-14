@@ -291,7 +291,7 @@ Events land one block late — the only way to keep offsets non-negative when MI
 
 ## Processors
 
-`Processor` is the format-neutral unit of work: `getBusLayout()` says what buses it wants, `prepare` receives a `ProcessSpec` (rate, block size, layout), `process` gets a `ProcessContext` whose buffers refer to the host's memory, and `reset` drops state after a gap. `Engine` runs one on a device stream with the open MIDI inputs on its main MIDI bus:
+`Processor` is the format-neutral unit of work: `getBusLayout()` says what buses it wants, `prepare` receives a `ProcessSpec` (rate, block size, layout), `process` gets a `ProcessContext` whose buffers refer to the host's memory, and `reset` drops state after a gap. `ProcessSpec::sampleRate` is a `double`: a plugin gets exactly the rate its host said, which need not be whole (a video pull-down such as 44055.94). `roundedSampleRate()` (or `roundSampleRate(double)`, `std::lround`) is for code that needs a whole rate, such as a table sized per second. Device rates stay `int`, since hardware clocks are whole, and become the spec's `double` exactly. `Engine` runs a processor on a device stream with the open MIDI inputs on its main MIDI bus:
 
 ```cpp
 struct Gain : MS::Processor

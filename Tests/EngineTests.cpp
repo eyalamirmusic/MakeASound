@@ -186,6 +186,42 @@ BusLayout layoutWith(int inputChannels, int outputChannels)
     return layout;
 }
 
+auto tRounding = test("ProcessSpec/roundSampleRateIsTheNearestWholeRate") = []
+{
+    using MakeASound::roundSampleRate;
+
+    check(roundSampleRate(48000.0) == 48000);
+    check(roundSampleRate(44055.94) == 44056);
+    check(roundSampleRate(47952.05) == 47952);
+    check(roundSampleRate(48047.9) == 48048);
+    check(roundSampleRate(0.0) == 0);
+};
+
+auto tHalves = test("ProcessSpec/roundSampleRateTakesHalvesAwayFromZero") = []
+{
+    using MakeASound::roundSampleRate;
+
+    // std::lround, not banker's rounding: an even and an odd neighbour alike.
+    check(roundSampleRate(44100.5) == 44101);
+    check(roundSampleRate(44099.5) == 44100);
+    check(roundSampleRate(0.5) == 1);
+    check(roundSampleRate(-0.5) == -1);
+    check(roundSampleRate(44100.49999) == 44100);
+};
+
+auto tRoundedMember = test("ProcessSpec/roundedSampleRateRoundsTheSpecsRate") = []
+{
+    auto spec = ProcessSpec {.sampleRate = 44055.94, .maxBlockSize = blockSize};
+
+    check(spec.sampleRate == 44055.94);
+    check(spec.roundedSampleRate() == 44056);
+
+    spec.sampleRate = 22050.5;
+    check(spec.roundedSampleRate() == 22051);
+
+    check(ProcessSpec {}.roundedSampleRate() == 0);
+};
+
 auto tPrepare = test("Engine/prepareHandsTheProcessorItsSpec") = []
 {
     auto rig = Rig {};

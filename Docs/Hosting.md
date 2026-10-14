@@ -73,6 +73,10 @@ does, connects a separate controller to its component and hands it the component
 state before anything asks for a view (some plugins read that state in
 `attached()`).
 
+`prepare()` hands the loaded plugin the `ProcessSpec`'s rate as it is, a `double`
+that need not be whole (VST3's `ProcessSetup::sampleRate` and `ProcessContext`), so
+a host passes its own host's rate on unrounded.
+
 ## Building it
 
 `MAKEASOUND_BUILD_HOSTING` (on for a top-level build, off as a dependency) needs

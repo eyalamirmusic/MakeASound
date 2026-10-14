@@ -33,7 +33,8 @@ public:
     // Binds the processor, sizes the context and the stand-in buffers to its
     // layout and the block size, and calls its prepare(). What start() does
     // before opening the stream, on its own for a host that drives process()
-    // itself.
+    // itself. The rate is a device's, so whole (StreamConfig, AudioCallbackInfo);
+    // it is the one place a device rate becomes ProcessSpec's double.
     void prepare(Processor& processor, int sampleRate, int maxBlockSize);
 
     // prepare() for the config, then the stream. The config's capture side is

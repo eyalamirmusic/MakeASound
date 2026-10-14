@@ -8,13 +8,23 @@
 namespace MakeASound
 {
 
-// What a Processor is prepared for. Sample rates are int across the library, as
-// in DeviceManager; a plugin adapter rounds at its boundary.
+// The nearest whole rate, halves away from zero (std::lround), for code that
+// genuinely needs an integer: a table sized per second, a rate used as a key or
+// printed as "48000 Hz". Never feed it back into time-to-sample maths.
+int roundSampleRate(double sampleRate) noexcept;
+
+// What a Processor is prepared for. The rate is exactly what the host said: every
+// plugin format passes a double (VST3, AU, AUv3; AAX a float), and video pull-up
+// and pull-down rates such as 44055.94 are not whole. Device I/O stays integral,
+// since hardware clocks are (DeviceInfo, StreamConfig, AudioCallbackInfo); the
+// Engine converts at its boundary, exactly.
 struct ProcessSpec
 {
     bool operator==(const ProcessSpec&) const = default;
 
-    int sampleRate = 0;
+    int roundedSampleRate() const noexcept { return roundSampleRate(sampleRate); }
+
+    double sampleRate = 0.0;
     int maxBlockSize = 0;
     BusLayout layout;
 };

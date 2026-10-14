@@ -9,7 +9,6 @@
 #include "../Realtime/MessageThread.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <utility>
@@ -369,8 +368,7 @@ bool Adapter::allocateRenderResources(NSError** outError)
     }
 
     auto maxFrames = static_cast<int>(owner.maximumFramesToRender);
-    pluginWrapper.prepare(static_cast<int>(std::lround(outputSampleRate())),
-                          maxFrames);
+    pluginWrapper.prepare(outputSampleRate(), maxFrames);
 
     const auto& layout = pluginWrapper.busLayout();
     auto render = EA::makeOwned<Render>();

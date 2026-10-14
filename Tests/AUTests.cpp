@@ -457,6 +457,19 @@ auto tPrepare = test("AU/initializePreparesThePlugin") = []
     check(plugin.spec.maxBlockSize == 32);
 };
 
+auto tFractionalRate = test("AU/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+
+    check(host.initialize(44055.94, maxBlock) == noErr);
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+
+    check(host.initialize(48047.5, maxBlock) == noErr);
+    check(plugin.spec.sampleRate == 48047.5);
+};
+
 auto tUnity = test("AU/aBlockAtUnityPassesTheInput") = []
 {
     for (auto inPlace: {false, true})

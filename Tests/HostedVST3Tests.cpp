@@ -80,7 +80,9 @@ bool near(float a, float b, float tolerance = 1e-4f)
 // A context over the plugin's own buses, every one supplied unless told.
 struct Block
 {
-    explicit Block(Plugin& pluginToUse, bool supplyAux = true)
+    explicit Block(Plugin& pluginToUse,
+                   bool supplyAux = true,
+                   double sampleRate = 48000.0)
         : plugin(pluginToUse)
     {
         auto layout = plugin.getBusLayout();
@@ -94,7 +96,7 @@ struct Block
             context.outputs[i].setSize(layout.outputs[i].numChannels, blockSize);
 
         plugin.prepare(
-            {.sampleRate = 48000, .maxBlockSize = blockSize, .layout = layout});
+            {.sampleRate = sampleRate, .maxBlockSize = blockSize, .layout = layout});
     }
 
     void fillInput(int bus, float value)
@@ -208,8 +210,8 @@ auto tParameters = test("HostedVST3/parametersCarryThePluginsIds") = []
     auto* vst3 = dynamic_cast<VST3HostedPlugin*>(plugin.get());
     const auto& list = plugin->parameters();
 
-    // The fixture's seven, plus the bypass its own wrapper added.
-    check(list.size() == 8);
+    // The fixture's eight, plus the bypass its own wrapper added.
+    check(list.size() == 9);
     check(list.identityProblems().empty());
     check(list.bypassIndex() >= 0);
     check(list[list.bypassIndex()].isBypass());
@@ -412,6 +414,24 @@ auto tState = test("HostedVST3/theStateRoundTripsThroughAFreshInstance") = []
 
     copy->loadState({}, StateContext::Preset);
     check(near(copy->parameters()[cutoff].getValue(), 0.2f));
+};
+
+auto tRate = test("HostedVST3/aFractionalRateReachesThePluginUnrounded") = []
+{
+    const auto formats = DefaultFormats();
+    auto plugin = load(formats, "HostFixtureEffect");
+    auto fraction = indexNamed(*plugin, "Rate Fraction");
+    const auto& list = plugin->parameters();
+
+    // The fixture is itself a MakeASound VST3: the rate crosses setupProcessing()
+    // and its adapter whole.
+    auto block = Block(*plugin, true, 44055.94);
+    block.run();
+    check(near(list[fraction].getValue(), 0.94f));
+
+    auto whole = Block(*plugin, true, 48000.0);
+    whole.run();
+    check(list[fraction].getValue() == 0.f);
 };
 
 auto tPlayhead = test("HostedVST3/theFallbackPlayheadIsStoppedUnlessSet") = []

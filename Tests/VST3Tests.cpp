@@ -337,6 +337,19 @@ auto tActivation = test("VST3/activationPreparesThePlugin") = []
     check(plugin.formatAtPrepare == PluginFormat::VST3);
 };
 
+auto tFractionalRate = test("VST3/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto& plugin = host.plugin();
+
+    host.configure(44055.94, blockSize);
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+
+    host.configure(48047.5, blockSize);
+    check(plugin.spec.sampleRate == 48047.5);
+};
+
 auto tUnity = test("VST3/aBlockAtUnityPassesTheInput") = []
 {
     for (auto inPlace: {false, true})

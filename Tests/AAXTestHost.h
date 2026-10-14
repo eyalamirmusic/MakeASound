@@ -886,15 +886,18 @@ struct JuceEffect
     std::string id = juceBundleId;
 };
 
-// One adapter of the test module, initialized for the stem pair at 48 kHz, with
-// host channel memory, every node and the private data the host would fill.
+// One adapter of the test module, initialized for the stem pair at 48 kHz (or the
+// controller's `rate`), with host channel memory, every node and the private data
+// the host would fill.
 template <typename P>
 struct AdapterHost
 {
     explicit AdapterHost(FourCC code,
                          AAX_EStemFormat inputFormat = AAX_eStemFormat_Stereo,
-                         AAX_EStemFormat outputFormat = AAX_eStemFormat_Stereo)
-        : AdapterHost(nullptr, {}, effectIdFor(code), inputFormat, outputFormat)
+                         AAX_EStemFormat outputFormat = AAX_eStemFormat_Stereo,
+                         double rate = sampleRate)
+        : AdapterHost(
+              nullptr, {}, effectIdFor(code), inputFormat, outputFormat, rate)
     {
     }
 
@@ -916,11 +919,13 @@ struct AdapterHost
                 std::string_view moduleBundle,
                 std::string effectId,
                 AAX_EStemFormat inputFormat,
-                AAX_EStemFormat outputFormat)
+                AAX_EStemFormat outputFormat,
+                double rate = sampleRate)
     {
         controller.effectId = std::move(effectId);
         controller.input = inputFormat;
         controller.output = outputFormat;
+        controller.sampleRateToReport = rate;
 
         if (module != nullptr)
             adapter = std::make_unique<Format::Adapter>(*module, moduleBundle);

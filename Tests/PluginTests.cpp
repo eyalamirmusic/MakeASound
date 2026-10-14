@@ -213,6 +213,16 @@ auto tSetLayout = test("Plugin/setLayoutResizesTheContext") = []
     check(plugin.inputBuses == 2);
 };
 
+auto tFractionalRate = test("Plugin/prepareHandsThePluginTheRateUnrounded") = []
+{
+    auto wrapper = makeWrapper();
+    auto& plugin = pluginOf<GainPlugin>(wrapper);
+
+    wrapper.prepare(44055.94, blockSize);
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+};
+
 auto tParameterIds = test("Plugin/parametersCarryIdsAndHashedHostIds") = []
 {
     auto wrapper = makeWrapper();
@@ -1114,6 +1124,31 @@ auto tBypassFades = test("Plugin/togglingTheAddedBypassCrossfadesAndResumes") = 
     check(host.out[0] == filled(1.f));
     check(isSilent(host.aux[0]));
     check(plugin.processed == 9 + 1 + 8 - 1);
+};
+
+auto tFractionalFade = test("Plugin/theAddedBypassFadesAtAFractionalRate") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    setBypass(wrapper, true);
+
+    // 10 ms at 47952.05 Hz is 479.52 samples, so the eighth block of 64 still
+    // ends the fade.
+    wrapper.prepare(47952.05, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {filled(1.f), filled(1.f)};
+    host.block(wrapper);
+    check(host.out[0] == filled(1.f));
+
+    setBypass(wrapper, false);
+
+    for (auto b = 0; b < 7; ++b)
+        host.block(wrapper);
+
+    check(host.out[0][blockSize - 1] < 2.f);
+
+    host.block(wrapper);
+    check(host.out[0][blockSize - 1] == 2.f);
 };
 
 auto tBypassReset = test("Plugin/resetEndsAnAddedBypassFade") = []

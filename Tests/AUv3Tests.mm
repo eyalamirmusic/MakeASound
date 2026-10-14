@@ -352,6 +352,19 @@ auto tPrepare = test("AUv3/allocatingPreparesThePlugin") = []
     check(plugin.spec.maxBlockSize == 32);
 };
 
+auto tFractionalRate = test("AUv3/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+
+    check(host.allocate(44055.94, maxBlock));
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+
+    check(host.allocate(48047.5, maxBlock));
+    check(plugin.spec.sampleRate == 48047.5);
+};
+
 auto tUnity = test("AUv3/aBlockAtUnityPassesTheInput") = []
 {
     for (auto inPlace: {false, true})

@@ -126,7 +126,7 @@ AAX_Result Adapter::createWrapper()
         return AAX_ERROR_NULL_COMPONENT;
 
     sampleRate = rate > 0.f ? static_cast<double>(rate) : 44100.0;
-    wrapper->prepare(static_cast<int>(sampleRate + 0.5), maxBlockSize);
+    wrapper->prepare(sampleRate, maxBlockSize);
 
     inputChannels = channelCount(input);
     outputChannels = channelCount(output);

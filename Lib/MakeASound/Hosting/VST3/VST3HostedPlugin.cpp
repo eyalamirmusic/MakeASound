@@ -448,7 +448,7 @@ void VST3HostedPlugin::prepare(const ProcessSpec& spec)
         applyArrangement(layout);
     }
 
-    sampleRate = static_cast<double>(spec.sampleRate);
+    sampleRate = spec.sampleRate;
     maxBlockSize = std::max(spec.maxBlockSize, 0);
     rewindFallbackPlayhead();
 

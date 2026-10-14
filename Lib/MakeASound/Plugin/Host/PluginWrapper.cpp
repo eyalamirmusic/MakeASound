@@ -75,13 +75,13 @@ bool PluginWrapper::setLayout(const BusLayout& proposed)
     return true;
 }
 
-void PluginWrapper::prepare(int sampleRate, int maxBlockSize)
+void PluginWrapper::prepare(double sampleRate, int maxBlockSize)
 {
     pluginPtr->prepare({sampleRate, maxBlockSize, layout});
     prepareBypass(sampleRate, maxBlockSize);
 }
 
-void PluginWrapper::prepareBypass(int sampleRate, int maxBlockSize)
+void PluginWrapper::prepareBypass(double sampleRate, int maxBlockSize)
 {
     auto* bypass = pluginPtr->activeHostBypass();
 
@@ -108,9 +108,10 @@ void PluginWrapper::prepareBypass(int sampleRate, int maxBlockSize)
     hostOutputs.resize(layout.outputs.size());
 
     fadeCapacity = block;
+    // At a fractional rate the fade spans a fractional number of samples.
     fadeStep =
-        sampleRate > 0
-            ? 1.f / static_cast<float>(std::max(1, sampleRate / fadesPerSecond))
+        sampleRate > 0.0
+            ? 1.f / static_cast<float>(std::max(1.0, sampleRate / fadesPerSecond))
             : 1.f;
     bypassMix = bypass->isOn() ? 1.f : 0.f;
 }

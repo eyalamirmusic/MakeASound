@@ -265,6 +265,28 @@ auto tCategory = test("AAX/theCategoryDefaultsByKindUnlessNamed") = []
     check(Format::categoryFor(plugin) == AAX_ePlugInCategory_Dynamics);
 };
 
+auto tPrepare = test("AAX/initializePreparesThePluginAtTheControllersRate") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+
+    check(host.plugin().spec.sampleRate == 48000);
+    check(host.plugin().formatAtPrepare == PluginFormat::AAX);
+};
+
+auto tFractionalRate = test("AAX/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = AdapterHost<GainPlugin>(
+        "Gain", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo, 44055.94);
+
+    // AAX_CSampleRate is a float: the plugin gets that float, widened, not a
+    // whole rate.
+    auto reported = static_cast<double>(static_cast<AAX_CSampleRate>(44055.94));
+
+    check(host.plugin().spec.sampleRate == reported);
+    check(host.plugin().spec.sampleRate != 44056.0);
+    check(host.plugin().spec.roundedSampleRate() == 44056);
+};
+
 auto tPrivateData = test("AAX/resetFieldDataPointsTheInstanceAtItsAdapter") = []
 {
     auto host = AdapterHost<GainPlugin>("Gain");

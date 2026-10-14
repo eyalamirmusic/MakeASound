@@ -710,6 +710,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   info.getOutput()` stays valid in Plug and tamber-web.
 - 2026-10-10: parameter host ids are hashes of stable string ids, not indices.
 - 2026-10-10: sample rates stay `int` across `ProcessSpec`; adapters round.
+  Superseded on 2026-10-13: `ProcessSpec::sampleRate` is a `double` (below).
 - 2026-10-10: `getBusLayout()` is on `Processor`, not `Plugin`: `Engine` sizes its
   context from it for an app with no plugin. A bus channel the device cannot
   feed reads device channel 0 when the device has inputs at all (a mono mic
@@ -1001,3 +1002,18 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   documents as native ones. `identityProblems()` replaces the debug-only checks.
   `Tests/Identity/` holds golden manifests of every id; `TamberPlugFixtures.h` and
   `JucePort.h` hold what real Plug and JUCE 8.0.12 builds published.
+- 2026-10-13: `ProcessSpec::sampleRate` is a `double`, the host's rate unrounded,
+  replacing the 2026-10-10 `int`. The formats already pass one (VST3
+  `ProcessSetup::sampleRate`, AU `Float64`, AUv3 `AVAudioFormat`, AAX a float,
+  CLAP and JUCE a double), and the adapters' `lround` / `+ 0.5` handed plugins a
+  rate slightly off what the host said. Real rates are not always whole: video
+  pull-up and pull-down give 44055.94 or 48048, and a 1-2 ppm rounding error
+  accumulates in time-to-sample conversions over a long session. A MakeASound host
+  must also hand its host's exact rate on to the plugins it loads. Cheap now, a
+  breaking change later. `roundSampleRate(double)` and
+  `ProcessSpec::roundedSampleRate()` (`std::lround`, halves away from zero) serve
+  code that needs a whole rate. Device I/O stays `int` (`DeviceInfo`,
+  `StreamConfig`, `AudioCallbackInfo`, `getStreamSampleRate()`): hardware clocks
+  are whole and miniaudio's rates are `ma_uint32`. `Engine::prepare` is the one
+  conversion into `ProcessSpec`, and it is exact. `PluginWrapper::prepare` and
+  `Smoother::setSampleRate` take a `double`.

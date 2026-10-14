@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -216,7 +215,7 @@ tresult PLUGIN_API Adapter::setActive(TBool state)
 {
     if (state)
     {
-        pluginWrapper.prepare(static_cast<int>(std::lround(processSetup.sampleRate)),
+        pluginWrapper.prepare(processSetup.sampleRate,
                               processSetup.maxSamplesPerBlock);
         pluginWrapper.reset();
         prepared = true;
