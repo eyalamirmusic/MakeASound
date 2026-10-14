@@ -205,6 +205,17 @@ if (MAKEASOUND_BUILD_PLUGIN)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostingScannerAppTests.cpp)
                 set(MAKEASOUND_TEST_PLUGIN_SCANNER ON)
             endif ()
+
+            # Apps/PluginHost: its Host headless, and the app as a scan worker.
+            if (TARGET PluginHostCore)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostingPluginHostTests.cpp)
+                list(APPEND MAKEASOUND_TEST_TARGETS PluginHostCore)
+            endif ()
+
+            if (TARGET PluginHost)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostingPluginHostAppTests.cpp)
+                set(MAKEASOUND_TEST_PLUGIN_HOST ON)
+            endif ()
         endif ()
 
         # Audio Units: Apple's own, found through the registry, and the test
@@ -348,6 +359,12 @@ if (MAKEASOUND_TEST_PLUGIN_SCANNER)
     add_dependencies(MakeASoundTests PluginScanner)
     target_compile_definitions(MakeASoundTests PRIVATE
             MAKEASOUND_PLUGIN_SCANNER="$<TARGET_FILE:PluginScanner>")
+endif ()
+
+if (MAKEASOUND_TEST_PLUGIN_HOST)
+    add_dependencies(MakeASoundTests PluginHost)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_PLUGIN_HOST="$<TARGET_FILE:PluginHost>")
 endif ()
 
 if (MAKEASOUND_TEST_AU_VIEW)
