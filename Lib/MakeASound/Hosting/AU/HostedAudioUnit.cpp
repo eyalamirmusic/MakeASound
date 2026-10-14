@@ -370,6 +370,29 @@ void HostedAudioUnit::readBusLayout()
 
     if (consumesMidi)
         layout.midiInputs.add({.name = "MIDI In"});
+
+    // A unit with MIDI out names its outputs here, one per bus.
+    auto names = CFArrayRef {nullptr};
+    auto size = UInt32 {sizeof(names)};
+
+    if (AudioUnitGetProperty(instance,
+                             kAudioUnitProperty_MIDIOutputCallbackInfo,
+                             kAudioUnitScope_Global,
+                             0,
+                             &names,
+                             &size)
+            == noErr
+        && names != nullptr)
+    {
+        for (auto i = CFIndex {0}; i < CFArrayGetCount(names); ++i)
+        {
+            auto name = stringFromCF(
+                static_cast<CFStringRef>(CFArrayGetValueAtIndex(names, i)));
+            layout.midiOutputs.add({.name = name.empty() ? "MIDI Out" : name});
+        }
+
+        CFRelease(names);
+    }
 }
 
 std::vector<AudioUnitParameterID> HostedAudioUnit::readParameterIds() const
@@ -737,6 +760,17 @@ void HostedAudioUnit::prepare(const ProcessSpec& spec)
                              static_cast<AudioUnitElement>(i),
                              &callback,
                              sizeof(callback));
+
+    if (!layout.midiOutputs.empty())
+    {
+        auto midiOut = AUMIDIOutputCallbackStruct {&midiOutput, this};
+        AudioUnitSetProperty(instance,
+                             kAudioUnitProperty_MIDIOutputCallback,
+                             kAudioUnitScope_Global,
+                             0,
+                             &midiOut,
+                             sizeof(midiOut));
+    }
 
     auto host = HostCallbackInfo();
     host.hostUserData = this;
@@ -1132,6 +1166,91 @@ void HostedAudioUnit::eventArrived(void* self,
 void HostedAudioUnit::infoRefresh(void* self)
 {
     static_cast<HostedAudioUnit*>(self)->refreshInfoIfDirty();
+}
+
+OSStatus HostedAudioUnit::midiOutput(void* self,
+                                     const AudioTimeStamp*,
+                                     UInt32 bus,
+                                     const MIDIPacketList* packets)
+{
+    if (packets != nullptr)
+        static_cast<HostedAudioUnit*>(self)->receiveMidi(static_cast<int>(bus),
+                                                         *packets);
+
+    return noErr;
+}
+
+void HostedAudioUnit::receiveMidi(int bus, const MIDIPacketList& packets) noexcept
+{
+    // Only while a block renders: that is the context the events belong to.
+    if (currentContext == nullptr || bus < 0
+        || bus >= currentContext->midiOut.size())
+        return;
+
+    auto& target = currentContext->midiOut[bus];
+
+    // A packet may hold several messages; the length is the status byte's.
+    auto lengthOf = [](std::uint8_t status) -> int
+    {
+        switch (status & 0xf0)
+        {
+            case 0xc0:
+            case 0xd0:
+                return 2;
+            case 0xf0:
+                return 0;
+            default:
+                return 3;
+        }
+    };
+
+    const auto* packet = &packets.packet[0];
+
+    for (auto p = UInt32 {0}; p < packets.numPackets; ++p)
+    {
+        auto offset = static_cast<int>(packet->timeStamp);
+        auto i = 0;
+
+        while (i < packet->length)
+        {
+            auto status = packet->data[i];
+
+            // SysEx runs to its end byte, whole within the packet.
+            if (status == 0xf0)
+            {
+                auto end = i + 1;
+
+                while (end < packet->length && packet->data[end] != 0xf7)
+                    ++end;
+
+                auto size = std::min(end + 1, static_cast<int>(packet->length)) - i;
+
+                if (size <= MIDI::SysEx::maxBytes
+                    && target.size() < target.capacity())
+                    target.add(MIDI::Event::sysEx(&packet->data[i], size, offset));
+
+                i += size;
+                continue;
+            }
+
+            auto length = lengthOf(status);
+
+            // A system real-time byte, or a running status we cannot place.
+            if (length == 0 || (status & 0x80) == 0 || i + length > packet->length)
+            {
+                ++i;
+                continue;
+            }
+
+            if (auto event = MIDI::convertMidi(&packet->data[i], length, offset);
+                event && target.size() < target.capacity())
+                target.add(*event);
+
+            i += length;
+        }
+
+        packet = MIDIPacketNext(packet);
+    }
 }
 
 OSStatus HostedAudioUnit::beatAndTempo(void* self, Float64* beat, Float64* tempo)

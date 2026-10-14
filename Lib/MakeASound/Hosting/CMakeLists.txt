@@ -47,7 +47,8 @@ if (APPLE)
             $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     target_link_libraries(MakeASoundHosting PRIVATE
             "-framework AudioToolbox"
-            "-framework CoreFoundation")
+            "-framework CoreFoundation"
+            "-framework CoreMIDI")
 else ()
     target_sources(MakeASoundHosting PRIVATE
             DefaultFormats-Windows.cpp

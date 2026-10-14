@@ -360,6 +360,54 @@ auto tMidi = test("HostedAU/midiReachesAnInstrument") = []
     check(near(block.context.outputs[0][0][0], 0.5f));
 };
 
+auto tMidiOut = test("HostedAU/midiGoesInAndComesBackOut") = []
+{
+    auto plugin =
+        loadFixtureUnit("HostFixtureInstrument", kAudioUnitType_MusicDevice, "HfIn");
+
+    if (plugin == nullptr)
+        return;
+
+    const auto layout = plugin->getBusLayout();
+    check(layout.inputs.empty());
+    check(layout.midiInputs.size() == 1);
+    check(layout.midiOutputs.size() == 1);
+
+    auto block = Block(*plugin);
+    block.run();
+    check(block.context.outputs[0][0][0] == 0.f);
+    check(block.context.midiOut[0].empty());
+
+    block.context.midiIn[0].add(MIDI::Event::noteOn(3, 60, 0.5f, 7));
+    block.run();
+    block.context.midiIn[0].clear();
+
+    check(near(block.context.outputs[0][0][0], 0.8f));
+    check(block.context.midiOut[0].size() == 1);
+
+    if (block.context.midiOut[0].size() == 1)
+    {
+        const auto& echoed = block.context.midiOut[0][0];
+        check(echoed.sampleOffset == 7);
+        check(echoed.channel == 3);
+        check(echoed.asNoteOn() != nullptr && echoed.asNoteOn()->pitch == 60);
+        check(near(echoed.asNoteOn()->velocity, 0.5f, 0.01f));
+    }
+
+    block.context.midiOut[0].clear();
+    block.context.midiIn[0].add(MIDI::Event::noteOff(3, 60, 0.f, 0));
+    block.context.midiIn[0].add(MIDI::Event::controlChange(3, 74, 0.5f, 12));
+    block.run();
+
+    check(block.context.outputs[0][0][blockSize - 1] == 0.f);
+    check(block.context.midiOut[0].size() == 2);
+    check(block.context.midiOut[0].size() == 2
+          && block.context.midiOut[0][0].isNoteOff());
+    check(block.context.midiOut[0].size() == 2
+          && block.context.midiOut[0][1].isControlChange()
+          && block.context.midiOut[0][1].sampleOffset == 12);
+};
+
 auto tState = test("HostedAU/theStateRoundTripsThroughAFreshUnit") = []
 {
     auto source = loadTestUnit("Gain");

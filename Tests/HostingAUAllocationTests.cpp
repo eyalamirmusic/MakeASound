@@ -99,5 +99,8 @@ auto tInstrument = test("Allocations/aHostedAudioUnitsMidiTouchesNothing") = []
         });
 
     check(count == 0);
+
+    // The unit's MIDI out came back through the callback, inside the ban.
+    check(context.midiOut.size() == 1 && context.midiOut[0].size() == 3);
 };
 } // namespace

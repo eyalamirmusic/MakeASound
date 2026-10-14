@@ -87,8 +87,12 @@ value strings as its text; the unit's own view reaches the listener through an
 AUEventListener on the main run loop, and `refreshParameterValue(i)` re-reads a
 value an AU editor moved without notifying. The state is
 `kAudioUnitProperty_ClassInfo` as a binary property list. Values from the audio
-thread go out as `AudioUnitScheduleParameters` events at the next render. MIDI
-output from a hosted Audio Unit is not read yet.
+thread go out as `AudioUnitScheduleParameters` events at the next render. A unit
+with MIDI out lists its outputs (`kAudioUnitProperty_MIDIOutputCallbackInfo`) as
+`midiOutputs`, and what it sends through `kAudioUnitProperty_MIDIOutputCallback`
+during a render lands in the block's `midiOut`, each packet's time stamp its
+sample offset. An AUv3 reaches the host the same way through the v2 bridge, so
+`MIDIOutputEventListBlock` is not asked for.
 
 ## Editors
 
@@ -225,7 +229,6 @@ do.
 
 The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 
-- **MIDI output** from a hosted Audio Unit (`kAudioUnitProperty_MIDIOutputCallback`).
 - **Windows hosted-editor tests** (pixels and points against a DPI): the code is
   in, built and tested on macOS only so far.
 - **`Apps/PluginHost`**, the GUI example: the list, the filter, scan progress, a

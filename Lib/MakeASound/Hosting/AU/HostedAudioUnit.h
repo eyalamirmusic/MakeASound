@@ -10,6 +10,7 @@
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <AudioToolbox/AudioUnitUtilities.h>
+#include <CoreMIDI/CoreMIDI.h>
 
 #include <array>
 #include <atomic>
@@ -168,6 +169,14 @@ private:
                              AudioUnitParameterValue value);
     static void infoRefresh(void* self);
 
+    // The unit's MIDI out, called from inside AudioUnitRender: each packet's
+    // time stamp is its sample offset in the block.
+    static OSStatus midiOutput(void* self,
+                               const AudioTimeStamp* time,
+                               UInt32 bus,
+                               const MIDIPacketList* packets);
+    void receiveMidi(int bus, const MIDIPacketList& packets) noexcept;
+
     static OSStatus beatAndTempo(void* self, Float64* beat, Float64* tempo);
     static OSStatus musicalTime(void* self,
                                 UInt32* toNextBeat,
@@ -214,7 +223,8 @@ private:
     std::vector<float> silence;
     std::vector<float> scratch;
 
-    const ProcessContext* currentContext = nullptr;
+    // The block being rendered, for the input pull and the MIDI the unit sends.
+    ProcessContext* currentContext = nullptr;
     Playhead blockPlayhead;
 
     std::array<AudioUnitParameterEvent, scheduledCapacity> scheduledEvents {};
