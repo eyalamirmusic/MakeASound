@@ -11,11 +11,22 @@
 #
 # The crash and hang fixtures are scanned only out of process, through a worker:
 # in the test process they would take the suite down with them.
+#
+# On macOS the effect and the instrument are Audio Units too, in
+# <build>/HostFixtures/AU, which no AU registry looks in. A test loads the
+# component's own factory out of the bundle and registers it in its process
+# (AudioComponentRegister), so nothing is ever found through the registry.
 set(host_fixture_dir "${CMAKE_BINARY_DIR}/HostFixtures")
 
 foreach (fixture Effect Instrument ScanCrash ScanHang)
+    set(fixture_formats VST3)
+
+    if (fixture MATCHES "^(Effect|Instrument)$" AND TARGET MakeASoundAU)
+        list(APPEND fixture_formats AU)
+    endif ()
+
     makeasound_add_plugin(HostFixture${fixture}
-            FORMATS VST3
+            FORMATS ${fixture_formats}
             OUTPUT_NAME "HostFixture${fixture}"
             BUNDLE_DIRECTORY "${host_fixture_dir}"
             NO_INSTALL
@@ -24,3 +35,4 @@ foreach (fixture Effect Instrument ScanCrash ScanHang)
 endforeach ()
 
 set(MAKEASOUND_HOST_FIXTURE_VST3_DIR "${host_fixture_dir}/VST3" PARENT_SCOPE)
+set(MAKEASOUND_HOST_FIXTURE_AU_DIR "${host_fixture_dir}/AU" PARENT_SCOPE)

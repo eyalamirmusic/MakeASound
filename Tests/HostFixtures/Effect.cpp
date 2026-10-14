@@ -40,17 +40,20 @@ struct EffectParams : ParameterGroup
             rateFraction);
     }
 
+    // Every one from the first release, as an AU build asks.
+    static constexpr auto first = ParameterOptions {.versionHint = 1};
+
     RenamableParam cutoff {"Cutoff",
                            FloatRange::withCentre(20.f, 20000.f, 1000.f),
                            1000.f,
-                           {.label = "Hz"}};
-    IntParam latency {"Latency", 0, 1024, 0};
-    BoolParam altNames {"Alt Names", false};
-    FloatParam peak {"Peak", 0.f, 1.f, 0.f};
-    FloatParam sidechain {"Sidechain", 0.f, 1.f, 0.f};
-    FloatParam seenTempo {"Seen Tempo", 0.f, 1000.f, 0.f};
-    BoolParam seenPlaying {"Seen Playing", false};
-    FloatParam rateFraction {"Rate Fraction", 0.f, 1.f, 0.f};
+                           {.label = "Hz", .versionHint = 1}};
+    IntParam latency {"Latency", 0, 1024, 0, first};
+    BoolParam altNames {"Alt Names", false, first};
+    FloatParam peak {"Peak", 0.f, 1.f, 0.f, first};
+    FloatParam sidechain {"Sidechain", 0.f, 1.f, 0.f, first};
+    FloatParam seenTempo {"Seen Tempo", 0.f, 1000.f, 0.f, first};
+    BoolParam seenPlaying {"Seen Playing", false, first};
+    FloatParam rateFraction {"Rate Fraction", 0.f, 1.f, 0.f, first};
 };
 
 float peakOf(const Buffer& buffer) noexcept

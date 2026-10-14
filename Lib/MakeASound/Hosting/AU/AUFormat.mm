@@ -1,4 +1,5 @@
 #include "AUFormat.h"
+#include "HostedAudioUnit.h"
 
 #include <eacp/Core/Threads/EventLoop.h>
 
@@ -221,15 +222,17 @@ struct InstantiateState
 
 // The asynchronous form, the only one that can create an AUv3 in another
 // process, pumping the event loop until its answer lands on the main queue.
-// Options 0, as a DAW asks: a v2 loads in process, a v3 extension stays in its
-// own.
-std::shared_ptr<InstantiateState> instantiate(AudioComponent component)
+// Options 0 by default, as a DAW asks: a v2 loads in process, a v3 extension
+// stays in its own.
+std::shared_ptr<InstantiateState>
+    instantiate(AudioComponent component,
+                AudioComponentInstantiationOptions options = 0)
 {
     auto state = std::make_shared<InstantiateState>();
 
     AudioComponentInstantiate(
         component,
-        0,
+        options,
         ^(AudioComponentInstance instance, OSStatus status) {
           dispatch_async(dispatch_get_main_queue(),
                          ^{
@@ -409,6 +412,97 @@ ModuleScan AUFormat::scan(std::string_view target) const
 
     scan.classes.add(std::move(plugin));
     return scan;
+}
+
+LoadResult AUFormat::load(const PluginDescription& description,
+                          const HostInfo& host) const
+{
+    auto identifier =
+        description.classId.empty() ? description.path : description.classId;
+    auto component = findComponent(identifier);
+
+    if (component == nullptr)
+    {
+        auto result = LoadResult();
+        result.error = "no Audio Unit is registered as " + identifier;
+        return result;
+    }
+
+    return loadAudioUnit(component, description, host);
+}
+
+LoadResult loadAudioUnit(AudioComponent component,
+                         PluginDescription description,
+                         const HostInfo&)
+{
+    auto result = LoadResult();
+    auto componentDescription = AudioComponentDescription();
+
+    if (component == nullptr
+        || AudioComponentGetDescription(component, &componentDescription) != noErr)
+    {
+        result.error = "not an Audio Unit component";
+        return result;
+    }
+
+    auto instance = AudioComponentInstance {nullptr};
+    auto flags = componentDescription.componentFlags;
+    auto version3 = (flags & kAudioComponentFlag_IsV3AudioUnit) != 0;
+
+    if (!version3)
+    {
+        // A v2 component loads in this process, synchronously.
+        if (auto status = AudioComponentInstanceNew(component, &instance);
+            status != noErr || instance == nullptr)
+        {
+            result.error = "the component could not be instantiated ("
+                           + describeStatus(status) + ")";
+            return result;
+        }
+    }
+    else
+    {
+        // A v3 extension: out of process first, as Logic loads it, and in
+        // process only if that fails.
+        for (auto options: {kAudioComponentInstantiation_LoadOutOfProcess,
+                            kAudioComponentInstantiation_LoadInProcess})
+        {
+            auto attempt = instantiate(component, options);
+
+            if (!attempt->finished)
+            {
+                result.error = "the component did not answer "
+                               "AudioComponentInstantiate within "
+                               + std::to_string(instantiateTimeout.count) + " ms";
+                return result;
+            }
+
+            if (attempt->status == noErr && attempt->instance != nullptr)
+            {
+                instance = attempt->instance;
+                break;
+            }
+
+            result.error = "the component could not be instantiated ("
+                           + describeStatus(attempt->status) + ")";
+        }
+
+        if (instance == nullptr)
+            return result;
+    }
+
+    description.format = PluginFormat::AU;
+
+    if (description.classId.empty())
+        description.classId = componentIdentifier(componentDescription);
+
+    if (description.path.empty())
+        description.path = description.classId;
+
+    result.error.clear();
+    result.plugin = EA::makeOwned<HostedAudioUnit>(
+        std::move(description), instance, componentDescription);
+    return result;
 }
 
 } // namespace MakeASound::Hosting

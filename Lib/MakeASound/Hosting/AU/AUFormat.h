@@ -54,6 +54,11 @@ public:
     // and is never initialized. A component that will not instantiate is a clean
     // error with no class.
     ModuleScan scan(std::string_view target) const override;
+
+    // Finds the component the description's class id names and loads it
+    // (loadAudioUnit in HostedAudioUnit.h).
+    LoadResult load(const PluginDescription& description,
+                    const HostInfo& host) const override;
 };
 
 // The spelling of an Audio Unit identifier: exactly three four-character tokens

@@ -207,9 +207,14 @@ if (MAKEASOUND_BUILD_PLUGIN)
             endif ()
         endif ()
 
-        # Audio Units: Apple's own, found through the registry.
+        # Audio Units: Apple's own, found through the registry, and the test
+        # module's own components, registered here and loaded directly.
         if (APPLE)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingAUScanTests.cpp)
+
+            if (TARGET MakeASoundAU)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostedAUTests.cpp)
+            endif ()
         endif ()
     endif ()
 
@@ -285,6 +290,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (MAKEASOUND_TEST_HOST_FIXTURES)
         list(APPEND MAKEASOUND_TEST_SOURCES HostingAllocationTests.cpp)
     endif ()
+
+    if (TARGET MakeASoundHosting AND TARGET MakeASoundAU)
+        list(APPEND MAKEASOUND_TEST_SOURCES HostingAUAllocationTests.cpp)
+    endif ()
 endif ()
 
 # NanoTest registers one ctest case per nano::test() and re-runs the binary with
@@ -317,6 +326,13 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
             HostFixtureScanCrash-VST3 HostFixtureScanHang-VST3)
     target_compile_definitions(MakeASoundTests PRIVATE
             MAKEASOUND_HOST_FIXTURE_VST3_DIR="${MAKEASOUND_HOST_FIXTURE_VST3_DIR}")
+
+    if (TARGET HostFixtureEffect-AU)
+        add_dependencies(MakeASoundTests
+                HostFixtureEffect-AU HostFixtureInstrument-AU)
+        target_compile_definitions(MakeASoundTests PRIVATE
+                MAKEASOUND_HOST_FIXTURE_AU_DIR="${MAKEASOUND_HOST_FIXTURE_AU_DIR}")
+    endif ()
 endif ()
 
 if (MAKEASOUND_TEST_PLUGIN_SCANNER)

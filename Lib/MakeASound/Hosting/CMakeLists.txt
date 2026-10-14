@@ -37,6 +37,7 @@ if (APPLE)
     # Audio Units, macOS only, over AudioToolbox's C API.
     target_sources(MakeASoundHosting PRIVATE
             AU/AUFormat.mm
+            AU/HostedAudioUnit.cpp
             DefaultFormats-macOS.cpp
             Scan/ExecutablePath-macOS.cpp
             Scan/WorkerProcess-macOS.cpp

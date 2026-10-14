@@ -7,8 +7,8 @@ plugin framework: a host's view of plugins somebody else built. It sits beside
 host.
 
 It **finds and describes** plugins (VST3 everywhere it builds, Audio Units on
-macOS, scanned out of process into a database) and **loads and runs** VST3
-plugins in process. Audio Unit loading and hosted editors come next (see
+macOS, scanned out of process into a database) and **loads and runs** them in
+process. Hosted editors come next (see
 [What is not here yet](#what-is-not-here-yet)). Scanning has its own document,
 [PluginScanning.md](PluginScanning.md).
 
@@ -74,8 +74,21 @@ state before anything asks for a view (some plugins read that state in
 `attached()`).
 
 `prepare()` hands the loaded plugin the `ProcessSpec`'s rate as it is, a `double`
-that need not be whole (VST3's `ProcessSetup::sampleRate` and `ProcessContext`), so
-a host passes its own host's rate on unrounded.
+that need not be whole (VST3's `ProcessSetup::sampleRate` and `ProcessContext`, an
+Audio Unit's stream formats), so a host passes its own host's rate on unrounded.
+
+`AU/HostedAudioUnit.h` is the Audio Unit side (macOS): the `AudioUnit` itself and
+`loadAudioUnit(component, description, host)`, which takes a component already
+found or registered (the tests register their own and never search the
+registry). A v2 component is instantiated directly; a v3 extension out of process
+first, as Logic loads it, and in process only if that fails, each with a timeout.
+Parameters are Global-scope, in the unit's own plain range, with an indexed one's
+value strings as its text; the unit's own view reaches the listener through an
+AUEventListener on the main run loop, and `refreshParameterValue(i)` re-reads a
+value an AU editor moved without notifying. The state is
+`kAudioUnitProperty_ClassInfo` as a binary property list. Values from the audio
+thread go out as `AudioUnitScheduleParameters` events at the next render. MIDI
+output from a hosted Audio Unit is not read yet.
 
 ## Building it
 
@@ -136,7 +149,7 @@ targets in the order they were added: a `*.vst3` path is VST3's, a
 
 | | VST3 scan | AU scan | VST3 load | AU load | hosted editors |
 | --- | --- | --- | --- | --- | --- |
-| macOS | yes | yes (v2, and v3 through the v2 API) | yes | next | next |
+| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | next |
 | Windows | yes | - | yes | - | next (HWND child, DPI conversion) |
 | Linux | later | - | later (headless) | - | later |
 | iOS | later | later | later | later | later |
@@ -178,8 +191,7 @@ do.
 
 The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 
-- **Audio Unit loading**: a `HostedPlugin` over the AudioUnit C API (v2, and v3
-  through it, out of process first), with `refreshParameterValue`.
+- **MIDI output** from a hosted Audio Unit (`kAudioUnitProperty_MIDIOutputCallback`).
 - **Hosted editors** (`MakeASoundHostedEditor`) for VST3 on macOS and Windows and
   for AU on macOS.
 - **`Apps/PluginHost`**, the GUI example: the list, the filter, scan progress, a

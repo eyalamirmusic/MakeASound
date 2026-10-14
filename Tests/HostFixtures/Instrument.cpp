@@ -12,7 +12,7 @@ struct InstrumentParams : ParameterGroup
 {
     InstrumentParams() { add(level); }
 
-    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+    FloatParam level {"Level", 0.f, 1.f, 0.8f, {.versionHint = 1}};
 };
 
 struct InstrumentPlugin : StatePlugin<State<InstrumentParams>>
