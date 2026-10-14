@@ -278,8 +278,14 @@ std::vector<std::string> describedLines(const std::string& text)
     auto stream = std::istringstream {text};
 
     for (auto line = std::string {}; std::getline(stream, line);)
+    {
+        // A golden checked out with CRLF line endings reads the same.
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
         if (isDescribedHere(line))
             lines.push_back(line);
+    }
 
     return lines;
 }

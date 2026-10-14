@@ -1,0 +1,4 @@
+# The identity goldens are compared line by line against what the tests
+# generate, and regenerated in place with LF endings: keep them LF on every
+# checkout, whatever core.autocrlf says.
+Tests/Identity/*.txt text eol=lf
