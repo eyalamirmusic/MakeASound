@@ -338,12 +338,16 @@ function(_makeasound_add_vst3 name)
     # $<1:...> keeps a multi-config generator from appending a per-config folder;
     # the import library, .exp and .pdb stay out of the bundle, and the .pdb is
     # named apart from the standalone's, which shares the output name and the
-    # folder: two links writing one program database fail (LNK1201).
+    # folder: two links writing one program database fail (LNK1201). The import
+    # library is named apart too: when OUTPUT_NAME is the plugin's own name (the
+    # host fixtures), <OUTPUT_NAME>.lib in this folder is the core archive the
+    # module links, and link.exe refuses to write over an input (LNK1149).
     set_target_properties(${target} PROPERTIES
             FOLDER "${ARG_FOLDER}"
             OUTPUT_NAME "${ARG_OUTPUT_NAME}"
             PREFIX ""
             ARCHIVE_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            ARCHIVE_OUTPUT_NAME "${ARG_OUTPUT_NAME}-VST3"
             PDB_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
             PDB_NAME "${ARG_OUTPUT_NAME}-VST3"
             COMPILE_PDB_NAME "${ARG_OUTPUT_NAME}-VST3"
