@@ -54,8 +54,9 @@ public:
     // accepts it; false and nothing changes otherwise.
     bool setLayout(const BusLayout& proposed);
 
-    // Host thread.
-    void prepare(int sampleRate, int maxBlockSize);
+    // Host thread. The rate is the host's own, unrounded: it reaches the plugin's
+    // ProcessSpec as given.
+    void prepare(double sampleRate, int maxBlockSize);
 
     // Audio thread, after a gap in the stream.
     void reset() noexcept;
@@ -82,7 +83,15 @@ public:
     // returning true and telling the host every value moved once the plugin took
     // it. A `bypass` in a Session state the plugin took sets the added bypass,
     // where there is one; a plugin with its own bypass reads it from the state.
+    // A TamberPlugAU document the plugin declines loads as a native one where
+    // the identity says so (ParameterIdentity::foreignPlugStateIsNative, the
+    // TamberPlug profile's): Plug's schema is this framework's.
     bool loadForeignState(const ForeignState& state);
+
+    // What the host said about the track: the plugin's trackInfo() and then its
+    // onTrackInfoChanged(), now on the message thread, queued there from any
+    // other (never the audio thread: queuing allocates), and dropped by teardown.
+    void setTrackInfo(TrackInfo info);
 
     // Host writes; each is dropped while the parameter is held.
     void setNormalizedParameter(int index, float normalized) noexcept;
@@ -165,7 +174,7 @@ private:
                                 StateContext context,
                                 std::string& stripped);
 
-    void prepareBypass(int sampleRate, int maxBlockSize);
+    void prepareBypass(double sampleRate, int maxBlockSize);
     void processBypassable(const BoolParam& bypass) noexcept;
     bool canCrossfade() const noexcept;
     void crossfade(float target) noexcept;

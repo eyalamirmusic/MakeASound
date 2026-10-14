@@ -3,11 +3,15 @@
 #         SOURCES <file>...
 #         [OUTPUT_NAME <display name>]
 #         [BUNDLE_ID <reverse.dns.id>]
+#         [VST3_BUNDLE_ID <id>] [AU_BUNDLE_ID <id>] [AUV3_BUNDLE_ID <id>]
+#         [AAX_BUNDLE_ID <id>]
 #         [COMPANY <vendor>]
 #         [VERSION <x.y.z>]
 #         [AAX_WCGUID <PACE wrap configuration guid>]
 #         [FOLDER <ide folder>]
+#         [BUNDLE_DIRECTORY <dir>]
 #         [NO_AUDIO_INPUT]
+#         [NO_INSTALL]
 #         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
@@ -24,10 +28,27 @@
 # one, unless FOLDER names another. A format whose library was not built is
 # skipped with a status line; targets are global, so this works from a CPM
 # consumer's directory too. With MAKEASOUND_INSTALL_PLUGINS on, each plug-in
-# bundle is also copied into the user's plug-in folder after every build.
+# bundle is also copied into the user's plug-in folder after every build, unless
+# NO_INSTALL keeps this plugin's bundles in the build tree whatever the option
+# says. BUNDLE_DIRECTORY replaces <build> as the folder the VST3, AU and AAX
+# folders are made in, for bundles that must stay out of <build>/VST3 and
+# <build>/AU (the hosting tests' fixtures, which a validator sweep of those
+# folders must not see).
 # AAX_WCGUID, with MAKEASOUND_PACE_SIGN_ID set and wraptool at
 # MAKEASOUND_PACE_WRAPTOOL, has PACE sign the AAX bundle after the build, as
 # MAKEASOUND_PACE_ACCOUNT or wraptool's default account; on macOS only so far.
+#
+# BUNDLE_ID (default com.makeasound.<name>, lowercased) is the app's identifier,
+# and each plug-in bundle's is it plus the format's suffix: <BUNDLE_ID>.vst3,
+# .component, .auv3 and .aaxplugin, one per format, since the macOS Installer
+# resolves a package's components by bundle id. VST3_BUNDLE_ID, AU_BUNDLE_ID,
+# AUV3_BUNDLE_ID and AAX_BUNDLE_ID replace one format's whole identifier, for a
+# plugin ported from another framework whose installed bundles must keep the id
+# they shipped with. They set only the bundle's CFBundleIdentifier, and so its
+# code signature's identifier: the Objective-C class suffixes and the AAX effect
+# ids still derive from BUNDLE_ID, which is identity a host stores. An extension's
+# identifier must extend its app's, so AUV3_BUNDLE_ID must begin with
+# <BUNDLE_ID>. (FATAL_ERROR otherwise).
 #
 # On Apple the app's plist carries NSMicrophoneUsageDescription, which the
 # standalone needs the moment a user picks an input, unless NO_AUDIO_INPUT says
@@ -45,7 +66,7 @@
 # signing are the same as the default app's.
 #
 # AUv3 is iOS's AU: <Name>-AUv3, an app extension inside the standalone app at
-# <OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex, identifier <BUNDLE_ID>.auv3, so it
+# <OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex, identifier AUV3_BUNDLE_ID, so it
 # needs Standalone in the same call (a custom app included) and is skipped with a
 # status line off iOS. The appex is an executable of its own over NSExtensionMain
 # linking the static core again. Its Info.plist comes from describeModule(), which
@@ -67,8 +88,9 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
         "Extra configure arguments for an iOS tree's host build of the AUv3 plist tools")
 
 function(makeasound_add_plugin name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT"
-            "OUTPUT_NAME;BUNDLE_ID;COMPANY;VERSION;AAX_WCGUID;FOLDER"
+    set(one_value OUTPUT_NAME BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID
+            AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL" "${one_value}"
             "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
 
     if (NOT ARG_SOURCES)
@@ -99,9 +121,7 @@ function(makeasound_add_plugin name)
         set(ARG_OUTPUT_NAME "${name}")
     endif ()
 
-    if (NOT ARG_BUNDLE_ID)
-        string(TOLOWER "com.makeasound.${name}" ARG_BUNDLE_ID)
-    endif ()
+    _makeasound_bundle_ids(${name})
 
     if (NOT ARG_COMPANY)
         set(ARG_COMPANY "MakeASound")
@@ -109,6 +129,17 @@ function(makeasound_add_plugin name)
 
     if (NOT ARG_VERSION)
         set(ARG_VERSION "1.0.0")
+    endif ()
+
+    if (NOT ARG_BUNDLE_DIRECTORY)
+        set(ARG_BUNDLE_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif ()
+
+    # Read by the format helpers below, which see this function's ARG_* variables.
+    if (MAKEASOUND_INSTALL_PLUGINS AND NOT ARG_NO_INSTALL)
+        set(install_bundles ON)
+    else ()
+        set(install_bundles OFF)
     endif ()
 
     if (NOT ARG_FOLDER)
@@ -252,6 +283,42 @@ function(makeasound_add_plugin name)
     endif ()
 endfunction()
 
+# Resolves the caller's ARG_BUNDLE_ID and each format's ARG_<FORMAT>_BUNDLE_ID,
+# defaulting a format's to <BUNDLE_ID>.<suffix>, and checks that the AUv3's
+# extends the app's. Needs no target, so it runs in script mode too, which is how
+# the tests reach it (Tests/BundleIds/Resolve.cmake).
+function(_makeasound_bundle_ids name)
+    if (NOT ARG_BUNDLE_ID)
+        string(TOLOWER "com.makeasound.${name}" ARG_BUNDLE_ID)
+    endif ()
+
+    foreach (pair VST3:vst3 AU:component AUV3:auv3 AAX:aaxplugin)
+        string(REPLACE ":" ";" pair "${pair}")
+        list(GET pair 0 format)
+        list(GET pair 1 suffix)
+
+        if (NOT ARG_${format}_BUNDLE_ID)
+            set(ARG_${format}_BUNDLE_ID "${ARG_BUNDLE_ID}.${suffix}")
+        endif ()
+
+        set(ARG_${format}_BUNDLE_ID "${ARG_${format}_BUNDLE_ID}" PARENT_SCOPE)
+    endforeach ()
+
+    # iOS refuses to install an app whose extension's identifier is not the app's
+    # followed by a dot and more.
+    string(LENGTH "${ARG_BUNDLE_ID}." prefix_length)
+    string(SUBSTRING "${ARG_AUV3_BUNDLE_ID}" 0 ${prefix_length} prefix)
+    string(LENGTH "${ARG_AUV3_BUNDLE_ID}" auv3_length)
+
+    if (NOT prefix STREQUAL "${ARG_BUNDLE_ID}." OR auv3_length LESS_EQUAL prefix_length)
+        message(FATAL_ERROR "makeasound_add_plugin(${name}): AUV3_BUNDLE_ID "
+                "'${ARG_AUV3_BUNDLE_ID}' does not begin with '${ARG_BUNDLE_ID}.', "
+                "the identifier of the app that carries it")
+    endif ()
+
+    set(ARG_BUNDLE_ID "${ARG_BUNDLE_ID}" PARENT_SCOPE)
+endfunction()
+
 # <Name>-VST3: the module, the SDK's platform entry and our GetPluginFactory, laid
 # out as the VST3 bundle every host scans for. Reads the caller's ARG_* variables.
 function(_makeasound_add_vst3 name)
@@ -265,18 +332,22 @@ function(_makeasound_add_vst3 name)
     set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
     # Every bundle in one folder, to hand PluginValidator as a whole.
-    set(bundle_dir "${CMAKE_BINARY_DIR}/VST3")
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/VST3")
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.vst3")
 
     # $<1:...> keeps a multi-config generator from appending a per-config folder;
     # the import library, .exp and .pdb stay out of the bundle, and the .pdb is
     # named apart from the standalone's, which shares the output name and the
-    # folder: two links writing one program database fail (LNK1201).
+    # folder: two links writing one program database fail (LNK1201). The import
+    # library is named apart too: when OUTPUT_NAME is the plugin's own name (the
+    # host fixtures), <OUTPUT_NAME>.lib in this folder is the core archive the
+    # module links, and link.exe refuses to write over an input (LNK1149).
     set_target_properties(${target} PROPERTIES
             FOLDER "${ARG_FOLDER}"
             OUTPUT_NAME "${ARG_OUTPUT_NAME}"
             PREFIX ""
             ARCHIVE_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            ARCHIVE_OUTPUT_NAME "${ARG_OUTPUT_NAME}-VST3"
             PDB_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
             PDB_NAME "${ARG_OUTPUT_NAME}-VST3"
             COMPILE_PDB_NAME "${ARG_OUTPUT_NAME}-VST3"
@@ -295,7 +366,7 @@ function(_makeasound_add_vst3 name)
                 LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle_dir}>"
                 MACOSX_BUNDLE_INFO_PLIST "${plist}"
                 MACOSX_BUNDLE_BUNDLE_NAME "${ARG_OUTPUT_NAME}"
-                MACOSX_BUNDLE_GUI_IDENTIFIER "${ARG_BUNDLE_ID}.vst3"
+                MACOSX_BUNDLE_GUI_IDENTIFIER "${ARG_VST3_BUNDLE_ID}"
                 MACOSX_BUNDLE_BUNDLE_VERSION "${ARG_VERSION}"
                 MACOSX_BUNDLE_SHORT_VERSION_STRING "${ARG_VERSION}"
                 MACOSX_BUNDLE_COPYRIGHT "${ARG_COMPANY}")
@@ -353,7 +424,7 @@ function(_makeasound_add_vst3 name)
         set(install_dir "$ENV{HOME}/.vst3")
     endif ()
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
+    if (install_bundles)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${install_dir}"
                         -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
@@ -385,7 +456,7 @@ function(_makeasound_add_au name)
 
     target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 
-    set(bundle_dir "${CMAKE_BINARY_DIR}/AU")
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/AU")
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.component")
 
     # Laid out by hand rather than as a BUNDLE target: CMake rewrites a bundle's
@@ -414,13 +485,13 @@ function(_makeasound_add_au name)
     # format: the macOS Installer resolves a package's components by bundle id.
     add_custom_command(TARGET ${target} POST_BUILD
             COMMAND $<TARGET_FILE:MakeASoundAUPlistGen> "$<TARGET_FILE:${target}>"
-                    "${ARG_OUTPUT_NAME}" "${ARG_BUNDLE_ID}.component"
+                    "${ARG_OUTPUT_NAME}" "${ARG_AU_BUNDLE_ID}"
                     "${ARG_OUTPUT_NAME}" "${bundle}/Contents/Info.plist"
             COMMAND ${CMAKE_COMMAND} -E copy "${au_pkginfo}" "${bundle}/Contents/PkgInfo"
             COMMAND codesign --force --sign - "${bundle}"
             VERBATIM)
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
+    if (install_bundles)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
                         -D "DEST_DIR=$ENV{HOME}/Library/Audio/Plug-Ins/Components"
@@ -537,7 +608,7 @@ function(_makeasound_add_auv3 name)
     _makeasound_describe_tool(${name} tool)
     set(plist "${CMAKE_CURRENT_BINARY_DIR}/${target}-Info.plist")
     # An extension's version must be its app's, so VERSION replaces the module's.
-    set(commands COMMAND "${tool}" "${ARG_OUTPUT_NAME}" "${ARG_BUNDLE_ID}.auv3"
+    set(commands COMMAND "${tool}" "${ARG_OUTPUT_NAME}" "${ARG_AUV3_BUNDLE_ID}"
             "${ARG_OUTPUT_NAME}" "${auv3_principal}_${suffix}" ${has_view} "${plist}"
             COMMAND plutil -replace CFBundleVersion -string "${ARG_VERSION}" "${plist}"
             COMMAND plutil -replace CFBundleShortVersionString -string "${ARG_VERSION}"
@@ -579,7 +650,7 @@ function(_makeasound_add_auv3 name)
                 BUNDLE_EXTENSION appex
                 XCODE_PRODUCT_TYPE com.apple.product-type.app-extension
                 XCODE_ATTRIBUTE_INFOPLIST_FILE "${plist}"
-                XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${ARG_BUNDLE_ID}.auv3"
+                XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${ARG_AUV3_BUNDLE_ID}"
                 XCODE_ATTRIBUTE_APPLICATION_EXTENSION_API_ONLY YES
                 # Xcode drops the per-language -fobjc-arc above.
                 XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
@@ -761,11 +832,13 @@ function(_makeasound_add_aax name)
     add_library(${target} MODULE "${aax_entry}" "${aax_sdk_exports}")
     # The format first, as for the others: the core defines describeModule().
     target_link_libraries(${target} PRIVATE MakeASoundAAX ${name})
+    # The effect ids' base: identity Pro Tools stores, so BUNDLE_ID's whatever
+    # AAX_BUNDLE_ID makes the bundle's identifier.
     target_compile_definitions(${target} PRIVATE
             MAKEASOUND_AAX_BUNDLE_ID="${ARG_BUNDLE_ID}"
             MAKEASOUND_AAX_PACKAGE_NAME="${ARG_OUTPUT_NAME}")
 
-    set(bundle_dir "${CMAKE_BINARY_DIR}/AAX")
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/AAX")
     set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.aaxplugin")
 
     # Laid out by hand, as the .component is; $<1:...> keeps a multi-config
@@ -802,7 +875,7 @@ function(_makeasound_add_aax_macos name target bundle)
     # One identifier per format: the macOS Installer resolves a package's
     # components by bundle id.
     set(AAX_EXECUTABLE "${ARG_OUTPUT_NAME}")
-    set(AAX_BUNDLE_ID "${ARG_BUNDLE_ID}.aaxplugin")
+    set(AAX_BUNDLE_ID "${ARG_AAX_BUNDLE_ID}")
     set(AAX_BUNDLE_NAME "${ARG_OUTPUT_NAME}")
     set(AAX_VERSION "${ARG_VERSION}")
     set(AAX_COPYRIGHT "${ARG_COMPANY}")
@@ -833,7 +906,7 @@ function(_makeasound_add_aax_macos name target bundle)
                 "(needs wraptool and MAKEASOUND_PACE_SIGN_ID)")
     endif ()
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
+    if (install_bundles)
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
                         -D "DEST_DIR=/Library/Application Support/Avid/Audio/Plug-Ins"

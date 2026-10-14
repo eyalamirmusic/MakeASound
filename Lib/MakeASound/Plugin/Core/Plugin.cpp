@@ -41,6 +41,12 @@ void Plugin::setParameters(ParameterList list)
         parameterList.setIdentity(*parameterIdentity);
 }
 
+void Plugin::refreshParameterNames()
+{
+    if (parameterList.refreshDisplayNames())
+        notifyHostParameterInfoChanged();
+}
+
 void Plugin::setParameterIdentity(ParameterIdentity identity)
 {
     parameterIdentity = identity;
@@ -91,6 +97,16 @@ void Plugin::loadParameters(std::string_view, StateContext)
 bool Plugin::loadForeignState(const ForeignState&)
 {
     return false;
+}
+
+void Plugin::onTrackInfoChanged(const TrackInfo&)
+{
+}
+
+void Plugin::setTrackInfo(TrackInfo info)
+{
+    currentTrackInfo = std::move(info);
+    onTrackInfoChanged(currentTrackInfo);
 }
 
 void Plugin::loadStateExceptParameters(std::string_view data, StateContext context)

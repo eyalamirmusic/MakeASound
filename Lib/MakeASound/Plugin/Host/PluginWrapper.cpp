@@ -47,7 +47,7 @@ PluginWrapper::~PluginWrapper()
 bool PluginWrapper::addsBypass(const Plugin& plugin)
 {
     return plugin.parameters().bypassIndex() < 0
-           && !plugin.getBusLayout().inputs.empty();
+           && !plugin.getBusLayout().inputs.empty() && plugin.wantsHostBypass();
 }
 
 // Decided once, on the declared layout, so the parameter list a host reads at
@@ -56,7 +56,8 @@ int PluginWrapper::addBypassAndCount(Plugin& plugin,
                                      const BusLayout& declared,
                                      ParameterIdentity identity)
 {
-    if (plugin.parameters().bypassIndex() < 0 && !declared.inputs.empty())
+    if (plugin.parameters().bypassIndex() < 0 && !declared.inputs.empty()
+        && plugin.wantsHostBypass())
         plugin.addHostBypass();
 
     // After the bypass, so it takes its scheme's id too.
@@ -74,13 +75,13 @@ bool PluginWrapper::setLayout(const BusLayout& proposed)
     return true;
 }
 
-void PluginWrapper::prepare(int sampleRate, int maxBlockSize)
+void PluginWrapper::prepare(double sampleRate, int maxBlockSize)
 {
     pluginPtr->prepare({sampleRate, maxBlockSize, layout});
     prepareBypass(sampleRate, maxBlockSize);
 }
 
-void PluginWrapper::prepareBypass(int sampleRate, int maxBlockSize)
+void PluginWrapper::prepareBypass(double sampleRate, int maxBlockSize)
 {
     auto* bypass = pluginPtr->activeHostBypass();
 
@@ -107,9 +108,10 @@ void PluginWrapper::prepareBypass(int sampleRate, int maxBlockSize)
     hostOutputs.resize(layout.outputs.size());
 
     fadeCapacity = block;
+    // At a fractional rate the fade spans a fractional number of samples.
     fadeStep =
-        sampleRate > 0
-            ? 1.f / static_cast<float>(std::max(1, sampleRate / fadesPerSecond))
+        sampleRate > 0.0
+            ? 1.f / static_cast<float>(std::max(1.0, sampleRate / fadesPerSecond))
             : 1.f;
     bypassMix = bypass->isOn() ? 1.f : 0.f;
 }
@@ -276,12 +278,38 @@ bool PluginWrapper::loadForeignState(const ForeignState& state)
     return true;
 }
 
+void PluginWrapper::setTrackInfo(TrackInfo info)
+{
+    if (isMessageThread())
+    {
+        pluginPtr->setTrackInfo(std::move(info));
+        return;
+    }
+
+    callOnMessageThread(
+        [weak = std::weak_ptr<Live>(live), info = std::move(info)]() mutable
+        {
+            if (auto alive = weak.lock())
+                alive->plugin->setTrackInfo(std::move(info));
+        });
+}
+
 bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
 {
     try
     {
         if (!plugin.loadForeignState(state))
-            return false;
+        {
+            // A Tamber Plug port's AU session: Plug's document is ours.
+            auto plugAsNative =
+                state.origin == ForeignOrigin::TamberPlugAU
+                && plugin.parameters().identity().foreignPlugStateIsNative;
+
+            if (!plugAsNative)
+                return false;
+
+            plugin.loadState(state.bytes, state.context);
+        }
     }
     catch (...)
     {

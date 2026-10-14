@@ -7,6 +7,7 @@
 #include <MakeASound/Plugin/AU/Factory.h>
 
 #include "JucePort.h"
+#include "TamberPlugFixtures.h"
 
 extern "C" void* MakeASoundAUTestPortFactory(const AudioComponentDescription* desc);
 
@@ -14,13 +15,22 @@ namespace
 {
 using namespace MakeASound;
 
+// JucePort's, or one of TamberPlugFixtures' ports.
+const PluginDescription* portDescriptionFor(uint32_t subtype)
+{
+    if (const auto* juce = JucePort::descriptionFor(subtype))
+        return juce;
+
+    return TamberPlugFixtures::plugDescriptionFor(subtype);
+}
+
 const PluginDescription& portDescriptionOf(AudioComponentInstance instance)
 {
     auto description = AudioComponentDescription {};
     AudioComponentGetDescription(AudioComponentInstanceGetComponent(instance),
                                  &description);
 
-    const auto* plugin = JucePort::descriptionFor(description.componentSubType);
+    const auto* plugin = portDescriptionFor(description.componentSubType);
 
     if (plugin == nullptr)
         ausdk::Throw(kAudioUnitErr_InvalidProperty);
@@ -44,5 +54,5 @@ extern "C" void* MakeASoundAUTestPortFactory(const AudioComponentDescription* de
         return nullptr;
 
     return AU::dispatchFactory<PortAdapter>(
-        desc, JucePort::descriptionFor(desc->componentSubType));
+        desc, portDescriptionFor(desc->componentSubType));
 }

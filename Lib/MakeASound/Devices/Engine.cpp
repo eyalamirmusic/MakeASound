@@ -19,7 +19,13 @@ Engine::~Engine()
 void Engine::prepare(Processor& processorToUse, int sampleRate, int maxBlockSize)
 {
     processor = &processorToUse;
-    spec = {sampleRate, maxBlockSize, processorToUse.getBusLayout()};
+
+    // The device's whole rate becomes the spec's double here, and only here. Every
+    // int is exact as a double, so the comparisons against the device's rate in
+    // start() and process() are exact too.
+    spec = {static_cast<double>(sampleRate),
+            maxBlockSize,
+            processorToUse.getBusLayout()};
 
     context.prepare(spec.layout);
     inputTable.resize(spec.layout.getMainInputChannels());

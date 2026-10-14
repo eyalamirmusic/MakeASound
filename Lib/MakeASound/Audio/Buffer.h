@@ -257,4 +257,31 @@ private:
     bool owning = false;
 };
 
+// A Buffer referring to a read-only channel table (a host's inputs, a const
+// view), only ever handed out as const, so nothing can write through it. Holds
+// no storage and allocates nothing: the table must outlive it, as for any
+// referring Buffer.
+class ReadOnlyBuffer
+{
+public:
+    ReadOnlyBuffer(const float* const* channelsToUse,
+                   int numChannelsToUse,
+                   int numSamplesToUse,
+                   int startSampleToUse = 0) noexcept
+        // The one place the const promise is kept by hand: the Buffer is
+        // private and reachable only as const.
+        : buffer(const_cast<float* const*>(channelsToUse),
+                 numChannelsToUse,
+                 numSamplesToUse,
+                 startSampleToUse)
+    {
+    }
+
+    const Buffer& get() const noexcept { return buffer; }
+    operator const Buffer&() const noexcept { return buffer; }
+
+private:
+    Buffer buffer;
+};
+
 } // namespace MakeASound

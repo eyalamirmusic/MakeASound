@@ -126,7 +126,7 @@ AAX_Result Adapter::createWrapper()
         return AAX_ERROR_NULL_COMPONENT;
 
     sampleRate = rate > 0.f ? static_cast<double>(rate) : 44100.0;
-    wrapper->prepare(static_cast<int>(sampleRate + 0.5), maxBlockSize);
+    wrapper->prepare(sampleRate, maxBlockSize);
 
     inputChannels = channelCount(input);
     outputChannels = channelCount(output);
@@ -378,6 +378,28 @@ AAX_Result Adapter::TimerWakeup()
     }
 
     return AAX_CEffectParameters::TimerWakeup();
+}
+
+AAX_Result
+    Adapter::NotificationReceived(AAX_CTypeID type, const void* data, uint32_t size)
+{
+    auto result = AAX_CEffectParameters::NotificationReceived(type, data, size);
+
+    if (type != AAX_eNotificationEvent_TrackNameChanged || data == nullptr
+        || !pluginWrapper)
+        return result;
+
+    try
+    {
+        const auto* name = static_cast<const AAX_IString*>(data)->Get();
+        pluginWrapper->setTrackInfo(TrackInfo {
+            .isValid = true, .name = name != nullptr ? name : std::string()});
+    }
+    catch (...)
+    {
+    }
+
+    return result;
 }
 
 void Adapter::mirrorParametersToHost(bool all)

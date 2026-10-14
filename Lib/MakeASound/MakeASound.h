@@ -1,10 +1,6 @@
 #pragma once
 
-#include "Common/Common.h"
-#include "Realtime/SPSCQueue.h"
-#include "Realtime/ScopedNoDenormals.h"
-#include "Realtime/Smoother.h"
-#include "Audio/Processor.h"
+#include "MakeASoundCore.h"
 #include "Devices/DeviceManager.h"
 #include "Devices/Engine.h"
 #include "Devices/AudioSession.h"

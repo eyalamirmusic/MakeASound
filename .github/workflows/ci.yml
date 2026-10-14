@@ -144,16 +144,6 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      # The Synth example's web editor runs npm install at configure and vite in
-      # the build wherever eacp has a web runtime (macOS, Windows). Linux builds
-      # its fallback editor and runs no npm, so the step is only harmless there.
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: Plugins/Synth/web/package-lock.json
-
       - name: Build & test (Release, CI build)
         shell: bash
         env:
@@ -220,10 +210,10 @@ jobs:
           echo "::endgroup::"
 
       # Both example bundles at strictness 10, built by the default target above
-      # and handed over as the folder they land in, every editor opened, the
-      # Synth's web page included. PluginValidator downloads pluginval on its
-      # first run and exits with the number of failures. Linux skips the editor
-      # tests: the runner has no display and no Vulkan device for them.
+      # and handed over as the folder they land in, every editor opened.
+      # PluginValidator downloads pluginval on its first run and exits with the
+      # number of failures. Linux skips the editor tests: the runner has no
+      # display and no Vulkan device for them.
       - name: pluginval (Release)
         if: matrix.pluginval
         shell: bash
@@ -340,6 +330,39 @@ jobs:
             echo "ERROR: found objects with a minos != 11.0"; exit 1
           fi
 
+  # MakeASoundCore on its own, as a consumer that wants only the vocabulary builds
+  # it: no device library, so no miniaudio fetch and no ALSA package, and no plugin
+  # core. The configure fails if the core's link closure names a backend, and
+  # MakeASoundCoreTests is an executable linking the core alone.
+  core:
+    name: Core only (Linux, no devices)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DMAKEASOUND_BUILD_DEVICES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF
+          -DMAKEASOUND_BUILD_HOSTING=OFF -DMAKEASOUND_BUILD_EXAMPLES=OFF
+
+      - name: No backend fetched
+        run: |
+          set -euo pipefail
+          if grep '^CPM_PACKAGES:' build-core/CMakeCache.txt | grep -qi miniaudio; then
+            echo "ERROR: a core-only configure fetched miniaudio"; exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-core
+
+      - name: Test
+        run: ctest --test-dir build-core --output-on-failure --no-tests=error
+
   # iOS is cross-compiled, so it gets its own job rather than another matrix
   # entry: the configure needs a sysroot/architecture pair, and the suite can
   # only be executed through a booted simulator.
@@ -361,14 +384,6 @@ jobs:
           key: ios
           max-size: 1G
           evict-old-files: job
-
-      # iOS has WKWebView, so both configures build the Synth's web editor too.
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: Plugins/Synth/web/package-lock.json
 
       # Device slices can't be executed in CI, so this half is build-only. It is
       # still the half that catches iOS-specific compile breakage: miniaudio's
@@ -481,8 +496,8 @@ jobs:
           echo "::endgroup::"
 
       # Each example's standalone app installed and launched in the simulator, and
-      # still running a few seconds later: the scene, the window, the editor (the
-      # Synth's web page in WKWebView) and the stream all came up.
+      # still running a few seconds later: the scene, the window, the editor and
+      # the stream all came up.
       - name: Launch the standalone apps on the iOS simulator
         shell: bash
         run: |
@@ -552,13 +567,6 @@ jobs:
           key: ios-xcode
           max-size: 1G
           evict-old-files: job
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: Plugins/Synth/web/package-lock.json
 
       - name: Build for iOS device with Xcode (Release, CI build, unsigned)
         shell: bash

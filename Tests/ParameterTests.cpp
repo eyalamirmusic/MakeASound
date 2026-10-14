@@ -14,6 +14,7 @@
 
 using namespace nano;
 
+using MakeASound::BipolarParam;
 using MakeASound::BoolParam;
 using MakeASound::ChoiceParam;
 using MakeASound::DecibelParam;
@@ -22,10 +23,13 @@ using MakeASound::FloatRange;
 using MakeASound::hostIdFor;
 using MakeASound::HzParam;
 using MakeASound::IntParam;
+using MakeASound::NoteParam;
+using MakeASound::OctaveParam;
 using MakeASound::Parameter;
 using MakeASound::ParameterGroup;
 using MakeASound::ParameterList;
 using MakeASound::PercentParam;
+using MakeASound::SemitoneParam;
 using MakeASound::TimeParam;
 
 // A Parameter in a MIRO_REFLECT list does not compile: parameters are
@@ -133,6 +137,102 @@ auto tDisplayNames = test("Parameters/groupsPrefixDisplayNames") = []
     check(list.entry(3).displayName == "Filter Cutoff");
 };
 
+// A parameter renamed at run time, as a hosted plugin's is by the plugin.
+struct RenamableParam : FloatParam
+{
+    using FloatParam::FloatParam;
+    using FloatParam::setDisplayInfo;
+};
+
+struct RenamableGroup : ParameterGroup
+{
+    RenamableGroup() { add(level, filter); }
+
+    struct Filter : ParameterGroup
+    {
+        Filter()
+            : ParameterGroup("Filter")
+        {
+            add(cutoff);
+        }
+
+        RenamableParam cutoff {"Cutoff", 0.f, 1.f, 0.5f};
+    };
+
+    RenamableParam level {"Level", 0.f, 1.f, 0.5f};
+    Filter filter;
+};
+
+auto tRename = test("Parameters/aRenameKeepsTheIdsAndTheGroupNames") = []
+{
+    auto params = RenamableGroup {};
+    auto list = ParameterList {params};
+    const auto hostIds = std::array {list.entry(0).hostId, list.entry(1).hostId};
+
+    check(!list.refreshDisplayNames());
+
+    params.level.setDisplayInfo("Volume", "Vol", "dB");
+    params.filter.cutoff.setDisplayInfo("Frequency", "", "Hz");
+
+    check(params.level.name() == "Volume");
+    check(params.level.shortName() == "Vol");
+    check(params.level.label() == "dB");
+    check(params.level.id() == "Level");
+
+    // The list still shows the old names until it is told.
+    check(list.entry(0).displayName == "Level");
+    check(list.refreshDisplayNames());
+    check(!list.refreshDisplayNames());
+
+    check(list.entry(0).displayName == "Volume");
+    check(list.entry(1).displayName == "Filter Frequency");
+    check(list.entry(0).id == "Level");
+    check(list.entry(1).id == "Filter/Cutoff");
+    check(list.entry(0).hostId == hostIds[0]);
+    check(list.entry(1).hostId == hostIds[1]);
+};
+
+// A hosted plugin's parameters: ids the foreign plugin chose, all 32 bits.
+struct ForeignParams : ParameterGroup
+{
+    ForeignParams() { add(low, high, top); }
+
+    FloatParam low {"Low", 0.f, 1.f, 0.f, {.id = "7", .hostId = 7}};
+    FloatParam high {
+        "High", 0.f, 1.f, 0.f, {.id = "2147483649", .hostId = 0x80000001u}};
+    FloatParam top {"Top", 0.f, 1.f, 0.f, hiddenTop};
+
+    static constexpr auto hiddenTop = MakeASound::ParameterOptions {
+        .id = "4294967294", .automatable = false, .hostId = 0xfffffffeu};
+};
+
+auto tForeign = test("Parameters/aHostedPluginsListCarriesItsOwnIds") = []
+{
+    auto params = ForeignParams {};
+
+    // Under a plugin's own rules, the reserved range is reported.
+    auto native = ParameterList {params};
+    check(native.identityProblems().size() == 2);
+
+    auto hosted = ParameterList {params, MakeASound::hostedPluginIdentity()};
+    check(hosted.identityProblems().empty());
+
+    check(hosted.entry(0).hostId == 7u);
+    check(hosted.entry(1).hostId == 0x80000001u);
+    check(hosted.entry(2).hostId == 0xfffffffeu);
+    check(hosted.indexOfHostId(0x80000001u) == 1);
+    check(hosted.indexOfHostId(0xfffffffeu) == 2);
+    check(hosted.entry(2).id == "4294967294");
+
+    // Every one listed, a non-automatable one too, as the plugin listed them.
+    check(!hosted.isHostExposed(2));
+    check(hosted.isRegistered(2));
+
+    // Set again, as a plugin's setParameters does, nothing is re-derived.
+    hosted.setIdentity(MakeASound::hostedPluginIdentity());
+    check(hosted.entry(1).hostId == 0x80000001u);
+};
+
 struct TwoOscParams : ParameterGroup
 {
     TwoOscParams() { add(osc1, osc2); }
@@ -152,6 +252,71 @@ auto tInstances = test("Parameters/twoInstancesOfAGroupTypeKeepTheirOwnNames") =
     check(list.entry(2).displayName == "Osc 2 Attack");
     check(&list[2] == &params.osc2.attack);
     check(list.entry(0).hostId != list.entry(2).hostId);
+};
+
+// A group that names nothing itself, mounted by its parent under a name and an
+// id of the parent's choosing, once per member and once per array element.
+struct LfoParams : ParameterGroup
+{
+    LfoParams() { add(rate); }
+
+    FloatParam rate {"Rate", 0.f, 1.f, 0.5f};
+};
+
+struct MountedParams : ParameterGroup
+{
+    MountedParams()
+    {
+        addChild("Osc 1", osc1, {.id = "Osc1"});
+        addChild("Osc 2", osc2, {.id = "Osc2", .automatable = false});
+
+        for (auto i = 0; i < static_cast<int>(lfos.size()); ++i)
+        {
+            auto n = std::to_string(i + 1);
+            addChild("LFO " + n, lfos[i], {.id = "Lfo" + n});
+        }
+
+        addChild("Tone", tone);
+    }
+
+    OscParams osc1 {"Unused"};
+    OscParams osc2 {"Unused"};
+    std::array<LfoParams, 2> lfos;
+    LfoParams tone;
+};
+
+auto tMounted = test("Parameters/aParentNamesTheChildrenItMounts") = []
+{
+    auto params = MountedParams {};
+    auto list = ParameterList {params};
+
+    check(idsOf(list)
+          == std::vector<std::string> {"Osc1/Attack",
+                                       "Osc1/Wave",
+                                       "Osc2/Attack",
+                                       "Osc2/Wave",
+                                       "Lfo1/Rate",
+                                       "Lfo2/Rate",
+                                       "Tone/Rate"});
+    check(namesOf(list)
+          == std::vector<std::string> {"Osc 1 Attack",
+                                       "Osc 1 Wave",
+                                       "Osc 2 Attack",
+                                       "Osc 2 Wave",
+                                       "LFO 1 Rate",
+                                       "LFO 2 Rate",
+                                       "Tone Rate"});
+
+    check(params.osc1.name() == "Osc 1" && params.osc1.id() == "Osc1");
+    check(params.tone.id() == "Tone");
+    check(&list[5] == &params.lfos[1].rate);
+
+    check(list.entry(1).automatable);
+    check(!list.entry(2).automatable && !list.entry(3).automatable);
+
+    const auto& groups = list.entry(4).groups;
+    check(groups.size() == 1);
+    check(groups[0].id == "Lfo1" && groups[0].name == "LFO 1");
 };
 
 auto tFlags = test("Parameters/entriesCarryTheParameterFlags") = []
@@ -552,6 +717,22 @@ auto tHz = test("Parameters/hzReadsHzAndKhz") = []
     check(near(param.toPlain(param.toNormalized(440.f)), 440.f, 1e-2f));
 };
 
+// A Tamber Plug HzParam was linear; a port keeps that through the range.
+auto tLinearHz = test("Parameters/aPlainRangeKeepsAnHzParamLinear") = []
+{
+    auto param = HzParam {"Rate", FloatRange {0.1f, 20.1f}, 10.1f};
+
+    check(param.curve() == Parameter::Curve::Linear);
+    check(param.numSteps() == 0);
+    check(near(param.getNormalized(), 0.5f));
+    check(near(param.toNormalized(5.1f), 0.25f));
+    check(near(param.toPlain(0.75f), 15.1f, 1e-4f));
+    check(param.valueToText(5.1f) == "5.10 Hz");
+
+    auto skewed = HzParam {"Rate", 0.1f, 20.1f, 10.1f};
+    check(skewed.curve() == Parameter::Curve::Other);
+};
+
 auto tTime = test("Parameters/timeReadsMsAndSeconds") = []
 {
     auto param = TimeParam {"Attack", 0.f, 5.f, 0.01f};
@@ -573,6 +754,80 @@ auto tPercent = test("Parameters/percentReadsWholePercentages") = []
     check(near(param.textToValue("75 %"), 0.75f));
     check(near(param.textToValue("??"), 0.5f));
     check(near(param.getNormalized(), 0.5f));
+};
+
+// Bipolar, Semitone, Note and Octave are Tamber Plug's: the same ranges,
+// mappings and readouts, so a port moves no lane and shows the same text.
+auto tBipolar = test("Parameters/bipolarReadsSignedPercentages") = []
+{
+    auto param = BipolarParam {"To Pitch", 0.f};
+
+    check(param.minValue() == -1.f && param.maxValue() == 1.f);
+    check(near(param.getNormalized(), 0.5f));
+    check(param.valueToText(-0.25f) == "-25 %");
+    check(param.valueToText(0.f) == "+0 %");
+    check(param.valueToText(1.f) == "+100 %");
+    check(near(param.textToValue("-40 %"), -0.4f));
+    check(near(param.textToValue("??"), 0.f));
+};
+
+auto tSemitone = test("Parameters/semitonesStayContinuousAndReadWhole") = []
+{
+    auto param = SemitoneParam {"Semitone", 3};
+
+    check(param.minValue() == -12.f && param.maxValue() == 12.f);
+    check(param.numSteps() == 0);
+    check(param.semitones() == 3);
+    check(near(param.toNormalized(0.f), 0.5f));
+
+    param.setValue(-4.6f);
+    check(near(param.get(), -4.6f));
+    check(param.semitones() == -5);
+    check(param.valueToText(-4.6f) == "-5 st");
+    check(param.valueToText(0.2f) == "+0 st");
+    check(param.valueToText(7.f) == "+7 st");
+    check(near(param.textToValue("+7 st"), 7.f));
+
+    auto wide = SemitoneParam {"Transpose", -24, 24, 0};
+    check(wide.minValue() == -24.f && wide.maxValue() == 24.f);
+};
+
+auto tNote = test("Parameters/notesStayContinuousAndReadWhole") = []
+{
+    auto param = NoteParam {"High Note", 127};
+
+    check(param.minValue() == 0.f && param.maxValue() == 127.f);
+    check(param.note() == 127);
+    check(param.numSteps() == 0);
+
+    param.setValue(60.4f);
+    check(param.note() == 60);
+    check(param.valueToText(60.6f) == "61");
+    check(near(param.textToValue("64"), 64.f));
+};
+
+auto tOctave = test("Parameters/octavesAreSignedChoices") = []
+{
+    auto param = OctaveParam {"Octave", -1};
+
+    check(param.numChoices() == 5);
+    check(param.choiceName(0) == "-2");
+    check(param.choiceName(2) == "0");
+    check(param.choiceName(4) == "+2");
+    check(param.getIndex() == 1);
+    check(param.octaves() == -1);
+    check(param.semitones() == -12);
+    check(param.toStateText() == "-1");
+
+    check(param.fromStateText("+2"));
+    check(param.octaves() == 2);
+
+    check(OctaveParam {"Octave", 5}.octaves() == 2);
+    check(OctaveParam {"Octave"}.octaves() == 0);
+
+    auto wide = OctaveParam {"Octave", -3, 3, 0};
+    check(wide.numChoices() == 7);
+    check(wide.getIndex() == 3);
 };
 
 // The expected figures are JUCE 8.0.12's NormalisableRange<float> answers, printed

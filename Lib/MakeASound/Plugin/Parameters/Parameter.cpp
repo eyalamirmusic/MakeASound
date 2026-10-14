@@ -37,6 +37,15 @@ Parameter::Parameter(std::string_view nameToUse, ParameterOptions options)
 {
 }
 
+void Parameter::setDisplayInfo(std::string_view nameToUse,
+                               std::string_view shortNameToUse,
+                               std::string_view labelToUse)
+{
+    paramName = nameToUse;
+    paramShortName = shortNameToUse;
+    paramLabel = labelToUse;
+}
+
 float Parameter::roundToIndex(float plain) noexcept
 {
     // Half to even under the default rounding mode, as juce::roundToInt's

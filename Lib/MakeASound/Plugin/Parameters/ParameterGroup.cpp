@@ -1,4 +1,5 @@
 #include "ParameterGroup.h"
+#include "IdPath.h"
 #include "../State/StateContext.h"
 
 #include <cmath>
@@ -16,6 +17,13 @@ std::string join(const std::string& prefix, std::string_view name, char separato
         joined += separator;
 
     joined += name;
+    return joined;
+}
+
+std::string joinId(const std::string& prefix, std::string_view id)
+{
+    auto joined = prefix;
+    appendIdSegment(joined, id);
     return joined;
 }
 
@@ -112,6 +120,16 @@ void ParameterGroup::addGroup(ParameterGroup& group)
     entries.add(Entry {nullptr, &group});
 }
 
+void ParameterGroup::addChild(std::string_view nameToUse,
+                              ParameterGroup& group,
+                              GroupOptions options)
+{
+    group.groupName = nameToUse;
+    group.groupId = options.id.empty() ? nameToUse : options.id;
+    group.automatable = group.automatable && options.automatable;
+    addGroup(group);
+}
+
 bool ParameterGroup::hasKey(std::string_view key) const
 {
     for (const auto& entry: entries)
@@ -151,7 +169,7 @@ void ParameterGroup::walk(const Visitor& visitor,
         {
             auto& param = *entry.param;
             visitor(param,
-                    join(idPrefix, param.id(), '/'),
+                    joinId(idPrefix, param.id()),
                     join(displayPrefix, param.name(), ' '),
                     groupAutomatable && param.isAutomatable(),
                     std::span<const ParameterGroup* const>(enclosing.data(),
@@ -167,7 +185,7 @@ void ParameterGroup::walk(const Visitor& visitor,
             enclosing.add(&group);
 
         group.walk(visitor,
-                   join(idPrefix, group.id(), '/'),
+                   joinId(idPrefix, group.id()),
                    join(displayPrefix, group.name(), ' '),
                    groupAutomatable,
                    enclosing);

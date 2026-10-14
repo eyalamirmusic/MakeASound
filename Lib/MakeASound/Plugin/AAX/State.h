@@ -23,7 +23,7 @@ bool writeChunk(AAX_SPlugInChunk& chunk, std::string_view document) noexcept;
 std::string_view readChunk(const AAX_SPlugInChunk& chunk) noexcept;
 
 // True when both documents hold the same parameter values, the one at `bypassId`
-// (an id path, "Group/Name") left out, as the SDK leaves the master bypass out of
+// (an id path, "Group/Name", read by splitIdPath) left out, as the SDK leaves the master bypass out of
 // its own compare.
 bool sameParameters(std::string_view document,
                     std::string_view other,

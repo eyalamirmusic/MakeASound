@@ -1,4 +1,5 @@
 #include "State.h"
+#include "../Parameters/IdPath.h"
 
 #include <Miro/JSON/Json.h>
 
@@ -25,13 +26,13 @@ Miro::Json::Value paramsOf(std::string_view document, std::string_view bypassId)
 
     auto result = *params;
     auto* object = &result.asObject();
+    auto keys = splitIdPath(bypassId);
 
-    while (!bypassId.empty())
+    for (auto i = 0; i < keys.size(); ++i)
     {
-        auto slash = bypassId.find('/');
-        auto key = bypassId.substr(0, slash);
+        const auto& key = keys[i];
 
-        if (slash == std::string_view::npos)
+        if (i == keys.size() - 1)
         {
             if (auto found = object->find(key); found != object->end())
                 object->erase(found);
@@ -45,7 +46,6 @@ Miro::Json::Value paramsOf(std::string_view document, std::string_view bypassId)
             break;
 
         object = &child->asObject();
-        bypassId.remove_prefix(slash + 1);
     }
 
     return result;

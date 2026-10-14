@@ -265,6 +265,28 @@ auto tCategory = test("AAX/theCategoryDefaultsByKindUnlessNamed") = []
     check(Format::categoryFor(plugin) == AAX_ePlugInCategory_Dynamics);
 };
 
+auto tPrepare = test("AAX/initializePreparesThePluginAtTheControllersRate") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+
+    check(host.plugin().spec.sampleRate == 48000);
+    check(host.plugin().formatAtPrepare == PluginFormat::AAX);
+};
+
+auto tFractionalRate = test("AAX/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = AdapterHost<GainPlugin>(
+        "Gain", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo, 44055.94);
+
+    // AAX_CSampleRate is a float: the plugin gets that float, widened, not a
+    // whole rate.
+    auto reported = static_cast<double>(static_cast<AAX_CSampleRate>(44055.94));
+
+    check(host.plugin().spec.sampleRate == reported);
+    check(host.plugin().spec.sampleRate != 44056.0);
+    check(host.plugin().spec.roundedSampleRate() == 44056);
+};
+
 auto tPrivateData = test("AAX/resetFieldDataPointsTheInstanceAtItsAdapter") = []
 {
     auto host = AdapterHost<GainPlugin>("Gain");
@@ -906,6 +928,28 @@ auto tLatency = test("AAX/aLatencyChangeReachesSetSignalLatency") = []
     check(host.controller.latency == 32);
 };
 
+auto tTrackName = test("AAX/aTrackNameNotificationReachesTheTrackInfo") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+    check(!plugin.trackInfo().isValid);
+
+    auto name = AAX_CString("Lead Vocal");
+    check(host.adapter->NotificationReceived(
+              AAX_eNotificationEvent_TrackNameChanged, &name, sizeof(name))
+          == AAX_SUCCESS);
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name == "Lead Vocal");
+
+    // Any other notification, or one with no data, says nothing about the track.
+    host.adapter->NotificationReceived(
+        AAX_eNotificationEvent_SessionPathChanged, &name, sizeof(name));
+    host.adapter->NotificationReceived(
+        AAX_eNotificationEvent_TrackNameChanged, nullptr, 0);
+    check(plugin.trackInfoChanges == 1);
+};
+
 auto tMirror = test("AAX/aValueThePluginMovesReachesTheHostOnTheTimer") = []
 {
     auto host = AdapterHost<GainPlugin>("Gain");
@@ -1167,7 +1211,7 @@ auto tJuceIdRules = test("AAX/aJuceIdIsItsOverrideCutAsTheSDKKeepsIt") = []
     check(near(params.hidden.get(), 0.25f));
 
     // MakeASound's scheme still leaves it out.
-    auto native = juceIdsModule(IdScheme::MakeASound);
+    auto native = juceIdsModule(IdScheme::Native);
     auto nativeHost = AdapterHost<JuceIdsPlugin>(&native,
                                                  juceBundleId,
                                                  "com.juce.tests.Idss",

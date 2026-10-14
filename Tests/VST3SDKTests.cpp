@@ -1,9 +1,12 @@
 // The vendored VST3 SDK compiles and links on every platform the suite runs on:
 // a parameter container, a FUID and a string round trip through the parts the
-// adapter will build on. Nothing here opens a plugin.
+// adapter will build on, and the host side's host application. The module
+// loader, which iOS doesn't build, is VST3SDKLoaderTests.cpp's. Nothing here
+// opens a plugin.
 
 #include <public.sdk/source/vst/vstparameters.h>
 #include <public.sdk/source/vst/utility/stringconvert.h>
+#include <public.sdk/source/vst/hosting/hostclasses.h>
 #include <pluginterfaces/base/funknown.h>
 
 #include <NanoTest/NanoTest.h>
@@ -51,5 +54,14 @@ auto tStrings = test("VST3SDK/utf8RoundTripsThroughUtf16") = []
     auto utf16 = StringConvert::convert(utf8);
     check(utf16.size() == 16);
     check(StringConvert::convert(utf16) == utf8);
+};
+
+auto tHostApplication = test("VST3SDK/theHostApplicationAnswersItsName") = []
+{
+    auto host = Steinberg::owned(new Steinberg::Vst::HostApplication());
+
+    Steinberg::Vst::String128 name = {};
+    check(host->getName(name) == Steinberg::kResultOk);
+    check(!Steinberg::Vst::StringConvert::convert(name).empty());
 };
 } // namespace

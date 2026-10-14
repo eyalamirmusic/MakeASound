@@ -182,6 +182,7 @@ tresult PLUGIN_API PlugView::setContentScaleFactor(ScaleFactor factor)
         return Steinberg::kInvalidArgument;
 
     scale = factor;
+    hostScaled = true;
     applyContentScale();
     return Steinberg::kResultOk;
 }

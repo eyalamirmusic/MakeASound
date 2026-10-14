@@ -7,10 +7,24 @@
 namespace MakeASound::VST3
 {
 
-std::optional<ShadowTarget> decodeShadowId(Vst::ParamID id,
+std::optional<ShadowTarget> decodeShadowId(const Vst3Controllers& controllers,
+                                           Vst::ParamID id,
                                            int numMidiInputs) noexcept
 {
-    if ((id & 0xffff0000u) != shadowIdBase)
+    if (controllers.layout == Vst3ControllerLayout::JuceContiguous)
+    {
+        auto offset = id - controllers.base;
+
+        if (numMidiInputs < 1 || offset >= 16u * juceShadowControllers)
+            return std::nullopt;
+
+        return ShadowTarget {
+            .bus = 0,
+            .channel = static_cast<int>(offset / juceShadowControllers),
+            .controller = static_cast<int>(offset % juceShadowControllers)};
+    }
+
+    if ((id & 0xffff0000u) != controllers.base)
         return std::nullopt;
 
     auto target = ShadowTarget {.bus = static_cast<int>((id >> 12) & 0xf),
@@ -21,6 +35,23 @@ std::optional<ShadowTarget> decodeShadowId(Vst::ParamID id,
         return std::nullopt;
 
     return target;
+}
+
+std::optional<ShadowTarget> decodeShadowId(Vst::ParamID id,
+                                           int numMidiInputs) noexcept
+{
+    return decodeShadowId(Vst3Controllers {}, id, numMidiInputs);
+}
+
+std::string shadowName(const Vst3Controllers& controllers,
+                       const ShadowTarget& target,
+                       int numMidiInputs)
+{
+    if (controllers.layout == Vst3ControllerLayout::JuceContiguous)
+        return "MIDI CC " + std::to_string(target.channel) + "|"
+               + std::to_string(target.controller);
+
+    return shadowName(target, numMidiInputs);
 }
 
 std::string shadowName(const ShadowTarget& target, int numMidiInputs)

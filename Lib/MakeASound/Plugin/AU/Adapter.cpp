@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
-#include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -92,12 +91,13 @@ bool hasCocoaView()
 // JUCE's AU check (juce_AudioProcessor.cpp, validateParameter), once per process:
 // a parameter with no versionHint has no place in the list a later release can
 // keep. The bypass the wrapper adds is exempt, since its hint is the framework's,
-// and so is JUCELegacyIndex, whose list is by index.
+// and so is an index profile (JUCELegacyIndex), whose indexed entries list by
+// index and whose post-port ones are hinted by definition.
 void assertVersionHints(const ParameterList& list, const ParameterSpace& space)
 {
     static auto asserted = std::atomic<bool> {false};
 
-    if (space.scheme() == IdScheme::JUCELegacyIndex)
+    if (space.identity().paramIds == ParamIdRule::Index)
         return;
 
     auto bypass = list.bypassIndex();
@@ -211,6 +211,8 @@ Adapter::Adapter(AudioComponentInstance instance,
     for (auto index: space.listOrder(list))
         listOrder.add(list.entry(index).hostId);
 
+    sdkIndexedList = space.usesSdkIndexedList(list);
+
     assertVersionHints(list, space);
 
     lastHostValue.resize(exposed.size());
@@ -319,8 +321,9 @@ void Adapter::PostConstructor()
 
     // JUCE_FORCE_USE_LEGACY_PARAM_IDS: the SDK's own indexed list, as JUCE's
     // addParameters, the listed entries being exactly indices 0..n-1 (the added
-    // bypass, unlisted, is last).
-    if (space.scheme() == IdScheme::JUCELegacyIndex)
+    // bypass, unlisted, is last). Not once a post-port entry is listed, whose
+    // id is no index.
+    if (sdkIndexedList)
     {
         Globals()->UseIndexedParameters(static_cast<UInt32>(exposed.size()));
 
@@ -368,7 +371,7 @@ OSStatus Adapter::Initialize()
     if (!pluginWrapper.setLayout(negotiatedLayout()))
         return kAudioUnitErr_FormatNotSupported;
 
-    pluginWrapper.prepare(static_cast<int>(std::lround(outputSampleRate())),
+    pluginWrapper.prepare(outputSampleRate(),
                           static_cast<int>(GetMaxFramesPerSlice()));
 
     const auto& layout = pluginWrapper.busLayout();
@@ -476,8 +479,7 @@ OSStatus Adapter::GetParameterList(AudioUnitScope scope,
                                    AudioUnitParameterID* outList,
                                    UInt32& outCount)
 {
-    if (scope != kAudioUnitScope_Global
-        || space.scheme() == IdScheme::JUCELegacyIndex)
+    if (scope != kAudioUnitScope_Global || sdkIndexedList)
         return MusicDeviceBase::GetParameterList(scope, outList, outCount);
 
     outCount = static_cast<UInt32>(listOrder.size());
@@ -774,6 +776,25 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
     return MusicDeviceBase::GetProperty(id, scope, element, outData);
 }
 
+void Adapter::PropertyChanged(AudioUnitPropertyID id,
+                              AudioUnitScope scope,
+                              AudioUnitElement element)
+{
+    MusicDeviceBase::PropertyChanged(id, scope, element);
+
+    if (id != kAudioUnitProperty_ContextName || scope != kAudioUnitScope_Global)
+        return;
+
+    try
+    {
+        pluginWrapper.setTrackInfo(
+            TrackInfo {.isValid = true, .name = toUtf8(GetContextName())});
+    }
+    catch (...)
+    {
+    }
+}
+
 OSStatus Adapter::SetProperty(AudioUnitPropertyID id,
                               AudioUnitScope scope,
                               AudioUnitElement element,
@@ -897,23 +918,31 @@ OSStatus Adapter::SaveState(CFPropertyListRef* outData)
 OSStatus Adapter::RestoreState(CFPropertyListRef plist)
 {
     auto document = std::optional<std::string> {};
-    auto juceState = std::optional<std::string> {};
+    auto foreignBytes = std::optional<std::string> {};
+    auto foreignOrigin = ForeignOrigin::JuceAU;
 
     try
     {
         document = readState(plist);
 
         if (!document)
-            juceState = readJuceState(plist);
+            foreignBytes = readJuceState(plist);
+
+        if (!document && !foreignBytes)
+        {
+            foreignBytes = readTamberPlugState(plist);
+            foreignOrigin = ForeignOrigin::TamberPlugAU;
+        }
     }
     catch (...)
     {
     }
 
-    // A JUCE build's dictionary loses its parameter data, whose ids are not
-    // ours; an AUAudioUnit's own state (the AUv3's on an iPad) carries version 1.
-    auto normalized = juceState ? copyWithoutParameterData(plist)
-                                : copyWithStateVersionZero(plist);
+    // Another framework's dictionary (JUCE's, Plug's) loses its parameter data,
+    // whose ids are not ours; an AUAudioUnit's own state (the AUv3's on an iPad)
+    // carries version 1.
+    auto normalized = foreignBytes ? copyWithoutParameterData(plist)
+                                   : copyWithStateVersionZero(plist);
 
     if (normalized)
         plist = normalized.get();
@@ -930,11 +959,11 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
             pluginWrapper.loadState(*document, StateContext::Session);
             mirrorParametersToHost();
         }
-        else if (juceState)
+        else if (foreignBytes)
         {
             auto foreign = ForeignState {};
-            foreign.origin = ForeignOrigin::JuceAU;
-            foreign.bytes = *juceState;
+            foreign.origin = foreignOrigin;
+            foreign.bytes = *foreignBytes;
             foreign.context = StateContext::Session;
 
             // Off the message thread the load runs later, and its

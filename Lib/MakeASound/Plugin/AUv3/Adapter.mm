@@ -9,7 +9,6 @@
 #include "../Realtime/MessageThread.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <utility>
@@ -369,8 +368,7 @@ bool Adapter::allocateRenderResources(NSError** outError)
     }
 
     auto maxFrames = static_cast<int>(owner.maximumFramesToRender);
-    pluginWrapper.prepare(static_cast<int>(std::lround(outputSampleRate())),
-                          maxFrames);
+    pluginWrapper.prepare(outputSampleRate(), maxFrames);
 
     const auto& layout = pluginWrapper.busLayout();
     auto render = EA::makeOwned<Render>();
@@ -942,6 +940,15 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
             foreign.context = context;
             pluginWrapper.loadForeignState(foreign);
         }
+        else if (auto plugState = readTamberPlugState(fullState, description))
+        {
+            // A Tamber Plug build's v2 ClassInfo, as the JUCE one above.
+            auto foreign = ForeignState {};
+            foreign.origin = ForeignOrigin::TamberPlugAU;
+            foreign.bytes = *plugState;
+            foreign.context = context;
+            pluginWrapper.loadForeignState(foreign);
+        }
         else
         {
             return;
@@ -966,6 +973,16 @@ NSArray<NSString*>* Adapter::midiOutputNames() const
         [names addObject:toNSString(bus.name)];
 
     return names;
+}
+
+void Adapter::setContextName(NSString* name)
+{
+    auto info = TrackInfo {.isValid = true};
+
+    if (name != nil)
+        info.name = name.UTF8String;
+
+    pluginWrapper.setTrackInfo(std::move(info));
 }
 
 void Adapter::beginParameterEdit(int index) noexcept

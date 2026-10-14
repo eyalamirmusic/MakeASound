@@ -9,6 +9,8 @@ Two façades make up the whole public surface:
 
 Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
 
+Beneath them is `MakeASoundCore` (alias `MakeASound::Core`): the audio and MIDI vocabulary and the processing types (`Buffer`, `ReadOnlyBuffer`, `BusLayout`, `Playhead`, `ProcessSpec`, `ProcessContext`, `Processor`, MIDI events and `MidiParser`, the realtime helpers), with no device backend. It links only Miro, and `<MakeASound/MakeASoundCore.h>` is its umbrella header. The `MakeASound` target links it `PUBLIC`, so linking `MakeASound` gives you both. Code that only processes audio (DSP, a plugin) links the core alone, and a project that wants nothing else sets `MAKEASOUND_BUILD_DEVICES` off, so miniaudio is never fetched.
+
 On top of them sits an optional second target, `MakeASoundPlugin`: the SDK-free core of a write-once plugin framework (see [Plugins](#plugins)), and its formats: a standalone app (see [Running a plugin standalone](#running-a-plugin-standalone)), VST3 (see [VST3](#vst3)), on macOS AU (see [AU](#au)), on iOS AUv3 (see [AUv3 on iOS](#auv3-on-ios)), and on macOS and Windows x64, when asked for, AAX (see [AAX](#aax)).
 
 ```cpp
@@ -37,8 +39,7 @@ manager.start(manager.getDefaultConfig(),
 - **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
 - **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches, on macOS, Windows and iOS. The host underneath has no window, so a plugin can bring an app of its own instead.
 - **Editors that say how they size.** A plugin's `Editor` states its minimum, maximum and aspect ratio and can ask its host for a new size; every format honours it, and a host without a resize grip of its own gets one drawn by the editor. A plugin with no editor gets a generic one.
-- **Web editors.** One more CMake call gives a plugin a React page as its editor, with typed bindings to its parameters generated from C++; the Synth example has one.
-- **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters and the plugin's state in the session; both examples pass pluginval at strictness 10.
+- **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters (instruments by default, any plugin that asks) and the plugin's state in the session; both examples pass pluginval at strictness 10.
 - **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the plugin's editor or the generic one, sample-accurate MIDI in and out, the host's bypass button and the plugin's state in the session; both examples pass `auval -strict`.
 - **An AUv3 format on iOS.** The same call puts an Audio Unit extension inside the iOS app, so AUM, GarageBand and every other iOS host find the plugin once the app is installed, with its editor in the host's window.
 - **An AAX format, opt-in.** On macOS and Windows x64 with `-DMAKEASOUND_BUILD_AAX=ON` the same call also builds an `.aaxplugin` for Pro Tools, with the plugin's editor or the generic one, automation, MIDI in and out, the plugin's state in the session and its bypass parameter as the master bypass; both examples pass Avid's AAX Validator. Avid's SDK is fetched only under that flag and has its own licence terms (see [AAX](#aax)).
@@ -48,15 +49,15 @@ manager.start(manager.getDefaultConfig(),
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator (Ninja, and the device again with Xcode), Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds; Linux has no web runtime, so the Synth example falls back to the generic editor there.
-- Node and npm, to configure the example plugins on macOS, Windows and iOS: the Synth's web editor runs `npm install` at configure and `vite build` in the build. `-DMAKEASOUND_BUILD_EXAMPLES=OFF` needs neither.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
+- Node and npm, for the React demo apps (`Apps/Demo`, `Apps/Synth`) only: eacp's webview build runs `npm install` and `vite build` for them. `-DMAKEASOUND_BUILD_APPS=OFF` needs neither; the library, the plugin formats and the example plugins never need Node.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
 ## Build
 
 ```bash
-cmake -S . -B build -G Ninja
+cmake -S . -B build -G Ninja   # -DMAKEASOUND_INSTALL_PLUGINS=OFF to skip copying plug-ins into the plug-in folder
 cmake --build build
 
 ./build/Apps/Example/Example      # streams white noise for 2 seconds
@@ -72,10 +73,12 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 
 | Option | Default | Effect |
 | --- | --- | --- |
+| `MAKEASOUND_BUILD_DEVICES` | `ON` | Build `MakeASound`, the device library over `MakeASoundCore`, and fetch miniaudio. Off, only the core is built: no miniaudio, no platform audio or MIDI framework, and no apps, standalone format or main test suite (`MakeASoundCoreTests` still builds). |
 | `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on macOS, Windows and iOS, also the standalone format's app (the windowless `StandaloneHost` builds everywhere). |
-| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). Needs Node and npm where the Synth's web editor builds. |
+| `MAKEASOUND_BUILD_HOSTING` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundHosting`, scanning third-party VST3 plugins and (on macOS) Audio Units, in worker processes, into a plugin database, loading and running them, and their editors; `Apps/PluginScanner` and the example host `Apps/PluginHost`. Needs the plugin core; macOS and Windows for now. See [Docs/Hosting.md](Docs/Hosting.md) and [Docs/PluginScanning.md](Docs/PluginScanning.md). |
+| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
 | `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`; an `.aaxplugin` into `/Library/Application Support/Avid/Audio/Plug-Ins` or `C:\Program Files\Common Files\Avid\Audio\Plug-Ins`, which usually needs admin rights). A failed copy is a warning. |
 | `MAKEASOUND_IOS_TEAM` | empty | The Apple development team an iOS tree signs its apps and AUv3 extensions with under the Xcode generator. Empty: ad hoc for the simulator, unsigned for a device. |
 | `MAKEASOUND_DESCRIBE_CMAKE_ARGS` | empty | Extra configure arguments for an iOS tree's macOS sub-build that writes the AUv3 plists. |
@@ -110,6 +113,10 @@ Interposition needs `dlsym(RTLD_NEXT, ...)`, so these files are added to the tes
 target on Apple and Linux only, rather than reporting zero allocations elsewhere
 because nothing was watching.
 
+The hosting suites load only plugins this tree builds (`Tests/HostFixtures`, never
+installed) and Apple's built-in Audio Units, never a third-party plugin, and pin the
+plugin database's schema, which is append-only, against a file Tamber Plug wrote.
+
 ## Using it in your project
 
 With CPM:
@@ -127,6 +134,14 @@ target_link_libraries(MyApp PRIVATE MakeASound)
 ```
 
 Either way the apps and tests are skipped, since they only build for a top-level MakeASound. `Lib/` is the include root, and `<MakeASound/MakeASound.h>` is the single public header.
+
+For the vocabulary alone, with no device backend fetched or linked:
+
+```cmake
+CPMAddPackage(NAME MakeASound GITHUB_REPOSITORY eyalamirmusic/MakeASound GIT_TAG main
+        OPTIONS "MAKEASOUND_BUILD_DEVICES OFF")
+target_link_libraries(MyDSP PRIVATE MakeASound::Core)   # <MakeASound/MakeASoundCore.h>
+```
 
 ## Audio
 
@@ -175,7 +190,7 @@ output.getSubBuffer(0, event.sampleOffset).clear();
 output.getChannelSubset(2, 2).applyGain(0.5f);
 ```
 
-`Buffer` is move-only. A deep copy is `Buffer::copyOf(source)`, and `setSize` keeps its capacity so a buffer sized in a prepare step never allocates again for equal or smaller shapes. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
+`ReadOnlyBuffer` refers to a `const float* const*` table, such as a host's inputs, and hands it out only as a `const Buffer&`. `Buffer` is move-only. A deep copy is `Buffer::copyOf(source)`, and `setSize` keeps its capacity so a buffer sized in a prepare step never allocates again for equal or smaller shapes. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
 
 ### Picking a device
 
@@ -286,7 +301,7 @@ Events land one block late — the only way to keep offsets non-negative when MI
 
 ## Processors
 
-`Processor` is the format-neutral unit of work: `getBusLayout()` says what buses it wants, `prepare` receives a `ProcessSpec` (rate, block size, layout), `process` gets a `ProcessContext` whose buffers refer to the host's memory, and `reset` drops state after a gap. `Engine` runs one on a device stream with the open MIDI inputs on its main MIDI bus:
+`Processor` is the format-neutral unit of work: `getBusLayout()` says what buses it wants, `prepare` receives a `ProcessSpec` (rate, block size, layout), `process` gets a `ProcessContext` whose buffers refer to the host's memory, and `reset` drops state after a gap. `ProcessSpec::sampleRate` is a `double`: a plugin gets exactly the rate its host said, which need not be whole (a video pull-down such as 44055.94). `roundedSampleRate()` (or `roundSampleRate(double)`, `std::lround`) is for code that needs a whole rate, such as a table sized per second. Device rates stay `int`, since hardware clocks are whole, and become the spec's `double` exactly. `Engine` runs a processor on a device stream with the open MIDI inputs on its main MIDI bus:
 
 ```cpp
 struct Gain : MS::Processor
@@ -360,7 +375,7 @@ ModuleDescription describeModule()
 target_link_libraries(MyPlugin PRIVATE MakeASoundPlugin)
 ```
 
-Parameters are declared in a `ParameterGroup` and registered with `add(...)` in its constructor, in the order the host lists them. A nested group takes a name per instance, so `OscParams osc1 {"Osc 1"}` gives its `attack` the id `"Osc 1/Attack"` and the name `"Osc 1 Attack"`; `add` also takes arrays and vectors of groups or parameters, each element under its own name. An id defaults to the name, and `{.id = "cutoff"}` on a parameter or a group pins it so a later rename keeps saved state and automation. The host id is a 31-bit hash (FNV-1a) of the full id path rather than a position (VST3 reserves the ids above), so inserting a parameter in a later release moves nobody's automation; `{.hostId = ...}` pins one by hand. **Pin before you regroup:** because the path includes every enclosing group, moving a parameter into, out of or between groups changes both its state key and its host id, breaking every saved session and automation lane that used it, unless its `id` and `hostId` were pinned first. Each parameter also takes `{.versionHint = n}`, the release that added it, which orders an AU's parameter list (see [AU](#au)). A plugin ported from JUCE can instead name its parameters and itself as its JUCE build did: `.idScheme = MS::IdScheme::JUCE` (or `JUCELegacyIndex`) and `.juce` (JUCE's identity settings) on its `PluginDescription`, and on each parameter `{.hostKey = "..."}`, its JUCE `ParameterID`, which defaults to the leaf id; the core computes those ids, and wiring them into the format adapters is the next step (see `plan.md`, Stage 10 E). A `FloatParam` takes a `FloatRange {min, max, interval, skew, symmetricSkew}`, JUCE's `NormalisableRange` with the same arithmetic: a skew below 1 gives the low end more travel, `FloatRange::withCentre(min, max, centre)` picks the skew that puts `centre` mid-travel, and an `interval` snaps every value (a host sees the grid as steps while the curve is linear). `HzParam` is centred at the geometric mean √(min·max), and `IntParam` is a whole number with one step per value. Values are atomics, read straight from `process`. `StatePlugin` saves and loads the group as JSON with a `version` field: choices by name, a missing key back to its default, and a `{.sessionOnly = true}` parameter only in a DAW session, never in a preset. A load assigns into the registered parameters and rebuilds nothing. `version` is what this build writes; the loaded document's is `loadedVersion`, for migrating in a `reflect` override. Parameters are not Miro fields: one in a `MIRO_REFLECT` list does not compile.
+Parameters are declared in a `ParameterGroup` and registered with `add(...)` in its constructor, in the order the host lists them. A nested group takes a name per instance, so `OscParams osc1 {"Osc 1"}` gives its `attack` the id `"Osc 1/Attack"` and the name `"Osc 1 Attack"`; `add` also takes arrays and vectors of groups or parameters, each element under its own name. A parent can name a child instead with `addChild("Osc 1", osc1, {.id = "Osc1"})`, which is how one group type is mounted several times, an array's elements included. An id defaults to the name, and `{.id = "cutoff"}` on a parameter or a group pins it so a later rename keeps saved state and automation. An id may hold a `/` itself (a Tamber Plug port's `"Dry/Wet"`): its path doubles it, `"Dry//Wet"` at the root or `"Mix/Dry//Wet"` in a group `Mix`, so a path never confuses it with a group `Dry` holding `Wet`, and `splitIdPath` reads a path back into its ids (`Parameters/IdPath.h`). Saved state is nested objects keyed by each id as written, so the document's key stays `"Dry/Wet"`, and a path with no doubled `/` is exactly what it was. An id that begins or ends with `/` cannot be delimited and is reported by `identityProblems()`. The host id is a 31-bit hash (FNV-1a) of the full id path rather than a position (VST3 reserves the ids above), so inserting a parameter in a later release moves nobody's automation; `{.hostId = ...}` pins one by hand. **Pin before you regroup:** because the path includes every enclosing group, moving a parameter into, out of or between groups changes both its state key and its host id, breaking every saved session and automation lane that used it, unless its `id` and `hostId` were pinned first. Each parameter also takes `{.versionHint = n}`, the release that added it, which orders an AU's parameter list (see [AU](#au)). A plugin ported from another framework can instead keep every id its earlier build gave hosts by naming a compatibility profile on its `PluginDescription`. `.idScheme = MS::IdScheme::JUCE` (or `JUCELegacyIndex`), with `.juce` (JUCE's identity settings) and on each parameter `{.hostKey = "..."}`, its JUCE `ParameterID`, which defaults to the leaf id, names it as its JUCE build did. `MS::IdScheme::TamberPlug` keeps a Tamber Plug build's: each parameter's flat index among every leaf (sparse where a leaf is hidden), Plug's AU list, values and flags, and Plug's AU sessions loading as native documents with no `loadLegacy`. `IdScheme::Native` is the default (`IdScheme::MakeASound` is its deprecated old name). A profile resolves into an `IdentityPolicy` (`policyFor`, `identityPolicyFor`, `Core/IdentityPolicy.h`), the per-concern rules every format adapter reads, and `.overrides` replaces one rule where a port needs it. Under an index profile (`JUCELegacyIndex`, `TamberPlug`) the first release that adds a parameter anywhere but the end sets `.overrides.indexedThroughVersion` to the port's `versionHint` (1, usually) and gives the new parameter a higher one: it then takes a path hash like a native parameter's and moves no old index. `ParameterList::identityProblems()` lists every id clash in any build; a debug build asserts on it. A `FloatParam` takes a `FloatRange {min, max, interval, skew, symmetricSkew}`, JUCE's `NormalisableRange` with the same arithmetic: a skew below 1 gives the low end more travel, `FloatRange::withCentre(min, max, centre)` picks the skew that puts `centre` mid-travel, and an `interval` snaps every value (a host sees the grid as steps while the curve is linear). `HzParam` is centred at the geometric mean √(min·max), or linear when given a plain `FloatRange {min, max}` (a Tamber Plug port's `HzParam` keeps its linear mapping that way), and `IntParam` is a whole number with one step per value. `CommonParams.h` also has decibel, time, percent, bipolar (±100 %), semitone and MIDI note parameters (both continuous, rounded by `semitones()` and `note()`) and an octave choice. Values are atomics, read straight from `process`. `StatePlugin` saves and loads the group as JSON with a `version` field: choices by name, a missing key back to its default, and a `{.sessionOnly = true}` parameter only in a DAW session, never in a preset. A load assigns into the registered parameters and rebuilds nothing. `version` is what this build writes; the loaded document's is `loadedVersion`, for migrating in a `reflect` override. Parameters are not Miro fields: one in a `MIRO_REFLECT` list does not compile.
 
 `PluginWrapper` is what a format adapter drives, one block at a time. By the time `process` runs, each output channel already holds its input (copied, or the same memory when the host processes in place), which is why the gain above only multiplies; after the block every bus is detached again. A host saving from its own thread gets the published snapshot without waiting on the message thread, and a load applies the parameters at once and the rest of the document on the message thread, unless a newer load overtook it. While the plugin's own editor holds a parameter in a gesture, host writes to it are dropped. Destroy the wrapper on the message thread. `Tests/PluginTests.cpp` drives it as a fake host.
 
@@ -390,36 +405,11 @@ MS::OwningPointer<MS::Editor> MyPlugin::createEditor()
 }
 ```
 
-Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it. Where the host's window has no grip of its own (an AU view in Logic), the generic and web editors draw a `ResizeGrip` in their corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
+Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it. Where the host's window has no grip of its own (an AU view in Logic), the generic editor draws a `ResizeGrip` in its corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
 
 ### Web editors
 
-An editor can be a React page instead. `makeasound_add_web_editor` builds the page with vite, embeds it into the plugin's core so every format carries it, and generates TypeScript bindings for `MakeASound::Web::ParameterApi` (and any API of your own) into the page's `src/generated`:
-
-```cmake
-makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU AUv3 AAX SOURCES SynthPlugin.cpp)
-
-makeasound_add_web_editor(SynthPlugin
-        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
-        SOURCES SynthEditor-Web.cpp          # where a web runtime exists
-        FALLBACK_SOURCES SynthEditor-None.cpp)   # elsewhere (Linux): no npm, no page
-```
-
-```cpp
-MS::OwningPointer<MS::Editor> createSynthEditor(SynthPlugin& plugin)
-{
-    auto options = MS::Web::WebEditorOptions {.category = "SynthPluginEditor",
-                                              .storageName = "MakeASound Synth",
-                                              .devServer = MAKEASOUND_WEB_DEV_SERVER,
-                                              .initialSize = {600, 400},
-                                              .constraints = {.resizable = true,
-                                                              .aspectRatio = {3, 2}}};
-
-    return EA::makeOwned<MS::Web::WebEditor>(plugin, std::move(options));
-}
-```
-
-The page calls `getParameters()`, then `beginEdit`, `edit` and `endEdit` by parameter id, and listens to the `values` event, which the editor publishes 30 times a second with whatever moved, automation included; edits reach the host as ordinary gestures. `Plugins/Synth/web/src/useParameters.ts` wraps that in one React hook. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
+MakeASound has no web-editor support of its own. A plugin that wants a web page as its editor builds one directly on eacp's `WebView` (and its vite build helpers): an `Editor` whose `view()` returns the `WebView`, with the page talking to the plugin's parameters through whatever bridge the plugin binds. The framework only sees an `Editor`, so the size policy, `requestResize` and `ResizeGrip` above apply to it as to any other.
 
 ## Running a plugin standalone
 
@@ -522,6 +512,18 @@ makeasound_add_plugin(Gain
 
 That makes `Gain`, a static library holding the plugin, `Gain-Standalone`, the app (an ad-hoc signed `.app` bundle on macOS), `Gain-VST3`, the VST3 plug-in (see [VST3](#vst3)), on macOS `Gain-AU`, the Audio Unit (see [AU](#au)), on iOS `Gain-AUv3`, the Audio Unit extension inside the app (see [AUv3 on iOS](#auv3-on-ios)), and on macOS and Windows x64 with `MAKEASOUND_BUILD_AAX` on `Gain-AAX`, the Pro Tools plug-in (see [AAX](#aax)). `BUNDLE_ID`, `COMPANY` and `VERSION` (default `1.0.0`) are optional. A format the machine or the configuration cannot build, AU off macOS, AUv3 off iOS or AAX with the flag off or on Windows ARM64 for three, is skipped with a status line, so one list of formats serves every platform. The function comes with MakeASound, so a project consuming it through CPM with `MAKEASOUND_BUILD_PLUGIN` on calls it the same way.
 
+**Bundle identifiers.** `BUNDLE_ID` (default `com.makeasound.<name>`, lowercased) is the app's identifier. Each plug-in bundle gets its own identifier, made from it with the format's suffix: `<BUNDLE_ID>.vst3`, `.component`, `.auv3` and `.aaxplugin`. They differ because the macOS Installer finds a package's components by bundle id. `VST3_BUNDLE_ID`, `AU_BUNDLE_ID`, `AUV3_BUNDLE_ID` and `AAX_BUNDLE_ID` each replace one format's whole identifier. They are for a plugin ported from another framework, whose installed bundles must keep the identifier they shipped with, so that an installer updates them in place:
+
+```cmake
+makeasound_add_plugin(Gain
+        FORMATS VST3 AU
+        BUNDLE_ID com.tamberplug.Gain
+        AU_BUNDLE_ID com.tamberplug.Gain.au     # rather than com.tamberplug.Gain.component
+        SOURCES GainPlugin.cpp)
+```
+
+An override sets the bundle's `CFBundleIdentifier`, and so the identifier its signature is made under. It changes nothing a host stores. The Objective-C class suffixes and the AAX effect ids still derive from `BUNDLE_ID`. An app extension's identifier must extend its app's, so `AUV3_BUNDLE_ID` must begin with `<BUNDLE_ID>.`, or the configure stops with an error. `Tests/BundleIds` checks how these resolve and, on macOS, what two fixtures' bundles were given.
+
 ```bash
 open "./build/Plugins/Gain/MakeASound Gain.app"
 open "./build/Plugins/Synth/MakeASound Synth.app"   # the instrument example
@@ -551,14 +553,14 @@ makeasound_add_plugin(GainApp
 
 The app includes `<MakeASound/Plugin/Standalone/MakeASoundStandalone.h>`, holds a `StandaloneHost` as its first member and its UI after it, calls `host.start()` in its constructor, and defines `main()` as `return eacp::Apps::run<MyApp>();`. `SettingsPanel`, `GenericEditor` and `editorWindowOptions` are there to reuse. `Plugins/GainApp` is the example: one window with a toolbar of its own above the generic editor.
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, with a React editor (see [Web editors](#web-editors)) wherever there is a web runtime and the generic one elsewhere. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, shown through the generic editor. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
 
 ## VST3
 
-The `VST3` format builds `<build>/VST3/<OUTPUT_NAME>.vst3`, a bundle any VST3 host scans: on macOS an ad-hoc signed bundle with identifier `<BUNDLE_ID>.vst3` that exports nothing but the three entry points, on Windows and Linux the standard `Contents/<arch>-win` and `Contents/<arch>-linux` layout. It is one single-component class per plugin over `PluginWrapper`, so the plugin code is the same code the standalone app runs:
+The `VST3` format builds `<build>/VST3/<OUTPUT_NAME>.vst3`, a bundle any VST3 host scans: on macOS an ad-hoc signed bundle with identifier `<BUNDLE_ID>.vst3` (or `VST3_BUNDLE_ID`, see [bundle identifiers](#running-a-plugin-standalone)) that exports nothing but the three entry points, on Windows and Linux the standard `Contents/<arch>-win` and `Contents/<arch>-linux` layout. It is one single-component class per plugin over `PluginWrapper`, so the plugin code is the same code the standalone app runs:
 
 - **Parameters** are listed by their host id, the 31-bit hash of the id path, so adding a parameter in a later release moves nobody's automation. Only automatable parameters are listed; values are read live and automation is applied before each block.
-- **MIDI.** Notes, poly pressure and SysEx arrive as events. CC, channel aftertouch, pitch bend and program change arrive through hidden parameters the host maps them onto, and reach the plugin as ordinary `MIDI::Event`s at their sample offsets; a plugin's MIDI output goes back to the host the same way.
+- **MIDI.** Notes, poly pressure and SysEx arrive as events. CC, channel aftertouch, pitch bend and program change arrive through hidden parameters the host maps them onto (`IMidiMapping`), and reach the plugin as ordinary `MIDI::Event`s at their sample offsets; a plugin's MIDI output goes back to the host the same way. Those hidden parameters, 16 channels × 131 controllers per MIDI input bus, exist only when `PluginDescription::vst3MidiControllers` says so; unset, an instrument has them and an effect or MIDI effect does not. Without them the mapping answers no controller, so the host's CC, bend, aftertouch and program change never reach the plugin; notes, poly pressure, SysEx and any controller a host sends as an event still do. AU, AUv3 and AAX deliver every MIDI message natively and ignore the setting. Their ids are MakeASound's (`0x7fff0000 | bus << 12 | channel << 8 | controller`, hidden and automatable) except under a JUCE `IdScheme`, where they are JUCE's (`0x6d636d00 + channel * 130 + controller`, one set whatever the bus, no program change, no flags), so a host's CC mapping in a JUCE session survives the port; `overrides.vst3Controllers` picks either layout, and the base of MakeASound's. JUCE has these whenever a plugin wants MIDI input, so a ported JUCE effect with a MIDI input sets `vst3MidiControllers = true`.
 - **State** is the plugin's document, saved as a session (session-only parameters included) unless the host marks the save as a preset.
 - **The editor** is the plugin's own `Editor`, or the generic page, embedded in the host's window. The host's own grip resizes it within the editor's constraints, and an editor's `requestResize` goes to the host as a resize of the plug-in window.
 - **Bypass.** The plugin's bypass parameter (`{.bypass = true}`) is the host's bypass.
@@ -577,9 +579,9 @@ MAKEASOUND_PLUGINVAL=1 ./build/Tests/MakeASoundTests --test Pluginval/exampleBun
 
 ## AU
 
-On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio Unit v2 bundle with identifier `<BUNDLE_ID>.component`, ad-hoc signed, exporting two symbols: `MakeASoundAUFactory`, which every component names, and `MakeASoundAUWritePlist`. Its `Info.plist` is written after every link by `MakeASoundAUPlistGen`, one tool shared by every plugin, which loads the module it was given and calls that second function with the module's own `describeModule()`, so the module description is the only place a plugin's identity lives: one `AudioComponents` entry per plugin, the module's `manufacturerCode` as the manufacturer and each plugin's `pluginCode` as the subtype. The type follows the category: an instrument is `aumu`, a MIDI effect `aumi`, an effect with a MIDI input `aumf` and any other effect `aufx`. It is one class over `PluginWrapper`, so the plugin code is again the same code the standalone app and the VST3 run:
+On macOS the `AU` format builds `<build>/AU/<OUTPUT_NAME>.component`, an Audio Unit v2 bundle with identifier `<BUNDLE_ID>.component` (or `AU_BUNDLE_ID`), ad-hoc signed, exporting two symbols: `MakeASoundAUFactory`, which every component names, and `MakeASoundAUWritePlist`. Its `Info.plist` is written after every link by `MakeASoundAUPlistGen`, one tool shared by every plugin, which loads the module it was given and calls that second function with the module's own `describeModule()`, so the module description is the only place a plugin's identity lives: one `AudioComponents` entry per plugin, the module's `manufacturerCode` as the manufacturer and each plugin's `pluginCode` as the subtype. The type follows the category: an instrument is `aumu`, a MIDI effect `aumi`, an effect with a MIDI input `aumf` and any other effect `aufx`. It is one class over `PluginWrapper`, so the plugin code is again the same code the standalone app and the VST3 run:
 
-- **Parameters** are listed by the same 31-bit host ids as in VST3, automatable ones only, ordered by `versionHint` and then host id as JUCE orders them, since Logic and GarageBand automate an AU parameter by its index in that list: give the first release's parameters `{.versionHint = 1}` and each later addition its release's higher number, and old automation stays put (a debug build asserts once when a parameter has none). Each comes with value strings for choices, the plugin's own text for every value, and its plain range, with a display flag where its curve is a square root, square, cube or cube root; a parameter with any other curve (a skewed `HzParam`, say) is published as 0..1, so the host's lane moves as the plugin's controls do. A value the host writes reaches the plugin at the next block; one the editor writes is reported back to the host as a gesture.
+- **Parameters** are listed by the same 31-bit host ids as in VST3, automatable ones only, ordered by `versionHint` and then host id as JUCE orders them, since Logic and GarageBand automate an AU parameter by its index in that list: give the first release's parameters `{.versionHint = 1}` and each later addition its release's higher number, and old automation stays put (a debug build asserts once when a parameter has none). Each comes with value strings for choices, the plugin's own text for every value, and its plain range, with a display flag where its curve is a square root, square, cube or cube root; a parameter with any other curve (a skewed `HzParam`, say) is published as 0..1, so the host's lane moves as the plugin's controls do. A port's profile changes this to its earlier build's list, ranges and flags (see [Plugins](#plugins) for `IdScheme`). A value the host writes reaches the plugin at the next block; one the editor writes is reported back to the host as a gesture.
 - **MIDI.** Notes, CC (all-notes-off included), pitch bend, aftertouch, program change and short SysEx arrive at their sample offsets. A plugin with a MIDI output bus sends its events to the host through the MIDI output callback.
 - **State** is the plugin's session document, carried in the host's preset dictionary beside the parameter values.
 - **Reset** really resets: the host's `Reset` reaches the plugin's `reset()` at the next block.
@@ -599,7 +601,7 @@ macOS caches a bundle's `AudioComponents` by its `CFBundleVersion`, which is `Mo
 
 ## AAX
 
-AAX is opt-in. With `-DMAKEASOUND_BUILD_AAX=ON` on macOS, the `AAX` format builds `<build>/AAX/<OUTPUT_NAME>.aaxplugin`, an AAX Native bundle for Pro Tools with identifier `<BUNDLE_ID>.aaxplugin`. It is ad-hoc signed and exports only the seven ACF entry points. On Windows the same folder holds one DLL, `Contents/x64/<OUTPUT_NAME>.aaxplugin`, which exports the same seven and has no plist or signature. Windows builds AAX for x64 only: Avid's SDK does not compile for Windows ARM64, and Pro Tools for Windows is x64, so an ARM64 tree skips the format with a status line. Pro Tools reads a plug-in's identity from the module, so the module description is again the only place it lives. Each plugin is one effect. Its manufacturer is `manufacturerCode` and its product is `pluginCode`. Its Pro Tools category is `PluginDescription::aaxCategory`, which defaults to Effect or Instrument by `category`. The effect has one component per mono or stereo stem pair the plugin accepts. It is one class over `PluginWrapper`, so the plugin code is again the same code every other format runs:
+AAX is opt-in. With `-DMAKEASOUND_BUILD_AAX=ON` on macOS, the `AAX` format builds `<build>/AAX/<OUTPUT_NAME>.aaxplugin`, an AAX Native bundle for Pro Tools with identifier `<BUNDLE_ID>.aaxplugin` (or `AAX_BUNDLE_ID`). It is ad-hoc signed and exports only the seven ACF entry points. On Windows the same folder holds one DLL, `Contents/x64/<OUTPUT_NAME>.aaxplugin`, which exports the same seven and has no plist or signature. Windows builds AAX for x64 only: Avid's SDK does not compile for Windows ARM64, and Pro Tools for Windows is x64, so an ARM64 tree skips the format with a status line. Pro Tools reads a plug-in's identity from the module, so the module description is again the only place it lives. Each plugin is one effect. Its manufacturer is `manufacturerCode` and its product is `pluginCode`. Its Pro Tools category is `PluginDescription::aaxCategory`, which defaults to Effect or Instrument by `category`. The effect has one component per mono or stereo stem pair the plugin accepts. It is one class over `PluginWrapper`, so the plugin code is again the same code every other format runs:
 
 - **Parameters** are the automatable ones, by the same 31-bit host ids as in VST3 and AU (written as hex), with the plugin's own text for every value. A host write reaches the plugin at the next block. An editor edit is reported back to the host as a gesture, and a value the plugin moves on its own is shown to the host on its next timer.
 - **MIDI.** Notes, CC, pitch bend, aftertouch, program change and short SysEx arrive at their sample offsets. A plugin with a MIDI output bus sends channel messages back to Pro Tools.
@@ -620,7 +622,7 @@ cmake --build build
 
 ## AUv3 on iOS
 
-On iOS the `AUv3` format builds an app extension inside the standalone app, `<OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex` with identifier `<BUNDLE_ID>.auv3`, so it needs `Standalone` in the same call (your own app from `STANDALONE_SOURCES` works too). Installing the app registers the plugin with every host on the device. The extension is an `AUAudioUnit` over the same `PluginWrapper`, running out of the host's process: parameters as an `AUParameterTree` grouped like your `ParameterGroup`s, MIDI and automation at their sample offsets, both a preset and a session state, the host's bypass, latency and tail, and the plugin's editor (or the generic one) in the host's window, sized by the editor's constraints. macOS keeps the `.component` and gets no AUv3.
+On iOS the `AUv3` format builds an app extension inside the standalone app, `<OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex` with identifier `<BUNDLE_ID>.auv3` (or `AUV3_BUNDLE_ID`, which must begin with `<BUNDLE_ID>.`), so it needs `Standalone` in the same call (your own app from `STANDALONE_SOURCES` works too). Installing the app registers the plugin with every host on the device. The extension is an `AUAudioUnit` over the same `PluginWrapper`, running out of the host's process: parameters as an `AUParameterTree` grouped like your `ParameterGroup`s, MIDI and automation at their sample offsets, both a preset and a session state, the host's bypass, latency and tail, and the plugin's editor (or the generic one) in the host's window, sized by the editor's constraints. macOS keeps the `.component` and gets no AUv3.
 
 The extension's `Info.plist` lists the components from `describeModule()`, but an iOS binary cannot run on the Mac that builds it, so an iOS tree builds a small tool from your plugin's sources a second time for macOS, in a sub-build of the same project that reuses every source CPM already fetched, and runs it. Your plugin's sources must therefore compile for macOS as well; `MAKEASOUND_DESCRIBE_CMAKE_ARGS` passes that sub-build any configure arguments your tree needs.
 
@@ -695,6 +697,8 @@ hardware no simulator provides.
 ```
 Lib/MakeASound/
   MakeASound.h      umbrella public header
+  MakeASoundCore.h  the core's umbrella: Audio/, Common/, Realtime/ and MIDI's
+                    events and parser, no device header
   Audio/            Buffer, Channel, and the Processor / ProcessContext / BusLayout vocabulary
   Devices/          DeviceInfo data types, DeviceManager façade, Engine, device queries
   MIDI/             typed events, port info, block sync, MidiManager façade
@@ -706,7 +710,6 @@ Lib/MakeASound/
     Host/           PluginWrapper, the per-block pipeline every format adapter shares
     Realtime/       MessageThread, RealtimeSwap
     UI/             MakeASoundPluginUI: the generic parameter editor and the resize grip
-    Web/            MakeASoundPluginWeb: WebEditor and ParameterApi, a React page as an editor
     Standalone/     MakeASoundStandaloneCore (StandaloneHost, no window) and MakeASoundStandalone,
                     the default app: desktop windows and menu bar, or one iOS screen
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
@@ -722,10 +725,10 @@ Lib/MakeASound/
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
-Plugins/            Gain, Synth: plugins built with makeasound_add_plugin; Synth/web is its React editor;
+Plugins/            Gain, Synth: plugins built with makeasound_add_plugin;
                     GainApp: Gain in a standalone app of its own
 Tools/              PluginValidator: pluginval, auval or aaxval over the bundles on its command line
-CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, MakeASoundWebEditor.cmake,
+CMake/              CPM, the Find modules, MakeASoundPlugin.cmake,
                     ExternalFolders.cmake, the plug-in install script
 ThirdParty/         the vendored VST3 SDK, and the builds of the fetched AudioUnitSDK and (opt-in) AAX SDK
 Tests/              NanoTest suites
@@ -750,4 +753,4 @@ an AAX binary built with it is too (see [AAX](#aax)).
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades. `MakeASoundPlugin` links `MakeASound` `PUBLIC` and `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` by `MakeASoundCore` (it leaks through the reflected data structs), and is all the core links; miniaudio and whichever MIDI library the platform selected are `PRIVATE` to `MakeASound`, fully hidden behind the façades, and `MakeASound` links the core `PUBLIC`. `MakeASoundPlugin` and `MakeASoundDSP` link `MakeASoundCore` `PUBLIC`, not the device library; only `MakeASoundStandaloneCore` adds `MakeASound`. `MakeASoundPlugin` links `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`. The React demo apps pull React and vite through npm.

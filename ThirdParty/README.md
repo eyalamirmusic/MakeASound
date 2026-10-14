@@ -19,10 +19,14 @@ side of a single-component effect: `source/common` (iids, string conversion,
 three platform entry files), `source/vst` (`AudioEffect`, `EditController`,
 `SingleComponentEffect`, buses, parameters, presets, representation and the
 headers around them), the header-only `source/vst/utility`, and from
-`source/vst/hosting` only `parameterchanges` and `eventlist`, which the tests use
-to host the adapter. The rest of hosting, the samples, the wrappers, `vstgui4`, `moduleinfo`, `cmake`, `doc` and `tutorials`
-are left out; `vstgui4` is under its own BSD-style licence and nothing here
-needs it.
+`source/vst/hosting` what a host needs to load a module and talk to it:
+`module` with its three platform loaders (`module_mac.mm`, `module_win32.cpp`,
+`module_linux.cpp`), `hostclasses`, `pluginterfacesupport`, `parameterchanges`
+and `eventlist`. The rest of hosting (`plugprovider`, `connectionproxy`,
+`processdata`, `hostdataexchangehandler`, whose wiring `MakeASoundHosting` does
+itself), the samples, the wrappers, `vstgui4`, `moduleinfo`, `cmake`, `doc` and
+`tutorials` are left out; `vstgui4` is under its own BSD-style licence and
+nothing here needs it.
 
 `CMakeLists.txt` in this directory builds it as the static target `vst3sdk`, in
 place of the SDK's own CMake. It defines `DEVELOPMENT=1` or `RELEASE=1` per
@@ -30,15 +34,24 @@ configuration as the SDK expects, and records the platform's entry file on the
 target as `MAKEASOUND_VST3_SDK_MAIN` (and the export list on macOS as
 `MAKEASOUND_VST3_SDK_EXPORTS`), because `bundleEntry`, `InitDll` and
 `ModuleEntry` must be compiled into the plugin binary itself, where a static
-archive would let the linker drop them. The two hosting files build separately as
-the test-only static target `vst3sdk-hosting`, so no plugin links them.
+archive would let the linker drop them. The hosting files build separately as the
+static target `vst3sdk-hosting`, with the one loader for the platform added in
+CMake (`module_mac.mm` as Objective-C++ under ARC), so no plugin links them;
+`MakeASoundHosting` and the tests do. No SDK file is edited. Under MSVC the
+target compiles with `/Zc:__cplusplus`, because `module_win32.cpp` chooses its
+C++20 path by `SMTG_CPP20`, which reads `__cplusplus`, and MSVC otherwise
+reports `199711L` and compiles the pre-C++20 path, which does not build under
+C++20. On iOS the target has no loader (hosting is macOS and Windows for now,
+and `module_mac.mm` is Cocoa's), only the platform-neutral host side.
 
 To update: clone `steinbergmedia/vst3sdk` at the new tag with the `base`,
 `pluginterfaces` and `public.sdk` submodules, replace the folders above with the
-same selection of files (`source/vst/hosting/{parameterchanges,eventlist}.{h,cpp}`
-included, taken from the same tag: the `public.sdk` submodule commit it pins),
-bump this note and rebuild `MakeASoundTests`, whose `VST3SDKTests.cpp` links
-the target and whose `VST3/` suites link `vst3sdk-hosting`.
+same selection of files (`source/vst/hosting/{module,hostclasses,
+pluginterfacesupport,parameterchanges,eventlist}.{h,cpp}` and the three
+`module_*` loaders included, taken from the same tag: the `public.sdk` submodule
+commit it pins, `586dc5e` for 3.8.1), bump this note and rebuild
+`MakeASoundTests`, whose `VST3SDKTests.cpp` links the target, whose `VST3/`
+suites link `vst3sdk-hosting`, and whose hosting suites load modules through it.
 
 ## AudioUnitSDK (not in this tree)
 

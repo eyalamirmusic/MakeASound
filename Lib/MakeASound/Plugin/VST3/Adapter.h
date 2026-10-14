@@ -3,6 +3,7 @@
 #include "VST3Common.h"
 #include "../Host/PluginWrapper.h"
 
+#include "pluginterfaces/vst/ivstchannelcontextinfo.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstevents.h"
@@ -16,10 +17,13 @@ namespace MakeASound::VST3
 // The one VST3 class every plugin ships as: component and controller in one
 // object over a PluginWrapper, turning host calls into the wrapper's per-block
 // steps. MIDI controllers arrive through IMidiMapping on hidden shadow
-// parameters; the plugin's own edits leave through HostEditListener.
+// parameters when the description asks for them (vst3MidiControllersFor()); the
+// plugin's own edits leave through HostEditListener, and the host's channel
+// context reaches the plugin's trackInfo() through IInfoListener.
 class Adapter
     : public Vst::SingleComponentEffect
     , public Vst::IMidiMapping
+    , public Vst::ChannelContext::IInfoListener
     , public HostEditListener
 {
 public:
@@ -27,7 +31,12 @@ public:
     // `identity` is the description's (parameterIdentityFor), which names every
     // ParamID; under a JUCE scheme every parameter is registered, a
     // non-automatable one without kCanAutomate, as JUCE's wrapper does.
-    explicit Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity = {});
+    // `midiControllers` is vst3MidiControllersFor(description): whether the
+    // shadow parameters exist and IMidiMapping maps onto them. Off, the
+    // interface is still answered, but every assignment is kResultFalse.
+    explicit Adapter(OwningPointer<Plugin> plugin,
+                     ParameterIdentity identity = {},
+                     bool midiControllers = false);
     ~Adapter() override;
 
     Plugin& plugin() noexcept;
@@ -65,6 +74,9 @@ public:
                                                    Steinberg::int16 channel,
                                                    Vst::CtrlNumber controller,
                                                    Vst::ParamID& id) override;
+
+    // IInfoListener, UI thread
+    tresult PLUGIN_API setChannelContextInfos(Vst::IAttributeList* list) override;
 
     // HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
@@ -109,7 +121,12 @@ private:
     Vector<int> exposed;
     std::unique_ptr<std::atomic<float>[]> lastPluginValue;
 
-    int numMidiInputs = 0;
+    // The shadow parameters' layout (ParameterIdentity::vst3Controllers), and
+    // the MIDI input buses with shadow parameters: none with MIDI controllers
+    // off, otherwise every one up to maxShadowBuses, or the first alone under
+    // JUCE's layout, which ignores the bus.
+    Vst3Controllers controllers;
+    int numShadowBuses = 0;
     bool active = false;
 
     // A process() before the first activation renders silence.

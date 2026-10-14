@@ -1,4 +1,5 @@
 #include "AudioSession.h"
+#include "../Audio/ProcessContext.h"
 
 #import <AVFoundation/AVFoundation.h>
 
@@ -177,7 +178,7 @@ SessionState getSessionState()
         state.options = fromOptions(session.categoryOptions);
         state.outputChannels = static_cast<int>(session.outputNumberOfChannels);
         state.inputChannels = static_cast<int>(session.inputNumberOfChannels);
-        state.sampleRate = static_cast<int>(session.sampleRate);
+        state.sampleRate = roundSampleRate(session.sampleRate);
         state.blockSize =
             static_cast<int>(session.IOBufferDuration * session.sampleRate + 0.5);
         state.outputLatencySeconds = session.outputLatency;

@@ -213,6 +213,16 @@ auto tSetLayout = test("Plugin/setLayoutResizesTheContext") = []
     check(plugin.inputBuses == 2);
 };
 
+auto tFractionalRate = test("Plugin/prepareHandsThePluginTheRateUnrounded") = []
+{
+    auto wrapper = makeWrapper();
+    auto& plugin = pluginOf<GainPlugin>(wrapper);
+
+    wrapper.prepare(44055.94, blockSize);
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+};
+
 auto tParameterIds = test("Plugin/parametersCarryIdsAndHashedHostIds") = []
 {
     auto wrapper = makeWrapper();
@@ -417,6 +427,43 @@ auto tLoadPastTeardown = test("Plugin/aLoadQueuedPastTeardownDrops") = []
     host.join();
 
     check(pumpUntil([] { return deferredLoads == 1; }));
+};
+
+auto tTrackInfo = test("Plugin/trackInfoReachesThePluginOnTheMessageThread") = []
+{
+    auto wrapper = makeWrapper();
+    auto& plugin = pluginOf<GainPlugin>(wrapper);
+    check(!plugin.trackInfo().isValid);
+    check(plugin.trackInfoChanges == 0);
+
+    wrapper.setTrackInfo({.isValid = true, .name = "Lead Vocal", .index = 3});
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().name == "Lead Vocal");
+    check(plugin.trackInfo().index == 3);
+    check(plugin.trackInfoHeard == plugin.trackInfo());
+
+    // Off the message thread it is queued there.
+    auto host = std::thread(
+        [&] { wrapper.setTrackInfo({.isValid = true, .name = "Bass"}); });
+    host.join();
+    check(plugin.trackInfo().name == "Lead Vocal");
+
+    check(pumpUntil([&] { return plugin.trackInfoChanges == 2; }));
+    check(plugin.trackInfo().name == "Bass");
+    check(plugin.trackInfo().index == 0);
+};
+
+auto tTrackInfoPastTeardown = test("Plugin/trackInfoQueuedPastTeardownDrops") = []
+{
+    {
+        auto wrapper = makeWrapper();
+        auto host = std::thread(
+            [&] { wrapper.setTrackInfo({.isValid = true, .name = "Gone"}); });
+        host.join();
+    }
+
+    // The queued call finds the wrapper gone and does nothing.
+    eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
 };
 
 auto tWriteBeforeDrain =
@@ -930,6 +977,26 @@ auto tNoAddedBypass = test("Plugin/aPluginWithABypassOrNoInputGetsNoneAdded") = 
     check(!PluginWrapper::addsBypass(synth.plugin()));
 };
 
+// An effect that declines the added bypass.
+struct NoHostBypassEffect : LatentEffect
+{
+    bool wantsHostBypass() const override { return false; }
+};
+
+auto tBypassOptOut = test("Plugin/anEffectCanDeclineTheAddedBypass") = []
+{
+    auto fresh = NoHostBypassEffect {};
+    check(!PluginWrapper::addsBypass(fresh));
+
+    auto wrapper = makeWrapper<NoHostBypassEffect>();
+    const auto& list = wrapper.plugin().parameters();
+
+    check(list.size() == 1);
+    check(list.bypassIndex() < 0);
+    check(list.indexOf("__bypass") < 0);
+    check(!contains(wrapper.saveState(StateContext::Session), "__bypass"));
+};
+
 auto tBypassDelayed = test("Plugin/theAddedBypassDelaysTheInputByTheLatency") = []
 {
     auto wrapper = makeWrapper<LatentEffect>();
@@ -1057,6 +1124,31 @@ auto tBypassFades = test("Plugin/togglingTheAddedBypassCrossfadesAndResumes") = 
     check(host.out[0] == filled(1.f));
     check(isSilent(host.aux[0]));
     check(plugin.processed == 9 + 1 + 8 - 1);
+};
+
+auto tFractionalFade = test("Plugin/theAddedBypassFadesAtAFractionalRate") = []
+{
+    auto wrapper = makeWrapper<LatentEffect>();
+    setBypass(wrapper, true);
+
+    // 10 ms at 47952.05 Hz is 479.52 samples, so the eighth block of 64 still
+    // ends the fade.
+    wrapper.prepare(47952.05, blockSize);
+
+    auto host = LatentHost {};
+    host.in = {filled(1.f), filled(1.f)};
+    host.block(wrapper);
+    check(host.out[0] == filled(1.f));
+
+    setBypass(wrapper, false);
+
+    for (auto b = 0; b < 7; ++b)
+        host.block(wrapper);
+
+    check(host.out[0][blockSize - 1] < 2.f);
+
+    host.block(wrapper);
+    check(host.out[0][blockSize - 1] == 2.f);
 };
 
 auto tBypassReset = test("Plugin/resetEndsAnAddedBypassFade") = []
@@ -1513,5 +1605,61 @@ auto tForeignTeardown = test("Plugin/aForeignStateQueuedPastTeardownDrops") = []
 
     eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
     check(legacyLoadsEver == 0);
+};
+
+// A plugin whose parameter is renamed at run time, as a hosted plugin's is.
+struct RenamingPlugin : Plugin
+{
+    struct Param : FloatParam
+    {
+        using FloatParam::FloatParam;
+        using FloatParam::setDisplayInfo;
+    };
+
+    struct Params : ParameterGroup
+    {
+        Params() { add(level); }
+        Param level {"Level", 0.f, 1.f, 0.5f};
+    };
+
+    RenamingPlugin() { setParameters(ParameterList {params}); }
+
+    std::string_view name() const override { return "Renaming"; }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    void rename(std::string_view to)
+    {
+        params.level.setDisplayInfo(to, {}, {});
+        refreshParameterNames();
+    }
+
+    Params params;
+};
+
+struct InfoCounter : HostEditListener
+{
+    void beginParameterEdit(int) noexcept override {}
+    void performParameterEdit(int, float) noexcept override {}
+    void endParameterEdit(int) noexcept override {}
+    void parameterInfoChanged() noexcept override { ++infos; }
+
+    int infos = 0;
+};
+
+auto tRenameNotifies = test("Plugin/aRenameTellsTheHostOnlyWhenANameChanged") = []
+{
+    auto plugin = RenamingPlugin {};
+    auto listener = InfoCounter {};
+    plugin.setHostEditListener(&listener);
+
+    plugin.rename("Volume");
+    check(plugin.parameters().entry(0).displayName == "Volume");
+    check(listener.infos == 1);
+
+    plugin.rename("Volume");
+    check(listener.infos == 1);
+
+    plugin.setHostEditListener(nullptr);
 };
 } // namespace

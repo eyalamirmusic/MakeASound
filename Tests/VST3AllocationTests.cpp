@@ -6,6 +6,7 @@
 #include "AllocationProbe.h"
 #include "VST3TestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <NanoTest/NanoTest.h>
 
@@ -23,7 +24,7 @@ std::vector<Vst::ParamID> exposedIds(MakeASound::VST3::Adapter& adapter)
 {
     auto ids = std::vector<Vst::ParamID> {};
     const auto& list = adapter.plugin().parameters();
-    auto everyOne = MakeASound::isJuceScheme(list.identity().scheme);
+    auto everyOne = list.identity().registration == MakeASound::Registration::All;
 
     // A JUCE scheme registers the non-automatable ones too.
     for (auto i = 0; i < list.size(); ++i)
@@ -137,7 +138,7 @@ auto tInstrumentProcess = test("Allocations/vst3InstrumentProcessIsOffTheHeap") 
 {
     checkProcessIsOffTheHeap<SynthPlugin>(false);
 
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     fillBusyBlock(host, maxBlock, false, 0);
     host.run();
     check(host.outputEvents.getEventCount() > 0);
@@ -149,7 +150,7 @@ auto tSetParamNormalized =
     auto effect = AdapterHost<GainPlugin> {};
     auto effectIds = exposedIds(*effect.adapter);
 
-    auto instrument = AdapterHost<SynthPlugin> {};
+    auto instrument = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto shadow = MakeASound::VST3::shadowIdFor(0, 0, 1);
 
     auto count = allocationsIn(
@@ -211,11 +212,12 @@ auto tPluginSideChanges =
 auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
 {
     using MakeASound::IdScheme;
-    using MakeASound::ParameterIdentity;
+    using MakeASound::policyFor;
 
     // The fixture's cutoff is 2945903597 unmasked.
     auto unmasked = AdapterHost<JuceFixtures::FixturePlugin> {
-        ParameterIdentity {IdScheme::JUCE, false}};
+        policyFor(IdScheme::JUCE, {.studioOneCompatibleParameters = false})
+            .parameters};
     check(allocationsOverBlocks(unmasked, false, maxBlock) == 0);
 
     auto ids = exposedIds(*unmasked.adapter);
@@ -249,8 +251,30 @@ auto tJuceIds = test("Allocations/vst3JuceIdsAreOffTheHeap") = []
     check(count == 0);
 
     auto legacy = AdapterHost<SynthPlugin> {
-        ParameterIdentity {IdScheme::JUCELegacyIndex}};
+        policyFor(IdScheme::JUCELegacyIndex, {}).parameters, withMidiControllers};
     check(allocationsOverBlocks(legacy, false, maxBlock) == 0);
+};
+
+// A Tamber Plug port's index ids, a post-port FNV one among them, and the
+// added bypass: the queue, the lookups and the plugin's moves stay off the heap.
+auto tPlugIds = test("Allocations/vst3TamberPlugIdsAreOffTheHeap") = []
+{
+    using MakeASound::IdScheme;
+
+    auto identity = MakeASound::policyFor(IdScheme::TamberPlug, {}).parameters;
+    identity.indexedThroughVersion = 1;
+
+    auto host = AdapterHost<TamberPlugFixtures::NewerSVFPort> {identity};
+    check(allocationsOverBlocks(host, false, maxBlock) == 0);
+
+    auto ids = exposedIds(*host.adapter);
+    auto count = allocationsIn(
+        [&]
+        {
+            for (auto id: ids)
+                host.adapter->setParamNormalized(id, 0.5);
+        });
+    check(count == 0);
 };
 
 auto tHeldPath = test("Allocations/vst3HeldParameterPathIsOffTheHeap") = []

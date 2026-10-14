@@ -13,7 +13,7 @@ namespace MakeASound
 class Smoother
 {
 public:
-    void setSampleRate(int sampleRateToUse) noexcept
+    void setSampleRate(double sampleRateToUse) noexcept
     {
         sampleRate = sampleRateToUse;
         updateRamp();
@@ -89,7 +89,7 @@ public:
 private:
     void updateRamp() noexcept
     {
-        auto samples = static_cast<double>(rampSeconds) * sampleRate;
+        auto samples = rampSeconds * sampleRate;
         rampSamples = samples > 0.0 ? static_cast<int>(std::lround(samples)) : 0;
 
         if (rampSamples == 0)
@@ -105,7 +105,7 @@ private:
     static constexpr float arrivalLevel = 1e-4f;
     static constexpr float settleTolerance = 1e-5f;
 
-    int sampleRate = 44100;
+    double sampleRate = 44100.0;
     float rampSeconds = 0.f;
 
     int rampSamples = 0;

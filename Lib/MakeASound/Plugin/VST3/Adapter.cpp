@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -39,10 +38,18 @@ bool isJuceState(std::string_view bytes)
 }
 } // namespace
 
-Adapter::Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity)
+Adapter::Adapter(OwningPointer<Plugin> plugin,
+                 ParameterIdentity identity,
+                 bool midiControllers)
     : pluginWrapper(std::move(plugin), PluginFormat::VST3, identity)
-    , numMidiInputs(
-          std::min(pluginWrapper.busLayout().midiInputs.size(), maxShadowBuses))
+    , controllers(identity.vst3Controllers)
+    , numShadowBuses(
+          midiControllers
+              ? std::min(pluginWrapper.busLayout().midiInputs.size(),
+                         controllers.layout == Vst3ControllerLayout::JuceContiguous
+                             ? 1
+                             : maxShadowBuses)
+              : 0)
 {
     this->plugin().setHostEditListener(this);
 
@@ -69,7 +76,7 @@ Adapter::Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity)
     // the collision is only reported.
     for (const auto& entry: this->plugin().parameters())
     {
-        if (!decodeShadowId(entry.hostId, numMidiInputs))
+        if (!decodeShadowId(controllers, entry.hostId, numShadowBuses))
             continue;
 
         std::fprintf(stderr,
@@ -78,7 +85,7 @@ Adapter::Adapter(OwningPointer<Plugin> plugin, ParameterIdentity identity)
                      "hostId\n",
                      entry.id.c_str(),
                      static_cast<unsigned>(entry.hostId));
-        assert(isJuceScheme(list.identity().scheme)
+        assert(list.identity().paramIds == ParamIdRule::JuceKeyHash
                && "a parameter's host id collides with a shadow parameter");
     }
 #endif
@@ -126,8 +133,8 @@ void Adapter::addBuses()
 
     auto busType = [](const Bus& bus)
     { return bus.isMain ? Vst::kMain : Vst::kAux; };
-    auto busFlags = [](const Bus& bus)
-    { return bus.isMain ? Vst::BusInfo::kDefaultActive : 0; };
+    auto busFlags = [](const auto& bus)
+    { return bus.activeByDefault ? Vst::BusInfo::kDefaultActive : 0; };
 
     for (const auto& bus: layout.inputs)
     {
@@ -146,13 +153,13 @@ void Adapter::addBuses()
     for (const auto& bus: layout.midiInputs)
     {
         copyTo(name, bus.name);
-        addEventInput(name, 16);
+        addEventInput(name, 16, Vst::kMain, busFlags(bus));
     }
 
     for (const auto& bus: layout.midiOutputs)
     {
         copyTo(name, bus.name);
-        addEventOutput(name, 16);
+        addEventOutput(name, 16, Vst::kMain, busFlags(bus));
     }
 }
 
@@ -167,27 +174,31 @@ void Adapter::registerParameters()
 
 void Adapter::registerShadowParameters()
 {
-    constexpr auto flags =
-        Vst::ParameterInfo::kCanAutomate | Vst::ParameterInfo::kIsHidden;
+    // JUCE's are registered with no flag and a default of 0, pitch bend too.
+    auto juce = controllers.layout == Vst3ControllerLayout::JuceContiguous;
+    auto flags =
+        juce ? 0 : Vst::ParameterInfo::kCanAutomate | Vst::ParameterInfo::kIsHidden;
+    auto perChannel = shadowControllersFor(controllers);
 
     const auto& list = plugin().parameters();
     Vst::String128 title {};
 
-    for (auto bus = 0; bus < numMidiInputs; ++bus)
+    for (auto bus = 0; bus < numShadowBuses; ++bus)
     {
         for (auto channel = 0; channel < 16; ++channel)
         {
-            for (auto controller = 0; controller < shadowControllers; ++controller)
+            for (auto controller = 0; controller < perChannel; ++controller)
             {
-                auto id = shadowIdFor(bus, channel, controller);
+                auto id = shadowIdFor(controllers, bus, channel, controller);
 
                 if (list.indexOfHostId(id) >= 0)
                     continue;
 
                 auto target = ShadowTarget {bus, channel, controller};
-                auto defaultValue = controller == Vst::kPitchBend ? 0.5 : 0.0;
+                auto defaultValue =
+                    !juce && controller == Vst::kPitchBend ? 0.5 : 0.0;
 
-                copyTo(title, shadowName(target, numMidiInputs));
+                copyTo(title, shadowName(controllers, target, numShadowBuses));
                 parameters.addParameter(
                     new Vst::Parameter(title, id, nullptr, defaultValue, 0, flags));
             }
@@ -204,7 +215,7 @@ tresult PLUGIN_API Adapter::setActive(TBool state)
 {
     if (state)
     {
-        pluginWrapper.prepare(static_cast<int>(std::lround(processSetup.sampleRate)),
+        pluginWrapper.prepare(processSetup.sampleRate,
                               processSetup.maxSamplesPerBlock);
         pluginWrapper.reset();
         prepared = true;
@@ -510,7 +521,7 @@ void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
             continue;
         }
 
-        auto target = decodeShadowId(id, numMidiInputs);
+        auto target = decodeShadowId(controllers, id, numShadowBuses);
 
         if (!target)
             continue;
@@ -642,17 +653,38 @@ tresult PLUGIN_API Adapter::getMidiControllerAssignment(int32 busIndex,
                                                         Vst::CtrlNumber controller,
                                                         Vst::ParamID& id)
 {
-    if (busIndex < 0 || busIndex >= numMidiInputs || channel < 0 || channel > 15
-        || controller < 0 || controller >= shadowControllers)
+    // JUCE's layout answers for any bus, as JUCE does, with bus 0's ids.
+    auto juce = controllers.layout == Vst3ControllerLayout::JuceContiguous;
+
+    if (busIndex < 0 || (!juce && busIndex >= numShadowBuses) || numShadowBuses == 0
+        || channel < 0 || channel > 15 || controller < 0
+        || controller >= shadowControllersFor(controllers))
         return Steinberg::kResultFalse;
 
-    auto shadow = shadowIdFor(busIndex, channel, controller);
+    auto shadow = shadowIdFor(controllers, juce ? 0 : busIndex, channel, controller);
 
     if (plugin().parameters().indexOfHostId(shadow) >= 0)
         return Steinberg::kResultFalse;
 
     id = shadow;
     return Steinberg::kResultTrue;
+}
+
+tresult PLUGIN_API Adapter::setChannelContextInfos(Vst::IAttributeList* list)
+{
+    if (list == nullptr)
+        return Steinberg::kInvalidArgument;
+
+    try
+    {
+        pluginWrapper.setTrackInfo(toTrackInfo(*list));
+    }
+    catch (...)
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    return Steinberg::kResultOk;
 }
 
 void Adapter::beginParameterEdit(int index) noexcept
@@ -725,6 +757,7 @@ void Adapter::stateChanged() noexcept
 tresult PLUGIN_API Adapter::queryInterface(const Steinberg::TUID _iid, void** obj)
 {
     DEF_INTERFACE(Vst::IMidiMapping)
+    DEF_INTERFACE(Vst::ChannelContext::IInfoListener)
     return SingleComponentEffect::queryInterface(_iid, obj);
 }
 

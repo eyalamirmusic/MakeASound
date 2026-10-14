@@ -9,10 +9,3 @@ makeasound_add_plugin(SynthPlugin
         SOURCES SynthPlugin.cpp)
 
 target_link_libraries(SynthPlugin PUBLIC MakeASoundDSP)
-
-# The React page in web/, embedded into the core; the generic editor without a
-# web runtime.
-makeasound_add_web_editor(SynthPlugin
-        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
-        SOURCES SynthEditor-Web.cpp
-        FALLBACK_SOURCES SynthEditor-None.cpp)

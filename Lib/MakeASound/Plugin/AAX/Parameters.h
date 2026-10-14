@@ -8,10 +8,11 @@
 namespace MakeASound::AAX
 {
 
-// An AAX_CParamID is the entry's aaxId (ParameterList): under MakeASound's scheme
-// the 31-bit host id as eight lowercase hex digits, so an inserted or renamed
-// parameter keeps everyone's automation; under a JUCE scheme the id JUCE's AAX
-// wrapper gave it, "MasterBypassID" for the bypass.
+// An AAX_CParamID is the entry's aaxId (ParameterList, by AAXIdRule): under
+// MakeASound's scheme the 31-bit host id as eight lowercase hex digits, so an
+// inserted or renamed parameter keeps everyone's automation (under TamberPlug
+// the same of its index id, Plug having shipped no AAX); under a JUCE scheme
+// the id JUCE's AAX wrapper gave it, "MasterBypassID" for the bypass.
 
 // The id the host knows the entry by: its aaxId cut to the first 31 bytes, as
 // the SDK's AAX_CParameter keeps it (kAAX_ParameterIdentifierMaxSize less the

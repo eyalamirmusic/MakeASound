@@ -29,9 +29,10 @@ constexpr uint32_t hostIdFor(std::string_view id) noexcept
 // The flat registry of a parameter group, depth-first in registration order.
 // Holds pointers into the group, which must outlive it.
 //
-// Each entry carries every id a host addresses it by, computed for the list's
-// ParameterIdentity: MakeASound's by default, JUCE's for a port (see IdScheme).
-// An adapter reads them from here and computes none itself.
+// Each entry carries every id a host addresses it by, computed by the rules of
+// the list's ParameterIdentity: MakeASound's by default, a port's profile's
+// otherwise (see IdScheme and policyFor()). An adapter reads them from here and
+// computes none itself.
 class ParameterList
 {
 public:
@@ -42,8 +43,8 @@ public:
         std::string id;
         std::string name;
 
-        // The AUv3 AUParameterGroup identifier: the id path, or under a JUCE
-        // scheme the group's own id, as JUCE's tree names it.
+        // The AUv3 AUParameterGroup identifier, by GroupIdRule: the id path,
+        // or the group's own id, as JUCE's tree names it.
         std::string identifier;
 
         // The group's own id, the last segment of the path.
@@ -53,13 +54,16 @@ public:
     struct Entry
     {
         Parameter* param = nullptr;
+
+        // The id path ("Filter/Cutoff"; "Dry//Wet" for the id "Dry/Wet", see
+        // IdPath.h), which indexOf(std::string_view) takes.
         std::string id;
         std::string displayName;
 
-        // The VST3 ParamID and the AU AudioUnitParameterID. MakeASound: FNV-1a
-        // of the id path. JUCE: String::hashCode of the hostKey, masked to 31
-        // bits unless juceStudioOneMask is off, the added bypass 'byps'. Legacy:
-        // the index. ParameterOptions::hostId overrides it in every scheme.
+        // The VST3 ParamID and the AU AudioUnitParameterID, by ParamIdRule:
+        // FNV-1a of the id path; String::hashCode of the hostKey, masked to 31
+        // bits unless juceMask31 is off; or the index. The added bypass's by
+        // AddedBypassId. ParameterOptions::hostId overrides it in every scheme.
         uint32_t hostId = 0;
         bool automatable = true;
         bool sessionOnly = false;
@@ -73,27 +77,31 @@ public:
         // The parameter's hostKey(): the leaf key a JUCE scheme hashes.
         std::string hostKey;
 
-        // The AUv3 AUParameterAddress. MakeASound: the host id. JUCE:
-        // String::hashCode64 of the hostKey, never masked. Legacy: the index.
+        // The AUv3 AUParameterAddress, by AUv3Ids: the host id;
+        // String::hashCode64 of the hostKey, never masked; or the index.
         uint64_t address = 0;
 
-        // The AUv3 AUParameter identifier. MakeASound: the id path. Either JUCE
-        // scheme: the hostKey.
+        // The AUv3 AUParameter identifier, by AUv3Ids: the id path or the
+        // hostKey.
         std::string identifier;
 
-        // The AAX_CParamID. MakeASound: the host id in eight lowercase hex
-        // digits. JUCE: ParameterOptions::aaxId, else the hostKey. Legacy: the
-        // index in decimal. Either JUCE scheme: "MasterBypassID" for the bypass
-        // entry, declared or added.
+        // The AAX_CParamID, by AAXIdRule: the host id in eight lowercase hex
+        // digits; ParameterOptions::aaxId, else the hostKey; or the index in
+        // decimal. Under either of the last two, "MasterBypassID" for the
+        // bypass entry, declared or added.
         std::string aaxId;
 
         // The bypass PluginWrapper added, rather than one the plugin declared.
         bool addedBypass = false;
 
-        // False only for the added bypass under a JUCE scheme: JUCE's AU and
-        // AUv3 do not list the bypass they answer through their bypass property,
-        // so listing it would move every Logic automation index by one.
+        // False only for the added bypass under BypassPlacement::Unlisted.
         bool listedInAU = true;
+
+        // Under ParamIdRule::Index, an entry added after the port: its
+        // versionHint is past ParameterIdentity::indexedThroughVersion. It takes
+        // FNV-1a of its path for every id an index would give, counts toward no
+        // other entry's index, and lists in an AU after every indexed entry.
+        bool postPort = false;
     };
 
     ParameterList() = default;
@@ -105,12 +113,25 @@ public:
     // own id's host id. A no-op when the list already has a bypass.
     void addHostBypass(Parameter& param);
 
-    // Recomputes every entry's ids under `identity` and checks them in a debug
-    // build: no two host ids, addresses, JUCE host keys, group ids or truncated
-    // AAX ids alike, an explicit host id below 2^31 unless JUCE's mask is off,
-    // an AAX id at most 31 characters. PluginWrapper calls it at construction.
+    // Recomputes every entry's ids under `identity`; a debug build prints and
+    // asserts on identityProblems(). PluginWrapper calls it at construction,
+    // so every hosted plugin is checked; a list built on its own is not.
     void setIdentity(ParameterIdentity identityToUse);
     const ParameterIdentity& identity() const noexcept { return ids; }
+
+    // Every clash between the entries' ids, one line each, empty when none: no
+    // two host ids, addresses, JUCE host keys, group ids or truncated AAX ids
+    // alike, an explicit host id below 2^31 unless JUCE's mask is off, an AAX
+    // id at most 31 characters, and no host id among the VST3 MIDI controller
+    // parameters' where there are any (a JUCE port's only reported, never
+    // asserted), and no id beginning or ending with '/', which no id path can
+    // delimit (IdPath.h). In any build, so a Release test can run it.
+    Vector<std::string> identityProblems() const;
+
+    // Re-reads every entry's display name from its parameter's current name(),
+    // under the same group names, after a Parameter::setDisplayInfo. True when
+    // one changed. Message thread, where the adapters read the names.
+    bool refreshDisplayNames();
 
     int size() const noexcept { return entries.size(); }
     bool empty() const noexcept { return entries.empty(); }
@@ -132,10 +153,9 @@ public:
     // Bounds-tolerant: format adapters pass host indices through unvalidated.
     bool isHostExposed(int index) const noexcept;
 
-    // Whether the VST3 and AAX adapters register the entry with the host: under
-    // MakeASound's scheme only a host-exposed one; under a JUCE scheme every one,
-    // a non-automatable one as not automatable, as JUCE's wrappers do.
-    // Bounds-tolerant.
+    // Whether the VST3 and AAX adapters register the entry with the host, by
+    // Registration: only a host-exposed one, or every one (a non-automatable
+    // one as not automatable, as JUCE's wrappers do). Bounds-tolerant.
     bool isRegistered(int index) const noexcept;
 
     // The first host-exposed entry whose parameter isBypass(), -1 when none.
@@ -163,11 +183,22 @@ private:
              bool automatable,
              std::span<const ParameterGroup* const> groups);
     void assignIds();
+    void finishIds(Entry& entry) const;
+    uint32_t derivedHostId(const Entry& entry, int index) const noexcept;
     void indexHostIds();
     void findBypass();
-    void checkIds() const;
+    void findDuplicateHostIds(Vector<std::string>& problems) const;
+    Vector<std::string> problemsWith(bool controllerClashes) const;
+
+    // Among the VST3 MIDI controller parameters' ids, where there are any.
+    bool isMidiControllerId(uint32_t hostId) const noexcept;
 
     Vector<Entry> entries;
+
+    // Each entry's display name before its parameter's name: the enclosing
+    // groups' names and a space, or empty. Parallel to `entries`.
+    Vector<std::string> displayPrefixes;
+
     Vector<HostSlot> byHostId;
     Vector<AddressSlot> byAddress;
     ParameterIdentity ids;

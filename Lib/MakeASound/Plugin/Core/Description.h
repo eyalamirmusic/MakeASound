@@ -92,7 +92,7 @@ struct AAXStems
 using AAXNativeIdFn = std::function<uint32_t(const AAXStems& stems)>;
 
 // The JUCE settings that name a ported plugin and its parameters, with JUCE
-// 8.0.12's defaults. Read only when the description's idScheme is a JUCE one.
+// 8.0.12's defaults. Read only by policyFor(), for a JUCE idScheme.
 // JUCE_FORCE_USE_LEGACY_PARAM_IDS is not here: it is IdScheme::JUCELegacyIndex.
 struct JuceSettings
 {
@@ -121,6 +121,32 @@ struct JuceSettings
     constexpr bool operator==(const JuceSettings&) const = default;
 };
 
+// Per-concern overrides of the rules a description's IdScheme resolves to
+// (IdentityPolicy, Core/IdentityPolicy.h), each winning over the profile where
+// set. There is one only where a port needs it.
+struct IdentityOverrides
+{
+    // ParameterIdentity::indexedThroughVersion, under an index profile
+    // (JUCELegacyIndex): set it to the hint the port shipped with, 1 for most,
+    // the first release that adds a parameter other than at the end.
+    std::optional<int> indexedThroughVersion = {};
+
+    // The AU value space, units and flags, and whether an AU lists the bypass
+    // PluginWrapper adds (ParameterIdentity's auValues, auUnits and
+    // addedBypassInAU): e.g. MakeASound's display flags over Plug's ids.
+    std::optional<AUValueSpace> auValues = {};
+    std::optional<AUUnits> auUnits = {};
+    std::optional<BypassPlacement> addedBypassInAU = {};
+
+    // The VST3 MIDI controller parameters' layout (ParameterIdentity::
+    // vst3Controllers): JUCE's for a JUCE profile, MakeASound's at 0x7fff0000
+    // otherwise. E.g. {Native, 0x80000000} for a port that must keep Plug's.
+    // Whether there are any is vst3MidiControllers, below.
+    std::optional<Vst3Controllers> vst3Controllers = {};
+
+    constexpr bool operator==(const IdentityOverrides&) const = default;
+};
+
 // One plugin class within a module.
 struct PluginDescription
 {
@@ -136,14 +162,17 @@ struct PluginDescription
     PluginCreateFn create;
 
     // Identity. Every id a host stores for this plugin and its parameters comes
-    // from here: MakeASound's by default, a JUCE build's for a port that must
-    // keep its users' sessions (Core/Identity.h computes them). Per plugin
+    // from here: MakeASound's by default, a JUCE or Tamber Plug build's for a
+    // port that must keep its users' sessions. The profile and overrides
+    // resolve into an IdentityPolicy (identityPolicyFor(), Core/IdentityPolicy.h)
+    // and Core/Identity.h computes the plugin's ids from it. Per plugin
     // rather than per module, since JUCE's settings are per binary and a module
     // may hold a port beside native plugins; on the description rather than the
     // Plugin, since a VST3 factory names its classes before any instance exists
     // and a port should not have to change its processor to keep its ids.
-    IdScheme idScheme = IdScheme::MakeASound;
+    IdScheme idScheme = IdScheme::Native;
     JuceSettings juce = {};
+    IdentityOverrides overrides = {};
 
     // Overrides, each winning over the scheme. The VST3 component class id.
     std::optional<Vst3ClassId> vst3ClassId = {};
@@ -151,6 +180,21 @@ struct PluginDescription
     // The AU componentType ('aufx', 'aumu', 'aumf', 'aumi'); derived from the
     // category and layout when unset.
     std::optional<FourCC> auType = {};
+
+    // Whether the VST3 build receives MIDI CC, channel aftertouch, pitch bend
+    // and program change. VST3 hosts deliver those only through IMidiMapping,
+    // onto hidden parameters the adapter registers: 16 channels x 131
+    // controllers per MIDI input bus. Unset follows the category (on for
+    // Category::Instrument, off otherwise; vst3MidiControllersFor()). Off, no
+    // such parameter exists and the mapping answers kResultFalse: notes, poly
+    // pressure, SysEx and any controller a host sends as an event still arrive,
+    // but a host's mapped CC, bend, aftertouch and program change never reach
+    // the plugin. AU, AUv3 and AAX deliver every MIDI message natively and
+    // ignore this. The ids follow the profile's layout (Vst3ControllerLayout,
+    // overrides.vst3Controllers). JUCE turns its own on for any plugin that
+    // wants MIDI input, so a JUCE port that was an effect with a MIDI input sets
+    // this true to keep its mapped controllers.
+    std::optional<bool> vst3MidiControllers = {};
 
     // The id AAX's AddEffect takes: "<bundle id>.<plugin code>" by default,
     // the bundle id under a JUCE scheme (JUCE's JucePlugin_AAXIdentifier
@@ -163,6 +207,10 @@ struct PluginDescription
     // scheme (aaxNativeIdFor()).
     AAXNativeIdFn aaxNativeId = {};
 };
+
+// The description's vst3MidiControllers, or by category when unset: on for an
+// instrument, off for an effect or a MIDI effect.
+bool vst3MidiControllersFor(const PluginDescription& plugin) noexcept;
 
 // A module may host more than one plugin class: VST3 factories and AU bundles
 // both allow it.

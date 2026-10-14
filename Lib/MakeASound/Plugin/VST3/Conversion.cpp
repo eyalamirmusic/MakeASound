@@ -1,6 +1,8 @@
 #include "VST3Common.h"
 #include "Conversion.h"
+#include "Text.h"
 
+#include "pluginterfaces/vst/ivstchannelcontextinfo.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 
 #include <algorithm>
@@ -266,6 +268,66 @@ Vst::SpeakerArrangement arrangementFor(int numChannels) noexcept
         return ~Vst::SpeakerArrangement {0};
 
     return (Vst::SpeakerArrangement {1} << numChannels) - 1;
+}
+
+TrackInfo toTrackInfo(Vst::IAttributeList& list)
+{
+    namespace CC = Vst::ChannelContext;
+
+    auto info = TrackInfo {.isValid = true};
+
+    auto readString = [&](Vst::IAttributeList::AttrID key, std::string& out)
+    {
+        Vst::String128 text {};
+
+        if (list.getString(key, text, sizeof(text)) == Steinberg::kResultTrue)
+            out = toUtf8(text);
+    };
+
+    auto readInt = [&](Vst::IAttributeList::AttrID key, int& out)
+    {
+        auto value = Steinberg::int64 {};
+
+        if (list.getInt(key, value) == Steinberg::kResultTrue)
+            out = static_cast<int>(value);
+    };
+
+    readString(CC::kChannelNameKey, info.name);
+    readString(CC::kChannelUIDKey, info.uid);
+    readString(CC::kChannelIndexNamespaceKey, info.indexNamespace);
+    readInt(CC::kChannelIndexKey, info.index);
+    readInt(CC::kChannelIndexNamespaceOrderKey, info.namespaceOrder);
+
+    if (auto value = Steinberg::int64 {};
+        list.getInt(CC::kChannelColorKey, value) == Steinberg::kResultTrue)
+    {
+        auto spec = static_cast<CC::ColorSpec>(value);
+        info.color = {.r = CC::GetRed(spec),
+                      .g = CC::GetGreen(spec),
+                      .b = CC::GetBlue(spec),
+                      .a = CC::GetAlpha(spec)};
+    }
+
+    if (auto value = Steinberg::int64 {};
+        list.getInt(CC::kChannelPluginLocationKey, value) == Steinberg::kResultTrue)
+    {
+        switch (value)
+        {
+            case CC::kPreVolumeFader:
+                info.location = PluginLocation::PreVolumeFader;
+                break;
+            case CC::kPostVolumeFader:
+                info.location = PluginLocation::PostVolumeFader;
+                break;
+            case CC::kUsedAsPanner:
+                info.location = PluginLocation::UsedAsPanner;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return info;
 }
 
 } // namespace MakeASound::VST3

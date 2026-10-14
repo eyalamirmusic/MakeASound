@@ -51,7 +51,8 @@ public:
     const std::string& id() const noexcept { return groupId; }
     bool isAutomatable() const noexcept { return automatable; }
 
-    // Every parameter below, depth-first, with its id path ("Osc 1/Attack"),
+    // Every parameter below, depth-first, with its id path ("Osc 1/Attack", a
+    // '/' inside one id doubled: see IdPath.h),
     // display path ("Osc 1 Attack") and the AND of its flag and its groups'.
     void forEach(const Visitor& visitor) const;
 
@@ -68,6 +69,15 @@ protected:
     {
         (addItem(items), ...);
     }
+
+    // Adds `group` under a name the parent gives it, replacing the one it gave
+    // itself: how one group type is mounted more than once, an array of them
+    // included ("Osc 1", "Osc 2"). `options.id` is its key and id segment, the
+    // name when empty, and `options.automatable` AND-s with the group's own.
+    // Constructor-time only, as add().
+    void addChild(std::string_view nameToUse,
+                  ParameterGroup& group,
+                  GroupOptions options = {});
 
 private:
     struct Entry

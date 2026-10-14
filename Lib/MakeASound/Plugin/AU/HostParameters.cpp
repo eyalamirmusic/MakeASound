@@ -1,5 +1,6 @@
 #include "HostParameters.h"
 #include "../Compat/JuceIdentity.h"
+#include "../Core/IdentityPolicy.h"
 
 #include <algorithm>
 #include <cmath>
@@ -174,23 +175,41 @@ float valueForText(const Parameter& param, CFStringRef text)
     return std::clamp(value, param.minValue(), param.maxValue());
 }
 
+ParameterSpace::ParameterSpace(const ParameterIdentity& identity) noexcept
+    : rules(identity)
+{
+}
+
 ParameterSpace::ParameterSpace(IdScheme scheme, const JuceSettings& juce) noexcept
-    : idScheme(scheme)
-    , juceSettings(juce)
+    : ParameterSpace(policyFor(scheme, juce).parameters)
 {
 }
 
 ParameterSpace::ParameterSpace(const PluginDescription& plugin) noexcept
-    : ParameterSpace(plugin.idScheme, plugin.juce)
+    : ParameterSpace(identityPolicyFor(plugin).parameters)
 {
 }
 
 bool ParameterSpace::isListed(const ParameterList& list, int index) const noexcept
 {
-    if (!isJuce())
-        return list.isHostExposed(index);
+    auto registered = rules.registration == Registration::All
+                          ? index >= 0 && index < list.size()
+                          : list.isHostExposed(index);
 
-    return index >= 0 && index < list.size() && list.entry(index).listedInAU;
+    return registered && list.entry(index).listedInAU;
+}
+
+Compat::JuceAUParameterInfo
+    ParameterSpace::juceInfo(const ParameterList::Entry& entry) const noexcept
+{
+    auto settings = JuceSettings {};
+    settings.forceLegacyParameterAutomationType = rules.juceLegacyAutomationType;
+
+    auto scheme = rules.paramIds == ParamIdRule::Index ? IdScheme::JUCELegacyIndex
+                                                       : IdScheme::JUCE;
+
+    return Compat::juceAUParameterInfo(
+        *entry.param, entry.automatable, scheme, settings);
 }
 
 Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
@@ -203,6 +222,23 @@ Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
 
     auto hostId = [&](int index) { return list.entry(index).hostId; };
     auto hint = [&](int index) { return list[index].versionHint(); };
+    auto postPort = [&](int index) { return list.entry(index).postPort; };
+
+    // An index profile's indexed entries by index, which is declaration order
+    // (the SDK's indexed list, ids 0..n-1, or Plug's ascending sparse ids); any
+    // post-port entries follow, by (hint, id).
+    if (rules.auOrder != AUOrder::HintThenId)
+    {
+        auto firstPostPort = std::stable_partition(
+            order.begin(), order.end(), [&](int index) { return !postPort(index); });
+        std::sort(firstPostPort,
+                  order.end(),
+                  [&](int a, int b) { return hostId(a) < hostId(b); });
+        std::stable_sort(firstPostPort,
+                         order.end(),
+                         [&](int a, int b) { return hint(a) < hint(b); });
+        return order;
+    }
 
     std::sort(order.begin(),
               order.end(),
@@ -210,6 +246,18 @@ Vector<int> ParameterSpace::listOrder(const ParameterList& list) const
     std::stable_sort(
         order.begin(), order.end(), [&](int a, int b) { return hint(a) < hint(b); });
     return order;
+}
+
+bool ParameterSpace::usesSdkIndexedList(const ParameterList& list) const noexcept
+{
+    if (rules.auOrder != AUOrder::SdkIndexed)
+        return false;
+
+    for (auto index = 0; index < list.size(); ++index)
+        if (isListed(list, index) && list.entry(index).postPort)
+            return false;
+
+    return true;
 }
 
 int ParameterSpace::firstUnhinted(const ParameterList& list, int skip) const noexcept
@@ -224,47 +272,100 @@ int ParameterSpace::firstUnhinted(const ParameterList& list, int skip) const noe
 void ParameterSpace::fillInfo(const ParameterList::Entry& entry,
                               AudioUnitParameterInfo& info) const
 {
-    if (!isJuce())
-    {
-        fillParameterInfo(entry, info);
-        return;
-    }
-
-    // AU_1.mm GetParameterInfo, less clumps and meters, which MakeASound has not.
-    auto juce = Compat::juceAUParameterInfo(
-        *entry.param, entry.automatable, idScheme, juceSettings);
+    const auto& param = *entry.param;
 
     info = AudioUnitParameterInfo {};
     info.cfNameString = makeCFString(entry.displayName);
     CFStringGetCString(
         info.cfNameString, info.name, sizeof(info.name), kCFStringEncodingUTF8);
 
-    info.minValue = juce.minValue;
-    info.maxValue = juce.maxValue;
-    info.defaultValue = juce.defaultValue;
+    // The range, by the value space.
+    auto plainRange = true;
 
-    if (juce.indexedUnit)
-        info.unit = kAudioUnitParameterUnit_Indexed;
-    else if (juce.boolean && juce.discrete
-             && !juceSettings.forceLegacyParameterAutomationType)
-        info.unit = kAudioUnitParameterUnit_Boolean;
-    else
-        info.unit = kAudioUnitParameterUnit_Generic;
+    switch (rules.auValues)
+    {
+        case AUValueSpace::NativeCurve:
+            plainRange = !publishesNormalized(param);
+            info.minValue = plainRange ? param.minValue() : 0.f;
+            info.maxValue = plainRange ? param.maxValue() : 1.f;
+            break;
 
-    info.flags = kAudioUnitParameterFlag_IsReadable
-                 | kAudioUnitParameterFlag_IsWritable
-                 | kAudioUnitParameterFlag_HasCFNameString
-                 | kAudioUnitParameterFlag_CFNameRelease
-                 | kAudioUnitParameterFlag_ValuesHaveStrings;
+        case AUValueSpace::JuceScaled:
+        {
+            auto juce = juceInfo(entry);
+            plainRange = false;
+            info.minValue = juce.minValue;
+            info.maxValue = juce.maxValue;
+            break;
+        }
 
-    if (juce.highResolution)
-        info.flags |= kAudioUnitParameterFlag_IsHighResolution;
+        case AUValueSpace::Plain:
+            info.minValue = param.minValue();
+            info.maxValue = param.maxValue();
+            break;
+    }
 
-    if (juce.nonRealTime)
-        info.flags |= kAudioUnitParameterFlag_NonRealTime;
+    info.defaultValue = toHost(entry, param.defaultValue());
 
-    if (juce.canRamp)
-        info.flags |= kAudioUnitParameterFlag_CanRamp;
+    constexpr auto always = kAudioUnitParameterFlag_IsReadable
+                            | kAudioUnitParameterFlag_IsWritable
+                            | kAudioUnitParameterFlag_HasCFNameString
+                            | kAudioUnitParameterFlag_CFNameRelease;
+
+    // The unit and flags, by the units.
+    switch (rules.auUnits)
+    {
+        case AUUnits::Native:
+            if (param.stateFormat() == Parameter::StateFormat::Bool)
+                info.unit = kAudioUnitParameterUnit_Boolean;
+            else if (isIndexed(param) && plainRange)
+                info.unit = kAudioUnitParameterUnit_Indexed;
+            else
+                info.unit = kAudioUnitParameterUnit_Generic;
+
+            info.flags = always | kAudioUnitParameterFlag_IsHighResolution
+                         | displayFlag(param.curve());
+
+            if (AU::hasValueStrings(param))
+                info.flags |= kAudioUnitParameterFlag_ValuesHaveStrings;
+
+            break;
+
+        case AUUnits::Juce:
+        {
+            // AU_1.mm GetParameterInfo, less clumps and meters, which
+            // MakeASound has not.
+            auto juce = juceInfo(entry);
+
+            if (juce.indexedUnit)
+                info.unit = kAudioUnitParameterUnit_Indexed;
+            else if (juce.boolean && juce.discrete
+                     && !rules.juceLegacyAutomationType)
+                info.unit = kAudioUnitParameterUnit_Boolean;
+            else
+                info.unit = kAudioUnitParameterUnit_Generic;
+
+            info.flags = always | kAudioUnitParameterFlag_ValuesHaveStrings;
+
+            if (juce.highResolution)
+                info.flags |= kAudioUnitParameterFlag_IsHighResolution;
+
+            if (juce.nonRealTime)
+                info.flags |= kAudioUnitParameterFlag_NonRealTime;
+
+            if (juce.canRamp)
+                info.flags |= kAudioUnitParameterFlag_CanRamp;
+
+            break;
+        }
+
+        case AUUnits::Plug:
+            // Plug's AU/Adapter.cpp GetParameterInfo.
+            info.unit = param.numSteps() > 0 ? kAudioUnitParameterUnit_Indexed
+                                             : kAudioUnitParameterUnit_Generic;
+            info.flags = always;
+            break;
+    }
 }
 
 float ParameterSpace::toHost(const ParameterList::Entry& entry,
@@ -272,11 +373,13 @@ float ParameterSpace::toHost(const ParameterList::Entry& entry,
 {
     const auto& param = *entry.param;
 
-    if (!isJuce())
+    if (rules.auValues == AUValueSpace::NativeCurve)
         return toHostValue(param, plain);
 
-    auto juce = Compat::juceAUParameterInfo(
-        param, entry.automatable, idScheme, juceSettings);
+    if (rules.auValues == AUValueSpace::Plain)
+        return plain;
+
+    auto juce = juceInfo(entry);
     return juce.toHost(param.toNormalized(plain));
 }
 
@@ -285,22 +388,27 @@ float ParameterSpace::fromHost(const ParameterList::Entry& entry,
 {
     const auto& param = *entry.param;
 
-    if (!isJuce())
+    if (rules.auValues == AUValueSpace::NativeCurve)
         return fromHostValue(param, hostValue);
 
-    auto juce = Compat::juceAUParameterInfo(
-        param, entry.automatable, idScheme, juceSettings);
+    if (rules.auValues == AUValueSpace::Plain)
+        return hostValue;
+
+    auto juce = juceInfo(entry);
     return param.toPlain(std::clamp(juce.toNormalized(hostValue), 0.f, 1.f));
 }
 
 bool ParameterSpace::hasValueStrings(const ParameterList::Entry& entry,
                                      AUFlavour flavour) const noexcept
 {
-    if (!isJuce())
+    if (rules.auUnits == AUUnits::Native)
         return AU::hasValueStrings(*entry.param);
 
-    auto juce = Compat::juceAUParameterInfo(
-        *entry.param, entry.automatable, idScheme, juceSettings);
+    // Plug's AU answers no ParameterValueStrings.
+    if (rules.auUnits == AUUnits::Plug)
+        return false;
+
+    auto juce = juceInfo(entry);
     return flavour == AUFlavour::V2 ? juce.v2ValueStrings : juce.v3ValueStrings;
 }
 
@@ -309,16 +417,15 @@ CFArrayRef ParameterSpace::copyValueStrings(const ParameterList::Entry& entry,
 {
     const auto& param = *entry.param;
 
-    if (!isJuce())
-        return AU::copyValueStrings(param);
-
     if (!hasValueStrings(entry, flavour))
         return nullptr;
 
+    if (rules.auUnits == AUUnits::Native)
+        return AU::copyValueStrings(param);
+
     // JUCE's getNumSteps() strings, the text of i / maxValue each; past 1 under
     // the legacy automation type, which JUCE's range clamps.
-    auto juce = Compat::juceAUParameterInfo(
-        param, entry.automatable, idScheme, juceSettings);
+    auto juce = juceInfo(entry);
     auto count = param.numSteps() + 1;
     auto* array =
         CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);

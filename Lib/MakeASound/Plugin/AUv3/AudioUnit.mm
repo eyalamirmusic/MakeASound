@@ -155,6 +155,12 @@ using MakeASound::AUv3::Adapter;
     return adapter->midiOutputNames();
 }
 
+- (void)setContextName:(NSString*)contextName
+{
+    [super setContextName:contextName];
+    adapter->setContextName(contextName);
+}
+
 - (NSArray<AUAudioUnitPreset*>*)factoryPresets
 {
     return @[];

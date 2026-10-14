@@ -8,6 +8,7 @@
 
 #include "HostBuffers.h"
 #include "JucePort.h"
+#include "TamberPlugFixtures.h"
 #include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AU/ComponentType.h>
@@ -144,6 +145,26 @@ inline AudioComponent portComponentFor(IdScheme scheme)
     auto* component = AudioComponentRegister(
         &desc, CFSTR("MakeASound Tests: Port"), 0x10000, &portFactory);
     registered.emplace(scheme, component);
+    return component;
+}
+
+// One of TamberPlugFixtures' ports under IdScheme::TamberPlug, by its code, once.
+inline AudioComponent plugPortComponentFor(FourCC code)
+{
+    static auto registered = std::map<uint32_t, AudioComponent> {};
+
+    if (auto found = registered.find(code.toUint32()); found != registered.end())
+        return found->second;
+
+    const auto* plugin = TamberPlugFixtures::plugDescriptionFor(code.toUint32());
+    auto info = AU::componentInfoFor(portModule(), *plugin);
+    auto desc =
+        AudioComponentDescription {.componentType = info.type,
+                                   .componentSubType = info.subtype,
+                                   .componentManufacturer = info.manufacturer};
+    auto* component = AudioComponentRegister(
+        &desc, CFSTR("MakeASound Tests: Plug Port"), 0x10000, &portFactory);
+    registered.emplace(code.toUint32(), component);
     return component;
 }
 

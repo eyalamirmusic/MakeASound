@@ -4,6 +4,7 @@
 #include "BypassDelay.h"
 #include "Editor.h"
 #include "HostEditListener.h"
+#include "TrackInfo.h"
 #include "../Parameters/BoolParam.h"
 #include "../Parameters/ParameterList.h"
 #include "../State/StateContext.h"
@@ -47,7 +48,17 @@ enum class ForeignOrigin
     JuceAAX,
 
     // The `filterState` of a JUCE standalone's settings file, base64 decoded.
-    JuceStandalone
+    JuceStandalone,
+
+    // The `TamberPlugState` data of an AU v2 ClassInfo dictionary a Tamber Plug
+    // build saved (AU/Adapter.cpp's SaveState), whichever unit it reaches: a
+    // State document, `version` and a `params` object, written in a session. Its
+    // schema is this framework's own (each leaf under its id, each child list as a
+    // sub-object; a choice by name, a bool as 0 or 1), so a port that kept
+    // Plug's ids and plain-value ranges reads it with
+    // `state.deserialize(foreign.bytes, foreign.context)`. Plug's VST3 state is
+    // the same document with no framing, and loads as a native one.
+    TamberPlugAU
 };
 
 // A document another framework's build of this plugin saved, handed over by an
@@ -103,6 +114,12 @@ public:
     // out bus of the same index, and clears every other output. Audio thread.
     virtual void processBypassed(ProcessContext& context) noexcept;
 
+    // Whether PluginWrapper adds its bypass when the plugin declares none. A
+    // plugin with no use for one says false: a hosted plugin, whose parameters
+    // are the foreign plugin's own, or anything that must not gain a parameter
+    // the host would show. Asked once, when the wrapper is built.
+    virtual bool wantsHostBypass() const { return true; }
+
     // True once each time latencySamples() moved on its own since the last ask.
     // Message thread.
     virtual bool takeLatencyChanged() noexcept { return false; }
@@ -140,6 +157,14 @@ public:
 
     const ParameterList& parameters() const noexcept { return parameterList; }
 
+    // The last the host said about the track (see TrackInfo); not valid until it
+    // says something. Message thread.
+    const TrackInfo& trackInfo() const noexcept { return currentTrackInfo; }
+
+    // The host said something about the track, already in trackInfo(). Each time
+    // it tells, changed or not. Message thread.
+    virtual void onTrackInfoChanged(const TrackInfo& info);
+
     // Message thread; null where there is no host.
     void setHostEditListener(HostEditListener* listener) noexcept
     {
@@ -163,6 +188,11 @@ protected:
     // later gets the wrapper's bypass back unless it brings a bypass of its own.
     void setParameters(ParameterList list);
 
+    // After renaming parameters in place (Parameter::setDisplayInfo): the list's
+    // display names follow, and the host is told when one changed. Ids stay.
+    // Message thread.
+    void refreshParameterNames();
+
 private:
     friend class PluginWrapper;
 
@@ -173,6 +203,10 @@ private:
 
     // Message thread: grows the added bypass's delay to latencySamples().
     void fitBypassDelay() noexcept;
+
+    // The wrapper's, on the message thread: keeps it, then onTrackInfoChanged().
+    void setTrackInfo(TrackInfo info);
+    TrackInfo currentTrackInfo;
 
     // The wrapper's, after the bypass: every host id under the plugin's
     // description's scheme, kept for a list set again later.

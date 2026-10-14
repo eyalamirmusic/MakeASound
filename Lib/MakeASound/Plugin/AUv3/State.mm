@@ -10,6 +10,9 @@ NSString* const stateKey = @"MakeASoundState";
 // JUCE_STATE_DICTIONARY_KEY, which a JUCE build's AUv3 and v2 both write.
 NSString* const juceStateKey = @"jucePluginState";
 
+// TAMBERPLUG_AU_STATE_KEY, which a Tamber Plug build's AU v2 writes.
+NSString* const tamberPlugStateKey = @"TamberPlugState";
+
 // kAUPresetVersionKey's value: the ClassInfo format, which the SDK reads only at 0.
 constexpr auto savedStateVersion = 0;
 
@@ -71,6 +74,18 @@ std::optional<std::string>
                   const AudioComponentDescription& description)
 {
     auto bytes = readData(state, description, juceStateKey);
+
+    if (!bytes || bytes->empty())
+        return std::nullopt;
+
+    return bytes;
+}
+
+std::optional<std::string>
+    readTamberPlugState(NSDictionary<NSString*, id>* state,
+                        const AudioComponentDescription& description)
+{
+    auto bytes = readData(state, description, tamberPlugStateKey);
 
     if (!bytes || bytes->empty())
         return std::nullopt;

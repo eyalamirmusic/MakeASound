@@ -26,3 +26,10 @@ if (NOT IOS)
         add_subdirectory(Synth)
     endif ()
 endif ()
+
+# The console plugin scanner and the example host, wherever hosting builds (the
+# host's window where eacp draws).
+if (TARGET MakeASoundHosting)
+    add_subdirectory(PluginScanner)
+    add_subdirectory(PluginHost)
+endif ()

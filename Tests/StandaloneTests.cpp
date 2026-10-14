@@ -649,7 +649,8 @@ auto tHostIdentity = test("Standalone/hostAppliesTheDescriptionsIdentity") = []
     auto native = StandaloneHost {EA::makeOwned<GainPlugin>(), {}};
     check(native.plugin().parameters().identity() == ParameterIdentity {});
 
-    auto juce = ParameterIdentity {IdScheme::JUCE, false};
+    auto juce = policyFor(IdScheme::JUCE, {.studioOneCompatibleParameters = false})
+                    .parameters;
     auto port = StandaloneHost {EA::makeOwned<GainPlugin>(), {}, {}, juce};
     check(port.plugin().parameters().identity() == juce);
 };

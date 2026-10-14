@@ -60,7 +60,7 @@ private:
 
     Settings settings;
     std::vector<int> heldNotes;
-    int sampleRate = 44100;
+    double sampleRate = 44100.0;
 
     int currentNote = -1;
     float phase = 0.f;

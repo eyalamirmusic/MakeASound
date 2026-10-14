@@ -5,11 +5,14 @@
 
 #include "VST3TestHost.h"
 #include "JuceFixtures.h"
+#include "JucePort.h"
+#include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/VST3/Factory.h>
 #include <MakeASound/Plugin/VST3/Text.h>
 
 #include <pluginterfaces/gui/iplugview.h>
+#include <pluginterfaces/vst/ivstchannelcontextinfo.h>
 #include <pluginterfaces/vst/ivstmidicontrollers.h>
 
 #if MAKEASOUND_VST3_HAS_VIEW
@@ -25,6 +28,7 @@
 #include <climits>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -199,6 +203,7 @@ auto tFactoryCreates = test("VST3/createInstanceAnswersEveryInterface") = []
     check(answers(Vst::IAudioProcessor::iid));
     check(answers(Vst::IEditController::iid));
     check(answers(Vst::IMidiMapping::iid));
+    check(answers(Vst::ChannelContext::IInfoListener::iid));
 
     auto unknown = Steinberg::FUID(1, 2, 3, 4);
     auto* none = static_cast<void*>(nullptr);
@@ -251,6 +256,47 @@ auto tBuses = test("VST3/busesFollowTheLayout") = []
     }
 };
 
+// A main input, a sidechain left off until routed, an aux on, and MIDI buses
+// one of each.
+struct InactiveBusPlugin : GainPlugin
+{
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+        layout.inputs.add({.name = "Sidechain",
+                           .numChannels = 1,
+                           .isMain = false,
+                           .activeByDefault = false});
+        layout.inputs.add({.name = "Aux", .numChannels = 2, .isMain = false});
+        layout.midiInputs.add({.name = "MIDI"});
+        layout.midiOutputs.add({.name = "MIDI Out", .activeByDefault = false});
+        return layout;
+    }
+
+    bool acceptsLayout(const BusLayout&) const override { return true; }
+};
+
+auto tDefaultActive = test("VST3/busesSayWhetherTheyStartActive") = []
+{
+    auto host = AdapterHost<InactiveBusPlugin> {};
+    auto& adapter = *host.adapter;
+
+    auto flagsOf =
+        [&adapter](Vst::MediaType type, Vst::BusDirection direction, int i)
+    {
+        auto info = Vst::BusInfo {};
+        check(adapter.getBusInfo(type, direction, i, info) == Steinberg::kResultOk);
+        return info.flags;
+    };
+
+    check(adapter.getBusCount(Vst::kAudio, Vst::kInput) == 3);
+    check(flagsOf(Vst::kAudio, Vst::kInput, 0) == Vst::BusInfo::kDefaultActive);
+    check(flagsOf(Vst::kAudio, Vst::kInput, 1) == 0);
+    check(flagsOf(Vst::kAudio, Vst::kInput, 2) == Vst::BusInfo::kDefaultActive);
+    check(flagsOf(Vst::kEvent, Vst::kInput, 0) == Vst::BusInfo::kDefaultActive);
+    check(flagsOf(Vst::kEvent, Vst::kOutput, 0) == 0);
+};
+
 auto tArrangements = test("VST3/busArrangementsNegotiateThroughTheWrapper") = []
 {
     auto host = AdapterHost<GainPlugin> {};
@@ -289,6 +335,19 @@ auto tActivation = test("VST3/activationPreparesThePlugin") = []
     check(plugin.spec.maxBlockSize == blockSize);
     check(plugin.format() == PluginFormat::VST3);
     check(plugin.formatAtPrepare == PluginFormat::VST3);
+};
+
+auto tFractionalRate = test("VST3/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto& plugin = host.plugin();
+
+    host.configure(44055.94, blockSize);
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+
+    host.configure(48047.5, blockSize);
+    check(plugin.spec.sampleRate == 48047.5);
 };
 
 auto tUnity = test("VST3/aBlockAtUnityPassesTheInput") = []
@@ -409,7 +468,7 @@ auto tParameterInfo = test("VST3/parameterInfoMirrorsTheList") = []
         check(isBypass == (&param == &host.plugin().params.bypass));
     }
 
-    auto instrument = AdapterHost<SynthPlugin> {};
+    auto instrument = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto& synth = *instrument.adapter;
     auto exposed = synth.plugin().parameters().size();
 
@@ -770,6 +829,27 @@ struct QuirkyStream final
     Steinberg::int64 reportedSize = 0;
 };
 
+// Plug's VST3 getState writes its document with no framing: it loads as a native
+// one, and loadLegacy never hears of it.
+auto tPlugState = test("VST3/aTamberPlugSessionLoadsAsANativeDocument") = []
+{
+    auto svf = AdapterHost<TamberPlugFixtures::SVFPort> {};
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream, std::string {TamberPlugFixtures::svfDocument});
+
+    check(svf.adapter->setState(&stream) == Steinberg::kResultOk);
+    check(svf.plugin().legacyLoads == 0);
+    check(TamberPlugFixtures::holdsSVFValues(svf.plugin().params));
+
+    auto chorus = AdapterHost<TamberPlugFixtures::ChorusPort> {};
+    auto chorusStream = Steinberg::MemoryStream {};
+    writeBytes(chorusStream, std::string {TamberPlugFixtures::chorusDocument});
+
+    check(chorus.adapter->setState(&chorusStream) == Steinberg::kResultOk);
+    check(chorus.plugin().legacyLoads == 0);
+    check(TamberPlugFixtures::holdsChorusValues(chorus.plugin().params));
+};
+
 auto tJuceState = test("VST3/aJuceSessionLoadsThroughThePluginsReader") = []
 {
     auto host = AdapterHost<FixturePlugin> {};
@@ -1035,7 +1115,8 @@ auto tJuceSessionIds = test("VST3/aJuceSessionKeepsItsAutomationIds") = []
 auto tJuceNonAutomatable =
     test("VST3/aJucePortListsItsNonAutomatableParameters") = []
 {
-    auto host = AdapterHost<LatencyPlugin> {ParameterIdentity {IdScheme::JUCE}};
+    auto host =
+        AdapterHost<LatencyPlugin> {policyFor(IdScheme::JUCE, {}).parameters};
     auto& adapter = *host.adapter;
     auto hiddenId = juceId("Hidden");
 
@@ -1082,8 +1163,9 @@ auto tJuceNonAutomatable =
 // the automation queue, the controller and the plugin's own moves.
 auto tJuceUnmasked = test("VST3/aJucePortsUnmaskedIdsReachThePlugin") = []
 {
-    auto host =
-        AdapterHost<FixturePlugin> {ParameterIdentity {IdScheme::JUCE, false}};
+    auto host = AdapterHost<FixturePlugin> {
+        policyFor(IdScheme::JUCE, {.studioOneCompatibleParameters = false})
+            .parameters};
     auto& cutoff = host.plugin().params.cutoff;
 
     check(host.hostIdOf(cutoff) == juceCutoffUnmasked);
@@ -1113,7 +1195,7 @@ auto tJuceUnmasked = test("VST3/aJucePortsUnmaskedIdsReachThePlugin") = []
 auto tJuceLegacy = test("VST3/aJuceLegacyPortAddressesParametersByIndex") = []
 {
     auto host = AdapterHost<FixturePlugin> {
-        ParameterIdentity {IdScheme::JUCELegacyIndex}};
+        policyFor(IdScheme::JUCELegacyIndex, {}).parameters};
     auto& adapter = *host.adapter;
     const auto& list = host.plugin().parameters();
 
@@ -1225,7 +1307,7 @@ auto tSysEx = test("VST3/aSysExRoundTrips") = []
 
 auto tCcMapping = test("VST3/ccArrivesThroughTheMapping") = []
 {
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto id = Vst::ParamID {};
 
     check(host.adapter->getMidiControllerAssignment(0, 3, 74, id)
@@ -1257,7 +1339,7 @@ auto tCcMapping = test("VST3/ccArrivesThroughTheMapping") = []
 
 auto tBendAndPressure = test("VST3/pitchBendAndAftertouchThroughTheMapping") = []
 {
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto bend = Vst::ParamID {};
     auto pressure = Vst::ParamID {};
 
@@ -1289,7 +1371,7 @@ auto tBendAndPressure = test("VST3/pitchBendAndAftertouchThroughTheMapping") = [
 
 auto tProgramChange = test("VST3/programChangeThroughTheMapping") = []
 {
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto id = Vst::ParamID {};
 
     check(
@@ -1315,7 +1397,7 @@ auto tMappingLimits = test("VST3/theMappingRefusesWhatItCannotCarry") = []
     using MakeASound::VST3::decodeShadowId;
     using MakeASound::VST3::shadowIdFor;
 
-    auto host = AdapterHost<SynthPlugin> {};
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
     auto& adapter = *host.adapter;
     auto id = Vst::ParamID {};
 
@@ -1353,6 +1435,161 @@ auto tMappingLimits = test("VST3/theMappingRefusesWhatItCannotCarry") = []
     check(!decodeShadowId(shadowIdFor(1, 0, 0), 1));
     check(!decodeShadowId(shadowIdFor(0, 0, 131), 1));
     check(!decodeShadowId(42, 1));
+};
+
+// A module of one plugin, P under `category` and `midiControllers`, with the
+// adapter its factory creates, initialized as a host would.
+template <typename P>
+struct FactoryHosted
+{
+    FactoryHosted(Category category, std::optional<bool> midiControllers)
+    {
+        module.vendor = "MakeASound Tests";
+        module.manufacturerCode = "MaSo";
+        module.plugins.add({.name = "Hosted",
+                            .category = category,
+                            .pluginCode = "Hstd",
+                            .create = [] { return EA::makeOwned<P>(); },
+                            .vst3MidiControllers = midiControllers});
+
+        auto factory = Steinberg::owned(MakeASound::VST3::makeFactory(module));
+        auto cid = MakeASound::VST3::classIdFor(module, module.plugins[0]);
+        auto* object = static_cast<void*>(nullptr);
+        factory->createInstance(reinterpret_cast<Steinberg::FIDString>(cid.toTUID()),
+                                Vst::IComponent::iid,
+                                &object);
+
+        component = Steinberg::owned(static_cast<Vst::IComponent*>(object));
+        component->initialize(nullptr);
+    }
+
+    ~FactoryHosted() { component->terminate(); }
+
+    Adapter& adapter() { return *static_cast<Adapter*>(component.get()); }
+
+    ModuleDescription module;
+    Steinberg::IPtr<Vst::IComponent> component;
+};
+
+// The plugin's registered parameters come first, by the same host ids whatever
+// the setting; the 2096 hidden shadows of its one MIDI bus follow only when
+// MIDI controllers are on, and the mapping answers only then.
+template <typename P>
+void checkMidiControllers(Category category,
+                          std::optional<bool> midiControllers,
+                          bool expectOn)
+{
+    using MakeASound::VST3::decodeShadowId;
+
+    auto hosted = FactoryHosted<P> {category, midiControllers};
+    auto& adapter = hosted.adapter();
+    const auto& list = adapter.plugin().parameters();
+
+    auto pluginIds = std::vector<Vst::ParamID> {};
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isRegistered(i))
+            pluginIds.push_back(list.entry(i).hostId);
+
+    auto numPluginIds = static_cast<int>(pluginIds.size());
+    check(numPluginIds > 0);
+    check(adapter.getParameterCount() == numPluginIds + (expectOn ? 2096 : 0));
+
+    for (auto i = 0; i < adapter.getParameterCount(); ++i)
+    {
+        auto info = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(i, info) == Steinberg::kResultOk);
+
+        if (i < numPluginIds)
+        {
+            check(info.id == pluginIds[static_cast<size_t>(i)]);
+            check(!decodeShadowId(info.id, 1).has_value());
+        }
+        else
+        {
+            check(decodeShadowId(info.id, 1).has_value());
+            check(flagged(info, Vst::ParameterInfo::kIsHidden));
+        }
+    }
+
+    auto mapping = Steinberg::FUnknownPtr<Vst::IMidiMapping>(hosted.component);
+    check(mapping != nullptr);
+
+    auto id = Vst::ParamID {};
+    auto expected = expectOn ? Steinberg::kResultTrue : Steinberg::kResultFalse;
+    check(mapping->getMidiControllerAssignment(0, 0, 1, id) == expected);
+    check(mapping->getMidiControllerAssignment(0, 0, Vst::kPitchBend, id)
+          == expected);
+}
+
+auto tMidiControllersResolve =
+    test("VST3/midiControllersFollowTheCategoryUnlessSet") = []
+{
+    auto resolved = [](Category category, std::optional<bool> setting)
+    {
+        return MakeASound::vst3MidiControllersFor(
+            {.category = category, .vst3MidiControllers = setting});
+    };
+
+    check(resolved(Category::Instrument, {}));
+    check(!resolved(Category::Effect, {}));
+    check(!resolved(Category::MidiEffect, {}));
+
+    check(resolved(Category::Effect, true));
+    check(resolved(Category::MidiEffect, true));
+    check(!resolved(Category::Instrument, false));
+    check(resolved(Category::Instrument, true));
+    check(!resolved(Category::Effect, false));
+};
+
+auto tInstrumentControllers =
+    test("VST3/anInstrumentMapsMidiControllersByDefault") = []
+{ checkMidiControllers<SynthPlugin>(Category::Instrument, {}, true); };
+
+auto tEffectControllers =
+    test("VST3/anEffectWithMidiInMapsNoMidiControllersByDefault") = []
+{
+    checkMidiControllers<LatentEffect>(Category::Effect, {}, false);
+    checkMidiControllers<LatentEffect>(Category::MidiEffect, {}, false);
+};
+
+auto tEffectAsksForControllers = test("VST3/anEffectCanAskForMidiControllers") = []
+{ checkMidiControllers<LatentEffect>(Category::Effect, true, true); };
+
+auto tInstrumentDeclinesControllers =
+    test("VST3/anInstrumentCanTurnMidiControllersOff") = []
+{ checkMidiControllers<SynthPlugin>(Category::Instrument, false, false); };
+
+// Off, a point on a would-be shadow id is not a parameter and is dropped, while
+// notes and a controller the host sends as an event still reach the plugin.
+auto tWithoutControllers = test("VST3/withoutMidiControllersOnlyEventsArrive") = []
+{
+    auto host = AdapterHost<SynthPlugin> {};
+    auto id = Vst::ParamID {};
+
+    check(host.adapter->getMidiControllerAssignment(0, 3, 74, id)
+          == Steinberg::kResultFalse);
+
+    auto legacy = Vst::Event {};
+    legacy.type = Vst::Event::kLegacyMIDICCOutEvent;
+    legacy.sampleOffset = 9;
+    legacy.midiCCOut.channel = 1;
+    legacy.midiCCOut.controlNumber = 7;
+    legacy.midiCCOut.value = 127;
+
+    host.addPoint(MakeASound::VST3::shadowIdFor(0, 3, 74), 0, 0.5);
+    host.addEvent(noteEvent(true, 5));
+    host.addEvent(legacy);
+    host.fillBlock(blockSize);
+    host.run();
+
+    const auto& plugin = host.plugin();
+    check(plugin.numEvents == 2);
+    check(plugin.events[0].isNoteOn() && plugin.events[0].sampleOffset == 5);
+
+    const auto* cc = plugin.events[1].asControlChange();
+    check(cc != nullptr && cc->controller == 7 && near(cc->value, 1.0));
+    check(plugin.events[1].sampleOffset == 9);
 };
 
 auto tLatency = test("VST3/latencyRestartsOnceTheHostHasABaseline") = []
@@ -1400,6 +1637,132 @@ auto tInfoChanged = test("VST3/parameterInfoChangedRestartsTitles") = []
 
     host.plugin().notifyHostParameterInfoChanged();
     check(host.handler.restartsWith(Vst::kParamTitlesChanged) == 1);
+};
+
+// The channel context a host hands IInfoListener: strings and integers by key.
+// Stack-owned, so its reference count is a no-op.
+struct TestChannelContext final : Vst::IAttributeList
+{
+    tresult PLUGIN_API setInt(AttrID id, Steinberg::int64 value) override
+    {
+        ints[id] = value;
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API getInt(AttrID id, Steinberg::int64& value) override
+    {
+        auto found = ints.find(id);
+
+        if (found == ints.end())
+            return Steinberg::kResultFalse;
+
+        value = found->second;
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API setFloat(AttrID, double) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API getFloat(AttrID, double&) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API setString(AttrID id, const Vst::TChar* text) override
+    {
+        strings[id] = MakeASound::VST3::toUtf8(text);
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API getString(AttrID id,
+                                 Vst::TChar* text,
+                                 Steinberg::uint32 sizeInBytes) override
+    {
+        auto found = strings.find(id);
+
+        if (found == strings.end() || sizeInBytes < sizeof(Vst::String128))
+            return Steinberg::kResultFalse;
+
+        MakeASound::VST3::copyTo(text, found->second);
+        return Steinberg::kResultTrue;
+    }
+
+    tresult PLUGIN_API setBinary(AttrID, const void*, Steinberg::uint32) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API getBinary(AttrID, const void*&, Steinberg::uint32&) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID _iid,
+                                      void** obj) override
+    {
+        QUERY_INTERFACE(_iid, obj, Steinberg::FUnknown::iid, Vst::IAttributeList)
+        QUERY_INTERFACE(_iid, obj, Vst::IAttributeList::iid, Vst::IAttributeList)
+        *obj = nullptr;
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1; }
+
+    std::map<std::string, std::string> strings;
+    std::map<std::string, Steinberg::int64> ints;
+};
+
+auto tChannelContext = test("VST3/theChannelContextReachesTheTrackInfo") = []
+{
+    namespace CC = Vst::ChannelContext;
+
+    auto host = AdapterHost<GainPlugin> {};
+    auto& plugin = host.plugin();
+
+    auto* listener = static_cast<void*>(nullptr);
+    check(host.adapter->queryInterface(CC::IInfoListener::iid, &listener)
+          == Steinberg::kResultOk);
+    auto* info = static_cast<CC::IInfoListener*>(listener);
+
+    auto context = TestChannelContext {};
+    context.strings[CC::kChannelNameKey] = "Lead Vocal";
+    context.strings[CC::kChannelUIDKey] = "track-7";
+    context.strings[CC::kChannelIndexNamespaceKey] = "Audio";
+    context.ints[CC::kChannelIndexKey] = 4;
+    context.ints[CC::kChannelIndexNamespaceOrderKey] = 2;
+    // ARGB.
+    context.ints[CC::kChannelColorKey] = 0xff102030;
+    context.ints[CC::kChannelPluginLocationKey] = CC::kPostVolumeFader;
+
+    check(info->setChannelContextInfos(&context) == Steinberg::kResultOk);
+    info->release();
+
+    const auto& track = plugin.trackInfo();
+    check(plugin.trackInfoChanges == 1);
+    check(track.isValid);
+    check(track.name == "Lead Vocal");
+    check(track.uid == "track-7");
+    check(track.indexNamespace == "Audio");
+    check(track.index == 4);
+    check(track.namespaceOrder == 2);
+    check(track.color == MakeASound::TrackColor {0x10, 0x20, 0x30, 0xff});
+    check(track.location == MakeASound::PluginLocation::PostVolumeFader);
+
+    // A rename alone: what the host leaves out goes back to its default.
+    auto renamed = TestChannelContext {};
+    renamed.strings[CC::kChannelNameKey] = "Lead Vox";
+    check(host.adapter->setChannelContextInfos(&renamed) == Steinberg::kResultOk);
+    check(plugin.trackInfoChanges == 2);
+    check(plugin.trackInfo().name == "Lead Vox");
+    check(plugin.trackInfo().index == 0);
+    check(plugin.trackInfo().location == MakeASound::PluginLocation::Unknown);
+
+    check(host.adapter->setChannelContextInfos(nullptr)
+          == Steinberg::kInvalidArgument);
+    check(plugin.trackInfoChanges == 2);
 };
 
 // One block of `numSamples` with nothing from the host, whose output changes the
@@ -1552,6 +1915,8 @@ auto tView = test("VST3/theEditorViewIsTheGenericEditor") = []
     auto host = AdapterHost<GainPlugin> {};
     auto view = Steinberg::owned(host.adapter->createView(Vst::ViewType::kEditor));
     check(view != nullptr);
+    Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(view.get())
+        ->setContentScaleFactor(1.f);
 
     auto native = MakeASound::VST3::PlugView::nativeViewType();
     check(view->isPlatformTypeSupported(native) == Steinberg::kResultTrue);
@@ -1607,9 +1972,13 @@ EditorConstraints ratioLocked()
 
 struct EditorView
 {
+    // At a content scale of 1, as a host would set it: unscaled, a Windows view
+    // follows the machine's DPI (VST3ViewTests-Windows.cpp).
     explicit EditorView(AdapterHost<GainPlugin>& host)
         : view(Steinberg::owned(host.adapter->createView(Vst::ViewType::kEditor)))
     {
+        Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(view.get())
+            ->setContentScaleFactor(1.f);
     }
 
     Steinberg::ViewRect size()
@@ -1865,5 +2234,180 @@ auto tAddedBypassLatency =
 
     for (auto k = 200; k < static_cast<int>(heard.size()); ++k)
         check(heard[static_cast<size_t>(k)] == static_cast<float>(first + k - 200));
+};
+
+// What Plug's own SVFFilter and Chorus VST3s published (TamberPlugFixtures.h),
+// from a port under IdScheme::TamberPlug: the index ids, steps, defaults and
+// kCanAutomate. MakeASound adds kIsList to a choice (a display hint Plug's
+// RangeParameter lacked), and registers the bypass the wrapper adds after
+// them, which Plug had none of.
+template <typename P, size_t count>
+void checkPlugsVST3(const TamberPlugFixtures::PlugParameter (&published)[count])
+{
+    auto identity =
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters;
+    auto host = AdapterHost<P> {identity};
+    auto& adapter = *host.adapter;
+
+    check(adapter.getParameterCount() == static_cast<int32>(count) + 1);
+
+    for (auto index = 0; index < static_cast<int>(count); ++index)
+    {
+        auto info = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(index, info) == Steinberg::kResultOk);
+
+        const auto& plug = published[index];
+        check(info.id == static_cast<Vst::ParamID>(index));
+        check(MakeASound::VST3::toUtf8(info.title) == plug.name);
+        check(info.stepCount == plug.vst3Steps);
+        check(near(info.defaultNormalizedValue, plug.vst3Default, 1e-6));
+        check(info.unitId == Vst::kRootUnitId);
+        check((info.flags & ~Vst::ParameterInfo::kIsList)
+              == Vst::ParameterInfo::kCanAutomate);
+    }
+
+    auto bypass = Vst::ParameterInfo {};
+    adapter.getParameterInfo(static_cast<int32>(count), bypass);
+    check(bypass.id == MakeASound::hostIdFor("__bypass"));
+    check((bypass.flags & Vst::ParameterInfo::kIsBypass) != 0);
+}
+
+// What JUCE 8.0.12's own VST3 build of JucePort's twin published (JucePort.h),
+// under each JUCE scheme. MakeASound differs only where noted: kIsList on a
+// choice, and an int's steps (JUCE's AudioParameterInt is not discrete to its
+// VST3 wrapper; MakeASound's IntParam has a step per value).
+void checkJucesVST3(MakeASound::IdScheme scheme)
+{
+    auto legacy = scheme == MakeASound::IdScheme::JUCELegacyIndex;
+    auto host = AdapterHost<JucePort::PortPlugin> {
+        MakeASound::policyFor(scheme, {}).parameters};
+    auto& adapter = *host.adapter;
+
+    constexpr auto count = static_cast<int>(std::size(JucePort::juceVST3));
+    check(adapter.getParameterCount() == count);
+
+    for (auto index = 0; index < count; ++index)
+    {
+        const auto& juce = JucePort::juceVST3[index];
+        auto info = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(index, info) == Steinberg::kResultOk);
+
+        check(info.id == (legacy ? juce.legacyId : juce.id));
+        check(near(info.defaultNormalizedValue, juce.defaultValue, 1e-6));
+        check((info.flags & ~Vst::ParameterInfo::kIsList) == juce.flags);
+
+        if (std::string_view {juce.key} == "voices")
+            check(info.stepCount == 15 && juce.stepCount == 0);
+        else
+            check(info.stepCount == juce.stepCount);
+    }
+}
+
+auto tJuceGoldens = test("VST3/aJucePortPublishesWhatJucesVST3Did") = []
+{
+    checkJucesVST3(MakeASound::IdScheme::JUCE);
+    checkJucesVST3(MakeASound::IdScheme::JUCELegacyIndex);
+
+    auto port = JucePort::description(MakeASound::IdScheme::JUCE);
+    port.juce.vst3CanReplaceVst2 = false;
+    auto module = MakeASound::ModuleDescription {.manufacturerCode = "MaSo"};
+    check(MakeASound::vst3ClassIdFor(module, port) == JucePort::juceVST3ClassId);
+};
+
+// A JUCE port's MIDI controller parameters are JUCE's (JucePort.h): the
+// mapping's answers, the count, the flags, the titles, under either id mode,
+// and a point on one reaches the plugin as that controller.
+auto tJuceControllers = test("VST3/aJucePortsMidiControllersAreJuces") = []
+{
+    for (auto scheme:
+         {MakeASound::IdScheme::JUCE, MakeASound::IdScheme::JUCELegacyIndex})
+    {
+        auto host = AdapterHost<SynthPlugin> {
+            MakeASound::policyFor(scheme, {}).parameters, withMidiControllers};
+        auto& adapter = *host.adapter;
+
+        for (const auto& juce: JucePort::juceMidiMappings)
+        {
+            auto id = Vst::ParamID {};
+            check(adapter.getMidiControllerAssignment(
+                      juce.bus,
+                      static_cast<Steinberg::int16>(juce.channel),
+                      static_cast<Vst::CtrlNumber>(juce.controller),
+                      id)
+                  == Steinberg::kResultTrue);
+            check(id == juce.id);
+        }
+
+        // No program change slot.
+        auto id = Vst::ParamID {};
+        check(adapter.getMidiControllerAssignment(0, 0, Vst::kCtrlProgramChange, id)
+              == Steinberg::kResultFalse);
+
+        auto plugins = adapter.plugin().parameters().size();
+        check(adapter.getParameterCount()
+              == plugins + JucePort::juceMidiControllerCount);
+
+        auto last = Vst::ParameterInfo {};
+        check(adapter.getParameterInfo(adapter.getParameterCount() - 1, last)
+              == Steinberg::kResultOk);
+        check(last.id == 0x6D63751Fu);
+        check(last.flags == 0 && last.stepCount == 0);
+        check(last.defaultNormalizedValue == 0.0);
+        check(MakeASound::VST3::toUtf8(last.title) == "MIDI CC 15|129");
+    }
+
+    auto host = AdapterHost<SynthPlugin> {
+        MakeASound::policyFor(MakeASound::IdScheme::JUCE, {}).parameters,
+        withMidiControllers};
+    host.addPoint(0x6D636D00u + 3 * 130 + 74, 0, 0.5);
+    host.fillBlock(blockSize);
+    host.run();
+
+    const auto& plugin = host.plugin();
+    check(plugin.numEvents == 1);
+    const auto* cc = plugin.events[0].asControlChange();
+    check(cc != nullptr && cc->controller == 74 && plugin.events[0].channel == 3);
+};
+
+// MakeASound's layout at another base, here Plug's: Plug's ids for CC, bend and
+// aftertouch (probed from Plug's Synth), plus a program change slot Plug had
+// not.
+auto tControllerBase = test("VST3/theNativeControllerLayoutTakesABase") = []
+{
+    auto identity =
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters;
+    identity.vst3Controllers = {MakeASound::Vst3ControllerLayout::Native,
+                                0x80000000u};
+
+    auto host = AdapterHost<SynthPlugin> {identity, withMidiControllers};
+    auto& adapter = *host.adapter;
+    auto id = Vst::ParamID {};
+
+    check(adapter.getMidiControllerAssignment(0, 0, 1, id)
+          == Steinberg::kResultTrue);
+    check(id == 0x80000001u);
+    check(adapter.getMidiControllerAssignment(0, 15, 127, id)
+          == Steinberg::kResultTrue);
+    check(id == 0x80000F7Fu);
+    check(adapter.getMidiControllerAssignment(0, 0, Vst::kPitchBend, id)
+          == Steinberg::kResultTrue);
+    check(id == 0x80000081u);
+    check(adapter.getMidiControllerAssignment(1, 0, 1, id)
+          == Steinberg::kResultFalse);
+
+    // The default is MakeASound's base, for TamberPlug as for Native.
+    auto plug = AdapterHost<SynthPlugin> {
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters,
+        withMidiControllers};
+    check(plug.adapter->getMidiControllerAssignment(0, 0, 1, id)
+          == Steinberg::kResultTrue);
+    check(id == MakeASound::VST3::shadowIdFor(0, 0, 1));
+};
+
+auto tPlugGoldens = test("VST3/aTamberPlugPortPublishesWhatPlugsVST3Did") = []
+{
+    checkPlugsVST3<TamberPlugFixtures::SVFPort>(TamberPlugFixtures::svfPublished);
+    checkPlugsVST3<TamberPlugFixtures::ChorusPort>(
+        TamberPlugFixtures::chorusPublished);
 };
 } // namespace

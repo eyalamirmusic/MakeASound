@@ -16,7 +16,12 @@ struct Bus
     int numChannels = 2;
     bool isMain = true;
 
-    MIRO_REFLECT(name, numChannels, isMain)
+    // Whether a host turns the bus on without being asked (VST3's
+    // kDefaultActive). False for an aux bus that should stay off until the user
+    // routes something to it; a hosted plugin's buses carry what the plugin said.
+    bool activeByDefault = true;
+
+    MIRO_REFLECT(name, numChannels, isMain, activeByDefault)
 };
 
 struct MidiBus
@@ -25,7 +30,10 @@ struct MidiBus
 
     std::string name = "MIDI";
 
-    MIRO_REFLECT(name)
+    // As for Bus.
+    bool activeByDefault = true;
+
+    MIRO_REFLECT(name, activeByDefault)
 };
 
 // What a Processor reads and writes: bus 0 on each side is the main one by

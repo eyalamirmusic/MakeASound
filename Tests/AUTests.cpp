@@ -5,6 +5,7 @@
 
 #include "AUTestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/AU/CocoaUI.h>
 #include <MakeASound/Plugin/AU/HostParameters.h>
@@ -454,6 +455,19 @@ auto tPrepare = test("AU/initializePreparesThePlugin") = []
     check(host.initialize(44100.0, 32) == noErr);
     check(plugin.spec.sampleRate == 44100);
     check(plugin.spec.maxBlockSize == 32);
+};
+
+auto tFractionalRate = test("AU/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+
+    check(host.initialize(44055.94, maxBlock) == noErr);
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+
+    check(host.initialize(48047.5, maxBlock) == noErr);
+    check(plugin.spec.sampleRate == 48047.5);
 };
 
 auto tUnity = test("AU/aBlockAtUnityPassesTheInput") = []
@@ -1854,6 +1868,48 @@ AUEventListenerRef listenForValues(UnitHost<P>& host,
     return listener;
 }
 
+auto tContextName = test("AU/theContextNameReachesTheTrackInfo") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+    check(!plugin.trackInfo().isValid);
+
+    auto setName = [&](const char* text)
+    {
+        auto name = CFStringCreateWithCString(nullptr, text, kCFStringEncodingUTF8);
+        auto status = AudioUnitSetProperty(host.unit,
+                                           kAudioUnitProperty_ContextName,
+                                           kAudioUnitScope_Global,
+                                           0,
+                                           &name,
+                                           sizeof(name));
+        CFRelease(name);
+        return status;
+    };
+
+    check(setName("Lead Vocal") == noErr);
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name == "Lead Vocal");
+
+    check(setName("Drums") == noErr);
+    check(plugin.trackInfoChanges == 2);
+    check(plugin.trackInfo().name == "Drums");
+
+    // The base still answers the property with what the host set.
+    auto read = CFStringRef {};
+    auto size = UInt32 {sizeof(read)};
+    check(AudioUnitGetProperty(host.unit,
+                               kAudioUnitProperty_ContextName,
+                               kAudioUnitScope_Global,
+                               0,
+                               &read,
+                               &size)
+          == noErr);
+    check(AU::toUtf8(read) == "Drums");
+    CFRelease(read);
+};
+
 auto tPluginMovePosted = test("AU/aPluginSideMoveReachesAnEventListener") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");
@@ -2171,6 +2227,170 @@ auto tJuceOffThread =
     check(!hasGlobalParameter(target.unit, juceCutoffId));
 };
 
+// A Tamber Plug build's session, as its AU wrapper saved one.
+
+using TamberPlugFixtures::ChorusPort;
+using TamberPlugFixtures::SVFPort;
+
+// A Plug fixture's dictionary under the codes of `ours` (a unit hosting the port
+// under the test module's codes); every other key as Plug wrote it.
+CFOwned<CFPropertyListRef> plugClassInfo(CFPropertyListRef ours,
+                                         std::string_view fixture)
+{
+    auto xml = CFOwned<CFDataRef>(
+        CFDataCreate(kCFAllocatorDefault,
+                     reinterpret_cast<const UInt8*>(fixture.data()),
+                     static_cast<CFIndex>(fixture.size())));
+    auto parsed = CFOwned<CFPropertyListRef>(CFPropertyListCreateWithData(
+        kCFAllocatorDefault, xml.value, kCFPropertyListImmutable, nullptr, nullptr));
+    check(parsed.value != nullptr);
+
+    auto* copy = CFDictionaryCreateMutableCopy(
+        kCFAllocatorDefault, 0, static_cast<CFDictionaryRef>(parsed.value));
+
+    for (auto* key: {CFSTR("type"), CFSTR("subtype"), CFSTR("manufacturer")})
+        CFDictionarySetValue(
+            copy,
+            key,
+            CFDictionaryGetValue(static_cast<CFDictionaryRef>(ours), key));
+
+    return CFOwned<CFPropertyListRef>(copy);
+}
+
+std::string dataUnder(CFPropertyListRef info, CFStringRef key)
+{
+    auto* data = static_cast<CFDataRef>(
+        CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), key));
+
+    if (data == nullptr)
+        return {};
+
+    return {reinterpret_cast<const char*>(CFDataGetBytePtr(data)),
+            static_cast<size_t>(CFDataGetLength(data))};
+}
+
+// None of Plug's ids, its list indices, reached Globals().
+template <typename P>
+bool holdsNoPlugIds(UnitHost<P>& host, int count)
+{
+    const auto& list = host.plugin().parameters();
+
+    for (auto id = 0; id < count; ++id)
+    {
+        auto ours = false;
+
+        for (auto i = 0; i < list.size(); ++i)
+            ours = ours || list.entry(i).hostId == static_cast<uint32_t>(id);
+
+        if (!ours && hasGlobalParameter(host.unit, static_cast<UInt32>(id)))
+            return false;
+    }
+
+    return true;
+}
+
+auto tPlugFixture = test("AU/thePlugFixturesHoldPlugsDocuments") = []
+{
+    auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+    auto source = UnitHost<SVFPort>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+
+    auto svf = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+    check(dataUnder(svf.value, CFSTR("TamberPlugState"))
+          == TamberPlugFixtures::svfDocument);
+
+    auto chorus = plugClassInfo(ours.value, TamberPlugFixtures::chorusClassInfo);
+    check(dataUnder(chorus.value, CFSTR("TamberPlugState"))
+          == TamberPlugFixtures::chorusDocument);
+};
+
+auto tPlugState = test("AU/aTamberPlugClassInfoLoadsThroughThePluginsReader") = []
+{
+    auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+    auto source = UnitHost<SVFPort>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<SVFPort>("Gain");
+    check(restoreClassInfo(target, info.value) == noErr);
+
+    auto& plugin = target.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::TamberPlugAU);
+    check(plugin.context == StateContext::Session);
+    check(TamberPlugFixtures::holdsSVFValues(plugin.params));
+    check(near(target.hostValue(target.hostIdOf(plugin.params.highPass.cutoff)),
+               0.4f));
+    check(target.hostValue(target.hostIdOf(plugin.params.lowPass.enabled)) == 0.f);
+
+    // Plug's `data`, under its own ids, never reached Globals().
+    check(holdsNoPlugIds(target, TamberPlugFixtures::svfParameterCount));
+
+    // The next save is the native document, and it loads as one.
+    auto saved = CFOwned<CFPropertyListRef>(copyClassInfo(target));
+    auto* dictionary = static_cast<CFDictionaryRef>(saved.value);
+    check(CFDictionaryGetValue(dictionary, CFSTR("MakeASoundState")) != nullptr);
+    check(CFDictionaryGetValue(dictionary, CFSTR("TamberPlugState")) == nullptr);
+
+    auto again = UnitHost<SVFPort>("Gain");
+    check(restoreClassInfo(again, saved.value) == noErr);
+    check(again.plugin().legacyLoads == 0);
+    check(TamberPlugFixtures::holdsSVFValues(again.plugin().params));
+};
+
+auto tPlugChoices = test("AU/aTamberPlugClassInfoLoadsChoicesByName") = []
+{
+    auto standIn = ScopedStandIn<ChorusPort>(Module::gainStandIn);
+    auto source = UnitHost<ChorusPort>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::chorusClassInfo);
+
+    auto target = UnitHost<ChorusPort>("Gain");
+    check(restoreClassInfo(target, info.value) == noErr);
+    check(target.plugin().legacyLoads == 1);
+    check(TamberPlugFixtures::holdsChorusValues(target.plugin().params));
+    check(target.hostValue(target.hostIdOf(target.plugin().params.mode)) == 1.f);
+    check(holdsNoPlugIds(target, TamberPlugFixtures::chorusParameterCount));
+
+    // The document form, as Logic restores it.
+    auto document = UnitHost<ChorusPort>("Gain");
+    check(AudioUnitSetProperty(document.unit,
+                               kAudioUnitProperty_ClassInfoFromDocument,
+                               kAudioUnitScope_Global,
+                               0,
+                               &info.value,
+                               sizeof(info.value))
+          == noErr);
+    check(document.plugin().origin == ForeignOrigin::TamberPlugAU);
+    check(TamberPlugFixtures::holdsChorusValues(document.plugin().params));
+};
+
+auto tPlugRefused = test("AU/aTamberPlugClassInfoThePluginRefusesMovesNothing") = []
+{
+    auto info = CFOwned<CFPropertyListRef> {};
+
+    {
+        auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+        auto source = UnitHost<SVFPort>("Gain");
+        auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+        auto made = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+        std::swap(info.value, made.value);
+
+        auto target = UnitHost<SVFPort>("Gain");
+        target.plugin().refuse = true;
+        check(restoreClassInfo(target, info.value) == noErr);
+        check(target.plugin().legacyLoads == 1);
+        check(TamberPlugFixtures::holdsSVFDefaults(target.plugin().params));
+        check(holdsNoPlugIds(target, TamberPlugFixtures::svfParameterCount));
+    }
+
+    // A plugin that never opted in (loadLegacy's default) keeps its values.
+    auto unported = UnitHost<GainPlugin>("Gain");
+    unported.plugin().params.gain.setValue(-3.f);
+    check(restoreClassInfo(unported, info.value) == noErr);
+    check(near(unported.plugin().params.gain.getValue(), -3.f));
+};
+
 // An effect with no bypass parameter answers BypassEffect through the one the
 // wrapper adds, and the host's bypass reaches the audio.
 auto tAddedBypass = test("AU/theWrappersBypassAnswersBypassEffect") = []
@@ -2316,7 +2536,8 @@ auto tPortType = test("AU/aJucePortRegistersAndDispatchesItsAUType") = []
         check(AudioComponentInstanceNew(portComponentFor(scheme), &unit) == noErr);
         check(Module::lastCreated != nullptr);
         check(Module::lastCreated->name() == "Port");
-        check(Module::lastCreated->parameters().identity().scheme == scheme);
+        check(Module::lastCreated->parameters().identity()
+              == policyFor(scheme, {}).parameters);
         AudioComponentInstanceDispose(unit);
     }
 };
@@ -2540,5 +2761,263 @@ auto tPortJuceState = test("AU/aJuceClassInfoRestoresIntoAJucePort") = []
     check(near(target.hostValue(798419949u), p.cutoff.toNormalized(440.f), 1e-5));
     check(target.hostValue(3357091u) == 2.f);
     check(target.hostValue(537889601u) == 0.f);
+};
+
+// Tamber Plug ports under IdScheme::TamberPlug (TamberPlugFixtures.h), against
+// what Plug's own SVFFilter AU listed (auval and an AudioToolbox probe of the
+// installed component): ids 0..8 in that order, and no BypassEffect of Plug's.
+
+using TamberPlugFixtures::NewerSVFPort;
+using TamberPlugFixtures::SparsePort;
+
+std::vector<AudioUnitParameterID> idsUpTo(int count)
+{
+    auto ids = std::vector<AudioUnitParameterID> {};
+
+    for (auto id = 0; id < count; ++id)
+        ids.push_back(static_cast<AudioUnitParameterID>(id));
+
+    return ids;
+}
+
+auto tPlugIds = test("AU/aTamberPlugPortListsPlugsIds") = []
+{
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    check(parameterListOf(host.unit)
+          == idsUpTo(TamberPlugFixtures::svfParameterCount));
+
+    for (auto id: idsUpTo(TamberPlugFixtures::svfParameterCount))
+        check(publishedInfo(host.unit, id).status == noErr);
+
+    check(publishedInfo(host.unit, 4).name == "BP Cutoff");
+};
+
+// The bypass the wrapper adds is in no list, so no Logic automation index
+// moves, and the bypass property drives it.
+auto tPlugBypass = test("AU/aTamberPlugPortsBypassIsTheBypassProperty") = []
+{
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    const auto& list = host.plugin().parameters();
+    auto bypassId = list.entry(list.bypassIndex()).hostId;
+
+    check(publishedInfo(host.unit, bypassId).status
+          == kAudioUnitErr_InvalidParameter);
+    check(!hasGlobalParameter(host.unit, bypassId));
+
+    auto size = UInt32 {};
+    auto writable = Boolean {};
+    check(bypassInfo(host, size, writable) == noErr && writable);
+    check(readBypass(host) == 0);
+
+    check(writeBypass(host, 1) == noErr);
+    check(readBypass(host) == 1);
+    check(list[list.bypassIndex()].getValue() == 1.f);
+};
+
+auto tPlugSparse = test("AU/aTamberPlugPortSkipsAHiddenLeafsId") = []
+{
+    auto host = UnitHost<SparsePort>(plugPortComponentFor("Pspr"));
+    check(parameterListOf(host.unit) == std::vector<AudioUnitParameterID> {0, 2});
+    check(publishedInfo(host.unit, 1).status == kAudioUnitErr_InvalidParameter);
+};
+
+auto tPlugPostPort = test("AU/aTamberPlugPostPortParameterListsLast") = []
+{
+    auto host = UnitHost<NewerSVFPort>(plugPortComponentFor("Psv2"));
+    auto expected = idsUpTo(TamberPlugFixtures::svfParameterCount);
+    expected.push_back(MakeASound::hostIdFor("BP/Drive"));
+    check(parameterListOf(host.unit) == expected);
+
+    check(host.hostWrites(MakeASound::hostIdFor("BP/Drive"), 0.75f) == noErr);
+    check(host.render(blockSize) == noErr);
+    check(host.plugin().params.bandPass.drive.getValue() == 0.75f);
+};
+
+// Plug's AU info bit for bit: plain ranges, Indexed for anything with steps (a
+// bool too), Generic otherwise, readable, writable and the CF name only, and
+// no value strings.
+auto tPlugInfo = test("AU/aTamberPlugPortPublishesPlugsInfo") = []
+{
+    constexpr auto plugFlags = kAudioUnitParameterFlag_IsReadable
+                               | kAudioUnitParameterFlag_IsWritable
+                               | kAudioUnitParameterFlag_HasCFNameString
+                               | kAudioUnitParameterFlag_CFNameRelease;
+    static_assert(plugFlags == 0xC8000010u);
+
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+
+    auto enable = publishedInfo(host.unit, 0);
+    check(enable.info.minValue == 0.f && enable.info.maxValue == 1.f);
+    check(enable.info.defaultValue == 0.f);
+    check(enable.info.unit == kAudioUnitParameterUnit_Indexed);
+    check(enable.info.flags == plugFlags);
+
+    auto cutoff = publishedInfo(host.unit, 1);
+    check(cutoff.info.unit == kAudioUnitParameterUnit_Generic);
+    check(cutoff.info.flags == plugFlags);
+    check(near(cutoff.info.defaultValue, 0.23299, 1e-5));
+
+    auto result = OSStatus {};
+    valueStringsOf(host.unit, 0, result);
+    check(result != noErr);
+
+    auto chorus = UnitHost<ChorusPort>(plugPortComponentFor("Pchr"));
+    auto mode = publishedInfo(chorus.unit, 6);
+    check(mode.name == "Mode");
+    check(mode.info.maxValue == 1.f
+          && mode.info.unit == kAudioUnitParameterUnit_Indexed);
+    check(publishedInfo(chorus.unit, 1).info.maxValue == 10.f);
+};
+
+// A skewed float (curve Other), which MakeASound's own space publishes 0..1, is
+// plain under Plug's, both ways through SetParameter and Globals().
+auto tPlugPlain = test("AU/aTamberPlugPortsSkewedFloatIsPlain") = []
+{
+    auto host = UnitHost<GainPlugin>(plugPortComponentFor("Pgan"));
+    auto& cutoff = host.plugin().params.filter.cutoff;
+    auto id = host.hostIdOf(cutoff);
+    check(id == 1u);
+
+    auto info = publishedInfo(host.unit, id);
+    check(info.info.minValue == 20.f && info.info.maxValue == 20000.f);
+    check(near(info.info.defaultValue, 1000.f));
+    check((info.info.flags & kAudioUnitParameterFlag_DisplayMask) == 0);
+
+    check(host.hostWrites(id, 440.f) == noErr);
+    check(host.render(blockSize) == noErr);
+    check(near(cutoff.getValue(), 440.f, 1e-2));
+    check(near(host.hostValue(id), 440.f, 1e-2));
+};
+
+// Plug's AU session loads into a TamberPlug port that has no loadLegacy: its
+// document is a native one. Under MakeASound's own ids it is declined.
+auto tPlugAsNative = test("AU/aTamberPlugPortReadsPlugsClassInfoWithNoReader") = []
+{
+    using TamberPlugFixtures::PlainChorusPort;
+    using TamberPlugFixtures::PlainSVFPort;
+
+    auto source = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    check(restoreClassInfo(target, info.value) == noErr);
+    check(TamberPlugFixtures::holdsSVFValues(target.plugin().params));
+
+    // Globals() holds them under Plug's ids, which are the port's.
+    check(near(target.hostValue(1), 0.4f));
+    check(target.hostValue(6) == 0.f);
+
+    auto chorusSource = UnitHost<PlainChorusPort>(plugPortComponentFor("Pnch"));
+    auto chorusOurs = CFOwned<CFPropertyListRef>(copyClassInfo(chorusSource));
+    auto chorusInfo =
+        plugClassInfo(chorusOurs.value, TamberPlugFixtures::chorusClassInfo);
+
+    auto chorus = UnitHost<PlainChorusPort>(plugPortComponentFor("Pnch"));
+    check(restoreClassInfo(chorus, chorusInfo.value) == noErr);
+    check(TamberPlugFixtures::holdsChorusValues(chorus.plugin().params));
+
+    auto standIn = ScopedStandIn<PlainSVFPort>(Module::gainStandIn);
+    auto nativeSource = UnitHost<PlainSVFPort>("Gain");
+    auto nativeOurs = CFOwned<CFPropertyListRef>(copyClassInfo(nativeSource));
+    auto nativeInfo =
+        plugClassInfo(nativeOurs.value, TamberPlugFixtures::svfClassInfo);
+
+    auto native = UnitHost<PlainSVFPort>("Gain");
+    restoreClassInfo(native, nativeInfo.value);
+    check(TamberPlugFixtures::holdsSVFDefaults(native.plugin().params));
+};
+
+// What Plug's own SVFFilter and Chorus AUs published (TamberPlugFixtures.h),
+// through the adapter.
+template <typename P, size_t count>
+void checkPlugsAU(FourCC code,
+                  const TamberPlugFixtures::PlugParameter (&published)[count])
+{
+    auto host = UnitHost<P>(plugPortComponentFor(code));
+    check(parameterListOf(host.unit) == idsUpTo(static_cast<int>(count)));
+
+    for (auto id = 0; id < static_cast<int>(count); ++id)
+    {
+        const auto& plug = published[id];
+        auto ours = publishedInfo(host.unit, static_cast<AudioUnitParameterID>(id));
+
+        check(ours.status == noErr);
+        check(ours.name == plug.name);
+        check(ours.info.minValue == plug.minValue);
+        check(ours.info.maxValue == plug.maxValue);
+        check(near(ours.info.defaultValue, plug.defaultValue, 1e-5));
+        check(ours.info.unit == plug.auUnit);
+        check(ours.info.flags == TamberPlugFixtures::plugAUFlags);
+    }
+}
+
+auto tPlugGoldens = test("AU/aTamberPlugPortPublishesWhatPlugsAUDid") = []
+{
+    checkPlugsAU<SVFPort>("Psvf", TamberPlugFixtures::svfPublished);
+    checkPlugsAU<ChorusPort>("Pchr", TamberPlugFixtures::chorusPublished);
+};
+
+// What JUCE 8.0.12's own AU build of JucePort's twin published (JucePort.h):
+// the list and every parameter's info, but for the clump JUCE gives a grouped
+// parameter, which MakeASound's AU has not yet.
+void checkJucesAUInfo(AudioUnit unit,
+                      AudioUnitParameterID id,
+                      const JucePort::JucePublishedAU& juce)
+{
+    auto ours = publishedInfo(unit, id);
+    check(ours.status == noErr);
+    check(ours.info.minValue == juce.minValue);
+    check(ours.info.maxValue == juce.maxValue);
+    check(near(ours.info.defaultValue, juce.defaultValue, 1e-6));
+    check(ours.info.unit == juce.unit);
+    check(ours.info.flags == (juce.flags & ~JucePort::juceAUHasClump));
+    check(((juce.flags & JucePort::juceAUHasClump) != 0)
+          == (std::string_view {juce.key} == "attack"));
+}
+
+auto tJuceGoldens = test("AU/aJucePortPublishesWhatJucesAUDid") = []
+{
+    auto host = UnitHost<PortPlugin>(portComponentFor(IdScheme::JUCE));
+    auto expected = std::vector<AudioUnitParameterID> {};
+
+    for (const auto& juce: JucePort::juceAU)
+    {
+        expected.push_back(juce.id);
+        checkJucesAUInfo(host.unit, juce.id, juce);
+    }
+
+    check(parameterListOf(host.unit) == expected);
+
+    // By index, in declaration order, under legacy ids.
+    auto legacy = UnitHost<PortPlugin>(portComponentFor(IdScheme::JUCELegacyIndex));
+    check(parameterListOf(legacy.unit) == idsUpTo(6));
+    constexpr const char* declared[] = {
+        "cutoff", "mode", "enabled", "voices", "attack", "quality"};
+
+    for (auto index = 0; index < 6; ++index)
+        for (const auto& juce: JucePort::juceAU)
+            if (std::string_view {juce.key} == declared[index])
+                checkJucesAUInfo(legacy.unit, static_cast<UInt32>(index), juce);
+};
+
+// A port with a reader of its own still reads through it.
+auto tPlugReaderFirst = test("AU/aTamberPlugPortsOwnReaderStillComesFirst") = []
+{
+    auto source = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    check(restoreClassInfo(target, info.value) == noErr);
+    check(target.plugin().legacyLoads == 1);
+    check(TamberPlugFixtures::holdsSVFValues(target.plugin().params));
+
+    // Refused, it falls back to the native read.
+    auto refusing = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+    refusing.plugin().refuse = true;
+    check(restoreClassInfo(refusing, info.value) == noErr);
+    check(refusing.plugin().legacyLoads == 1);
+    check(TamberPlugFixtures::holdsSVFValues(refusing.plugin().params));
 };
 } // namespace

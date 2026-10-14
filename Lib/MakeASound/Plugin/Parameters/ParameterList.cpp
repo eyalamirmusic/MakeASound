@@ -1,4 +1,5 @@
 #include "ParameterList.h"
+#include "IdPath.h"
 #include "../Compat/JuceState.h"
 
 #include <algorithm>
@@ -24,7 +25,7 @@ std::string hexId(uint32_t hostId)
 }
 
 // Characters as JUCE counts them: one per UTF-8 sequence, a lead byte each.
-[[maybe_unused]] int codePoints(std::string_view utf8) noexcept
+int codePoints(std::string_view utf8) noexcept
 {
     return static_cast<int>(std::count_if(
         utf8.begin(),
@@ -49,15 +50,11 @@ std::string_view firstCodePoints(std::string_view utf8, int count) noexcept
     return utf8;
 }
 
-[[maybe_unused]] void reportDuplicate(const char* what,
-                                      const std::string& first,
-                                      const std::string& second)
+std::string shared(const std::string& what,
+                   const std::string& first,
+                   const std::string& second)
 {
-    std::fprintf(stderr,
-                 "MakeASound: parameters \"%s\" and \"%s\" share %s\n",
-                 first.c_str(),
-                 second.c_str(),
-                 what);
+    return "parameters \"" + first + "\" and \"" + second + "\" share " + what;
 }
 } // namespace
 
@@ -91,6 +88,32 @@ void ParameterList::addHostBypass(Parameter& param)
     indexHostIds();
 }
 
+bool ParameterList::refreshDisplayNames()
+{
+    auto changed = false;
+
+    for (auto i = 0; i < entries.size(); ++i)
+    {
+        auto& entry = entries[i];
+        auto prefix = displayPrefixes[i];
+        const auto& name = entry.param->name();
+
+        // join()'s rule: a separator only between two non-empty parts.
+        if (!prefix.empty() && name.empty() && prefix.back() == ' ')
+            prefix.pop_back();
+
+        auto displayName = prefix + name;
+
+        if (displayName != entry.displayName)
+        {
+            entry.displayName = std::move(displayName);
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
 void ParameterList::setIdentity(ParameterIdentity identityToUse)
 {
     ids = identityToUse;
@@ -98,8 +121,37 @@ void ParameterList::setIdentity(ParameterIdentity identityToUse)
     indexHostIds();
 
 #ifndef NDEBUG
-    checkIds();
+    for (const auto& problem: identityProblems())
+        std::fprintf(stderr, "MakeASound: %s\n", problem.c_str());
+
+    // A JUCE port's hashed ids are a JUCE build's, which it cannot move without
+    // losing automation: a clash with a MIDI controller is only reported.
+    auto blocking = problemsWith(ids.paramIds != ParamIdRule::JuceKeyHash);
+    assert(blocking.empty() && "the parameters' ids clash; see identityProblems()");
 #endif
+}
+
+bool ParameterList::isMidiControllerId(uint32_t hostId) const noexcept
+{
+    if (!ids.vst3MidiControllers)
+        return false;
+
+    const auto& controllers = ids.vst3Controllers;
+
+    if (controllers.layout == Vst3ControllerLayout::JuceContiguous)
+        return hostId - controllers.base < 16u * 130u;
+
+    return (hostId & 0xffff0000u) == controllers.base;
+}
+
+void ParameterList::findDuplicateHostIds(Vector<std::string>& problems) const
+{
+    for (auto i = 1; i < byHostId.size(); ++i)
+        if (byHostId[i].hostId == byHostId[i - 1].hostId)
+            problems.add(shared("host id " + std::to_string(byHostId[i].hostId)
+                                    + "; give one an explicit hostId",
+                                entries[byHostId[i - 1].index].id,
+                                entries[byHostId[i].index].id));
 }
 
 void ParameterList::add(Parameter& param,
@@ -116,66 +168,144 @@ void ParameterList::add(Parameter& param,
     entry.sessionOnly = param.isSessionOnly();
     entry.hostKey = param.hostKey();
 
+    // The groups' part of the display name, which a rename keeps.
+    const auto& name = param.name();
+    auto prefixLength = entry.displayName.size();
+
+    if (entry.displayName.ends_with(name))
+        prefixLength -= name.size();
+
+    displayPrefixes.add(entry.displayName.substr(0, prefixLength));
+
     auto path = std::string {};
 
     for (const auto* group: groups)
     {
-        path += (path.empty() ? "" : "/") + group->id();
+        appendIdSegment(path, group->id());
         entry.groups.add({path, group->name(), path, group->id()});
     }
 }
 
 void ParameterList::assignIds()
 {
-    for (auto index = 0; index < entries.size(); ++index)
-    {
-        auto& entry = entries[index];
-        auto pinned = entry.param->explicitHostId();
+    // Under ParamIdRule::Index, the next indexed entry's index.
+    auto nextIndex = 0;
 
-        switch (ids.scheme)
+    for (auto position = 0; position < entries.size(); ++position)
+    {
+        auto& entry = entries[position];
+        auto indexRule = ids.paramIds == ParamIdRule::Index;
+
+        entry.postPort = indexRule && !entry.addedBypass
+                         && entry.param->versionHint() > ids.indexedThroughVersion;
+
+        auto index = position;
+
+        if (indexRule && !entry.postPort)
+            index = nextIndex++;
+
+        auto pinned = entry.param->explicitHostId();
+        entry.hostId = pinned.value_or(derivedHostId(entry, index));
+
+        // A post-port entry has none of the index's ids: FNV-1a of its path
+        // everywhere an index would go.
+        if (entry.postPort)
         {
-            case IdScheme::MakeASound:
-                entry.hostId = pinned.value_or(hostIdFor(entry.id));
+            entry.address = entry.hostId;
+            entry.identifier =
+                ids.auv3 == AUv3Ids::HostIdAndPath ? entry.id : entry.hostKey;
+            entry.aaxId = hexId(entry.hostId);
+            finishIds(entry);
+            continue;
+        }
+
+        switch (ids.auv3)
+        {
+            case AUv3Ids::HostIdAndPath:
                 entry.address = entry.hostId;
                 entry.identifier = entry.id;
-                entry.aaxId = hexId(entry.hostId);
                 break;
 
-            case IdScheme::JUCE:
-            {
-                auto hash = Compat::juceStringHash(entry.hostKey);
-
-                if (ids.juceStudioOneMask)
-                    hash &= 0x7fffffffu;
-
-                entry.hostId =
-                    pinned.value_or(entry.addedBypass ? juceVst3BypassId : hash);
+            case AUv3Ids::JuceHash64AndKey:
                 entry.address = entry.addedBypass
                                     ? entry.hostId
                                     : Compat::juceStringHash64(entry.hostKey);
                 entry.identifier = entry.hostKey;
+                break;
+
+            case AUv3Ids::IndexAndKey:
+                entry.address = static_cast<uint64_t>(index);
+                entry.identifier = entry.hostKey;
+                break;
+        }
+
+        switch (ids.aaxIds)
+        {
+            case AAXIdRule::HexHostId:
+                entry.aaxId = hexId(entry.hostId);
+                break;
+
+            case AAXIdRule::KeyOrOverride:
                 entry.aaxId = entry.param->explicitAAXId().empty()
                                   ? entry.hostKey
                                   : entry.param->explicitAAXId();
                 break;
-            }
 
-            case IdScheme::JUCELegacyIndex:
-                entry.hostId = pinned.value_or(static_cast<uint32_t>(index));
-                entry.address = static_cast<uint64_t>(index);
-                entry.identifier = entry.hostKey;
+            case AAXIdRule::DecimalIndex:
                 entry.aaxId = std::to_string(index);
                 break;
         }
 
-        if (isJuceScheme(ids.scheme) && entry.bypass)
-            entry.aaxId = std::string {juceAAXBypassId};
-
-        entry.listedInAU = !(isJuceScheme(ids.scheme) && entry.addedBypass);
-
-        for (auto& group: entry.groups)
-            group.identifier = isJuceScheme(ids.scheme) ? group.ownId : group.id;
+        finishIds(entry);
     }
+}
+
+void ParameterList::finishIds(Entry& entry) const
+{
+    if (ids.aaxIds != AAXIdRule::HexHostId && entry.bypass)
+        entry.aaxId = std::string {juceAAXBypassId};
+
+    entry.listedInAU =
+        !(entry.addedBypass && ids.addedBypassInAU == BypassPlacement::Unlisted);
+
+    for (auto& group: entry.groups)
+        group.identifier = ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
+}
+
+uint32_t ParameterList::derivedHostId(const Entry& entry, int index) const noexcept
+{
+    if (entry.postPort)
+        return hostIdFor(entry.id);
+
+    if (entry.addedBypass)
+    {
+        switch (ids.addedBypassId)
+        {
+            case AddedBypassId::PathHash:
+                return hostIdFor(entry.id);
+            case AddedBypassId::JuceByps:
+                return juceVst3BypassId;
+            case AddedBypassId::Index:
+                return static_cast<uint32_t>(index);
+        }
+    }
+
+    switch (ids.paramIds)
+    {
+        case ParamIdRule::PathHash:
+            break;
+
+        case ParamIdRule::JuceKeyHash:
+        {
+            auto hash = Compat::juceStringHash(entry.hostKey);
+            return ids.juceMask31 ? hash & 0x7fffffffu : hash;
+        }
+
+        case ParamIdRule::Index:
+            return static_cast<uint32_t>(index);
+    }
+
+    return hostIdFor(entry.id);
 }
 
 void ParameterList::indexHostIds()
@@ -200,49 +330,61 @@ void ParameterList::indexHostIds()
               byAddress.end(),
               [](const AddressSlot& a, const AddressSlot& b)
               { return a.address < b.address; });
-
-#ifndef NDEBUG
-    for (auto i = 1; i < byHostId.size(); ++i)
-    {
-        if (byHostId[i].hostId != byHostId[i - 1].hostId)
-            continue;
-
-        std::fprintf(stderr,
-                     "MakeASound: parameters \"%s\" and \"%s\" share host id %u; "
-                     "give one an explicit hostId\n",
-                     entries[byHostId[i - 1].index].id.c_str(),
-                     entries[byHostId[i].index].id.c_str(),
-                     static_cast<unsigned>(byHostId[i].hostId));
-        assert(false && "two parameters share a host id");
-    }
-#endif
 }
 
-void ParameterList::checkIds() const
+Vector<std::string> ParameterList::identityProblems() const
 {
-    [[maybe_unused]] auto unmasked =
-        ids.scheme == IdScheme::JUCE && !ids.juceStudioOneMask;
+    return problemsWith(true);
+}
+
+Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
+{
+    auto problems = Vector<std::string> {};
+    findDuplicateHostIds(problems);
+
+    // Its path cannot tell where such an id ends (IdPath.h).
+    auto undelimited = std::set<std::string> {};
 
     for (const auto& entry: entries)
     {
-        [[maybe_unused]] auto pinned = entry.param->explicitHostId();
-        assert((unmasked || pinned.value_or(0) < 0x80000000u)
-               && "VST3 reserves host ids from 2^31 up");
+        if (!isDelimitableId(entry.param->id()))
+            undelimited.insert(entry.param->id());
+
+        for (const auto& group: entry.groups)
+            if (!isDelimitableId(group.ownId))
+                undelimited.insert(group.ownId);
     }
+
+    for (const auto& id: undelimited)
+        problems.add("the id \"" + id
+                     + "\" begins or ends with '/', which no id path can delimit");
+
+    if (controllerClashes)
+        for (const auto& entry: entries)
+            if (isMidiControllerId(entry.hostId))
+                problems.add("parameter \"" + entry.id + "\" has host id "
+                             + std::to_string(entry.hostId)
+                             + ", which a VST3 MIDI controller parameter uses; "
+                               "the parameter wins");
+
+    auto unmasked = ids.foreignHostIds
+                    || (ids.paramIds == ParamIdRule::JuceKeyHash && !ids.juceMask31);
+
+    for (const auto& entry: entries)
+        if (auto pinned = entry.param->explicitHostId();
+            !unmasked && pinned.value_or(0) >= 0x80000000u)
+            problems.add("parameter \"" + entry.id + "\" pins host id "
+                         + std::to_string(*pinned)
+                         + ", which VST3 reserves (2^31 and up)");
 
     for (auto i = 1; i < byAddress.size(); ++i)
-    {
-        if (byAddress[i].address != byAddress[i - 1].address)
-            continue;
+        if (byAddress[i].address == byAddress[i - 1].address)
+            problems.add(shared("an AUv3 address",
+                                entries[byAddress[i - 1].index].id,
+                                entries[byAddress[i].index].id));
 
-        reportDuplicate("an AUv3 address",
-                        entries[byAddress[i - 1].index].id,
-                        entries[byAddress[i].index].id);
-        assert(false && "two parameters share an AUv3 address");
-    }
-
-    if (!isJuceScheme(ids.scheme))
-        return;
+    if (!ids.juceChecks)
+        return problems;
 
     // JUCE's own checks (AudioProcessor::checkForDuplicateParamID,
     // checkForDuplicateTrimmedParamID and checkForDuplicateGroupIDs), which a
@@ -254,26 +396,21 @@ void ParameterList::checkIds() const
     for (const auto& entry: entries)
     {
         if (!keys.insert(entry.hostKey).second)
-        {
-            reportDuplicate("a host key", entry.hostKey, entry.hostKey);
-            assert(false && "two parameters share a hostKey under a JUCE scheme");
-        }
+            problems.add(shared("a host key", entry.hostKey, entry.hostKey));
 
         if (entry.bypass)
             continue;
 
-        assert(codePoints(entry.aaxId) <= juceAAXMaxIdLength
-               && "an AAX parameter id longer than 31 characters");
+        if (codePoints(entry.aaxId) > juceAAXMaxIdLength)
+            problems.add("parameter \"" + entry.id + "\" has the AAX id \""
+                         + entry.aaxId + "\", longer than 31 characters");
 
         auto trimmed =
             std::string {firstCodePoints(entry.aaxId, juceAAXMaxIdLength)};
 
         if (!aaxIds.insert(trimmed).second)
-        {
-            reportDuplicate(
-                "an AAX id once truncated to 31 characters", trimmed, entry.aaxId);
-            assert(false && "two parameters share an AAX id under a JUCE scheme");
-        }
+            problems.add(shared(
+                "an AAX id once truncated to 31 characters", trimmed, entry.aaxId));
     }
 
     // A group is listed once per entry inside it; the same path is the same
@@ -284,10 +421,11 @@ void ParameterList::checkIds() const
         for (const auto& group: entry.groups)
             if (groupPaths.insert(group.id).second
                 && !groupIds.insert(group.identifier).second)
-            {
-                reportDuplicate("a group id", group.id, group.identifier);
-                assert(false && "two groups share an id under a JUCE scheme");
-            }
+                problems.add("groups \"" + group.id
+                             + "\" and another share the id \"" + group.identifier
+                             + "\"");
+
+    return problems;
 }
 
 void ParameterList::findBypass()
@@ -369,7 +507,7 @@ bool ParameterList::isHostExposed(int index) const noexcept
 
 bool ParameterList::isRegistered(int index) const noexcept
 {
-    if (isJuceScheme(ids.scheme))
+    if (ids.registration == Registration::All)
         return index >= 0 && index < size();
 
     return isHostExposed(index);

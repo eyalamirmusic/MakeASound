@@ -78,6 +78,12 @@ public:
     // Message thread: the latency and the values the plugin moved on its own.
     AAX_Result TimerWakeup() override;
 
+    // After the base's: AAX_eNotificationEvent_TrackNameChanged becomes the
+    // plugin's track name, the one thing about the track Pro Tools tells.
+    AAX_Result NotificationReceived(AAX_CTypeID type,
+                                    const void* data,
+                                    uint32_t size) override;
+
     // One instance's block, from the process procedure. Audio thread.
     void render(AlgorithmContext& context) noexcept;
 

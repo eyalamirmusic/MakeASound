@@ -90,6 +90,12 @@ public:
                          const void* inData,
                          UInt32 inDataSize) override;
 
+    // After the base's: a new kAudioUnitProperty_ContextName, which the base
+    // stores without calling SetProperty, becomes the plugin's track name.
+    void PropertyChanged(AudioUnitPropertyID id,
+                         AudioUnitScope scope,
+                         AudioUnitElement element) override;
+
     Float64 GetLatency() noexcept override;
     Float64 GetTailTime() noexcept override;
     bool SupportsTail() noexcept override { return true; }
@@ -190,7 +196,7 @@ private:
 
     PluginWrapper pluginWrapper;
 
-    // How the host sees the parameters, by the description's IdScheme.
+    // How the host sees the parameters, by the description's resolved policy.
     ParameterSpace space;
 
     // The plugin's value of an entry in the host's space (ParameterSpace::toHost),
@@ -208,9 +214,10 @@ private:
     Vector<float> lastHostValue;
     Vector<float> lastPluginValue;
 
-    // GetParameterList's answer, by (versionHint, host id); unused under
-    // JUCELegacyIndex, where the SDK's indexed list answers.
+    // GetParameterList's answer (ParameterSpace::listOrder); unused when the
+    // SDK's indexed list answers (ParameterSpace::usesSdkIndexedList).
     Vector<AudioUnitParameterID> listOrder;
+    bool sdkIndexedList = false;
 
     // Per slot, raised by the render thread when it wrote a value the plugin
     // moved on its own into Globals(), taken by postMovedParameters().

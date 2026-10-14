@@ -7,8 +7,9 @@ windows and editors, Miro for state and UI schemas), re-homed on MakeASound so t
 standalone format and the device library are one code base rather than two.
 
 Stages 0 to 9 have landed on `develop`: `Buffer`, `Processor`/`Engine`, the plugin
-core, the standalone, VST3, AU, editor size policy and the web editor, AAX on macOS
-(and since on Windows x64), the windowless and iOS standalone, and AUv3 on iOS. CLAUDE.md describes what exists
+core, the standalone, VST3, AU, editor size policy and the web editor (since
+removed, see the 2026-10-14 decision), AAX on macOS (and since on Windows x64),
+the windowless and iOS standalone, and AUv3 on iOS. CLAUDE.md describes what exists
 and the decisions log below keeps why. What remains is the hand checks those stages
 could not make in CI, a few follow-ups, stage 10, and the later stages.
 
@@ -32,23 +33,22 @@ format, recorded in the decisions log.
 - **VST3 in a DAW on the Mac** (both bundles, installed by the default
   `MAKEASOUND_INSTALL_PLUGINS`): the generic editor opens, resizes and drives
   automation; automation plays back; the Synth plays from a MIDI track and answers
-  the mod wheel and CC 123; a saved project reopens with its values. In Ableton the
-  Synth's React editor opens, its knobs move the parameters and a host automation
-  lane moves the knobs, and a host's own grip resizes the editors.
+  the mod wheel and CC 123; a saved project reopens with its values. In Ableton a
+  host automation lane moves the generic editor's controls, and a host's own grip
+  resizes the editors.
 - **AU in Logic or Ableton**: the generic editor opens; automation records and
   plays back; the Synth plays from a MIDI track; a saved project reopens with its
-  values; two MakeASound AUs open in one project with editors. The Synth's React
-  editor opens in Logic and Ableton, and dragging the corner grip resizes both AU
-  editors in Logic.
+  values; two MakeASound AUs open in one project with editors. Dragging the
+  corner grip resizes both AU editors in Logic.
 - **Logic's view service**: an editor opened near the bottom of the screen ends up
   whole on it, moved where Logic allows and shrunk once where it does not, with
   `MAKEASOUND_AU_VIEW_TRACE` showing which, which also settles whether Logic 11
   still behaves as Plug's heuristics assume; Gain's bypass button in Logic's
   plugin header follows the parameter both ways.
-- **The standalone on the Mac**: the Synth's React editor opens in `MakeASound
-  Synth.app` and the typing keyboard plays while the page has focus.
-- **Windows**: the Synth's web editor opens in the standalone and in a VST3 host,
-  and on a machine without the WebView2 runtime the generic editor opens instead.
+- **The standalone on the Mac**: the typing keyboard plays `MakeASound Synth.app`
+  while its editor has focus.
+- **Windows**: both examples' generic editors open in the standalone and in a VST3
+  host.
 - **Pro Tools Developer** (retail Pro Tools loads no plugin `wraptool` has not
   signed). Open going in: the validator reports `category: None` for
   `AAX_EPlugInCategory_Effect` (Gain's default), and its `s6_feature` test shows
@@ -56,13 +56,11 @@ format, recorded in the decisions log.
   flagged as the category bypass too; whether Pro Tools' bypass button drives
   Gain's bypass parameter decides it. The check:
   - both plugins appear under their categories (Effect for Gain);
-  - the generic editor (Gain) and the web editor (Synth) open at the top-left of
-    the window at their right size, and the grip resizes them;
+  - both generic editors open at the top-left of the window at their right
+    size, and the grip resizes them;
   - closing and reopening an editor, and removing the plugin with its window open,
     do not crash;
   - automation records and plays back, and the editor's values follow it;
-  - the Synth's web page takes keyboard focus for its fields while Pro Tools'
-    shortcuts still work outside it;
   - the Synth plays from a MIDI track;
   - a saved session reopens with its values;
   - Gain's bypass follows the parameter and Pro Tools' bypass button;
@@ -71,7 +69,7 @@ format, recorded in the decisions log.
 - **iOS**: the standalone's `Settings` screen tapped through in the simulator
   (CI only launches the apps); both examples' standalones on a device; and in AUM
   and GarageBand on a device, from a `MAKEASOUND_IOS_TEAM` Xcode build, both
-  extensions load, render and open their editors, the Synth's web page included.
+  extensions load, render and open their editors.
 
 ### Follow-ups
 
@@ -282,8 +280,8 @@ Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10, 10.11,
   `ParameterGesture(plugin, param)` in `MakeASoundPlugin` (begin in the
   constructor, end in the destructor, `set(plain)`, a static `setOnce`), and a
   `ParameterAttachment` in `MakeASoundPluginUI` fed by one shared 30 Hz poll that
-  never touches the control being dragged; `GenericEditor` (~148-173) and
-  `Web/ParameterApi.cpp` (~50-90) are rebased on them. JUCE's analogue is
+  never touches the control being dragged; `GenericEditor` (~148-173) is rebased
+  on them. JUCE's analogue is
   `juce_ParameterAttachments.h:55-104`.
 - **WP10.15, a sturdier VST3 state read (done, with WP10.23).** JUCE
   (`VST3.cpp:2960-3024`) asks `ISizeableStream` for the size, accepts a read
@@ -648,7 +646,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 ### Done when
 
 - A to C are in, each with its cases in the format suites (`VST3/`, `AU/`, `AUv3/`,
-  `AAX/`, `Parameters/`, `State/`, `PluginUI/`, `Web/`) and the allocation suites
+  `AAX/`, `Parameters/`, `State/`, `PluginUI/`) and the allocation suites
   covering every new audio-thread path. A, B and E are in, with them; C (but
   WP10.15, WP10.17 and the JUCE half of WP10.9) and D are open.
 - pluginval 10, `auval -strict` and aaxval stay green on both examples. After A
@@ -700,8 +698,9 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   and AudioSuite.
 - **MIDI 2.0**: `MIDIEventList`/UMP in AU and AUv3, which take MIDI 1.0 bytes only.
 - **Editors**: persisting an editor's size (in the standalone's `Settings` or a
-  format's state), a host-driven content scale beyond what `PlugView` forwards,
-  and a generic React parameter page shipped by the library.
+  format's state), and a host-driven content scale beyond what `PlugView`
+  forwards. A React parameter page shipped by the library is no longer planned
+  (2026-10-14).
 
 ## Decisions log
 
@@ -714,6 +713,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   info.getOutput()` stays valid in Plug and tamber-web.
 - 2026-10-10: parameter host ids are hashes of stable string ids, not indices.
 - 2026-10-10: sample rates stay `int` across `ProcessSpec`; adapters round.
+  Superseded on 2026-10-13: `ProcessSpec::sampleRate` is a `double` (below).
 - 2026-10-10: `getBusLayout()` is on `Processor`, not `Plugin`: `Engine` sizes its
   context from it for an app with no plugin. A bus channel the device cannot
   feed reads device channel 0 when the device has inputs at all (a mono mic
@@ -780,7 +780,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   microphone into the default speakers and fed back.
 - 2026-10-10: VST3 is one `SingleComponentEffect` per plugin (`VST3::Adapter`) driving `PluginWrapper` exactly as `StandaloneProcessor` does. Its `ParamID` is the parameter's 31-bit host id, looked up with `indexOfHostId`. Controller values are read live from the plugin, so the controller cache cannot go stale. `ProxyParameter` converts through the MakeASound `Parameter`, so skewed ranges display correctly.
 - 2026-10-10: VST3 state is one document through `IComponent::getState`/`setState`. It is a `Session` unless the stream's `IStreamAttributes` names a non-project state type, in which case it is a `Preset`. The editor-state pair stays `kNotImplemented`, and `setComponentState` reads nothing, since the component and the controller are one object.
-- 2026-10-10: MIDI CC, channel aftertouch, pitch bend and program change reach a VST3 plugin through `IMidiMapping` onto hidden shadow parameters `0x7FFF0000 | bus << 12 | channel << 8 | controller` (controllers 0–130, at most 16 buses), expanded point by point into `MIDI::Event`s. They are registered whenever the layout has MIDI in, with no flag. A plugin parameter whose host id falls in the range wins, and asserts in debug. Plug's bit-31 marker was dropped because VST3 reserves those ids.
+- 2026-10-10: MIDI CC, channel aftertouch, pitch bend and program change reach a VST3 plugin through `IMidiMapping` onto hidden shadow parameters `0x7FFF0000 | bus << 12 | channel << 8 | controller` (controllers 0–130, at most 16 buses), expanded point by point into `MIDI::Event`s. They are registered whenever the layout has MIDI in, with no flag (superseded 2026-10-13: per plugin, instruments by default). A plugin parameter whose host id falls in the range wins, and asserts in debug. Plug's bit-31 marker was dropped because VST3 reserves those ids.
 - 2026-10-10: the VST3 class id is `FUID(manufacturerCode, pluginCode, 'VST3', 0)`, Plug's derivation, so sessions saved with a Plug build find the MakeASound build of the same plugin. The class carries no `kDistributable` flag.
 - 2026-10-10: `MakeASoundVST3` is one static target. It compiles its `IPlugView` over `EmbeddedView` and links `MakeASoundPluginUI` when that target exists, and a null view otherwise. The choice is at link time, with no static registrar and no `WHOLE_ARCHIVE`. `MakeASoundPlugin` still sees neither the SDK nor eacp-ui.
 - 2026-10-10: a VST3 adapter prepares the wrapper in `setActive(true)`, not `setupProcessing`, so the layout is final when it allocates. A `process` before the first activation renders silence.
@@ -859,10 +859,11 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   through ResEmbed, so every format carries it. Lists and ids cross the bridge
   inside structs, because Miro's TypeScript codegen cannot type a bare `Vector`
   or string argument. The Synth example carries the page; Gain keeps the generic
-  editor.
+  editor. Superseded 2026-10-14: the web layer is removed.
 - 2026-10-11: CI sets up Node 22 on every desktop job and the iOS one, because the
   Synth's page runs `npm install` at configure and vite in the build wherever eacp
-  has a web runtime, iOS included; Linux builds the fallback editor.
+  has a web runtime, iOS included; Linux builds the fallback editor. Superseded
+  2026-10-14: with the page gone, CI sets up no Node.
 - 2026-10-12: AAX is fetched, never vendored: `MAKEASOUND_BUILD_AAX` (off by
   default) has CPM fetch `github.com/audiosdk/aax`, a public GPLv3-option fork of
   SDK 2.8.1 with only deletions on top, pinned to commit `faf5d8e`, with
@@ -976,6 +977,70 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 - 2026-10-12: a Ninja iOS device build is unsigned, app and extension alike; the
   simulator is signed ad hoc, and a signed device build is Xcode's, through
   `MAKEASOUND_IOS_TEAM`.
+- 2026-10-13: the VST3 MIDI controller shadow parameters are per plugin, no longer
+  registered whenever the layout has MIDI in: `PluginDescription::vst3MidiControllers`
+  (`std::optional<bool>`), resolved by `vst3MidiControllersFor()` to on for
+  `Category::Instrument` and off for `Effect` and `MidiEffect` when unset. On the
+  description, beside `category` and `auType`, because the factory resolves it before
+  any instance exists and it follows the kind of plugin rather than its layout. Off,
+  as Plug's `enableMidiCcAutomation = false` was: no shadow parameter is registered,
+  `IMidiMapping` is still answered but every assignment is `kResultFalse`, a point on
+  a would-be shadow id is dropped, and the parameter-collision assert has no range to
+  guard. The plugin still gets notes, poly pressure, SysEx and any
+  `kLegacyMIDICCOutEvent` a host puts on the event list (Plug dropped those too; kept
+  since a host that sends them means them), but never the CC, bend, aftertouch and
+  program change hosts route through the mapping. AU, AUv3 and AAX deliver MIDI
+  natively, so the setting does not touch them: there an effect with a MIDI input
+  receives CC regardless. A Plug port's MIDI effect that had the flag on (MidiTranspose)
+  sets `.vst3MidiControllers = true`.
+- 2026-10-13: identity is a compatibility profile resolved into per-concern rules
+  (the workspace's `design/parameter-ids.md`). `IdScheme` (`Native`, formerly
+  `MakeASound` and still accepted, `JUCE`, `JUCELegacyIndex`, `TamberPlug`) is
+  resolved by `policyFor()` / `identityPolicyFor()` into an `IdentityPolicy`
+  (`Core/IdentityPolicy.h`); `ParameterList` and every adapter read only its rules,
+  and `PluginDescription::overrides` replaces one. Index profiles count every leaf
+  and take an `indexedThroughVersion`, past which a parameter is post-port: a path
+  hash, listed last, moving no index (and the legacy added bypass is the count of
+  indexed entries, JUCE's N). `TamberPlug` keeps Plug's ids, AU list, plain values
+  and flags, leaves the added bypass to the AU bypass property, and loads Plug's AU
+  documents as native ones. `identityProblems()` replaces the debug-only checks.
+  `Tests/Identity/` holds golden manifests of every id; `TamberPlugFixtures.h` and
+  `JucePort.h` hold what real Plug and JUCE 8.0.12 builds published.
+- 2026-10-13: `ProcessSpec::sampleRate` is a `double`, the host's rate unrounded,
+  replacing the 2026-10-10 `int`. The formats already pass one (VST3
+  `ProcessSetup::sampleRate`, AU `Float64`, AUv3 `AVAudioFormat`, AAX a float,
+  CLAP and JUCE a double), and the adapters' `lround` / `+ 0.5` handed plugins a
+  rate slightly off what the host said. Real rates are not always whole: video
+  pull-up and pull-down give 44055.94 or 48048, and a 1-2 ppm rounding error
+  accumulates in time-to-sample conversions over a long session. A MakeASound host
+  must also hand its host's exact rate on to the plugins it loads. Cheap now, a
+  breaking change later. `roundSampleRate(double)` and
+  `ProcessSpec::roundedSampleRate()` (`std::lround`, halves away from zero) serve
+  code that needs a whole rate. Device I/O stays `int` (`DeviceInfo`,
+  `StreamConfig`, `AudioCallbackInfo`, `getStreamSampleRate()`): hardware clocks
+  are whole and miniaudio's rates are `ma_uint32`. `Engine::prepare` is the one
+  conversion into `ProcessSpec`, and it is exact. `PluginWrapper::prepare` and
+  `Smoother::setSampleRate` take a `double`.
+- 2026-10-13: a `/` inside one id is doubled in its id path (`Parameters/IdPath.h`),
+  rather than rejected. Tamber Plug's Vocoder has the leaf `Dry/Wet`, which is
+  also its key in every document Plug saved, so rejecting it would have needed
+  an escape hatch that keeps the key while changing the path, which is the
+  escaping again under another name. Doubling leaves every id without a `/` its
+  own segment, so no path, host id, AUv3 identifier or golden manifest of such
+  ids moves; backslash or percent escaping would also have changed the ids that
+  hold a `\` or a `%`. The document is nested objects keyed by each id as
+  written, so it never sees the escaping. The one case doubling cannot delimit,
+  an id that begins or ends with `/`, is an `identityProblems()` entry. Only a
+  Native plugin with a `/` in an id sees a host id move; none has shipped, and
+  under TamberPlug the index ids are untouched.
+- 2026-10-13: the web layer's product hooks, found missing while porting Plug's
+  React pages: `ParameterApi` gained `editText`, `resetParam`, `resetAll`, the
+  defaults in its schema and the keyed `parameterValues` event (Miro's
+  `keyedEvent`, so the generated hooks give each control its own store);
+  `makeasound_add_web_editor` gained `SHARED_UI` and `PRE_BUILD`; `WebEditor`
+  polls any API with a `poll()` at its own rate (`PagePolls`), plus `addPoll`
+  and `bind`, so a product's channels need no fork of it. Superseded 2026-10-14:
+  the web layer is removed.
 - 2026-10-13: AAX builds on Windows for x64 only. The SDK does not compile for
   Windows ARM64 (`acfbasetypes.h` stops at `#error Unknown platform`) and Pro
   Tools for Windows is x64, so an ARM64 tree skips the format with a status line.
@@ -987,3 +1052,14 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   The view embeds in Pro Tools' `HWND`. Both Windows x64 CI jobs build the bundles
   and run the AAX cases. aaxval on Windows, PACE signing there and HiDPI in Pro
   Tools for Windows are still open (see Follow-ups).
+- 2026-10-14: the plugin web-editor layer is removed: `MakeASoundPluginWeb`
+  (`WebEditor`, `ParameterApi`, `PagePolls`), `makeasound_add_web_editor`
+  (`CMake/MakeASoundWebEditor.cmake`), the Synth example's React page, its tests
+  and CI's Node steps. It duplicated what Tamber Plug already has over eacp
+  (`WebPageEditor`, `WebParamsApi`), and plugins ported from Plug keep using
+  Plug's machinery; nothing outside MakeASound (Plug, tamber-web, eacp) used it.
+  MakeASound offers no web-editor support of its own now: a plugin that wants a
+  web page as its editor builds one with eacp's `WebView` directly. The Synth
+  shows the generic editor, as Gain does. The `/` doubling in id paths
+  (`Parameters/IdPath.h`, 2026-10-13), which the layer's port of Plug's pages
+  surfaced, is general and stays.

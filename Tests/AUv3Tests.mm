@@ -6,6 +6,7 @@
 
 #include "AUv3TestHost.h"
 #include "JuceFixtures.h"
+#include "TamberPlugFixtures.h"
 
 #include <MakeASound/Plugin/AUv3/Parameters.h>
 
@@ -349,6 +350,19 @@ auto tPrepare = test("AUv3/allocatingPreparesThePlugin") = []
     check(host.allocate(44100.0, 32));
     check(plugin.spec.sampleRate == 44100);
     check(plugin.spec.maxBlockSize == 32);
+};
+
+auto tFractionalRate = test("AUv3/aFractionalRateReachesThePluginUnrounded") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+
+    check(host.allocate(44055.94, maxBlock));
+    check(plugin.spec.sampleRate == 44055.94);
+    check(plugin.spec.roundedSampleRate() == 44056);
+
+    check(host.allocate(48047.5, maxBlock));
+    check(plugin.spec.sampleRate == 48047.5);
 };
 
 auto tUnity = test("AUv3/aBlockAtUnityPassesTheInput") = []
@@ -703,6 +717,24 @@ auto tOffGrid = test("AUv3/aTreeWriteIsKeptAsTheTreeStoredIt") = []
     check(params.mode.getIndex() == 1);
 };
 
+auto tContextName = test("AUv3/theContextNameReachesTheTrackInfo") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& plugin = host.plugin();
+    check(!plugin.trackInfo().isValid);
+
+    host.unit.contextName = @"Lead Vocal";
+    check(plugin.trackInfoChanges == 1);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name == "Lead Vocal");
+    check([host.unit.contextName isEqualToString:@"Lead Vocal"]);
+
+    host.unit.contextName = nil;
+    check(plugin.trackInfoChanges == 2);
+    check(plugin.trackInfo().isValid);
+    check(plugin.trackInfo().name.empty());
+};
+
 auto tPluginMoves = test("AUv3/aValueThePluginMovesReachesTheTree") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");
@@ -999,6 +1031,54 @@ auto tJuceRefused = test("AUv3/aJuceStateThePluginRefusesMovesNothing") = []
     auto other = UnitHost<FixturePlugin>("Gain");
     other.unit.fullStateForDocument = empty;
     check(other.plugin().legacyLoads == 0);
+};
+
+// A Tamber Plug build's AU v2 ClassInfo, which a Mac host hands the AUv3 standing
+// in for it, here over the codes `ours` carries.
+NSDictionary<NSString*, id>* plugFullState(NSDictionary<NSString*, id>* ours,
+                                           std::string_view fixture)
+{
+    auto* xml = [NSData dataWithBytes:fixture.data() length:fixture.size()];
+    NSDictionary* parsed = [NSPropertyListSerialization propertyListWithData:xml
+                                                                     options:0
+                                                                      format:nil
+                                                                       error:nil];
+    auto* state = [NSMutableDictionary<NSString*, id> dictionaryWithDictionary:parsed];
+
+    for (NSString* key in @[ @"type", @"subtype", @"manufacturer" ])
+        state[key] = ours[key];
+
+    return state;
+}
+
+auto tPlugState = test("AUv3/aTamberPlugClassInfoLoadsThroughThePluginsReader") = []
+{
+    using TamberPlugFixtures::SVFPort;
+
+    auto standIn = ScopedStandIn<SVFPort>(Module::gainStandIn);
+    auto source = UnitHost<SVFPort>("Gain");
+    auto* plug = plugFullState(source.unit.fullStateForDocument,
+                               TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<SVFPort>("Gain");
+    target.unit.fullStateForDocument = plug;
+
+    auto& plugin = target.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::TamberPlugAU);
+    check(plugin.context == StateContext::Session);
+    check(TamberPlugFixtures::holdsSVFValues(plugin.params));
+    check(near(target.parameterFor(plugin.params.highPass.cutoff).value, 0.4f));
+
+    auto* saved = target.unit.fullStateForDocument;
+    check([saved[@"MakeASoundState"] isKindOfClass:[NSData class]]);
+    check(saved[@"TamberPlugState"] == nil);
+
+    // Another component's codes never reach a plugin.
+    auto echo = UnitHost<SynthPlugin>("Echo");
+    echo.plugin().params.level.setValue(0.8f);
+    echo.unit.fullStateForDocument = plug;
+    check(near(echo.plugin().params.level.getValue(), 0.8f));
 };
 
 auto tJuceOffThread = test("AUv3/aJuceStateFromAWorkerLoadsOnTheMessageThread") = []
@@ -1375,7 +1455,7 @@ auto tPortSeed = test("AUv3/aJuceTreeIsSeededWithTheNormalizedDefault") = []
     params.cutoff.setValue(5000.f);
     params.enabled.setValue(0.f);
 
-    auto list = ParameterList {params, ParameterIdentity {IdScheme::JUCE}};
+    auto list = ParameterList {params, policyFor(IdScheme::JUCE, {}).parameters};
     auto* tree = AUv3::makeParameterTree(
         list, AU::ParameterSpace(IdScheme::JUCE, JuceSettings {}));
     auto* cutoff = [tree parameterWithAddress:1052795674147ull];
@@ -1485,5 +1565,28 @@ auto tPortJuceState = test("AUv3/aJuceStateRestoresIntoAJucePort") = []
                p.cutoff.toNormalized(440.f),
                1e-5));
     check(target.parameterFor(p.mode).value == 2.f);
+};
+
+// A Tamber Plug port (IdScheme::TamberPlug): the tree has every exposed
+// parameter at its index, under its id path, but not the added bypass, which
+// shouldBypassEffect drives.
+auto tPlugTree = test("AUv3/aTamberPlugPortsTreeLeavesTheBypassOut") = []
+{
+    using TamberPlugFixtures::SVFPort;
+
+    auto host = UnitHost<SVFPort>(*TamberPlugFixtures::plugDescriptionFor(
+        FourCC("Psvf").toUint32()));
+    auto* tree = host.unit.parameterTree;
+    const auto& list = host.plugin().parameters();
+
+    check(tree.allParameters.count
+          == static_cast<NSUInteger>(TamberPlugFixtures::svfParameterCount));
+    check([tree parameterWithAddress:4].identifier != nil);
+    check([[tree parameterWithAddress:4].identifier isEqualToString:@"BP/Cutoff"]);
+    check([tree parameterWithAddress:list.entry(list.bypassIndex()).hostId] == nil);
+
+    host.unit.shouldBypassEffect = YES;
+    check(host.unit.shouldBypassEffect);
+    check(list[list.bypassIndex()].getValue() == 1.f);
 };
 } // namespace
