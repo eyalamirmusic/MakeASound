@@ -28,6 +28,8 @@ ctest --test-dir build
 ./build/Tools/PluginValidator/PluginValidator build/VST3   # also build/AU
 ```
 
+Each plug-in build copies its bundle into the user's plug-in folder (`MAKEASOUND_INSTALL_PLUGINS` defaults ON); pass `-DMAKEASOUND_INSTALL_PLUGINS=OFF` to leave installed plug-ins alone.
+
 On Windows ARM64, build from a VS dev shell (see memory).
 
 - Options: `MAKEASOUND_BUILD_DEVICES`, `_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES`, `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.

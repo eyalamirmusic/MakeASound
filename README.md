@@ -57,7 +57,7 @@ Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure 
 ## Build
 
 ```bash
-cmake -S . -B build -G Ninja
+cmake -S . -B build -G Ninja   # -DMAKEASOUND_INSTALL_PLUGINS=OFF to skip copying plug-ins into the plug-in folder
 cmake --build build
 
 ./build/Apps/Example/Example      # streams white noise for 2 seconds
