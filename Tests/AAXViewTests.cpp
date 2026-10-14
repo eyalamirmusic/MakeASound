@@ -82,7 +82,7 @@ struct FakeViewContainer final : AAX_IACFViewContainer
     }
 
     eacp::Graphics::View parent;
-    int32_t type = AAX_eViewContainer_Type_NSView;
+    int32_t type = MakeASound::AAX::View::nativeContainerType();
     bool accept = true;
     std::vector<EditorSize> requests;
 };
@@ -269,7 +269,8 @@ auto tWrongType = test("AAX/aForeignContainerTypeEmbedsNothing") = []
     auto scoped = ScopedAAXEditor {boundedAAX()};
     auto view = PluginView(plugin);
     auto container = FakeViewContainer {};
-    container.type = AAX_eViewContainer_Type_HWND;
+    // A UIView is no desktop platform's native container.
+    container.type = AAX_eViewContainer_Type_UIView;
 
     view.SetViewContainer(&container);
     check(scoped.editor->host() == nullptr);

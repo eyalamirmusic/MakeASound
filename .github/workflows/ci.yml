@@ -49,6 +49,9 @@ jobs:
             cxx: cl
             msvc_arch: x64
             pluginval: true
+            # The AAX bundles and cases on Windows, x64 only: the SDK has no
+            # Windows ARM64 build. Neither validated nor signed here either.
+            aax: true
 
           - name: Windows Clang (x64)
             os: windows-latest
@@ -57,6 +60,7 @@ jobs:
             cxx: clang-cl
             msvc_arch: x64
             pluginval: true
+            aax: true
 
           # Native ARM64 runners, so the tests below run on real hardware
           # rather than being cross-compiled and skipped.
@@ -245,8 +249,8 @@ jobs:
       # What a host checks before it loads one: every slice of the universal
       # build, exactly the seven ACF entry points exported, PkgInfo TDMwPTul and
       # the ad-hoc signature over the bundle.
-      - name: Verify AAX bundles
-        if: matrix.aax
+      - name: Verify AAX bundles (macOS)
+        if: matrix.aax && runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -268,6 +272,43 @@ jobs:
             [ "$(cat "$bundle/Contents/PkgInfo")" = "TDMwPTul" ]
             plutil -lint "$bundle/Contents/Info.plist"
             codesign --verify --strict "$bundle"
+          done
+          [ "$found" -eq 2 ] || { echo "ERROR: expected 2 bundles, found $found"; exit 1; }
+
+      # The same on Windows, where the bundle is a folder around one x64 DLL:
+      # Contents/x64/<name>.aaxplugin, exporting exactly the seven ACF entry
+      # points, which carry no leading underscore there. The image's LLVM reads
+      # the export table; dumpbin, which the MSVC environment above puts on
+      # PATH, is the fallback (-exports, since Git Bash would rewrite /exports
+      # as a path).
+      - name: Verify AAX bundles (Windows)
+        if: matrix.aax && runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          exports() {
+            if command -v llvm-readobj > /dev/null; then
+              llvm-readobj --coff-exports "$1" | sed -n 's/^ *Name: *//p'
+            else
+              dumpbin -nologo -exports "$1" | awk '
+                /ordinal +hint +RVA +name/ { table = 1; next }
+                /Summary/ { table = 0 }
+                table && $1 ~ /^[0-9]+$/ && NF >= 4 { print $4 }'
+            fi | tr -d '\r' | sort -u
+          }
+          expected=$(sed 's/^_//' Lib/MakeASound/Plugin/AAX/AAXExports.txt \
+                     | tr -d '\r' | sort -u)
+          found=0
+          for bundle in build-Release/AAX/*.aaxplugin; do
+            found=$((found + 1))
+            name=$(basename "$bundle" .aaxplugin)
+            binary="$bundle/Contents/x64/$name.aaxplugin"
+            [ -f "$binary" ] || { echo "ERROR: $binary is missing"; exit 1; }
+            exported=$(exports "$binary")
+            if [ "$exported" != "$expected" ]; then
+              echo "ERROR: $name exports:"; echo "$exported"; exit 1
+            fi
+            echo "$bundle: ok"
           done
           [ "$found" -eq 2 ] || { echo "ERROR: expected 2 bundles, found $found"; exit 1; }
 

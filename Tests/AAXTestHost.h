@@ -807,7 +807,9 @@ struct FakeController
             return;
 
         auto edit = Edit {kind, {}, value};
-        std::strncpy(edit.id.data(), id, edit.id.size() - 1);
+        // string_view::copy truncates as strncpy did, without the deprecation
+        // MSVC's CRT attaches to strncpy; the zeroed id keeps the terminator.
+        std::string_view(id).copy(edit.id.data(), edit.id.size() - 1);
         edits.push_back(edit);
     }
 

@@ -41,7 +41,7 @@ option(MAKEASOUND_BUILD_HOSTING
 option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" ON)
 option(MAKEASOUND_BUILD_AAX
-       "Fetch Avid's AAX SDK and build the AAX format (macOS; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
+       "Fetch Avid's AAX SDK and build the AAX format (macOS, Windows x64; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
 
 # PACE signing of each AAX bundle after it builds, on when wraptool is there, the
 # identity is set and the plugin names its AAX_WCGUID. No password is passed:

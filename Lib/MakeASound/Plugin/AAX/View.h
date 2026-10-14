@@ -46,6 +46,10 @@ public:
 
     Editor* editor() noexcept { return shownEditor.get(); }
 
+    // The one container type the view embeds in, from View-<platform>; a
+    // container of any other type gets no surface.
+    static AAX_EViewContainer_Type nativeContainerType() noexcept;
+
 protected:
     // The plugin behind GetEffectParameters(), null until its EffectInit ran.
     virtual Plugin* findPlugin();
@@ -55,7 +59,6 @@ protected:
     void DeleteViewContainer() override;
 
 private:
-    static AAX_EViewContainer_Type nativeContainerType() noexcept;
     // Keeps the surface at the container's top-left at the size last set,
     // whichever way up the host measures and however it resizes its view.
     void pinToTopLeft() noexcept;
