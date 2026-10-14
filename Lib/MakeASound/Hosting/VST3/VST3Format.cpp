@@ -1,14 +1,19 @@
 #include "../../Plugin/VST3/VST3Common.h"
 #include "VST3Format.h"
 #include "VST3Classes.h"
+#include "VST3HostedPlugin.h"
 #include "../Scan/Scanner.h"
 
+#include <public.sdk/source/common/memorystream.h>
 #include <public.sdk/source/vst/hosting/hostclasses.h>
+#include <public.sdk/source/vst/utility/stringconvert.h>
 #include <pluginterfaces/gui/iplugview.h>
 #include <pluginterfaces/vst/ivstcomponent.h>
 #include <pluginterfaces/vst/ivsteditcontroller.h>
+#include <pluginterfaces/vst/ivstmessage.h>
 
 #include <cstring>
+#include <filesystem>
 
 namespace MakeASound::Hosting
 {
@@ -91,6 +96,67 @@ void describeClass(const ::VST3::Hosting::PluginFactory& factory,
     controller = nullptr;
     component->terminate();
 }
+
+// The SDK's host application under the host's own name.
+class NamedHostApplication : public HostApplication
+{
+public:
+    explicit NamedHostApplication(std::string nameToUse)
+        : name(std::move(nameToUse))
+    {
+    }
+
+    tresult PLUGIN_API getName(String128 out) override
+    {
+        return StringConvert::convert(name, out) ? kResultTrue : kInternalError;
+    }
+
+private:
+    std::string name;
+};
+
+// Some plugins find their own files through the working directory while they
+// load and initialise, and JUCE's host enters the bundle's folder for that span.
+class ScopedWorkingDirectory
+{
+public:
+    explicit ScopedWorkingDirectory(const std::string& bundle)
+    {
+        namespace fs = std::filesystem;
+
+        auto path = fs::path(bundle);
+        auto error = std::error_code();
+        previous = fs::current_path(error);
+
+        if (error || !path.is_absolute())
+            return;
+
+        fs::current_path(path.parent_path(), error);
+        entered = !error;
+    }
+
+    ~ScopedWorkingDirectory()
+    {
+        auto error = std::error_code();
+
+        if (entered)
+            std::filesystem::current_path(previous, error);
+    }
+
+    ScopedWorkingDirectory(const ScopedWorkingDirectory&) = delete;
+    ScopedWorkingDirectory& operator=(const ScopedWorkingDirectory&) = delete;
+
+private:
+    std::filesystem::path previous;
+    bool entered = false;
+};
+
+LoadResult failure(std::string error)
+{
+    auto result = LoadResult();
+    result.error = std::move(error);
+    return result;
+}
 } // namespace
 
 PluginFormat VST3Format::format() const
@@ -150,6 +216,98 @@ ModuleScan VST3Format::scan(std::string_view target) const
     // A module with no audio-effect class is not a failure: it caches as a good
     // "nothing here", so it is not rescanned every launch.
     return scan;
+}
+
+LoadResult VST3Format::load(const PluginDescription& description,
+                            const HostInfo& host) const
+{
+    const auto workingDirectory = ScopedWorkingDirectory(description.path);
+
+    auto error = std::string();
+    auto module = ::VST3::Hosting::Module::create(description.path, error);
+
+    if (!module)
+        return failure(error.empty() ? "the module failed to load" : error);
+
+    const auto& factory = module->getFactory();
+    auto chosen = std::optional<::VST3::Hosting::ClassInfo>();
+
+    for (auto& audioClass: audioClassesOf(factory))
+        if (classIdOf(audioClass) == description.classId)
+            chosen = std::move(audioClass);
+
+    if (!chosen)
+        return failure("the module has no audio class with id "
+                       + description.classId);
+
+    // Outlives every initialize() below; the plugin keeps it.
+    auto hostApplication =
+        IPtr<IHostApplication>(owned(new NamedHostApplication(host.name)));
+    factory.setHostContext(hostApplication);
+
+    auto component = factory.createInstance<IComponent>(chosen->ID());
+
+    if (!component)
+        return failure("the factory could not create the component");
+
+    if (component->initialize(hostApplication) != kResultOk)
+        return failure("the component did not initialize");
+
+    // A controller of its own when the component names another class; the
+    // component itself otherwise.
+    auto controller = IPtr<IEditController>();
+    auto separate = false;
+    TUID controllerId = {};
+
+    if (component->getControllerClassId(controllerId) == kResultOk
+        && std::memcmp(controllerId, chosen->ID().data(), sizeof(TUID)) != 0)
+    {
+        controller = factory.createInstance<IEditController>(
+            ::VST3::UID::fromTUID(controllerId));
+
+        if (controller && controller->initialize(hostApplication) == kResultOk)
+            separate = true;
+        else
+            controller = nullptr;
+    }
+
+    if (!controller)
+        if (auto fromComponent = FUnknownPtr<IEditController>(component))
+            controller = fromComponent;
+
+    // Connected, and given the component's state, before the plugin is built or
+    // its view asked for: some plugins read that state in attached().
+    if (separate)
+    {
+        auto componentPoint = FUnknownPtr<IConnectionPoint>(component);
+        auto controllerPoint = FUnknownPtr<IConnectionPoint>(controller);
+
+        if (componentPoint && controllerPoint)
+        {
+            componentPoint->connect(controllerPoint);
+            controllerPoint->connect(componentPoint);
+        }
+
+        auto stream = MemoryStream();
+
+        if (component->getState(&stream) == kResultOk)
+        {
+            stream.seek(0, IBStream::kIBSeekSet, nullptr);
+            controller->setComponentState(&stream);
+        }
+    }
+
+    auto loaded = description;
+    loaded.format = PluginFormat::VST3;
+
+    auto result = LoadResult();
+    result.plugin = EA::makeOwned<VST3HostedPlugin>(std::move(loaded),
+                                                    std::move(module),
+                                                    std::move(hostApplication),
+                                                    std::move(component),
+                                                    std::move(controller),
+                                                    separate);
+    return result;
 }
 
 } // namespace MakeASound::Hosting

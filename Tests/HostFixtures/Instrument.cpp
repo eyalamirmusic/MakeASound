@@ -1,4 +1,6 @@
-// HostFixtureInstrument: MIDI in and out, a stereo output and no audio input.
+// HostFixtureInstrument: MIDI in and out, a stereo output and no audio input. It
+// echoes every MIDI event it gets to its MIDI output and plays a constant level
+// while any note is held, so a host sees both directions.
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
@@ -24,8 +26,29 @@ struct InstrumentPlugin : StatePlugin<State<InstrumentParams>>
         return layout;
     }
 
-    void prepare(const ProcessSpec&) override {}
-    void process(ProcessContext&) noexcept override {}
+    void prepare(const ProcessSpec&) override { held = 0; }
+
+    void process(ProcessContext& context) noexcept override
+    {
+        for (const auto& event: context.mainMidiIn())
+        {
+            if (event.isNoteOn())
+                ++held;
+            else if (event.isNoteOff() && held > 0)
+                --held;
+
+            if (context.mainMidiOut().size() < context.mainMidiOut().capacity())
+                context.mainMidiOut().add(event);
+        }
+
+        auto value = held > 0 ? params.level.get() : 0.f;
+
+        for (auto channel: context.mainOutput())
+            for (auto& sample: channel)
+                sample = value;
+    }
+
+    int held = 0;
 };
 } // namespace
 

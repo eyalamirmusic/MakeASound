@@ -20,6 +20,14 @@ ModuleStamp HostFormat::stamp(std::string_view target) const
     return moduleStamp(target);
 }
 
+LoadResult HostFormat::load(const PluginDescription& description,
+                            const HostInfo&) const
+{
+    auto result = LoadResult();
+    result.error = "this format cannot load " + description.path;
+    return result;
+}
+
 FormatManager::FormatManager() = default;
 FormatManager::~FormatManager() = default;
 
@@ -98,6 +106,17 @@ PluginFormat FormatManager::formatOfTarget(std::string_view target) const
         return format->format();
 
     return PluginFormat::VST3;
+}
+
+LoadResult FormatManager::load(const PluginDescription& description,
+                               const HostInfo& host) const
+{
+    if (const auto* format = find(description.format))
+        return format->load(description, host);
+
+    auto result = LoadResult();
+    result.error = "no format in this build loads " + description.name;
+    return result;
 }
 
 TargetScan FormatManager::scanTarget(std::string_view target) const

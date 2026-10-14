@@ -6,6 +6,7 @@
 #include "PluginDescription.h"
 #include "PluginCache.h"
 #include "PluginFilter.h"
+#include "HostedPlugin.h"
 #include "HostFormat.h"
 #include "FormatManager.h"
 #include "Scan/ExecutablePath.h"

@@ -86,6 +86,13 @@ public:
     // claiming format, whatever the scan echoed.
     TargetScan scanTarget(std::string_view target) const;
 
+    // Loads a scanned plugin through the format it names: a null plugin and an
+    // error naming the format when this manager holds none for it (an Audio
+    // Unit row read on Windows out of a database shared with a Mac, say).
+    // Message thread; see HostFormat::load.
+    LoadResult load(const PluginDescription& description,
+                    const HostInfo& host = {}) const;
+
 private:
     Vector<OwningPointer<HostFormat>> formats;
 };

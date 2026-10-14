@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HostedPlugin.h"
 #include "PluginDescription.h"
 
 #include <string>
@@ -55,6 +56,14 @@ public:
     // available: VST3 module initialisation expects one, and an AUv3 answers
     // through it.
     virtual ModuleScan scan(std::string_view target) const = 0;
+
+    // Loads the class `description` names (its path and class id, never a
+    // position, so a selection survives a plugin update) and instantiates it.
+    // Runs plugin code in THIS process. Message thread, with an event loop
+    // running: module initialisation and an AUv3's asynchronous instantiation
+    // need one. The default loads nothing and says so.
+    virtual LoadResult load(const PluginDescription& description,
+                            const HostInfo& host) const;
 };
 
 } // namespace MakeASound::Hosting

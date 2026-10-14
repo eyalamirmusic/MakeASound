@@ -197,7 +197,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
         # Real VST3 modules to scan: the fixtures, built beside the suite.
         if (TARGET MakeASoundVST3)
             add_subdirectory(HostFixtures)
-            list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp)
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp HostedVST3Tests.cpp)
             set(MAKEASOUND_TEST_HOST_FIXTURES ON)
 
             # Apps/PluginScanner, run as a program over the fixtures.
@@ -280,6 +280,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     if (TARGET MakeASoundAAX)
         list(APPEND MAKEASOUND_TEST_SOURCES AAXAllocationTests.cpp)
+    endif ()
+
+    if (MAKEASOUND_TEST_HOST_FIXTURES)
+        list(APPEND MAKEASOUND_TEST_SOURCES HostingAllocationTests.cpp)
     endif ()
 endif ()
 

@@ -34,6 +34,14 @@ public:
     // and whether it has an editor. Each class is instantiated just long enough
     // to ask, and its view is created and released without being attached.
     ModuleScan scan(std::string_view target) const override;
+
+    // Instantiates the class with the description's class id, connects a
+    // separate controller to its component and hands it the component's state
+    // before anything else asks it (Serum 2 reads that state in attached()), all
+    // with the working directory in the bundle's folder for the span of the
+    // load, as JUCE's host does.
+    LoadResult load(const PluginDescription& description,
+                    const HostInfo& host) const override;
 };
 
 } // namespace MakeASound::Hosting

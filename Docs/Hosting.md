@@ -6,10 +6,72 @@ plugin framework: a host's view of plugins somebody else built. It sits beside
 `Plugin/` rather than in it, because `Plugin/Host/` is the *plugin's* view of a
 host.
 
-What it does today is **find and describe** plugins: VST3 everywhere it builds,
-Audio Units on macOS, scanned out of process into a database. Loading a plugin
-and showing its editor come next (see [What is not here yet](#what-is-not-here-yet)).
-Scanning has its own document, [PluginScanning.md](PluginScanning.md).
+It **finds and describes** plugins (VST3 everywhere it builds, Audio Units on
+macOS, scanned out of process into a database) and **loads and runs** VST3
+plugins in process. Audio Unit loading and hosted editors come next (see
+[What is not here yet](#what-is-not-here-yet)). Scanning has its own document,
+[PluginScanning.md](PluginScanning.md).
+
+## Loading and running a plugin
+
+```cpp
+auto formats = MakeASound::Hosting::FormatManager();
+formats.addDefaultFormats();
+
+auto loaded = formats.load(description, {.name = "My Host"});   // message thread
+
+if (loaded.plugin == nullptr)
+    showError(loaded.error);
+
+engine.start(config, *loaded.plugin);   // a HostedPlugin is a Processor
+```
+
+`description` is a row of the plugin database (`PluginCache::plugins()`), so a
+plugin is addressed by its path and class id, never by a position, and a saved
+selection survives a plugin update. `HostInfo::name` is what the plugin is told
+the host is called.
+
+A `HostedPlugin` is a `MakeASound::Plugin`: `getBusLayout()` is the plugin's own
+buses (with `activeByDefault` as it reported them, so a sidechain it ships off
+stays off), `acceptsLayout` asks it, `prepare` and `process` run it, and
+`saveState`/`loadState` are its own opaque chunk. It is never put in a
+`PluginWrapper`, which adapts our plugins to a host, and it declines the added
+bypass (`wantsHostBypass()`).
+
+Its `parameters()` are the plugin's, in its order, hidden ones left out. Each has
+the plugin's own id as its host id, any of the 32 bits (`hostedPluginIdentity()`),
+that id in decimal as its id, and the plugin's normalized range as its plain one
+(0..1, stepped where the plugin says). Text goes through the plugin
+(`valueToText`, `textToValue`). Setting a value from the message thread
+(`setValue`) reaches the plugin's controller and its processor's next block;
+`setParameterFromAudioThread` does the same from the audio thread, for a host's
+automation.
+
+What only a host needs is on `HostedPlugin`:
+
+| call | thread | what |
+| --- | --- | --- |
+| `setParameterFromAudioThread(i, v)` | audio | a value for the next block, allocation-free |
+| `syncEditorWithProcessor()` | message (UI timer) | values the processor reported, pushed to the plugin's own GUI |
+| `refreshParameterValue(i)` | message | re-read a value the plugin's GUI moved without saying (AU) |
+| `takeParameterInfoChanged()` | any | the plugin renamed parameters, already re-read in place |
+| `takeLatencyChanged()` | any | `latencySamples()` moved |
+| `takeIoChanged()` | any | the buses changed: renegotiate and prepare again |
+| `setFallbackPlayhead(p)` | message, not processing | the transport for a context with none; stopped at 120 BPM by default |
+
+The plugin's own GUI reaches the host through the `HostEditListener` slot every
+`Plugin` has: begin, perform and end of each edit by parameter index, plus
+`parameterInfoChanged` and `latencyChanged`, on the message thread. That is how a
+host learns which control the user touched.
+
+`VST3/VST3HostedPlugin.h` is the VST3-only side, for code that must reach the
+plugin itself: its `IEditController`, the `IComponentHandler` this host installed
+(what the plugin's GUI calls), and whether its controller is a class of its own.
+
+A VST3 load enters the bundle's folder for the span of the load, as JUCE's host
+does, connects a separate controller to its component and hands it the component's
+state before anything asks for a view (some plugins read that state in
+`attached()`).
 
 ## Building it
 
@@ -21,7 +83,7 @@ There are to be two libraries:
 
 | target | holds | links |
 | --- | --- | --- |
-| `MakeASoundHosting` | formats, scanning, the cache, and (next) loading and processing | `MakeASoundPlugin`, `vst3sdk-hosting`, eacp-core, AudioToolbox on macOS |
+| `MakeASoundHosting` | formats, scanning, the cache, loading and processing | `MakeASoundPlugin`, `vst3sdk-hosting`, eacp-core, AudioToolbox on macOS |
 | `MakeASoundHostedEditor` | (next) a hosted plugin's own editor in an eacp view | the above, eacp-graphics |
 
 The split keeps a scanner's worker process, which loads a plugin only to describe
@@ -70,8 +132,8 @@ targets in the order they were added: a `*.vst3` path is VST3's, a
 
 | | VST3 scan | AU scan | VST3 load | AU load | hosted editors |
 | --- | --- | --- | --- | --- | --- |
-| macOS | yes | yes (v2, and v3 through the v2 API) | next | next | next |
-| Windows | yes | - | next | - | next (HWND child, DPI conversion) |
+| macOS | yes | yes (v2, and v3 through the v2 API) | yes | next | next |
+| Windows | yes | - | yes | - | next (HWND child, DPI conversion) |
 | Linux | later | - | later (headless) | - | later |
 | iOS | later | later | later | later | later |
 
@@ -79,18 +141,21 @@ CLAP hosting and out-of-process audio processing are not planned.
 
 ## Threading
 
-Everything in the module today runs on the **message thread**: the format
-manager, the cache, the sweep and its pool, and every callback they fire. Nothing
-creates a thread of its own except `ScanMode::InProcess`, which scans on a
-background thread for tests and debugging. A sweep advances in `poll()`, which a
-console program calls in a loop and a GUI hands to an eacp timer with
-`setAutoPoll(true)`.
+The **message thread** has the format manager, the cache, the sweep and its pool,
+loading, preparing, layouts, state, and every callback any of them fires, the
+`HostEditListener` ones included. Nothing creates a thread of its own except
+`ScanMode::InProcess`, which scans on a background thread for tests and debugging.
+A sweep advances in `poll()`, which a console program calls in a loop and a GUI
+hands to an eacp timer with `setAutoPoll(true)`.
 
-Loading will add the audio thread, and the rules the design keeps for it: only
-`process` and setting a parameter from the audio thread run there, both
-allocation-free; edits from the UI reach the processor through an SPSC queue
-drained at block start; values from the processor reach the UI through atomics and
-a dirty flag consumed on a UI timer.
+The **audio thread** has only `process` and `setParameterFromAudioThread`, both
+allocation-free (`Tests/HostingAllocationTests.cpp`): every buffer, table and
+queue is sized in `prepare`, and a block longer than prepared is refused. Edits
+from the message thread reach the processor through an SPSC queue drained at the
+top of each block; values the processor reports reach the message thread through
+atomics and a dirty flag that `syncEditorWithProcessor()` consumes. A bus the
+caller does not supply reads silence and writes into a scratch channel, since a
+VST3 plugin may touch every channel of every bus it declares.
 
 ## Platform code
 
@@ -109,14 +174,8 @@ do.
 
 The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 
-- **`HostedPlugin`**, a `MakeASound::Plugin` wrapping a loaded VST3 or AU, with
-  `setParameterFromAudioThread`, `syncEditorWithProcessor`,
-  `refreshParameterValue`, `takeParameterInfoChanged`, `takeIoChanged` and a
-  fallback playhead (stopped by default). It needs the plugin core to carry
-  parameters it did not derive: foreign host ids, renames in place
-  (`Parameter::setDisplayInfo`), a bypass opt-out and default-inactive buses.
-  Those wait on the parameter-identity redesign.
-- **`HostFormat::load` / `FormatManager::load`**, which return a `HostedPlugin`.
+- **Audio Unit loading**: a `HostedPlugin` over the AudioUnit C API (v2, and v3
+  through it, out of process first), with `refreshParameterValue`.
 - **Hosted editors** (`MakeASoundHostedEditor`) for VST3 on macOS and Windows and
   for AU on macOS.
 - **`Apps/PluginHost`**, the GUI example: the list, the filter, scan progress, a

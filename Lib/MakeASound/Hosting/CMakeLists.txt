@@ -21,13 +21,16 @@ find_package(eacp REQUIRED)
 
 add_library(MakeASoundHosting STATIC
         FormatManager.cpp
+        HostedPlugin.cpp
         PluginCache.cpp
         Scan/ExecutablePath.cpp
         Scan/ScanCoordinator.cpp
         Scan/Scanner.cpp
         Scan/ScanSession.cpp
         Scan/ScanWorker.cpp
-        VST3/VST3Format.cpp)
+        VST3/VST3Format.cpp
+        VST3/VST3HostedParameter.cpp
+        VST3/VST3HostedPlugin.cpp)
 
 # One TU per platform for what differs; CMake picks it, no #if does.
 if (APPLE)
