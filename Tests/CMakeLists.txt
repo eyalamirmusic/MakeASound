@@ -116,6 +116,10 @@ if (MAKEASOUND_BUILD_PLUGIN)
             add_test(NAME Web/Page/synthTypeChecks
                     COMMAND "${MAKEASOUND_NODE}" "${synth_tsc}" --noEmit -p "${synth_web}")
         endif ()
+
+        # makeasound_add_web_editor's SHARED_UI and PRE_BUILD, on fixture pages
+        # whose bundler needs no npm package.
+        add_subdirectory(WebEditorBuild)
     endif ()
 
     # The standalone core, wherever the plugin core builds, and the default app's
@@ -415,6 +419,10 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
         target_compile_definitions(MakeASoundTests PRIVATE
                 MAKEASOUND_HOST_FIXTURE_AU_DIR="${MAKEASOUND_HOST_FIXTURE_AU_DIR}")
     endif ()
+endif ()
+
+if (MAKEASOUND_WEB_EDITOR_FIXTURES)
+    add_dependencies(MakeASoundTests ${MAKEASOUND_WEB_EDITOR_FIXTURES})
 endif ()
 
 if (MAKEASOUND_BUNDLE_ID_FIXTURES)

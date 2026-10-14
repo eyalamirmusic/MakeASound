@@ -444,7 +444,18 @@ The page calls `getParameters()` for each parameter's id path, name, steps, choi
 | `resetParam` | one parameter back to its default |
 | `resetAll` | every parameter back to its default but the host-facing bypass, one gesture each, skipping those already there |
 
-Every change reaches the host as begin, perform and end, so a host records it as ordinary automation. The editor polls 30 times a second and, when anything moved (automation included), publishes two events: `values` holds only the entries that moved, and `parameterValues` holds every entry and is *keyed* by id, so the generated hooks give each control a store of its own. `useWebParameterValue(id)` re-renders only when that parameter changes, and `getParameterValues()` is its initial fetch. `Plugins/Synth/web/src/useParameters.ts` shows the pattern, and its knobs reset on double-click and take typed values. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
+Every change reaches the host as begin, perform and end, so a host records it as ordinary automation. The editor polls 30 times a second and, when anything moved (automation included), publishes two events: `values` holds only the entries that moved, and `parameterValues` holds every entry and is *keyed* by id, so the generated hooks give each control a store of its own. `useWebParameterValue(id)` re-renders only when that parameter changes, and `getParameterValues()` is its initial fetch. `Plugins/Synth/web/src/useParameters.ts` shows the pattern, and its knobs reset on double-click and take typed values. Two options hook into the page's build, and a call without them builds exactly as before:
+
+```cmake
+makeasound_add_web_editor(VocoderPlugin
+        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
+        SHARED_UI ${PROJECT_SOURCE_DIR}/Shared/web/ui    # merged into web/src/shared
+        PRE_BUILD VocoderPageCodegen                     # a target of your own
+        SOURCES VocoderEditor-Web.cpp
+        FALLBACK_SOURCES VocoderEditor-None.cpp)
+```
+
+`SHARED_UI` copies one or more directories into `src/shared` before every vite build, emptied first and merged in order (a later directory's file replaces an earlier one's), so several pages share components that import `'../generated/...'`; gitignore `src/shared`. `PRE_BUILD` targets run after the schema codegen and that copy and before vite, for a project's own codegen; whatever they write under `src/` is part of the page. `Tests/WebEditorBuild` checks both. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
 
 ## Running a plugin standalone
 
