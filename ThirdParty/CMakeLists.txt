@@ -114,6 +114,12 @@ if (APPLE)
 elseif (WIN32)
     set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_win32.cpp)
     target_compile_definitions(vst3sdk-hosting PRIVATE NOMINMAX)
+    # The loader picks its C++20 path (u8string to std::string) by SMTG_CPP20,
+    # which reads __cplusplus, and MSVC reports 199711L without this switch, so
+    # it took the pre-C++20 path that passes a std::u8string as a std::string.
+    # clang-cl already reports the real value.
+    target_compile_options(vst3sdk-hosting PRIVATE
+            $<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>)
 else ()
     set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_linux.cpp)
 endif ()

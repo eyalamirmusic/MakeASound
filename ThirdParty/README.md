@@ -37,7 +37,11 @@ target as `MAKEASOUND_VST3_SDK_MAIN` (and the export list on macOS as
 archive would let the linker drop them. The hosting files build separately as the
 static target `vst3sdk-hosting`, with the one loader for the platform added in
 CMake (`module_mac.mm` as Objective-C++ under ARC), so no plugin links them;
-`MakeASoundHosting` and the tests do.
+`MakeASoundHosting` and the tests do. No SDK file is edited. Under MSVC the
+target compiles with `/Zc:__cplusplus`, because `module_win32.cpp` chooses its
+C++20 path by `SMTG_CPP20`, which reads `__cplusplus`, and MSVC otherwise
+reports `199711L` and compiles the pre-C++20 path, which does not build under
+C++20.
 
 To update: clone `steinbergmedia/vst3sdk` at the new tag with the `base`,
 `pluginterfaces` and `public.sdk` submodules, replace the folders above with the
