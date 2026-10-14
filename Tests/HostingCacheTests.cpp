@@ -22,11 +22,20 @@ namespace
 {
 namespace fs = std::filesystem;
 
+// Best effort, never throwing: on Windows a file still open anywhere (an
+// antivirus scan, a handle not yet released) makes remove_all fail, and a
+// teardown must not fail the case it cleans up after.
+void removeFolder(const fs::path& folder)
+{
+    auto ec = std::error_code();
+    fs::remove_all(folder, ec);
+}
+
 // A fresh folder per case: ctest runs cases in parallel processes.
 fs::path freshFolder(const char* name)
 {
     auto folder = fs::temp_directory_path() / "MakeASoundHostingCacheTests" / name;
-    fs::remove_all(folder);
+    removeFolder(folder);
     fs::create_directories(folder);
     return folder;
 }
@@ -161,11 +170,15 @@ auto tPlugFile = test("HostingCache/aPlugDatabaseLoadsAndSavesThroughACache") = 
 
     check(cache.save());
 
-    auto in = std::ifstream(path, std::ios::binary);
-    const auto written = std::string(std::istreambuf_iterator<char>(in), {});
+    // Scoped: Windows can't delete a file that is still open.
+    const auto written = [&]
+    {
+        auto in = std::ifstream(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    }();
     check(written == HostingFixtures::pluginCacheDocument);
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tPlugAudioUnit = test("HostingCache/anAudioUnitEntryPlugWroteDecodes") = []
@@ -223,7 +236,7 @@ auto tRoundTrip = test("HostingCache/aCacheRoundTripsThroughItsFile") = []
     check(plugins[0].isInstrument());
     check(reloaded.modulesNeedingScan({module}).empty());
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tSorted = test("HostingCache/pluginsAreFlattenedAndSorted") = []
@@ -247,7 +260,7 @@ auto tSorted = test("HostingCache/pluginsAreFlattenedAndSorted") = []
     check(plugins[1].name == "Middle");
     check(plugins[2].name == "Zebra");
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tStale = test("HostingCache/onlyNewOrChangedModulesNeedScanning") = []
@@ -271,7 +284,7 @@ auto tStale = test("HostingCache/onlyNewOrChangedModulesNeedScanning") = []
     check(needed.contains(changed));
     check(needed.contains(fresh));
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tBlacklist = test("HostingCache/aFailureIsBlacklistedUntilItsStampChanges") = []
@@ -296,7 +309,7 @@ auto tBlacklist = test("HostingCache/aFailureIsBlacklistedUntilItsStampChanges")
     check(!cache.isBlacklisted(crashed));
     check(cache.modulesNeedingScan({crashed, failed}).size() == 1);
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tBlacklistReload = test("HostingCache/theBlacklistSurvivesASaveAndLoad") = []
@@ -320,7 +333,7 @@ auto tBlacklistReload = test("HostingCache/theBlacklistSurvivesASaveAndLoad") = 
     check(entry != nullptr);
     check(entry->error == "initialize failed");
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tRemoveMissing = test("HostingCache/removeMissingDropsUninstalledModules") = []
@@ -340,7 +353,7 @@ auto tRemoveMissing = test("HostingCache/removeMissingDropsUninstalledModules") 
     check(cache.plugins()[0].name == "Kept");
     check(cache.find(gone) == nullptr);
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tRemoveByFormat = test("HostingCache/removeMissingByFormatSparesOthers") = []
@@ -391,7 +404,7 @@ auto tOnChanged = test("HostingCache/onChangedFiresOnlyForRealChanges") = []
     cache.removeMissing({});
     check(changes == 3);
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tCorrupt = test("HostingCache/aCorruptFileReadsAsEmpty") = []
@@ -413,7 +426,7 @@ auto tCorrupt = test("HostingCache/aCorruptFileReadsAsEmpty") = []
     check(!missing.load());
     check(missing.plugins().empty());
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tClear = test("HostingCache/clearRemovesTheFileAndTheDocument") = []
@@ -439,7 +452,7 @@ auto tClear = test("HostingCache/clearRemovesTheFileAndTheDocument") = []
     check(cache.clear());
     check(changes == 1);
 
-    fs::remove_all(folder);
+    removeFolder(folder);
 };
 
 auto tStampFunction = test("HostingCache/theStampFunctionDecidesStaleness") = []
@@ -558,7 +571,7 @@ auto tWalkDepth = test("HostingCache/theWalkFindsModulesAtAnyDepthButNotInside")
     check(modules.contains((root / "Vendor" / "Deep" / "Nested.vst3").string()));
     check(modules.contains((root / "Bare.VST3").string()));
 
-    fs::remove_all(root);
+    removeFolder(root);
 };
 
 auto tWalkPaths = test("HostingCache/theWalkTakesModulesAndSkipsMissingPaths") = []
@@ -574,7 +587,7 @@ auto tWalkPaths = test("HostingCache/theWalkTakesModulesAndSkipsMissingPaths") =
     check(modules.size() == 1);
     check(modules[0] == module.string());
 
-    fs::remove_all(root);
+    removeFolder(root);
 };
 
 auto tWalkSymlinks = test("HostingCache/theWalkFollowsSymlinksWithoutLooping") = []
@@ -597,7 +610,7 @@ auto tWalkSymlinks = test("HostingCache/theWalkFollowsSymlinksWithoutLooping") =
 
     check(linked == 1);
 
-    fs::remove_all(root);
+    removeFolder(root);
 };
 
 auto tStamp = test("HostingCache/aBundleStampsFromItsBinary") = []
@@ -620,6 +633,6 @@ auto tStamp = test("HostingCache/aBundleStampsFromItsBinary") = []
     check(moduleStamp((root / "Missing.vst3").string()) == ModuleStamp());
     check(moduleStamp("") == ModuleStamp());
 
-    fs::remove_all(root);
+    removeFolder(root);
 };
 } // namespace
