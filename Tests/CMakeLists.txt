@@ -93,6 +93,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_SOURCES VST3SDKTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS vst3sdk vst3sdk-hosting)
 
+    # The module loader, which vst3sdk-hosting has everywhere but iOS.
+    if (NOT IOS)
+        list(APPEND MAKEASOUND_TEST_SOURCES VST3SDKLoaderTests.cpp)
+    endif ()
+
     # The generic editor and the resize grip, and the editor every format suite
     # can show in place of a plugin's own.
     if (TARGET MakeASoundPluginUI)

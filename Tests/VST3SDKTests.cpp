@@ -1,12 +1,12 @@
 // The vendored VST3 SDK compiles and links on every platform the suite runs on:
 // a parameter container, a FUID and a string round trip through the parts the
-// adapter will build on, and the host side's loader and host application.
-// Nothing here opens a plugin.
+// adapter will build on, and the host side's host application. The module
+// loader, which iOS doesn't build, is VST3SDKLoaderTests.cpp's. Nothing here
+// opens a plugin.
 
 #include <public.sdk/source/vst/vstparameters.h>
 #include <public.sdk/source/vst/utility/stringconvert.h>
 #include <public.sdk/source/vst/hosting/hostclasses.h>
-#include <public.sdk/source/vst/hosting/module.h>
 #include <pluginterfaces/base/funknown.h>
 
 #include <NanoTest/NanoTest.h>
@@ -54,16 +54,6 @@ auto tStrings = test("VST3SDK/utf8RoundTripsThroughUtf16") = []
     auto utf16 = StringConvert::convert(utf8);
     check(utf16.size() == 16);
     check(StringConvert::convert(utf16) == utf8);
-};
-
-auto tMissingModule = test("VST3SDK/aMissingModuleFailsToLoadWithAReason") = []
-{
-    auto error = std::string();
-    auto module =
-        VST3::Hosting::Module::create("/no/such/folder/Missing.vst3", error);
-
-    check(module == nullptr);
-    check(!error.empty());
 };
 
 auto tHostApplication = test("VST3SDK/theHostApplicationAnswersItsName") = []

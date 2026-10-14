@@ -242,7 +242,8 @@ Selected in CMake, never with `#if`, like the rest of MakeASound:
   `Scan/WorkerProcess-<os>.cpp`, `VST3/VST3Folders-<os>.cpp`
 - `AU/`, added on macOS only
 - the SDK's `module_mac.mm` / `module_win32.cpp` / `module_linux.cpp`, one per
-  platform in `vst3sdk-hosting` (`ThirdParty/CMakeLists.txt`)
+  platform in `vst3sdk-hosting` (`ThirdParty/CMakeLists.txt`), and none on
+  iOS, where `MakeASoundHosting` is not built
 
 Every VST3 TU includes `Plugin/VST3/VST3Common.h` first, as the format adapter's
 do.

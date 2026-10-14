@@ -104,8 +104,12 @@ add_library(vst3sdk-hosting STATIC
 
 # The loader that differs per platform: Cocoa's NSBundle under ARC, LoadLibraryW
 # (and Shell32's known folders, which the file links itself through a pragma), or
-# dlopen.
-if (APPLE)
+# dlopen. iOS has none: hosting is macOS and Windows for now (Linux next), and the
+# Mac loader is Cocoa's, so an iOS tree keeps the platform-neutral host side the
+# VST3 test host uses, and Module::create is not defined there.
+if (IOS)
+    set(vst3_module_loader)
+elseif (APPLE)
     set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_mac.mm)
     set_source_files_properties(${vst3_module_loader} PROPERTIES
             COMPILE_OPTIONS -fobjc-arc
@@ -124,7 +128,9 @@ else ()
     set(vst3_module_loader ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_linux.cpp)
 endif ()
 
-target_sources(vst3sdk-hosting PRIVATE ${vst3_module_loader})
+if (vst3_module_loader)
+    target_sources(vst3sdk-hosting PRIVATE ${vst3_module_loader})
+endif ()
 
 target_link_libraries(vst3sdk-hosting PUBLIC vst3sdk)
 set_target_properties(vst3sdk-hosting PROPERTIES UNITY_BUILD ON)
