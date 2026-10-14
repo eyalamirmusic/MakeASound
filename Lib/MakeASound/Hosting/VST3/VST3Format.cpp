@@ -307,6 +307,7 @@ LoadResult VST3Format::load(const PluginDescription& description,
                                                     std::move(component),
                                                     std::move(controller),
                                                     separate);
+    result.plugin->setEditorFactory(host.editors);
     return result;
 }
 

@@ -69,5 +69,46 @@ endif ()
 
 set_makeasound_target_settings(MakeASoundHosting)
 
+# MakeASoundHostedEditor: a hosted plugin's own editor in an eacp view, apart so
+# the hosting library itself never links graphics. A host that shows editors
+# links it and passes hostedEditors() as HostInfo::editors.
+if (TARGET eacp-graphics)
+    add_library(MakeASoundHostedEditor STATIC
+            VST3/HostedVST3Editor.cpp)
+
+    if (APPLE)
+        target_sources(MakeASoundHostedEditor PRIVATE
+                AU/HostedAudioUnitEditor.mm
+                HostedEditors-macOS.cpp
+                VST3/VST3EditorPlatform-macOS.cpp)
+
+        target_compile_options(MakeASoundHostedEditor PRIVATE
+                $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+        target_link_libraries(MakeASoundHostedEditor PRIVATE
+                "-framework AudioToolbox"
+                "-framework Cocoa"
+                "-framework CoreAudioKit")
+    else ()
+        target_sources(MakeASoundHostedEditor PRIVATE
+                HostedEditors-Windows.cpp
+                VST3/VST3EditorPlatform-Windows.cpp)
+
+        target_compile_definitions(MakeASoundHostedEditor PRIVATE
+                WIN32_LEAN_AND_MEAN NOMINMAX)
+    endif ()
+
+    target_link_libraries(MakeASoundHostedEditor
+            PUBLIC MakeASoundHosting
+            PRIVATE eacp-graphics vst3sdk-hosting)
+
+    if (MAKEASOUND_UNITY_BUILD)
+        set_target_properties(MakeASoundHostedEditor PROPERTIES UNITY_BUILD ON)
+    endif ()
+
+    set_makeasound_target_settings(MakeASoundHostedEditor)
+else ()
+    message(STATUS "MakeASoundHostedEditor skipped (needs eacp graphics)")
+endif ()
+
 # makeasound_enable_hosting(), for this tree's apps and for a consumer's own.
 include(MakeASoundHosting)

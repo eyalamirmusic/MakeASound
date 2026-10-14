@@ -12,6 +12,16 @@ void HostedPlugin::refreshParameterValue(int)
 {
 }
 
+OwningPointer<Editor> HostedPlugin::createEditor()
+{
+    return editors ? editors(*this) : OwningPointer<Editor>();
+}
+
+void HostedPlugin::setEditorFactory(HostedEditorFactory factoryToUse)
+{
+    editors = std::move(factoryToUse);
+}
+
 bool HostedPlugin::takeParameterInfoChanged() noexcept
 {
     return parameterInfoChanged.exchange(false, std::memory_order_acq_rel);

@@ -4,17 +4,28 @@
 #include "../Audio/Playhead.h"
 
 #include <atomic>
+#include <functional>
 #include <string>
 #include <string_view>
 
 namespace MakeASound::Hosting
 {
 
-// What a host tells the plugins it loads about itself (VST3's IHostApplication
-// name).
+class HostedPlugin;
+
+// Makes a hosted plugin's own editor, or null when it has none. The slim hosting
+// library draws nothing, so it makes none itself: a host that shows editors links
+// MakeASoundHostedEditor and passes its hostedEditors() here.
+using HostedEditorFactory = std::function<OwningPointer<Editor>(HostedPlugin&)>;
+
+// What a host tells the plugins it loads, and how it shows them.
 struct HostInfo
 {
+    // The host's name, as a plugin asks it (VST3's IHostApplication).
     std::string name = "MakeASound Host";
+
+    // What createEditor() makes; empty, and a hosted plugin has no editor.
+    HostedEditorFactory editors = {};
 };
 
 // A third-party plugin, loaded and running in this process: a MakeASound::Plugin,
@@ -45,6 +56,13 @@ public:
     // A hosted plugin's parameters are its own; its bypass, when it has one, is
     // one of them.
     bool wantsHostBypass() const override { return false; }
+
+    // The plugin's own editor, through the HostInfo::editors it was loaded with:
+    // null without one, or when the plugin has no editor. Message thread.
+    OwningPointer<Editor> createEditor() override;
+
+    // What createEditor() asks; the loader sets HostInfo::editors.
+    void setEditorFactory(HostedEditorFactory factoryToUse);
 
     // Audio thread, lock-free and allocation-free: a value for the next block,
     // as a host's automation. False when the index is out of range or the plugin
@@ -98,6 +116,7 @@ protected:
 
 private:
     PluginDescription described;
+    HostedEditorFactory editors;
     Playhead fallback;
     int64_t fallbackSampleTime = 0;
 

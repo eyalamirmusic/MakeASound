@@ -433,7 +433,7 @@ LoadResult AUFormat::load(const PluginDescription& description,
 
 LoadResult loadAudioUnit(AudioComponent component,
                          PluginDescription description,
-                         const HostInfo&)
+                         const HostInfo& host)
 {
     auto result = LoadResult();
     auto componentDescription = AudioComponentDescription();
@@ -502,6 +502,7 @@ LoadResult loadAudioUnit(AudioComponent component,
     result.error.clear();
     result.plugin = EA::makeOwned<HostedAudioUnit>(
         std::move(description), instance, componentDescription);
+    result.plugin->setEditorFactory(host.editors);
     return result;
 }
 

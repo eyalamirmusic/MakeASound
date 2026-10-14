@@ -7,10 +7,10 @@ plugin framework: a host's view of plugins somebody else built. It sits beside
 host.
 
 It **finds and describes** plugins (VST3 everywhere it builds, Audio Units on
-macOS, scanned out of process into a database) and **loads and runs** them in
-process. Hosted editors come next (see
-[What is not here yet](#what-is-not-here-yet)). Scanning has its own document,
-[PluginScanning.md](PluginScanning.md).
+macOS, scanned out of process into a database), **loads and runs** them in
+process, and **shows their own editors** (see [Editors](#editors)). What is still
+to come is under [What is not here yet](#what-is-not-here-yet). Scanning has its
+own document, [PluginScanning.md](PluginScanning.md).
 
 ## Loading and running a plugin
 
@@ -90,6 +90,40 @@ value an AU editor moved without notifying. The state is
 thread go out as `AudioUnitScheduleParameters` events at the next render. MIDI
 output from a hosted Audio Unit is not read yet.
 
+## Editors
+
+The hosting library draws nothing. A host that shows a plugin's own editor links
+`MakeASoundHostedEditor` and hands its factory to the load:
+
+```cpp
+auto loaded = formats.load(description, {.name = "My Host",
+                                         .editors = MakeASound::Hosting::hostedEditors()});
+auto editor = loaded.plugin->createEditor();   // null when the plugin has none
+```
+
+No static registrar and no linker hard reference: the host passes the factory, and
+a host that passes none gets no editors. `createEditor()` answers a
+`HostedEditor`, a MakeASound `Editor` any window embeds (the standalone's
+`EditorWindow`, a plugin's own view through `EmbeddedView`), plus
+`constrainSize()`, the nearest size the plugin accepts.
+
+- **VST3** (`HostedVST3Editor`, macOS and Windows): the `IPlugView` parented into an
+  eacp `NativeChildSurface` (an `NSView`, or a child `HWND`) from `onAttached()`,
+  the earliest a child window exists. Sizes are points to the host; on Windows the
+  plugin's `ViewRect`s are pixels, converted against the child window's DPI, and
+  the plugin is told the scale through `setContentScaleFactor`, the only way it
+  learns it there. On macOS it is told 1 before attaching. A plugin's
+  `resizeView` becomes `Editor::requestResize`.
+- **Audio Units** (`HostedAudioUnitEditor`, macOS): the unit's `CocoaUI` view (an
+  AUv3 answers it too through the v2 API), else Apple's `AUGenericView`, which is
+  the only resizable kind; a view that changes its own frame asks the host to
+  follow.
+
+The platform parts are per-platform TUs (`HostedEditors-<os>.cpp`,
+`VST3/VST3EditorPlatform-<os>.cpp`, `AU/` on macOS). The editor library defines no
+Objective-C class, so a hosting plugin loaded twice in one DAW has nothing to
+clash on.
+
 ## Building it
 
 `MAKEASOUND_BUILD_HOSTING` (on for a top-level build, off as a dependency) needs
@@ -101,7 +135,7 @@ There are to be two libraries:
 | target | holds | links |
 | --- | --- | --- |
 | `MakeASoundHosting` | formats, scanning, the cache, loading and processing | `MakeASoundPlugin`, `vst3sdk-hosting`, eacp-core, AudioToolbox on macOS |
-| `MakeASoundHostedEditor` | (next) a hosted plugin's own editor in an eacp view | the above, eacp-graphics |
+| `MakeASoundHostedEditor` | a hosted plugin's own editor in an eacp view | the above, eacp-graphics, Cocoa and CoreAudioKit on macOS |
 
 The split keeps a scanner's worker process, which loads a plugin only to describe
 it, free of the graphics stack.
@@ -149,8 +183,8 @@ targets in the order they were added: a `*.vst3` path is VST3's, a
 
 | | VST3 scan | AU scan | VST3 load | AU load | hosted editors |
 | --- | --- | --- | --- | --- | --- |
-| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | next |
-| Windows | yes | - | yes | - | next (HWND child, DPI conversion) |
+| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes (VST3, AU) |
+| Windows | yes | - | yes | - | yes (VST3, HWND child, DPI conversion) |
 | Linux | later | - | later (headless) | - | later |
 | iOS | later | later | later | later | later |
 
@@ -192,7 +226,7 @@ do.
 The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 
 - **MIDI output** from a hosted Audio Unit (`kAudioUnitProperty_MIDIOutputCallback`).
-- **Hosted editors** (`MakeASoundHostedEditor`) for VST3 on macOS and Windows and
-  for AU on macOS.
+- **Windows hosted-editor tests** (pixels and points against a DPI): the code is
+  in, built and tested on macOS only so far.
 - **`Apps/PluginHost`**, the GUI example: the list, the filter, scan progress, a
   plugin in `Engine`, its editor and a typing keyboard.

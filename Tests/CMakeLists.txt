@@ -215,6 +215,15 @@ if (MAKEASOUND_BUILD_PLUGIN)
             if (TARGET MakeASoundAU)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostedAUTests.cpp)
             endif ()
+
+            # Hosted editors embedded in a plain NSView.
+            if (TARGET MakeASoundHostedEditor AND TARGET MakeASoundAU
+                    AND MAKEASOUND_TEST_HOST_FIXTURES)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostedEditorTests.mm)
+                list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHostedEditor)
+                set_source_files_properties(HostedEditorTests.mm PROPERTIES
+                        COMPILE_OPTIONS -fobjc-arc)
+            endif ()
         endif ()
     endif ()
 
