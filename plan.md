@@ -7,8 +7,9 @@ windows and editors, Miro for state and UI schemas), re-homed on MakeASound so t
 standalone format and the device library are one code base rather than two.
 
 Stages 0 to 9 have landed on `develop`: `Buffer`, `Processor`/`Engine`, the plugin
-core, the standalone, VST3, AU, editor size policy and the web editor, AAX on macOS,
-the windowless and iOS standalone, and AUv3 on iOS. CLAUDE.md describes what exists
+core, the standalone, VST3, AU, editor size policy and the web editor (since
+removed, see the 2026-10-14 decision), AAX on macOS, the windowless and iOS
+standalone, and AUv3 on iOS. CLAUDE.md describes what exists
 and the decisions log below keeps why. What remains is the hand checks those stages
 could not make in CI, a few follow-ups, stage 10, and the later stages.
 
@@ -32,23 +33,22 @@ format, recorded in the decisions log.
 - **VST3 in a DAW on the Mac** (both bundles, installed by the default
   `MAKEASOUND_INSTALL_PLUGINS`): the generic editor opens, resizes and drives
   automation; automation plays back; the Synth plays from a MIDI track and answers
-  the mod wheel and CC 123; a saved project reopens with its values. In Ableton the
-  Synth's React editor opens, its knobs move the parameters and a host automation
-  lane moves the knobs, and a host's own grip resizes the editors.
+  the mod wheel and CC 123; a saved project reopens with its values. In Ableton a
+  host automation lane moves the generic editor's controls, and a host's own grip
+  resizes the editors.
 - **AU in Logic or Ableton**: the generic editor opens; automation records and
   plays back; the Synth plays from a MIDI track; a saved project reopens with its
-  values; two MakeASound AUs open in one project with editors. The Synth's React
-  editor opens in Logic and Ableton, and dragging the corner grip resizes both AU
-  editors in Logic.
+  values; two MakeASound AUs open in one project with editors. Dragging the
+  corner grip resizes both AU editors in Logic.
 - **Logic's view service**: an editor opened near the bottom of the screen ends up
   whole on it, moved where Logic allows and shrunk once where it does not, with
   `MAKEASOUND_AU_VIEW_TRACE` showing which, which also settles whether Logic 11
   still behaves as Plug's heuristics assume; Gain's bypass button in Logic's
   plugin header follows the parameter both ways.
-- **The standalone on the Mac**: the Synth's React editor opens in `MakeASound
-  Synth.app` and the typing keyboard plays while the page has focus.
-- **Windows**: the Synth's web editor opens in the standalone and in a VST3 host,
-  and on a machine without the WebView2 runtime the generic editor opens instead.
+- **The standalone on the Mac**: the typing keyboard plays `MakeASound Synth.app`
+  while its editor has focus.
+- **Windows**: both examples' generic editors open in the standalone and in a VST3
+  host.
 - **Pro Tools Developer** (retail Pro Tools loads no plugin `wraptool` has not
   signed). Open going in: the validator reports `category: None` for
   `AAX_EPlugInCategory_Effect` (Gain's default), and its `s6_feature` test shows
@@ -56,13 +56,11 @@ format, recorded in the decisions log.
   flagged as the category bypass too; whether Pro Tools' bypass button drives
   Gain's bypass parameter decides it. The check:
   - both plugins appear under their categories (Effect for Gain);
-  - the generic editor (Gain) and the web editor (Synth) open at the top-left of
-    the window at their right size, and the grip resizes them;
+  - both generic editors open at the top-left of the window at their right
+    size, and the grip resizes them;
   - closing and reopening an editor, and removing the plugin with its window open,
     do not crash;
   - automation records and plays back, and the editor's values follow it;
-  - the Synth's web page takes keyboard focus for its fields while Pro Tools'
-    shortcuts still work outside it;
   - the Synth plays from a MIDI track;
   - a saved session reopens with its values;
   - Gain's bypass follows the parameter and Pro Tools' bypass button;
@@ -71,7 +69,7 @@ format, recorded in the decisions log.
 - **iOS**: the standalone's `Settings` screen tapped through in the simulator
   (CI only launches the apps); both examples' standalones on a device; and in AUM
   and GarageBand on a device, from a `MAKEASOUND_IOS_TEAM` Xcode build, both
-  extensions load, render and open their editors, the Synth's web page included.
+  extensions load, render and open their editors.
 
 ### Follow-ups
 
@@ -277,8 +275,8 @@ Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10, 10.11,
   `ParameterGesture(plugin, param)` in `MakeASoundPlugin` (begin in the
   constructor, end in the destructor, `set(plain)`, a static `setOnce`), and a
   `ParameterAttachment` in `MakeASoundPluginUI` fed by one shared 30 Hz poll that
-  never touches the control being dragged; `GenericEditor` (~148-173) and
-  `Web/ParameterApi.cpp` (~50-90) are rebased on them. JUCE's analogue is
+  never touches the control being dragged; `GenericEditor` (~148-173) is rebased
+  on them. JUCE's analogue is
   `juce_ParameterAttachments.h:55-104`.
 - **WP10.15, a sturdier VST3 state read (done, with WP10.23).** JUCE
   (`VST3.cpp:2960-3024`) asks `ISizeableStream` for the size, accepts a read
@@ -643,7 +641,7 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
 ### Done when
 
 - A to C are in, each with its cases in the format suites (`VST3/`, `AU/`, `AUv3/`,
-  `AAX/`, `Parameters/`, `State/`, `PluginUI/`, `Web/`) and the allocation suites
+  `AAX/`, `Parameters/`, `State/`, `PluginUI/`) and the allocation suites
   covering every new audio-thread path. A, B and E are in, with them; C (but
   WP10.15, WP10.17 and the JUCE half of WP10.9) and D are open.
 - pluginval 10, `auval -strict` and aaxval stay green on both examples. After A
@@ -696,8 +694,9 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   and AudioSuite.
 - **MIDI 2.0**: `MIDIEventList`/UMP in AU and AUv3, which take MIDI 1.0 bytes only.
 - **Editors**: persisting an editor's size (in the standalone's `Settings` or a
-  format's state), a host-driven content scale beyond what `PlugView` forwards,
-  and a generic React parameter page shipped by the library.
+  format's state), and a host-driven content scale beyond what `PlugView`
+  forwards. A React parameter page shipped by the library is no longer planned
+  (2026-10-14).
 
 ## Decisions log
 
@@ -856,10 +855,11 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   through ResEmbed, so every format carries it. Lists and ids cross the bridge
   inside structs, because Miro's TypeScript codegen cannot type a bare `Vector`
   or string argument. The Synth example carries the page; Gain keeps the generic
-  editor.
+  editor. Superseded 2026-10-14: the web layer is removed.
 - 2026-10-11: CI sets up Node 22 on every desktop job and the iOS one, because the
   Synth's page runs `npm install` at configure and vite in the build wherever eacp
-  has a web runtime, iOS included; Linux builds the fallback editor.
+  has a web runtime, iOS included; Linux builds the fallback editor. Superseded
+  2026-10-14: with the page gone, CI sets up no Node.
 - 2026-10-12: AAX is fetched, never vendored: `MAKEASOUND_BUILD_AAX` (off by
   default) has CPM fetch `github.com/audiosdk/aax`, a public GPLv3-option fork of
   SDK 2.8.1 with only deletions on top, pinned to commit `faf5d8e`, with
@@ -1035,4 +1035,16 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   `keyedEvent`, so the generated hooks give each control its own store);
   `makeasound_add_web_editor` gained `SHARED_UI` and `PRE_BUILD`; `WebEditor`
   polls any API with a `poll()` at its own rate (`PagePolls`), plus `addPoll`
-  and `bind`, so a product's channels need no fork of it.
+  and `bind`, so a product's channels need no fork of it. Superseded 2026-10-14:
+  the web layer is removed.
+- 2026-10-14: the plugin web-editor layer is removed: `MakeASoundPluginWeb`
+  (`WebEditor`, `ParameterApi`, `PagePolls`), `makeasound_add_web_editor`
+  (`CMake/MakeASoundWebEditor.cmake`), the Synth example's React page, its tests
+  and CI's Node steps. It duplicated what Tamber Plug already has over eacp
+  (`WebPageEditor`, `WebParamsApi`), and plugins ported from Plug keep using
+  Plug's machinery; nothing outside MakeASound (Plug, tamber-web, eacp) used it.
+  MakeASound offers no web-editor support of its own now: a plugin that wants a
+  web page as its editor builds one with eacp's `WebView` directly. The Synth
+  shows the generic editor, as Gain does. The `/` doubling in id paths
+  (`Parameters/IdPath.h`, 2026-10-13), which the layer's port of Plug's pages
+  surfaced, is general and stays.

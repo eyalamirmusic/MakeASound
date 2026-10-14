@@ -39,7 +39,6 @@ manager.start(manager.getDefaultConfig(),
 - **A plugin core.** A `Plugin` is a `Processor` with a parameter group and a versioned JSON state; `PluginWrapper` is the per-block pipeline every format adapter shares.
 - **A standalone format.** One CMake call turns a plugin into an app with a generic parameter editor, device and MIDI pickers, a computer MIDI keyboard and its settings and state kept across launches, on macOS, Windows and iOS. The host underneath has no window, so a plugin can bring an app of its own instead.
 - **Editors that say how they size.** A plugin's `Editor` states its minimum, maximum and aspect ratio and can ask its host for a new size; every format honours it, and a host without a resize grip of its own gets one drawn by the editor. A plugin with no editor gets a generic one.
-- **Web editors.** One more CMake call gives a plugin a React page as its editor, with typed bindings to its parameters generated from C++; the Synth example has one.
 - **A VST3 format.** The same CMake call builds a `.vst3` bundle a DAW loads, with the plugin's editor or the generic one, sample-accurate automation, MIDI CC through hidden mapped parameters (instruments by default, any plugin that asks) and the plugin's state in the session; both examples pass pluginval at strictness 10.
 - **An AU format.** On macOS the same call also builds a `.component`, an Audio Unit v2 with the plugin's editor or the generic one, sample-accurate MIDI in and out, the host's bypass button and the plugin's state in the session; both examples pass `auval -strict`.
 - **An AUv3 format on iOS.** The same call puts an Audio Unit extension inside the iOS app, so AUM, GarageBand and every other iOS host find the plugin once the app is installed, with its editor in the host's window.
@@ -50,8 +49,8 @@ manager.start(manager.getDefaultConfig(),
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator (Ninja, and the device again with Xcode), Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds; Linux has no web runtime, so the Synth example falls back to the generic editor there.
-- Node and npm, to configure the example plugins on macOS, Windows and iOS: the Synth's web editor runs `npm install` at configure and `vite build` in the build. `-DMAKEASOUND_BUILD_EXAMPLES=OFF` needs neither.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
+- Node and npm, for the React demo apps (`Apps/Demo`, `Apps/Synth`) only: eacp's webview build runs `npm install` and `vite build` for them. `-DMAKEASOUND_BUILD_APPS=OFF` needs neither; the library, the plugin formats and the example plugins never need Node.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -79,7 +78,7 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
 | `MAKEASOUND_BUILD_PLUGIN` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundPlugin`, the plugin core, and its tests. Fetches eacp. Where eacp builds its UI tier, also the generic editor; on macOS, Windows and iOS, also the standalone format's app (the windowless `StandaloneHost` builds everywhere). |
 | `MAKEASOUND_BUILD_HOSTING` | `ON` top-level, `OFF` as a dependency | Build `MakeASoundHosting`, scanning third-party VST3 plugins and (on macOS) Audio Units, in worker processes, into a plugin database, loading and running them, and their editors; `Apps/PluginScanner` and the example host `Apps/PluginHost`. Needs the plugin core; macOS and Windows for now. See [Docs/Hosting.md](Docs/Hosting.md) and [Docs/PluginScanning.md](Docs/PluginScanning.md). |
-| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). Needs Node and npm where the Synth's web editor builds. |
+| `MAKEASOUND_BUILD_EXAMPLES` | `ON` | Build the example plugins in `Plugins/` (top-level builds with the plugin core only). |
 | `MAKEASOUND_INSTALL_PLUGINS` | `ON` | After each plug-in bundle builds, copy it into the user's plug-in folder (`~/Library/Audio/Plug-Ins/VST3`, `%LOCALAPPDATA%\Programs\Common\VST3`, `~/.vst3`; a `.component` into `~/Library/Audio/Plug-Ins/Components`; an `.aaxplugin` into `/Library/Application Support/Avid/Audio/Plug-Ins`, which usually needs admin rights). A failed copy is a warning. |
 | `MAKEASOUND_IOS_TEAM` | empty | The Apple development team an iOS tree signs its apps and AUv3 extensions with under the Xcode generator. Empty: ad hoc for the simulator, unsigned for a device. |
 | `MAKEASOUND_DESCRIBE_CMAKE_ARGS` | empty | Extra configure arguments for an iOS tree's macOS sub-build that writes the AUv3 plists. |
@@ -406,67 +405,11 @@ MS::OwningPointer<MS::Editor> MyPlugin::createEditor()
 }
 ```
 
-Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it. Where the host's window has no grip of its own (an AU view in Logic), the generic and web editors draw a `ResizeGrip` in their corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
+Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it. Where the host's window has no grip of its own (an AU view in Logic), the generic editor draws a `ResizeGrip` in its corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
 
 ### Web editors
 
-An editor can be a React page instead. `makeasound_add_web_editor` builds the page with vite, embeds it into the plugin's core so every format carries it, and generates TypeScript bindings for `MakeASound::Web::ParameterApi` (and any API of your own) into the page's `src/generated`:
-
-```cmake
-makeasound_add_plugin(SynthPlugin FORMATS Standalone VST3 AU AUv3 AAX SOURCES SynthPlugin.cpp)
-
-makeasound_add_web_editor(SynthPlugin
-        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
-        SOURCES SynthEditor-Web.cpp          # where a web runtime exists
-        FALLBACK_SOURCES SynthEditor-None.cpp)   # elsewhere (Linux): no npm, no page
-```
-
-```cpp
-MS::OwningPointer<MS::Editor> createSynthEditor(SynthPlugin& plugin)
-{
-    auto options = MS::Web::WebEditorOptions {.category = "SynthPluginEditor",
-                                              .storageName = "MakeASound Synth",
-                                              .devServer = MAKEASOUND_WEB_DEV_SERVER,
-                                              .initialSize = {600, 400},
-                                              .constraints = {.resizable = true,
-                                                              .aspectRatio = {3, 2}}};
-
-    return EA::makeOwned<MS::Web::WebEditor>(plugin, std::move(options));
-}
-```
-
-The page calls `getParameters()` for each parameter's id path, name, steps, choices (a choice's names, or a bool's two labels, off then on), value and default (`defaultNormalized`, `defaultText`), plus its own id (`key`) and its groups' (`groups`), so it never parses the path, then edits by id path:
-
-| command | what it does |
-| --- | --- |
-| `beginEdit`, `edit`, `endEdit` | a drag: one host gesture, `edit` taking a normalized value; an `edit` outside a gesture is a whole one |
-| `editText` | typed entry, read through the parameter's own `textToValue` |
-| `resetParam` | one parameter back to its default |
-| `resetAll` | every parameter back to its default but the host-facing bypass, one gesture each, skipping those already there |
-
-Every change reaches the host as begin, perform and end, so a host records it as ordinary automation. The editor polls 30 times a second and, when anything moved (automation included), publishes two events: `values` holds only the entries that moved, and `parameterValues` holds every entry and is *keyed* by id, so the generated hooks give each control a store of its own. `useWebParameterValue(id)` re-renders only when that parameter changes, and `getParameterValues()` is its initial fetch. `Plugins/Synth/web/src/useParameters.ts` shows the pattern, and its knobs reset on double-click and take typed values. A product adds channels of its own (spectrum frames, a file picker, a preset browser) as further Miro APIs, without touching `WebEditor`: name each in `makeasound_add_web_editor(... API MyProduct::SpectrumApi API_HEADER Spectrum.h)` for its TypeScript, and hand the instance to the editor:
-
-```cpp
-auto editor = EA::makeOwned<MS::Web::WebEditor>(plugin, std::move(options));
-editor->use(spectrum, {.pollHz = 60});   // spectrum.poll() 60 times a second while shown
-editor->use(files);                      // no poll(): commands and pushed events only
-editor->addPoll([&] { meters.publish(levels()); }, 15);
-```
-
-Commands are request/response; one shaped `void pick(const Req&, Miro::Completer<Res>)` answers later, when a native dialog closes. An API with a `void poll()` is called at its `pollHz` (default 30) while the page is attached, the place to drain what the audio thread queued and publish it through the API's events; `addPoll` adds any other periodic call. An event published on the message thread at any other time reaches the page at once. `WebEditor::bind(bridge)` binds the same APIs to another `Miro::Bridge`, for a second transport or a test, and `poll()` makes every call once.
-
-Two options hook into the page's build, and a call without them builds exactly as before:
-
-```cmake
-makeasound_add_web_editor(VocoderPlugin
-        WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web
-        SHARED_UI ${PROJECT_SOURCE_DIR}/Shared/web/ui    # merged into web/src/shared
-        PRE_BUILD VocoderPageCodegen                     # a target of your own
-        SOURCES VocoderEditor-Web.cpp
-        FALLBACK_SOURCES VocoderEditor-None.cpp)
-```
-
-`SHARED_UI` copies one or more directories into `src/shared` before every vite build, emptied first and merged in order (a later directory's file replaces an earlier one's), so several pages share components that import `'../generated/...'`; gitignore `src/shared`. `PRE_BUILD` targets run after the schema codegen and that copy and before vite, for a project's own codegen; whatever they write under `src/` is part of the page. `Tests/WebEditorBuild` checks both. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
+MakeASound has no web-editor support of its own. A plugin that wants a web page as its editor builds one directly on eacp's `WebView` (and its vite build helpers): an `Editor` whose `view()` returns the `WebView`, with the page talking to the plugin's parameters through whatever bridge the plugin binds. The framework only sees an `Editor`, so the size policy, `requestResize` and `ResizeGrip` above apply to it as to any other.
 
 ## Running a plugin standalone
 
@@ -610,7 +553,7 @@ makeasound_add_plugin(GainApp
 
 The app includes `<MakeASound/Plugin/Standalone/MakeASoundStandalone.h>`, holds a `StandaloneHost` as its first member and its UI after it, calls `host.start()` in its constructor, and defines `main()` as `return eacp::Apps::run<MyApp>();`. `SettingsPanel`, `GenericEditor` and `editorWindowOptions` are there to reuse. `Plugins/GainApp` is the example: one window with a toolbar of its own above the generic editor.
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, with a React editor (see [Web editors](#web-editors)) wherever there is a web runtime and the generic one elsewhere. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, shown through the generic editor. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
 
 ## VST3
 
@@ -767,7 +710,6 @@ Lib/MakeASound/
     Host/           PluginWrapper, the per-block pipeline every format adapter shares
     Realtime/       MessageThread, RealtimeSwap
     UI/             MakeASoundPluginUI: the generic parameter editor and the resize grip
-    Web/            MakeASoundPluginWeb: WebEditor and ParameterApi, a React page as an editor
     Standalone/     MakeASoundStandaloneCore (StandaloneHost, no window) and MakeASoundStandalone,
                     the default app: desktop windows and menu bar, or one iOS screen
     VST3/           MakeASoundVST3: the VST3 format, its bundle plist, PkgInfo and entry point
@@ -783,10 +725,10 @@ Lib/MakeASound/
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
                     Demo, Synth (web UI)
-Plugins/            Gain, Synth: plugins built with makeasound_add_plugin; Synth/web is its React editor;
+Plugins/            Gain, Synth: plugins built with makeasound_add_plugin;
                     GainApp: Gain in a standalone app of its own
 Tools/              PluginValidator: pluginval, auval or aaxval over the bundles on its command line
-CMake/              CPM, the Find modules, MakeASoundPlugin.cmake, MakeASoundWebEditor.cmake,
+CMake/              CPM, the Find modules, MakeASoundPlugin.cmake,
                     ExternalFolders.cmake, the plug-in install script
 ThirdParty/         the vendored VST3 SDK, and the builds of the fetched AudioUnitSDK and (opt-in) AAX SDK
 Tests/              NanoTest suites
@@ -811,4 +753,4 @@ an AAX binary built with it is too (see [AAX](#aax)).
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` by `MakeASoundCore` (it leaks through the reflected data structs), and is all the core links; miniaudio and whichever MIDI library the platform selected are `PRIVATE` to `MakeASound`, fully hidden behind the façades, and `MakeASound` links the core `PUBLIC`. `MakeASoundPlugin` and `MakeASoundDSP` link `MakeASoundCore` `PUBLIC`, not the device library; only `MakeASoundStandaloneCore` adds `MakeASound`. `MakeASoundPlugin` links `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui`, `MakeASoundPluginWeb` `eacp-webview` and `MakeASoundStandalone` `eacp-graphics`, all `PUBLIC`. The Synth's page pulls React and vite through npm.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` by `MakeASoundCore` (it leaks through the reflected data structs), and is all the core links; miniaudio and whichever MIDI library the platform selected are `PRIVATE` to `MakeASound`, fully hidden behind the façades, and `MakeASound` links the core `PUBLIC`. `MakeASoundPlugin` and `MakeASoundDSP` link `MakeASoundCore` `PUBLIC`, not the device library; only `MakeASoundStandaloneCore` adds `MakeASound`. `MakeASoundPlugin` links `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`. The React demo apps pull React and vite through npm.

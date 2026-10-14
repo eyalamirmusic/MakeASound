@@ -11,7 +11,7 @@ MakeASound is a C++20 library for platform-agnostic audio, MIDI and audio plugin
 - **`MakeASoundDSP`** (`DSP/`): an optional DSP library over the core. Today it holds `TestSynth`.
 - **`MakeASoundPlugin`** (`Plugin/`): the SDK-free plugin core, over the core rather than the device library: `Plugin`, `StatePlugin`, parameters, state, `PluginWrapper` (the per-block pipeline every format shares) and `Compat/` (readers for state that JUCE builds saved). Of the formats only `MakeASoundStandaloneCore` links `MakeASound`.
 - **Formats on top:** Standalone (`StandaloneCore` with no window, plus `Standalone` with windows), VST3 (vendored SDK), AU v2 (macOS, fetched AudioUnitSDK), AUv3 (Apple, no SDK), AAX (macOS, opt-in through `MAKEASOUND_BUILD_AAX`). Each one is a static target that exists only where its dependency target exists. A format whose target is missing is skipped with a status line.
-- **UI:** `MakeASoundPluginUI` (eacp-ui: `GenericEditor`, `ResizeGrip`) and `MakeASoundPluginWeb` (React editors over eacp's `WebView`).
+- **UI:** `MakeASoundPluginUI` (eacp-ui: `GenericEditor`, `ResizeGrip`). There is no web-editor layer: a plugin that wants a web page as its editor builds one with eacp's `WebView` itself.
 - **Hosting:** `MakeASoundHosting` (`Hosting/`, beside `Plugin/` since `Plugin/Host` is the plugin's view of a host): third-party plugin scanning through a `FormatManager` (VST3; AU on macOS), out of process, into a `PluginCache`, plus `Apps/PluginScanner`; and loading VST3 plugins and Audio Units as `HostedPlugin`s (a `Plugin`, never in a `PluginWrapper`). Their editors are `MakeASoundHostedEditor`'s, handed to a load as `HostInfo::editors`, so the hosting library itself never links graphics. `Apps/PluginHost` is the example host (`PluginHost.h` is the headless part the tests drive). See `Docs/Hosting.md` and `Docs/PluginScanning.md`.
 - **Tools:** `PluginValidator` (pluginval, auval and the user's own aaxval) and `AUv3Probe` (iOS simulator).
 
@@ -30,10 +30,10 @@ ctest --test-dir build
 
 On Windows ARM64, build from a VS dev shell (see memory).
 
-- Options: `MAKEASOUND_BUILD_DEVICES`, `_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES` (the plugin examples need Node/npm at configure time), `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
+- Options: `MAKEASOUND_BUILD_DEVICES`, `_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES`, `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
 - `CMAKE_CXX_SCAN_FOR_MODULES` is OFF on purpose. A scanned source falls out of its unity chunk, which silently un-unities MSVC and clang-cl builds.
 - `-DCPM_<Name>_SOURCE=/path` points a dependency at a local checkout.
-- Plugins are declared with `makeasound_add_plugin(<Name> FORMATS ... SOURCES ...)` (`CMake/MakeASoundPlugin.cmake`) and web editors with `makeasound_add_web_editor` (`CMake/MakeASoundWebEditor.cmake`). Read those files before changing packaging, bundle layout or signing.
+- Plugins are declared with `makeasound_add_plugin(<Name> FORMATS ... SOURCES ...)` (`CMake/MakeASoundPlugin.cmake`). Read that file before changing packaging, bundle layout or signing.
 - Examples live in `Plugins/Gain`, `Plugins/GainApp` and `Plugins/Synth`, and demo apps in `Apps/`.
 
 ## Conventions
@@ -77,7 +77,6 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - AUv3 on iOS configures the tree a second time for macOS (`MakeASoundDescribeBuild`) to write plists, so plugin sources must also build for macOS.
 - Tests reach the AU v2 adapter only through the AudioUnit C API. Components are registered with `AudioComponentRegister`, never found through `AudioComponentFindNext`. The one approved exception is the hosting suites: scanning an Audio Unit *is* a registry lookup, so they scan Apple's always-present `aufx:dely:appl` and `aumu:dls :appl`, and a hosting test that loads an AU fixture registers it and takes the registered `AudioComponent` directly.
 - AAX: the SDK is GPLv3/Avid-licensed and fetched only under the flag. The AAX Validator, DigiShell and Avid tools are under NDA. Run them only from a path the user names; never fetch, commit or run them in CI. Only one `dsh` may run at a time, since it uses a fixed port.
-- Web editors: `src/generated` and `package-lock.json` are committed; `node_modules`, `dist` and `.vite` are not.
 - `ThirdParty/VST3_SDK` is vendored and trimmed (see `ThirdParty/README.md`).
 
 **Hosting**

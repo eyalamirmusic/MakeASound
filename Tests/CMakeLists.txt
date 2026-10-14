@@ -100,28 +100,6 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginUI)
     endif ()
 
-    # The web editor's page API, with no WebView constructed.
-    if (TARGET MakeASoundPluginWeb)
-        list(APPEND MAKEASOUND_TEST_SOURCES WebEditorTests.cpp WebEditorApiTests.cpp)
-        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginWeb)
-
-        # The page side: tsc over the Synth example's page, whose controls call
-        # every ParameterApi command and read the keyed hooks, against the
-        # TypeScript the build generated from the API.
-        set(synth_web "${PROJECT_SOURCE_DIR}/Plugins/Synth/web")
-        set(synth_tsc "${synth_web}/node_modules/typescript/bin/tsc")
-        find_program(MAKEASOUND_NODE node)
-
-        if (TARGET SynthPlugin AND MAKEASOUND_NODE AND EXISTS "${synth_tsc}")
-            add_test(NAME Web/Page/synthTypeChecks
-                    COMMAND "${MAKEASOUND_NODE}" "${synth_tsc}" --noEmit -p "${synth_web}")
-        endif ()
-
-        # makeasound_add_web_editor's SHARED_UI and PRE_BUILD, on fixture pages
-        # whose bundler needs no npm package.
-        add_subdirectory(WebEditorBuild)
-    endif ()
-
     # The standalone core, wherever the plugin core builds, and the default app's
     # window-tier pieces where the app was built.
     if (TARGET MakeASoundStandaloneCore)
@@ -419,10 +397,6 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
         target_compile_definitions(MakeASoundTests PRIVATE
                 MAKEASOUND_HOST_FIXTURE_AU_DIR="${MAKEASOUND_HOST_FIXTURE_AU_DIR}")
     endif ()
-endif ()
-
-if (MAKEASOUND_WEB_EDITOR_FIXTURES)
-    add_dependencies(MakeASoundTests ${MAKEASOUND_WEB_EDITOR_FIXTURES})
 endif ()
 
 if (MAKEASOUND_BUNDLE_ID_FIXTURES)

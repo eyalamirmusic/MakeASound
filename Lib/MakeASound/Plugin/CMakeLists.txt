@@ -47,12 +47,11 @@ set_makeasound_target_settings(MakeASoundPlugin)
 # flag of ours: a plugin that wants eacp-ui for its editor links MakeASoundPluginUI;
 # only a <Name>-Standalone executable ever links MakeASoundStandalone.
 # The host sub-build of an iOS tree needs only MakeASoundAUDescribe, in AU/: no UI
-# tier, so a web editor builds its fallback there and runs no npm.
+# tier.
 if (MAKEASOUND_DESCRIBE_BUILD)
     add_subdirectory(AU)
 else ()
     add_subdirectory(UI)
-    add_subdirectory(Web)
     add_subdirectory(Standalone)
     add_subdirectory(VST3)
     add_subdirectory(AU)
@@ -63,6 +62,3 @@ endif ()
 
 # makeasound_add_plugin(), for this tree's Plugins/ and for a CPM consumer's own.
 include(MakeASoundPlugin)
-
-# makeasound_add_web_editor(), a React page embedded into a plugin's static core.
-include(MakeASoundWebEditor)
