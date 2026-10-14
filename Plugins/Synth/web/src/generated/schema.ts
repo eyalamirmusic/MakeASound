@@ -4,6 +4,8 @@ export interface WebParameter {
     label: string;
     normalized: number;
     text: string;
+    defaultNormalized: number;
+    defaultText: string;
     steps: number;
     choices: string[];
     automatable: boolean;
@@ -11,6 +13,16 @@ export interface WebParameter {
 
 export interface WebParameters {
     parameters: WebParameter[];
+}
+
+export interface WebParameterValue {
+    id: string;
+    normalized: number;
+    text: string;
+}
+
+export interface WebParameterSnapshot {
+    items: WebParameterValue[];
 }
 
 export interface WebParameterId {
@@ -22,9 +34,8 @@ export interface WebParameterEdit {
     normalized: number;
 }
 
-export interface WebParameterValue {
+export interface WebParameterText {
     id: string;
-    normalized: number;
     text: string;
 }
 

@@ -1,28 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { backend } from './generated/backend';
 import { useBackendAvailable } from './generated/react';
-import type { WebParameter, WebParameterValues } from './generated/schema';
+import { useWebParameterValue } from './generated/hooks';
+import type { WebParameter, WebParameterValue } from './generated/schema';
 
-export type Parameters = Record<string, WebParameter>;
+export type Schema = Record<string, WebParameter>;
 
-export interface ParameterControl
-{
-    parameters: Parameters;
-    begin: (id: string) => void;
-    set: (id: string, normalized: number) => void;
-    end: (id: string) => void;
-    // One whole gesture, for a click.
-    toggle: (id: string, normalized: number) => void;
-}
-
-// The plugin's parameters by id: fetched once the bridge is up, then merged with
-// every `values` event. A value the page is dragging keeps the page's own number,
-// so a late echo never pulls the control back under the pointer.
-export function useParameters(): ParameterControl
+// The plugin's parameters by id, as they were when the bridge came up: names,
+// steps, choices and defaults. Live values come from useValue.
+export function useSchema(): Schema
 {
     const available = useBackendAvailable();
-    const [parameters, setParameters] = useState<Parameters>({});
-    const dragging = useRef<string | null>(null);
+    const [schema, setSchema] = useState<Schema>({});
 
     useEffect(() =>
     {
@@ -30,57 +19,28 @@ export function useParameters(): ParameterControl
             return;
 
         void backend.getParameters().then(({ parameters: list }) =>
-            setParameters(Object.fromEntries(list.map((p) => [p.id, p]))));
-
-        return backend.on?.('values', ({ changed }: WebParameterValues) =>
-            setParameters((previous) =>
-            {
-                const next = { ...previous };
-
-                for (const change of changed)
-                {
-                    const current = next[change.id];
-
-                    if (current == null)
-                        continue;
-
-                    const normalized = dragging.current === change.id
-                        ? current.normalized
-                        : change.normalized;
-
-                    next[change.id] = { ...current, normalized, text: change.text };
-                }
-
-                return next;
-            }));
+            setSchema(Object.fromEntries(list.map((p) => [p.id, p]))));
     }, [available]);
 
-    const setLocal = (id: string, normalized: number) =>
-        setParameters((previous) => previous[id] == null
-            ? previous
-            : { ...previous, [id]: { ...previous[id], normalized } });
-
-    return {
-        parameters,
-        begin: (id) =>
-        {
-            dragging.current = id;
-            void backend.beginEdit({ id });
-        },
-        set: (id, normalized) =>
-        {
-            setLocal(id, normalized);
-            void backend.edit({ id, normalized });
-        },
-        end: (id) =>
-        {
-            dragging.current = null;
-            void backend.endEdit({ id });
-        },
-        toggle: (id, normalized) =>
-        {
-            setLocal(id, normalized);
-            void backend.edit({ id, normalized });
-        },
-    };
+    return schema;
 }
+
+// One parameter's live value, from the keyed `parameterValues` store: a control
+// re-renders only when its own value moves. Before the first event it is the
+// value the schema was fetched with.
+export function useValue(parameter: WebParameter): WebParameterValue
+{
+    return useWebParameterValue(parameter.id) ?? parameter;
+}
+
+// Every edit the page makes. begin, set and end are one drag; the rest are each
+// a whole gesture the plugin brackets itself.
+export const edits = {
+    begin: (id: string) => void backend.beginEdit({ id }),
+    set: (id: string, normalized: number) => void backend.edit({ id, normalized }),
+    end: (id: string) => void backend.endEdit({ id }),
+    pick: (id: string, normalized: number) => void backend.edit({ id, normalized }),
+    type: (id: string, text: string) => void backend.editText({ id, text }),
+    reset: (id: string) => void backend.resetParam({ id }),
+    resetAll: () => void backend.resetAll(),
+};

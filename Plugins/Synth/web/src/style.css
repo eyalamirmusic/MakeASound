@@ -126,6 +126,30 @@ button.on
 .text
 {
     font-variant-numeric: tabular-nums;
+    cursor: text;
+}
+
+input.text
+{
+    width: 7em;
+    font: inherit;
+    text-align: center;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+}
+
+header
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+button.reset
+{
+    padding: 4px 12px;
 }
 
 .legato

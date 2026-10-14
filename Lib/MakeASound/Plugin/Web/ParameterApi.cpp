@@ -27,14 +27,18 @@ WebParameters ParameterApi::getParameters()
         auto& entry = list.entry(i);
         auto& param = list[i];
         auto value = valueOf(i);
+        auto fallback = param.defaultValue();
 
-        auto parameter = WebParameter {.id = entry.id,
-                                       .name = entry.displayName,
-                                       .label = param.label(),
-                                       .normalized = value.normalized,
-                                       .text = value.text,
-                                       .steps = param.numSteps(),
-                                       .automatable = entry.automatable};
+        auto parameter =
+            WebParameter {.id = entry.id,
+                          .name = entry.displayName,
+                          .label = param.label(),
+                          .normalized = value.normalized,
+                          .text = value.text,
+                          .defaultNormalized = param.toNormalized(fallback),
+                          .defaultText = param.valueToText(fallback),
+                          .steps = param.numSteps(),
+                          .automatable = entry.automatable};
 
         if (auto* choice = dynamic_cast<const ChoiceParam*>(&param))
             for (auto c = 0; c < choice->numChoices(); ++c)
@@ -45,6 +49,19 @@ WebParameters ParameterApi::getParameters()
     }
 
     return result;
+}
+
+WebParameterSnapshot ParameterApi::getParameterValues()
+{
+    if (plugin == nullptr)
+        return {};
+
+    auto& list = plugin->parameters();
+
+    for (auto i = 0; i < list.size(); ++i)
+        slots[i].published = list[i].getNormalized();
+
+    return snapshot();
 }
 
 void ParameterApi::beginEdit(const WebParameterId& param)
@@ -59,22 +76,8 @@ void ParameterApi::edit(const WebParameterEdit& change)
 {
     auto index = indexOf(change.id);
 
-    if (index < 0)
-        return;
-
-    auto whole = !slots[index].editing;
-
-    if (whole)
-        begin(index);
-
-    auto& param = plugin->parameters()[index];
-    param.setNormalized(static_cast<float>(change.normalized));
-
-    if (auto* listener = plugin->hostEditListener())
-        listener->performParameterEdit(index, param.getNormalized());
-
-    if (whole)
-        end(index);
+    if (index >= 0)
+        perform(index, static_cast<float>(change.normalized));
 }
 
 void ParameterApi::endEdit(const WebParameterId& param)
@@ -83,6 +86,48 @@ void ParameterApi::endEdit(const WebParameterId& param)
 
     if (index >= 0 && slots[index].editing)
         end(index);
+}
+
+void ParameterApi::editText(const WebParameterText& entry)
+{
+    auto index = indexOf(entry.id);
+
+    if (index < 0)
+        return;
+
+    auto& param = plugin->parameters()[index];
+    perform(index, param.toNormalized(param.textToValue(entry.text)));
+}
+
+void ParameterApi::resetParam(const WebParameterId& param)
+{
+    auto index = indexOf(param.id);
+
+    if (index < 0)
+        return;
+
+    auto& parameter = plugin->parameters()[index];
+    perform(index, parameter.toNormalized(parameter.defaultValue()));
+}
+
+void ParameterApi::resetAll()
+{
+    if (plugin == nullptr)
+        return;
+
+    auto& list = plugin->parameters();
+
+    for (auto i = 0; i < list.size(); ++i)
+    {
+        if (i == list.bypassIndex())
+            continue;
+
+        auto& param = list[i];
+        auto normalized = param.toNormalized(param.defaultValue());
+
+        if (param.getNormalized() != normalized)
+            perform(i, normalized);
+    }
 }
 
 void ParameterApi::endAllEdits()
@@ -111,8 +156,11 @@ void ParameterApi::poll()
         moved.changed.add(valueOf(i));
     }
 
-    if (!moved.changed.empty())
-        values.publish(std::move(moved));
+    if (moved.changed.empty())
+        return;
+
+    values.publish(std::move(moved));
+    parameterValues.publish(snapshot());
 }
 
 int ParameterApi::indexOf(std::string_view id) const
@@ -131,6 +179,34 @@ WebParameterValue ParameterApi::valueOf(int index) const
     return {.id = entry.id,
             .normalized = param.getNormalized(),
             .text = param.valueToText(param.getValue())};
+}
+
+WebParameterSnapshot ParameterApi::snapshot() const
+{
+    auto result = WebParameterSnapshot {};
+    auto& list = plugin->parameters();
+
+    for (auto i = 0; i < list.size(); ++i)
+        result.items.add(valueOf(i));
+
+    return result;
+}
+
+void ParameterApi::perform(int index, float normalized)
+{
+    auto whole = !slots[index].editing;
+
+    if (whole)
+        begin(index);
+
+    auto& param = plugin->parameters()[index];
+    param.setNormalized(normalized);
+
+    if (auto* listener = plugin->hostEditListener())
+        listener->performParameterEdit(index, param.getNormalized());
+
+    if (whole)
+        end(index);
 }
 
 void ParameterApi::begin(int index)

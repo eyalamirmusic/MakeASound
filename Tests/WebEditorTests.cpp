@@ -260,9 +260,288 @@ auto tDefault = test("Web/aDefaultConstructedApiReflects") = []
     bridge.use(api);
 
     check(bridge.dispatch("getParameters", {})["parameters"].asArray().empty());
+    check(bridge.dispatch("getParameterValues", {})["items"].asArray().empty());
 
     bridge.dispatch("edit", Miro::toJSON(WebParameterEdit {.id = "Gain"}));
+    bridge.dispatch("editText",
+                    Miro::toJSON(WebParameterText {.id = "Gain", .text = "1"}));
+    bridge.dispatch("resetParam", Miro::toJSON(WebParameterId {.id = "Gain"}));
+    bridge.dispatch("resetAll", {});
     api.poll();
     api.endAllEdits();
+};
+
+// Every keyed parameterValues event the API publishes, in order.
+struct SnapshotLog
+{
+    explicit SnapshotLog(ParameterApi& apiToUse)
+        : api(apiToUse)
+    {
+    }
+
+    ParameterApi& api;
+    std::vector<Vector<WebParameterValue>> events;
+    EA::Listener listener {
+        api.parameterValues.broadcaster(),
+        [this] { events.push_back(api.parameterValues.snapshot().items); },
+        EA::Listener::Modes::TriggerOnEvent};
+};
+
+auto tDefaults = test("Web/theSchemaCarriesEachDefault") = []
+{
+    auto plugin = GainPlugin {};
+    auto api = ParameterApi(plugin);
+
+    plugin.params.gain.setValue(-20.f);
+    plugin.params.mode.setValue(2.f);
+
+    auto list = api.getParameters().parameters;
+
+    for (auto i = 0; i < list.size(); ++i)
+    {
+        auto& param = *plugin.parameters().entry(i).param;
+        check(near(list[i].defaultNormalized,
+                   param.toNormalized(param.defaultValue())));
+        check(list[i].defaultText == param.valueToText(param.defaultValue()));
+    }
+
+    auto gain = plugin.parameters().indexOf("Gain");
+    check(list[gain].defaultText == plugin.params.gain.valueToText(0.f));
+    check(!near(list[gain].normalized, list[gain].defaultNormalized));
+
+    auto mode = plugin.parameters().indexOf("Mode");
+    check(list[mode].defaultNormalized == 0.0);
+    check(list[mode].defaultText == "Clean");
+    check(list[mode].text == "Hot");
+};
+
+auto tText = test("Web/editTextReadsThroughTheParameterAsOneGesture") = []
+{
+    auto plugin = GainPlugin {};
+    auto recorder = GestureRecorder {};
+    plugin.setHostEditListener(&recorder);
+
+    auto api = ParameterApi(plugin);
+    auto mode = plugin.parameters().indexOf("Mode");
+
+    api.editText({.id = "Mode", .text = "Warm"});
+
+    check(plugin.params.mode.getIndex() == 1);
+    check(isGesture(recorder.gestures, mode, plugin.params.mode.getNormalized()));
+
+    recorder.gestures.clear();
+    auto gain = plugin.parameters().indexOf("Gain");
+    auto expected = plugin.params.gain.textToValue("-6 dB");
+
+    api.editText({.id = "Gain", .text = "-6 dB"});
+
+    check(near(plugin.params.gain.getValue(), expected));
+    check(near(plugin.params.gain.getValue(), -6.0));
+    check(isGesture(recorder.gestures, gain, plugin.params.gain.getNormalized()));
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tTextInside = test("Web/editTextInsideAGestureJoinsIt") = []
+{
+    auto plugin = GainPlugin {};
+    auto recorder = GestureRecorder {};
+    plugin.setHostEditListener(&recorder);
+
+    auto api = ParameterApi(plugin);
+    auto cutoff = plugin.parameters().indexOf("Filter/Cutoff");
+
+    api.beginEdit({.id = "Filter/Cutoff"});
+    api.editText({.id = "Filter/Cutoff", .text = "440"});
+    api.endEdit({.id = "Filter/Cutoff"});
+
+    check(near(plugin.params.filter.cutoff.getValue(), 440.0));
+    check(isGesture(
+        recorder.gestures, cutoff, plugin.params.filter.cutoff.getNormalized()));
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tTextJunk = test("Web/editTextOfNoValueRestoresTheDefault") = []
+{
+    auto plugin = GainPlugin {};
+    auto api = ParameterApi(plugin);
+
+    plugin.params.gain.setValue(-30.f);
+    api.editText({.id = "Gain", .text = "loud"});
+
+    check(near(plugin.params.gain.getValue(), 0.0));
+
+    api.editText({.id = "Nope", .text = "1"});
+};
+
+auto tReset = test("Web/resetParamRestoresTheDefaultAsOneGesture") = []
+{
+    auto plugin = GainPlugin {};
+    auto recorder = GestureRecorder {};
+    plugin.setHostEditListener(&recorder);
+
+    auto api = ParameterApi(plugin);
+    auto cutoff = plugin.parameters().indexOf("Filter/Cutoff");
+    plugin.params.filter.cutoff.setValue(5000.f);
+
+    api.resetParam({.id = "Filter/Cutoff"});
+
+    // Through the skewed normalized range, so to its float precision.
+    check(near(plugin.params.filter.cutoff.getValue() / 1000.0, 1.0));
+    check(isGesture(
+        recorder.gestures, cutoff, plugin.params.filter.cutoff.getNormalized()));
+
+    recorder.gestures.clear();
+    api.resetParam({.id = "Nope"});
+    check(recorder.gestures.empty());
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tResetAll = test("Web/resetAllIsOneGesturePerMovedEntryAndSparesBypass") = []
+{
+    auto plugin = GainPlugin {};
+    auto recorder = GestureRecorder {};
+    plugin.setHostEditListener(&recorder);
+
+    auto api = ParameterApi(plugin);
+    auto& list = plugin.parameters();
+
+    plugin.params.gain.setValue(-12.f);
+    plugin.params.mode.setValue(2.f);
+    plugin.params.bypass.setValue(1.f);
+
+    api.resetAll();
+
+    check(near(plugin.params.gain.getValue(), 0.0));
+    check(plugin.params.mode.getIndex() == 0);
+    check(plugin.params.bypass.isOn());
+
+    // Gain and Mode only, in list order, each bracketed on its own.
+    check(recorder.gestures.size() == 6);
+
+    if (recorder.gestures.size() == 6)
+    {
+        auto first = std::vector<Gesture>(recorder.gestures.begin(),
+                                          recorder.gestures.begin() + 3);
+        auto second = std::vector<Gesture>(recorder.gestures.begin() + 3,
+                                           recorder.gestures.end());
+
+        check(isGesture(
+            first, list.indexOf("Gain"), plugin.params.gain.getNormalized()));
+        check(isGesture(second, list.indexOf("Mode"), 0.f));
+    }
+
+    recorder.gestures.clear();
+    api.resetAll();
+    check(recorder.gestures.empty());
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tResetOpen = test("Web/resetAllJoinsAGestureThePageHoldsOpen") = []
+{
+    auto plugin = GainPlugin {};
+    auto recorder = GestureRecorder {};
+    plugin.setHostEditListener(&recorder);
+
+    auto api = ParameterApi(plugin);
+    auto gain = plugin.parameters().indexOf("Gain");
+
+    api.beginEdit({.id = "Gain"});
+    api.edit({.id = "Gain", .normalized = 0.1});
+    recorder.gestures.clear();
+
+    api.resetAll();
+    check(recorder.gestures.size() == 1);
+    check(recorder.gestures[0].kind == 'p' && recorder.gestures[0].index == gain);
+
+    api.endEdit({.id = "Gain"});
+    check(recorder.gestures.size() == 2 && recorder.gestures[1].kind == 'e');
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tKeyed = test("Web/parameterValuesPublishesEveryEntryWhenOneMoved") = []
+{
+    auto plugin = GainPlugin {};
+    auto api = ParameterApi(plugin);
+    auto log = SnapshotLog(api);
+    auto& list = plugin.parameters();
+
+    auto first = api.getParameterValues().items;
+    check(first.size() == list.size());
+
+    for (auto i = 0; i < first.size(); ++i)
+        check(first[i].id == list.entry(i).id);
+
+    api.poll();
+    check(log.events.empty());
+
+    api.edit({.id = "Gain", .normalized = 0.75});
+    api.poll();
+
+    check(log.events.size() == 1);
+    check(log.events[0].size() == list.size());
+
+    auto gain = list.indexOf("Gain");
+    check(near(log.events[0][gain].normalized, 0.75));
+    check(log.events[0][gain].text
+          == plugin.params.gain.valueToText(plugin.params.gain.getValue()));
+
+    auto mode = list.indexOf("Mode");
+    check(log.events[0][mode].text == "Clean");
+
+    api.poll();
+    check(log.events.size() == 1);
+};
+
+auto tKeyedBridge = test("Web/theBridgeServesTextResetAndTheKeyedEvent") = []
+{
+    auto plugin = GainPlugin {};
+    auto recorder = GestureRecorder {};
+    plugin.setHostEditListener(&recorder);
+
+    auto api = ParameterApi(plugin);
+    auto bridge = Miro::Bridge {};
+    bridge.use(api);
+
+    auto emitted = std::vector<std::string> {};
+    auto keyed = Miro::JSON {};
+    auto listener = EA::Listener {bridge.onEmit,
+                                  [&]
+                                  {
+                                      auto name =
+                                          std::string {bridge.currentEvent()};
+                                      emitted.push_back(name);
+
+                                      if (name == "parameterValues")
+                                          keyed = bridge.currentPayload();
+                                  },
+                                  EA::Listener::Modes::TriggerOnEvent};
+
+    bridge.dispatch("editText",
+                    Miro::toJSON(WebParameterText {.id = "Mode", .text = "Hot"}));
+    check(plugin.params.mode.getIndex() == 2);
+
+    api.poll();
+    check(emitted.size() == 2);
+    check(keyed["items"].isArray());
+    auto mode = static_cast<size_t>(plugin.parameters().indexOf("Mode"));
+    check(keyed["items"][mode]["text"].asString() == "Hot");
+
+    bridge.dispatch("resetParam", Miro::toJSON(WebParameterId {.id = "Mode"}));
+    check(plugin.params.mode.getIndex() == 0);
+
+    plugin.params.gain.setValue(-3.f);
+    bridge.dispatch("resetAll", {});
+    check(near(plugin.params.gain.getValue(), 0.0));
+
+    auto values = bridge.dispatch("getParameterValues", {})["items"];
+    check(values.asArray().size()
+          == static_cast<size_t>(plugin.parameters().size()));
+
+    plugin.setHostEditListener(nullptr);
 };
 } // namespace

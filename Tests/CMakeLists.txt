@@ -103,6 +103,18 @@ if (MAKEASOUND_BUILD_PLUGIN)
     if (TARGET MakeASoundPluginWeb)
         list(APPEND MAKEASOUND_TEST_SOURCES WebEditorTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginWeb)
+
+        # The page side: tsc over the Synth example's page, whose controls call
+        # every ParameterApi command and read the keyed hooks, against the
+        # TypeScript the build generated from the API.
+        set(synth_web "${PROJECT_SOURCE_DIR}/Plugins/Synth/web")
+        set(synth_tsc "${synth_web}/node_modules/typescript/bin/tsc")
+        find_program(MAKEASOUND_NODE node)
+
+        if (TARGET SynthPlugin AND MAKEASOUND_NODE AND EXISTS "${synth_tsc}")
+            add_test(NAME Web/Page/synthTypeChecks
+                    COMMAND "${MAKEASOUND_NODE}" "${synth_tsc}" --noEmit -p "${synth_web}")
+        endif ()
     endif ()
 
     # The standalone core, wherever the plugin core builds, and the default app's

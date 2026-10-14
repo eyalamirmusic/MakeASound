@@ -3,6 +3,7 @@ import type * as T from './schema';
 export interface Events
 {
     'values': T.WebParameterValues;
+    'parameterValues': T.WebParameterSnapshot;
 }
 
 export type EventName = keyof Events;

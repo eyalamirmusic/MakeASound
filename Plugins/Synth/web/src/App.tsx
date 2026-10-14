@@ -1,32 +1,31 @@
-import { useRef } from 'react';
-import { useParameters, type ParameterControl } from './useParameters';
+import { useRef, useState } from 'react';
+import { edits, useSchema, useValue } from './useParameters';
 import type { WebParameter } from './generated/schema';
 
 export default function App()
 {
-    const control = useParameters();
-    const { parameters } = control;
+    const schema = useSchema();
 
     return (
         <main>
             <header>
                 <h1>MakeASound Synth</h1>
+                <button type="button" className="reset" onClick={edits.resetAll}>
+                    Reset
+                </button>
             </header>
 
             <section className="waveform">
-                {parameters.Waveform && <Waveform parameter={parameters.Waveform}
-                                                  control={control} />}
+                {schema.Waveform && <Waveform parameter={schema.Waveform} />}
             </section>
 
             <section className="knobs">
                 {['Attack', 'Release', 'Level'].map((id) =>
-                    parameters[id] && <Knob key={id} parameter={parameters[id]}
-                                            control={control} />)}
+                    schema[id] && <Knob key={id} parameter={schema[id]} />)}
             </section>
 
             <section className="legato">
-                {parameters.Legato && <Toggle parameter={parameters.Legato}
-                                              control={control} />}
+                {schema.Legato && <Toggle parameter={schema.Legato} />}
             </section>
         </main>
     );
@@ -35,13 +34,13 @@ export default function App()
 interface ControlProps
 {
     parameter: WebParameter;
-    control: ParameterControl;
 }
 
-function Waveform({ parameter, control }: ControlProps)
+function Waveform({ parameter }: ControlProps)
 {
+    const value = useValue(parameter);
     const steps = Math.max(parameter.steps, 1);
-    const selected = Math.round(parameter.normalized * steps);
+    const selected = Math.round(value.normalized * steps);
 
     return (
         <div className="choice" role="radiogroup" aria-label={parameter.name}>
@@ -49,7 +48,7 @@ function Waveform({ parameter, control }: ControlProps)
                 <button key={choice} type="button"
                         className={index === selected ? 'on' : ''}
                         aria-checked={index === selected} role="radio"
-                        onClick={() => control.toggle(parameter.id, index / steps)}>
+                        onClick={() => edits.pick(parameter.id, index / steps)}>
                     {choice}
                 </button>)}
         </div>
@@ -59,16 +58,25 @@ function Waveform({ parameter, control }: ControlProps)
 const dragRange = 200;
 const arcDegrees = 270;
 
-function Knob({ parameter, control }: ControlProps)
+// Drag to turn, double-click to reset, click the readout to type a value. While
+// dragging, the knob shows the page's own number, so a late echo never pulls it
+// back under the pointer.
+function Knob({ parameter }: ControlProps)
 {
+    const value = useValue(parameter);
     const start = useRef({ y: 0, value: 0 });
-    const angle = (parameter.normalized - 0.5) * arcDegrees;
+    const [dragged, setDragged] = useState<number | null>(null);
+    const [typing, setTyping] = useState(false);
+
+    const normalized = dragged ?? value.normalized;
+    const angle = (normalized - 0.5) * arcDegrees;
 
     const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) =>
     {
         e.currentTarget.setPointerCapture(e.pointerId);
-        start.current = { y: e.clientY, value: parameter.normalized };
-        control.begin(parameter.id);
+        start.current = { y: e.clientY, value: value.normalized };
+        setDragged(value.normalized);
+        edits.begin(parameter.id);
     };
 
     const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) =>
@@ -78,7 +86,8 @@ function Knob({ parameter, control }: ControlProps)
 
         const travel = (start.current.y - e.clientY) / dragRange;
         const next = Math.min(1, Math.max(0, start.current.value + travel));
-        control.set(parameter.id, next);
+        setDragged(next);
+        edits.set(parameter.id, next);
     };
 
     const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) =>
@@ -87,17 +96,29 @@ function Knob({ parameter, control }: ControlProps)
             return;
 
         e.currentTarget.releasePointerCapture(e.pointerId);
-        control.end(parameter.id);
+        setDragged(null);
+        edits.end(parameter.id);
+    };
+
+    const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) =>
+    {
+        if (e.key === 'Enter')
+            edits.type(parameter.id, e.currentTarget.value);
+
+        if (e.key === 'Enter' || e.key === 'Escape')
+            setTyping(false);
     };
 
     return (
         <div className="knob">
             <div className="dial" role="slider" aria-label={parameter.name}
                  aria-valuemin={0} aria-valuemax={1}
-                 aria-valuenow={parameter.normalized}
-                 aria-valuetext={parameter.text}
+                 aria-valuenow={normalized}
+                 aria-valuetext={value.text}
+                 title={`Double-click for ${parameter.defaultText}`}
                  onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-                 onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+                 onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+                 onDoubleClick={() => edits.reset(parameter.id)}>
                 <svg viewBox="0 0 100 100">
                     <circle className="track" cx="50" cy="50" r="40" />
                     <g transform={`rotate(${angle} 50 50)`}>
@@ -106,19 +127,25 @@ function Knob({ parameter, control }: ControlProps)
                 </svg>
             </div>
             <div className="name">{parameter.name}</div>
-            <div className="text">{parameter.text}</div>
+            {typing
+                ? <input className="text" autoFocus defaultValue={value.text}
+                         aria-label={`${parameter.name} value`}
+                         onKeyDown={onKeyDown} onBlur={() => setTyping(false)} />
+                : <div className="text" onClick={() => setTyping(true)}>
+                      {value.text}
+                  </div>}
         </div>
     );
 }
 
-function Toggle({ parameter, control }: ControlProps)
+function Toggle({ parameter }: ControlProps)
 {
-    const on = parameter.normalized >= 0.5;
+    const on = useValue(parameter).normalized >= 0.5;
 
     return (
         <button type="button" className={`toggle ${on ? 'on' : ''}`}
                 aria-pressed={on}
-                onClick={() => control.toggle(parameter.id, on ? 0 : 1)}>
+                onClick={() => edits.pick(parameter.id, on ? 0 : 1)}>
             {parameter.name}
         </button>
     );

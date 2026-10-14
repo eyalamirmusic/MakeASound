@@ -435,7 +435,16 @@ MS::OwningPointer<MS::Editor> createSynthEditor(SynthPlugin& plugin)
 }
 ```
 
-The page calls `getParameters()`, then `beginEdit`, `edit` and `endEdit` by parameter id, and listens to the `values` event, which the editor publishes 30 times a second with whatever moved, automation included; edits reach the host as ordinary gestures. `Plugins/Synth/web/src/useParameters.ts` wraps that in one React hook. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
+The page calls `getParameters()` for each parameter's id, name, steps, choices, value and default (`defaultNormalized`, `defaultText`), then edits by parameter id:
+
+| command | what it does |
+| --- | --- |
+| `beginEdit`, `edit`, `endEdit` | a drag: one host gesture, `edit` taking a normalized value; an `edit` outside a gesture is a whole one |
+| `editText` | typed entry, read through the parameter's own `textToValue` |
+| `resetParam` | one parameter back to its default |
+| `resetAll` | every parameter back to its default but the host-facing bypass, one gesture each, skipping those already there |
+
+Every change reaches the host as begin, perform and end, so a host records it as ordinary automation. The editor polls 30 times a second and, when anything moved (automation included), publishes two events: `values` holds only the entries that moved, and `parameterValues` holds every entry and is *keyed* by id, so the generated hooks give each control a store of its own. `useWebParameterValue(id)` re-renders only when that parameter changes, and `getParameterValues()` is its initial fetch. `Plugins/Synth/web/src/useParameters.ts` shows the pattern, and its knobs reset on double-click and take typed values. Commit `src/generated` and `package-lock.json`; `node_modules` and `dist` stay out. Configuring with `-DEACP_WEBVIEW_DEV=ON` skips the vite build and loads the page from the vite dev server instead.
 
 ## Running a plugin standalone
 
