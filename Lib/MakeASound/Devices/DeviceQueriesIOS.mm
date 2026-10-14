@@ -1,4 +1,5 @@
 #include "DeviceQueries.h"
+#include "../Audio/ProcessContext.h"
 
 #import <AVFoundation/AVFoundation.h>
 
@@ -56,7 +57,7 @@ int getCurrentSampleRate(const DeviceInfo& /*device*/)
 {
     @autoreleasepool
     {
-        return static_cast<int>([AVAudioSession sharedInstance].sampleRate);
+        return roundSampleRate([AVAudioSession sharedInstance].sampleRate);
     }
 }
 
@@ -67,7 +68,7 @@ std::optional<NativeFormat> getNativeFormat(bool input)
         auto* session = [AVAudioSession sharedInstance];
 
         auto format = NativeFormat {};
-        format.sampleRate = static_cast<int>(session.sampleRate);
+        format.sampleRate = roundSampleRate(session.sampleRate);
         format.sampleRates = askableSampleRates(format.sampleRate);
 
         // The maximum is the route's own channel count; the current one is only as
