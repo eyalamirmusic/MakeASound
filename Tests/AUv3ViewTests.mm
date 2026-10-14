@@ -135,9 +135,12 @@ auto tFactory = test("AUv3/thePrincipalClassCreatesAUnitOfTheRegisteredClass") =
 
 auto tOpens = test("AUv3/theViewControllerOpensAtTheConstrainedInitialSize") = []
 {
+    // Outside the pool: the unit is autoreleased, and closes its editor, which
+    // writes to the probe's record, only when the pool drains.
+    auto probe = ScopedProbe {};
+
     @autoreleasepool
     {
-        auto probe = ScopedProbe {};
         probe.record.size = {1000, 100};
         probe.record.limits = resizableBetween({200, 200}, {800, 800});
 
@@ -156,9 +159,12 @@ auto tOpens = test("AUv3/theViewControllerOpensAtTheConstrainedInitialSize") = [
 
 auto tViewFirst = test("AUv3/theEditorOpensWhenTheViewLoadsBeforeTheUnitExists") = []
 {
+    // Outside the pool: the unit is autoreleased, and closes its editor, which
+    // writes to the probe's record, only when the pool drains.
+    auto probe = ScopedProbe {};
+
     @autoreleasepool
     {
-        auto probe = ScopedProbe {};
         probe.record.size = {500, 320};
 
         auto host = ViewHost {"Gain", true};
@@ -170,9 +176,12 @@ auto tViewFirst = test("AUv3/theEditorOpensWhenTheViewLoadsBeforeTheUnitExists")
 
 auto tFixed = test("AUv3/aFixedSizeEditorCannotAskToResize") = []
 {
+    // Outside the pool: the unit is autoreleased, and closes its editor, which
+    // writes to the probe's record, only when the pool drains.
+    auto probe = ScopedProbe {};
+
     @autoreleasepool
     {
-        auto probe = ScopedProbe {};
         probe.record.size = {500, 320};
 
         auto host = ViewHost {};
@@ -185,9 +194,12 @@ auto tFixed = test("AUv3/aFixedSizeEditorCannotAskToResize") = []
 
 auto tRequest = test("AUv3/aResizeRequestMovesThePreferredContentSize") = []
 {
+    // Outside the pool: the unit is autoreleased, and closes its editor, which
+    // writes to the probe's record, only when the pool drains.
+    auto probe = ScopedProbe {};
+
     @autoreleasepool
     {
-        auto probe = ScopedProbe {};
         probe.record.size = {400, 300};
         probe.record.limits = resizableBetween({200, 200}, {800, 800});
 
@@ -202,9 +214,12 @@ auto tRequest = test("AUv3/aResizeRequestMovesThePreferredContentSize") = []
 
 auto tHostResize = test("AUv3/aHostResizeReachesTheEditorUnconstrained") = []
 {
+    // Outside the pool: the unit is autoreleased, and closes its editor, which
+    // writes to the probe's record, only when the pool drains.
+    auto probe = ScopedProbe {};
+
     @autoreleasepool
     {
-        auto probe = ScopedProbe {};
         probe.record.size = {400, 300};
         probe.record.limits = resizableBetween({300, 300}, {500, 500});
 
@@ -220,9 +235,12 @@ auto tHostResize = test("AUv3/aHostResizeReachesTheEditorUnconstrained") = []
 auto tConfigurations =
     test("AUv3/viewConfigurationsFollowTheEditorsConstraints") = []
 {
+    // Outside the pool: the unit is autoreleased, and closes its editor, which
+    // writes to the probe's record, only when the pool drains.
+    auto probe = ScopedProbe {};
+
     @autoreleasepool
     {
-        auto probe = ScopedProbe {};
         registerTestUnits();
 
         auto* error = static_cast<NSError*>(nil);
