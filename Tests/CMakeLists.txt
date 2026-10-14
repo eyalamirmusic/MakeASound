@@ -245,6 +245,10 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPluginval)
         set(MAKEASOUND_TEST_PLUGINVAL ON)
     endif ()
+
+    # makeasound_add_plugin's bundle identifiers: CMake-level cases, and on macOS
+    # two fixtures' built bundles.
+    add_subdirectory(BundleIds)
 endif ()
 
 # The ALSA backend's conversions are the one half of a platform backend that can
@@ -353,6 +357,10 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
         target_compile_definitions(MakeASoundTests PRIVATE
                 MAKEASOUND_HOST_FIXTURE_AU_DIR="${MAKEASOUND_HOST_FIXTURE_AU_DIR}")
     endif ()
+endif ()
+
+if (MAKEASOUND_BUNDLE_ID_FIXTURES)
+    add_dependencies(MakeASoundTests ${MAKEASOUND_BUNDLE_ID_FIXTURES})
 endif ()
 
 if (MAKEASOUND_TEST_PLUGIN_SCANNER)
