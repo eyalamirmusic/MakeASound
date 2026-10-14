@@ -16,6 +16,8 @@ namespace MakeASound::Web
 // IdPath.h). `key` is the parameter's own id and `groups` its enclosing named
 // groups' own ids, outermost first, so a page never parses the path. The default
 // is the one resetParam() and resetAll() restore, normalized and as its readout.
+// `choices` names each step: a ChoiceParam's choices, or a bool's two labels,
+// off then on; it is empty for anything else.
 struct WebParameter
 {
     std::string id;

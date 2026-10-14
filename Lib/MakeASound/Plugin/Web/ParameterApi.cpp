@@ -48,6 +48,12 @@ WebParameters ParameterApi::getParameters()
             for (auto c = 0; c < choice->numChoices(); ++c)
                 parameter.choices.add(choice->choiceName(c));
 
+        // A bool's two labels, off then on, read through its own valueToText(),
+        // as Tamber Plug's page schema sends them.
+        if (param.isBoolean())
+            for (auto normalized: {0.f, 1.f})
+                parameter.choices.add(param.valueToText(param.toPlain(normalized)));
+
         slots[i].published = param.getNormalized();
         result.parameters.add(std::move(parameter));
     }

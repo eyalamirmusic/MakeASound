@@ -108,7 +108,55 @@ auto tList = test("Web/getParametersListsEveryEntry") = []
 
     auto bypass = plugin.parameters().indexOf("Bypass");
     check(list[bypass].steps == 1);
-    check(list[bypass].choices.empty());
+    check(list[bypass].choices.size() == 2);
+    check(list[bypass].choices[0] == "Off");
+    check(list[bypass].choices[1] == "On");
+
+    for (auto name: {"Gain", "Filter/Cutoff", "Width"})
+        check(list[plugin.parameters().indexOf(name)].choices.empty());
+};
+
+struct LabelledParams : ParameterGroup
+{
+    LabelledParams() { add(power, sync); }
+
+    BoolParam power {"Power", true, "Bypassed", "Active"};
+    BoolParam sync {"Sync", false, "Free", "Retrig"};
+};
+
+struct LabelledPlugin : StatePlugin<State<LabelledParams>>
+{
+    std::string_view name() const override { return "Labelled"; }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+// A bool's choices are its own labels, off first, whatever its value or default.
+auto tBoolLabels = test("Web/aBoolListsItsOwnLabelsOffThenOn") = []
+{
+    auto plugin = LabelledPlugin {};
+    auto api = ParameterApi(plugin);
+    auto list = api.getParameters().parameters;
+
+    check(list.size() == 2);
+    check(list[0].steps == 1);
+    check(list[0].choices.size() == 2);
+    check(list[0].choices[0] == "Bypassed");
+    check(list[0].choices[1] == "Active");
+    check(list[0].text == "Active");
+    check(list[0].defaultText == "Active");
+
+    check(list[1].choices.size() == 2);
+    check(list[1].choices[0] == "Free");
+    check(list[1].choices[1] == "Retrig");
+
+    // The labels name steps, not the value: they hold after the value moves.
+    api.edit({.id = "Power", .normalized = 0.0});
+    auto after = api.getParameters().parameters;
+    check(after[0].text == "Bypassed");
+    check(after[0].choices.size() == 2);
+    check(after[0].choices[0] == "Bypassed");
+    check(after[0].choices[1] == "Active");
 };
 
 auto tGesture = test("Web/editWritesAndReportsBeginPerformEnd") = []

@@ -435,7 +435,7 @@ MS::OwningPointer<MS::Editor> createSynthEditor(SynthPlugin& plugin)
 }
 ```
 
-The page calls `getParameters()` for each parameter's id path, name, steps, choices, value and default (`defaultNormalized`, `defaultText`), plus its own id (`key`) and its groups' (`groups`), so it never parses the path, then edits by id path:
+The page calls `getParameters()` for each parameter's id path, name, steps, choices (a choice's names, or a bool's two labels, off then on), value and default (`defaultNormalized`, `defaultText`), plus its own id (`key`) and its groups' (`groups`), so it never parses the path, then edits by id path:
 
 | command | what it does |
 | --- | --- |
