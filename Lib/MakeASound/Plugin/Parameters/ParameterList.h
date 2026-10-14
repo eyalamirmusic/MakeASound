@@ -54,6 +54,9 @@ public:
     struct Entry
     {
         Parameter* param = nullptr;
+
+        // The id path ("Filter/Cutoff"; "Dry//Wet" for the id "Dry/Wet", see
+        // IdPath.h), which indexOf(std::string_view) takes.
         std::string id;
         std::string displayName;
 
@@ -121,7 +124,8 @@ public:
     // alike, an explicit host id below 2^31 unless JUCE's mask is off, an AAX
     // id at most 31 characters, and no host id among the VST3 MIDI controller
     // parameters' where there are any (a JUCE port's only reported, never
-    // asserted). In any build, so a Release test can run it.
+    // asserted), and no id beginning or ending with '/', which no id path can
+    // delimit (IdPath.h). In any build, so a Release test can run it.
     Vector<std::string> identityProblems() const;
 
     // Re-reads every entry's display name from its parameter's current name(),

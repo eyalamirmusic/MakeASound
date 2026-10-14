@@ -51,7 +51,8 @@ public:
     const std::string& id() const noexcept { return groupId; }
     bool isAutomatable() const noexcept { return automatable; }
 
-    // Every parameter below, depth-first, with its id path ("Osc 1/Attack"),
+    // Every parameter below, depth-first, with its id path ("Osc 1/Attack", a
+    // '/' inside one id doubled: see IdPath.h),
     // display path ("Osc 1 Attack") and the AND of its flag and its groups'.
     void forEach(const Visitor& visitor) const;
 

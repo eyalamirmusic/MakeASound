@@ -17,6 +17,7 @@
 #include "Parameters/CommonParams.h"
 #include "Parameters/ParameterGroup.h"
 #include "Parameters/ParameterList.h"
+#include "Parameters/IdPath.h"
 #include "State/StateContext.h"
 #include "State/State.h"
 #include "Core/HostEditListener.h"

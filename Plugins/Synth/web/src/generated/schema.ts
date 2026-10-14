@@ -1,5 +1,7 @@
 export interface WebParameter {
     id: string;
+    key: string;
+    groups: string[];
     name: string;
     label: string;
     normalized: number;

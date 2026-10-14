@@ -31,6 +31,7 @@ WebParameters ParameterApi::getParameters()
 
         auto parameter =
             WebParameter {.id = entry.id,
+                          .key = param.id(),
                           .name = entry.displayName,
                           .label = param.label(),
                           .normalized = value.normalized,
@@ -39,6 +40,9 @@ WebParameters ParameterApi::getParameters()
                           .defaultText = param.valueToText(fallback),
                           .steps = param.numSteps(),
                           .automatable = entry.automatable};
+
+        for (const auto& group: entry.groups)
+            parameter.groups.add(group.ownId);
 
         if (auto* choice = dynamic_cast<const ChoiceParam*>(&param))
             for (auto c = 0; c < choice->numChoices(); ++c)

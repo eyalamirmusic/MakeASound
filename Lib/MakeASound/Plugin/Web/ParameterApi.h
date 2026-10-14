@@ -11,11 +11,16 @@
 namespace MakeASound::Web
 {
 
-// One entry of Plugin::parameters() as a page sees it. The default is the one
-// resetParam() and resetAll() restore, normalized and as its readout.
+// One entry of Plugin::parameters() as a page sees it. `id` is the id path every
+// command takes ("Filter/Cutoff"; "Dry//Wet" for the id "Dry/Wet", see
+// IdPath.h). `key` is the parameter's own id and `groups` its enclosing named
+// groups' own ids, outermost first, so a page never parses the path. The default
+// is the one resetParam() and resetAll() restore, normalized and as its readout.
 struct WebParameter
 {
     std::string id;
+    std::string key;
+    Vector<std::string> groups;
     std::string name;
     std::string label;
     double normalized = 0.0;
@@ -27,6 +32,8 @@ struct WebParameter
     bool automatable = true;
 
     MIRO_REFLECT(id,
+                 key,
+                 groups,
                  name,
                  label,
                  normalized,

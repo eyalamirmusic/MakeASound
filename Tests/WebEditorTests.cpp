@@ -94,6 +94,12 @@ auto tList = test("Web/getParametersListsEveryEntry") = []
 
     auto cutoff = plugin.parameters().indexOf("Filter/Cutoff");
     check(list[cutoff].name == "Filter Cutoff");
+    check(list[cutoff].key == "Cutoff");
+    check(list[cutoff].groups.size() == 1 && list[cutoff].groups[0] == "Filter");
+
+    auto gain = plugin.parameters().indexOf("Gain");
+    check(list[gain].key == "Gain");
+    check(list[gain].groups.empty());
 
     auto mode = plugin.parameters().indexOf("Mode");
     check(list[mode].steps == 2);
@@ -269,6 +275,55 @@ auto tDefault = test("Web/aDefaultConstructedApiReflects") = []
     bridge.dispatch("resetAll", {});
     api.poll();
     api.endAllEdits();
+};
+
+struct MixGroup : ParameterGroup
+{
+    MixGroup()
+        : ParameterGroup("Mix")
+    {
+        add(dryWet);
+    }
+
+    FloatParam dryWet {"Dry/Wet", 0.f, 1.f, 1.f};
+};
+
+struct MixParams : ParameterGroup
+{
+    MixParams() { add(dryWet, mix); }
+
+    FloatParam dryWet {"Dry/Wet", 0.f, 1.f, 1.f};
+    MixGroup mix;
+};
+
+struct MixPlugin : StatePlugin<State<MixParams>>
+{
+    std::string_view name() const override { return "Mix"; }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+auto tSlash = test("Web/anIdHoldingASlashIsAddressedByItsPath") = []
+{
+    auto plugin = MixPlugin {};
+    auto api = ParameterApi(plugin);
+    auto list = api.getParameters().parameters;
+
+    check(list.size() == 2);
+    check(list[0].id == "Dry//Wet");
+    check(list[0].key == "Dry/Wet");
+    check(list[0].groups.empty());
+    check(list[1].id == "Mix/Dry//Wet");
+    check(list[1].key == "Dry/Wet");
+    check(list[1].groups.size() == 1 && list[1].groups[0] == "Mix");
+
+    api.edit({.id = "Mix/Dry//Wet", .normalized = 0.25});
+    check(near(plugin.params.mix.dryWet.getValue(), 0.25));
+    check(near(plugin.params.dryWet.getValue(), 1.0));
+
+    // The unescaped spelling names nothing.
+    api.edit({.id = "Mix/Dry/Wet", .normalized = 0.5});
+    check(near(plugin.params.mix.dryWet.getValue(), 0.25));
 };
 
 // Every keyed parameterValues event the API publishes, in order.

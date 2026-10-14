@@ -1,4 +1,5 @@
 #include "ParameterList.h"
+#include "IdPath.h"
 #include "../Compat/JuceState.h"
 
 #include <algorithm>
@@ -180,7 +181,7 @@ void ParameterList::add(Parameter& param,
 
     for (const auto* group: groups)
     {
-        path += (path.empty() ? "" : "/") + group->id();
+        appendIdSegment(path, group->id());
         entry.groups.add({path, group->name(), path, group->id()});
     }
 }
@@ -340,6 +341,23 @@ Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
 {
     auto problems = Vector<std::string> {};
     findDuplicateHostIds(problems);
+
+    // Its path cannot tell where such an id ends (IdPath.h).
+    auto undelimited = std::set<std::string> {};
+
+    for (const auto& entry: entries)
+    {
+        if (!isDelimitableId(entry.param->id()))
+            undelimited.insert(entry.param->id());
+
+        for (const auto& group: entry.groups)
+            if (!isDelimitableId(group.ownId))
+                undelimited.insert(group.ownId);
+    }
+
+    for (const auto& id: undelimited)
+        problems.add("the id \"" + id
+                     + "\" begins or ends with '/', which no id path can delimit");
 
     if (controllerClashes)
         for (const auto& entry: entries)

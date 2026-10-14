@@ -71,6 +71,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
     list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundPlugin)
     list(APPEND MAKEASOUND_TEST_SOURCES
             ParameterTests.cpp
+            IdPathTests.cpp
             StateTests.cpp
             PluginTests.cpp
             EditorTests.cpp

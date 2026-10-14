@@ -18,6 +18,7 @@ add_library(MakeASoundPlugin STATIC
         Host/PluginWrapper.cpp
         Parameters/Parameter.cpp
         Parameters/FloatParam.cpp
+        Parameters/IdPath.cpp
         Parameters/ChoiceParam.cpp
         Parameters/ParameterGroup.cpp
         Parameters/ParameterList.cpp

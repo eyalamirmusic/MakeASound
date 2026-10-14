@@ -13,8 +13,9 @@ namespace MakeASound
 // declaration.
 //
 // Identity, before a plugin ships: the host id is FNV-1a of the parameter's id
-// *path*, every enclosing named group's id in front ("Filter/Cutoff"), and that
-// path is also its key in saved state. Renaming a parameter, or moving it into,
+// *path*, every enclosing named group's id in front ("Filter/Cutoff"; a '/'
+// inside one id is doubled, see IdPath.h), and that path is also its key in
+// saved state, one nested object per group. Renaming a parameter, or moving it into,
 // out of or between groups, therefore changes both and breaks every session and
 // automation lane that used it, unless `id` (for the name) or `hostId` (for the
 // host id) is pinned first. Pin them before regrouping. A port's IdScheme
