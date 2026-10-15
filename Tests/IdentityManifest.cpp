@@ -426,8 +426,8 @@ auto tJucePort = test("Identity/jucePortMatchesItsManifest") = []
 auto tTamberPlug = test("Identity/tamberPlugPortsMatchTheirManifest") = []
 { check(IdentityManifest::matchesGolden("TamberPlug")); };
 
-// CI builds Release, where nothing asserts: every plugin a manifest describes
-// is checked here as well.
+// CI builds RelWithDebInfo, where nothing asserts: every plugin a manifest
+// describes is checked here as well.
 auto tNoProblems = test("Identity/noTestPluginHasAnIdentityProblem") = []
 {
     for (const auto& golden: IdentityManifest::cases())

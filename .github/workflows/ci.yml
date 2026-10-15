@@ -6,13 +6,24 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Release only, everywhere: a Debug build of the same tree doubles a job for a
-# configuration nothing ships, and the checks that need a Debug CRT or
-# assertions are the local developer's. The iOS job still configures twice
-# (device then simulator); pointing CPM at one cache directory means each
-# archive is fetched once per job instead of once per configure, which keeps a
-# flaky download from taking out the second half of a job that has already
-# downloaded everything it needs.
+# A newer push to the same PR cancels the superseded run; pushes to develop and
+# main are never cancelled, only queued behind each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# RelWithDebInfo only, everywhere: a Debug build of the same tree doubles a job
+# for a configuration nothing ships, and the checks that need a Debug CRT or
+# assertions are the local developer's. RelWithDebInfo rather than Release
+# because it is the same NDEBUG optimized code without the LTO links that
+# INTERPROCEDURAL_OPTIMIZATION_RELEASE adds to every target, which were most of
+# the Windows build step (eacp's CI does the same). The shipped Release + LTO
+# configuration is therefore no longer linked here.
+#
+# The iOS job still configures twice (device then simulator); pointing CPM at
+# one cache directory means each archive is fetched once per job instead of
+# once per configure, which keeps a flaky download from taking out the second
+# half of a job that has already downloaded everything it needs.
 #
 # CCACHE_DEPEND: ccache hashes the source and the include files the compiler's
 # own dependency output names (-MD, /showIncludes) instead of running the
@@ -144,7 +155,7 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Build & test (Release, CI build)
+      - name: Configure (RelWithDebInfo, CI build)
         shell: bash
         env:
           CC_COMPILER: ${{ matrix.cc }}
@@ -158,8 +169,8 @@ jobs:
           # Windows embeds any debug info in each object (/Z7), since the /Zi
           # default's one PDB per target is something no per-object cache can
           # restore.
-          args=( -S . -B build-Release -G Ninja
-                 -DCMAKE_BUILD_TYPE=Release
+          args=( -S . -B build -G Ninja
+                 -DCMAKE_BUILD_TYPE=RelWithDebInfo
                  -DMAKEASOUND_CI_BUILD=ON
                  -DMAKEASOUND_BUILD_APPS=OFF
                  -DMAKEASOUND_BUILD_TESTS=ON
@@ -191,36 +202,37 @@ jobs:
             args+=( -DMAKEASOUND_BUILD_AAX=ON )
           fi
 
-          echo "::group::Configure"
           cmake "${args[@]}"
-          echo "::endgroup::"
 
-          # Default target: the library plus the test executable (apps are off).
-          echo "::group::Build"
-          cmake --build build-Release
-          echo "::endgroup::"
+      # Default target: the library plus the test executable (apps are off).
+      - name: Build
+        shell: bash
+        run: cmake --build build
 
-          # --no-tests=error so a job that stops producing tests fails loudly
-          # instead of passing vacuously; --timeout so a case that hangs (a
-          # Windows assertion dialog, a wait that never ends) fails in two
-          # minutes rather than ctest's default twenty-five.
-          echo "::group::Test"
-          ctest --test-dir build-Release --build-config Release \
-                --output-on-failure --no-tests=error --timeout 120
-          echo "::endgroup::"
+      # --no-tests=error so a job that stops producing tests fails loudly instead
+      # of passing vacuously; --timeout so a case that hangs (a Windows assertion
+      # dialog, a wait that never ends) fails in two minutes rather than ctest's
+      # default twenty-five. -j 4: each case is its own process with its own
+      # temp folder, and the ones sharing a virtual MIDI port hold a
+      # RESOURCE_LOCK (Tests/VirtualMidiPortLock.cmake).
+      - name: Test
+        shell: bash
+        run: |
+          ctest --test-dir build --build-config RelWithDebInfo \
+                --output-on-failure --no-tests=error --timeout 120 -j 4
 
       # Both example bundles at strictness 10, built by the default target above
       # and handed over as the folder they land in, every editor opened.
       # PluginValidator downloads pluginval on its first run and exits with the
       # number of failures. Linux skips the editor tests: the runner has no
       # display and no Vulkan device for them.
-      - name: pluginval (Release)
+      - name: pluginval
         if: matrix.pluginval
         shell: bash
         run: |
           set -euo pipefail
-          validator=build-Release/Tools/PluginValidator/PluginValidator
-          args=(--logs build-Release/pluginval/logs build-Release/VST3)
+          validator=build/Tools/PluginValidator/PluginValidator
+          args=(--logs build/pluginval/logs build/VST3)
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run -a "$validator" --skip-gui-tests "${args[@]}"
           else
@@ -231,19 +243,19 @@ jobs:
       # answered: PluginValidator installs each into the runner's
       # ~/Library/Audio/Plug-Ins/Components first. Its logs land beside
       # pluginval's, so the upload below covers them.
-      - name: auval (Release)
+      - name: auval
         if: matrix.pluginval && runner.os == 'macOS'
         shell: bash
         run: |
-          build-Release/Tools/PluginValidator/PluginValidator \
-            --logs build-Release/pluginval/logs build-Release/AU
+          build/Tools/PluginValidator/PluginValidator \
+            --logs build/pluginval/logs build/AU
 
       - name: Upload pluginval logs
         if: failure() && matrix.pluginval
         uses: actions/upload-artifact@v4
         with:
           name: pluginval-logs-${{ matrix.name }}
-          path: build-Release/pluginval/logs/
+          path: build/pluginval/logs/
           if-no-files-found: ignore
 
       # What a host checks before it loads one: every slice of the universal
@@ -256,7 +268,7 @@ jobs:
           set -euo pipefail
           expected=$(sort Lib/MakeASound/Plugin/AAX/AAXExports.txt)
           found=0
-          for bundle in build-Release/AAX/*.aaxplugin; do
+          for bundle in build/AAX/*.aaxplugin; do
             found=$((found + 1))
             name=$(basename "$bundle" .aaxplugin)
             binary="$bundle/Contents/MacOS/$name"
@@ -299,7 +311,7 @@ jobs:
           expected=$(sed 's/^_//' Lib/MakeASound/Plugin/AAX/AAXExports.txt \
                      | tr -d '\r' | sort -u)
           found=0
-          for bundle in build-Release/AAX/*.aaxplugin; do
+          for bundle in build/AAX/*.aaxplugin; do
             found=$((found + 1))
             name=$(basename "$bundle" .aaxplugin)
             binary="$bundle/Contents/x64/$name.aaxplugin"
@@ -319,7 +331,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          lib=build-Release/Lib/libMakeASound.a
+          lib=build/Lib/libMakeASound.a
           echo "Architectures:"
           lipo -info "$lib"
           lipo -info "$lib" | grep -q "x86_64" && lipo -info "$lib" | grep -q "arm64"
@@ -346,7 +358,7 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DMAKEASOUND_BUILD_DEVICES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF
           -DMAKEASOUND_BUILD_HOSTING=OFF -DMAKEASOUND_BUILD_EXAMPLES=OFF
 
@@ -361,7 +373,7 @@ jobs:
         run: cmake --build build-core
 
       - name: Test
-        run: ctest --test-dir build-core --output-on-failure --no-tests=error
+        run: ctest --test-dir build-core --output-on-failure --no-tests=error -j 4
 
   # iOS is cross-compiled, so it gets its own job rather than another matrix
   # entry: the configure needs a sysroot/architecture pair, and the suite can
@@ -381,56 +393,13 @@ jobs:
       - name: Set up the compiler cache
         uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
-          key: ios
+          # Not `ios`: the action restores by key prefix, which matched ios-xcode.
+          key: ios-ninja
           max-size: 1G
           evict-old-files: job
 
-      # Device slices can't be executed in CI, so this half is build-only. It is
-      # still the half that catches iOS-specific compile breakage: miniaudio's
-      # Objective-C implementation TU and the macOS-only CoreAudio HAL that
-      # BlockSizes.mm uses. The examples' apps come out unsigned, each with its
-      # AUv3 extension inside, whose plist a macOS sub-build of the plugin cores
-      # writes (MakeASoundDescribeBuild).
-      - name: Build for iOS device (Release, CI build)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::group::Configure (device)"
-          cmake -S . -B build-ios-Release -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_SYSTEM_NAME=iOS \
-                -DCMAKE_OSX_SYSROOT=iphoneos \
-                -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
-                -DMAKEASOUND_CI_BUILD=ON \
-                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
-                -DMAKEASOUND_BUILD_APPS=OFF \
-                -DMAKEASOUND_BUILD_TESTS=OFF
-          echo "::endgroup::"
-
-          echo "::group::Build (device)"
-          cmake --build build-ios-Release
-          echo "::endgroup::"
-
-      - name: Verify the device slice really is iOS
-        shell: bash
-        run: |
-          set -euo pipefail
-          lib=build-ios-Release/Lib/libMakeASound.a
-          echo "Architectures:"
-          lipo -info "$lib"
-          echo "Platform / minimum OS per build object:"
-          otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -E 'platform|minos' | sort -u
-          # LC_BUILD_VERSION platform 2 is iOS. Catches a build that silently
-          # fell back to the host (macOS) toolchain and would then "pass"
-          # without ever having compiled the iOS code paths.
-          if otool -l "$lib" | grep -A4 LC_BUILD_VERSION \
-             | grep 'platform' | grep -vqE 'platform 2$'; then
-            echo "ERROR: found objects not built for iOS (platform != 2)"; exit 1
-          fi
-
+      # Started first so it boots while the device half builds: `boot` returns
+      # at once, and "Wait for the simulator" below waits for it.
       - name: Boot an iOS simulator
         id: sim
         shell: bash
@@ -453,24 +422,69 @@ jobs:
           echo "Booting simulator $udid"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           # `boot` errors out if the device is already booted, which is a
-          # perfectly fine state to be in; bootstatus below is the real gate.
+          # perfectly fine state to be in; the bootstatus wait is the real gate.
           xcrun simctl boot "$udid" || true
-          xcrun simctl bootstatus "$udid" -b
+
+      # Device slices can't be executed in CI, so this half is build-only. It is
+      # still the half that catches iOS-specific compile breakage: miniaudio's
+      # Objective-C implementation TU and the macOS-only CoreAudio HAL that
+      # BlockSizes.mm uses. The examples' apps come out unsigned, each with its
+      # AUv3 extension inside, whose plist a macOS sub-build of the plugin cores
+      # writes (MakeASoundDescribeBuild).
+      - name: Configure (device)
+        shell: bash
+        run: |
+          cmake -S . -B build-ios -G Ninja \
+                -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DCMAKE_SYSTEM_NAME=iOS \
+                -DCMAKE_OSX_SYSROOT=iphoneos \
+                -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
+                -DMAKEASOUND_BUILD_APPS=OFF \
+                -DMAKEASOUND_BUILD_TESTS=OFF
+
+      - name: Build (device)
+        shell: bash
+        run: cmake --build build-ios
+
+      - name: Verify the device slice really is iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib=build-ios/Lib/libMakeASound.a
+          echo "Architectures:"
+          lipo -info "$lib"
+          echo "Platform / minimum OS per build object:"
+          otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -E 'platform|minos' | sort -u
+          # LC_BUILD_VERSION platform 2 is iOS. Catches a build that silently
+          # fell back to the host (macOS) toolchain and would then "pass"
+          # without ever having compiled the iOS code paths.
+          if otool -l "$lib" | grep -A4 LC_BUILD_VERSION \
+             | grep 'platform' | grep -vqE 'platform 2$'; then
+            echo "ERROR: found objects not built for iOS (platform != 2)"; exit 1
+          fi
+
+      # Booted since the start of the job; this only waits for it to finish.
+      - name: Wait for the simulator
+        shell: bash
+        run: xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
 
       # The simulator is the only place the suite can actually execute for iOS.
       # Both configures build the examples' -Standalone apps too (the default
       # app's iOS shell), and the suite includes the standalone ones.
       # Left non-unity on purpose: between this and the device build above, both
       # the unity and per-TU compile paths get exercised on iOS.
-      - name: Build & test on the iOS simulator
+      - name: Configure (simulator)
         shell: bash
         run: |
-          set -euo pipefail
-          echo "::group::Configure (simulator)"
           # The simulator slice has to match the runner's own architecture,
           # otherwise the built binary can't be spawned on it.
           cmake -S . -B build-ios-sim -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_BUILD_TYPE=RelWithDebInfo \
                 -DCMAKE_SYSTEM_NAME=iOS \
                 -DCMAKE_OSX_SYSROOT=iphonesimulator \
                 -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
@@ -482,18 +496,17 @@ jobs:
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=ON \
                 -DCMAKE_CROSSCOMPILING_EMULATOR="xcrun;simctl;spawn;${{ steps.sim.outputs.udid }}"
-          echo "::endgroup::"
 
-          echo "::group::Build (simulator)"
-          cmake --build build-ios-sim
-          echo "::endgroup::"
+      - name: Build (simulator)
+        shell: bash
+        run: cmake --build build-ios-sim
 
-          # NanoTest can't enumerate cases while cross-compiling, so this is a
-          # single ctest entry that runs the whole binary through the simulator.
-          # A failing case still propagates out as a non-zero exit.
-          echo "::group::Test (simulator)"
-          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
-          echo "::endgroup::"
+      # NanoTest can't enumerate cases while cross-compiling, so this is a single
+      # ctest entry that runs the whole binary through the simulator. A failing
+      # case still propagates out as a non-zero exit.
+      - name: Test (simulator)
+        shell: bash
+        run: ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
 
       # Each example's standalone app installed and launched in the simulator, and
       # still running a few seconds later: the scene, the window, the editor and
@@ -568,11 +581,9 @@ jobs:
           max-size: 1G
           evict-old-files: job
 
-      - name: Build for iOS device with Xcode (Release, CI build, unsigned)
+      - name: Configure (Xcode)
         shell: bash
         run: |
-          set -euo pipefail
-          echo "::group::Configure (Xcode)"
           cmake -S . -B build-ios-xcode -G Xcode \
                 -DCMAKE_SYSTEM_NAME=iOS \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
@@ -582,12 +593,13 @@ jobs:
                 -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=OFF
-          echo "::endgroup::"
 
-          echo "::group::Build (Xcode, iphoneos)"
-          cmake --build build-ios-xcode --config Release -- \
+      # RelWithDebInfo, CI build, unsigned.
+      - name: Build (Xcode, iphoneos)
+        shell: bash
+        run: |
+          cmake --build build-ios-xcode --config RelWithDebInfo -- \
                 -sdk iphoneos CODE_SIGNING_ALLOWED=NO
-          echo "::endgroup::"
 
       # Each app carries its extension, and the extension's plist is the one the
       # host tool wrote, processed by Xcode for the device.
@@ -596,7 +608,7 @@ jobs:
         run: |
           set -euo pipefail
           for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
-            appex="build-ios-xcode/Plugins/${app%%/*}/Release-iphoneos/${app#*/}.app/PlugIns/${app#*/}.appex"
+            appex="build-ios-xcode/Plugins/${app%%/*}/RelWithDebInfo-iphoneos/${app#*/}.app/PlugIns/${app#*/}.appex"
             plist="$appex/Info.plist"
             /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" "$plist"
             /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionAttributes:AudioComponents:0:subtype" "$plist"

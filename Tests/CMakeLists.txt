@@ -373,6 +373,12 @@ nano_add_executable(MakeASoundTests
         SOURCES ${MAKEASOUND_TEST_SOURCES}
         TARGETS ${MAKEASOUND_TEST_TARGETS})
 
+# The cases that open a named virtual MIDI port take one lock, so `ctest -j` runs
+# them one at a time (see the file). Appended after NanoTest's own include, which
+# defines the cases it reads.
+set_property(DIRECTORY APPEND PROPERTY
+        TEST_INCLUDE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/VirtualMidiPortLock.cmake")
+
 # Release LTO as every target of ours has: eacp's Release archives are LTO bitcode
 # under Clang, which a link without -flto cannot read.
 set_target_properties(MakeASoundTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
