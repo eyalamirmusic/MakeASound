@@ -49,8 +49,8 @@ manager.start(manager.getDefaultConfig(),
 
 - CMake 3.31+ and a C++20 compiler.
 - macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator (Ninja, and the device again with Xcode), Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
-- Node and npm, for the React demo apps (`Apps/Demo`, `Apps/Synth`) only: eacp's webview build runs `npm install` and `vite build` for them. `-DMAKEASOUND_BUILD_APPS=OFF` needs neither; the library, the plugin formats and the example plugins never need Node.
+- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. A build with the plugin core also configures eacp's Linux graphics tier, which wants its Wayland, xcb, xkbcommon, libdecor, FreeType, HarfBuzz and fontconfig dev packages and libcurl (the apt list in `.github/workflows/ci.yml`). The library, tests and console demos build there; the GUI app (`AudioProbe`) and the standalone plugin format are skipped, since eacp draws on macOS, Windows and iOS only. The VST3 bundles build there, embedding their editor in the host's X11 window where eacp's UI tier builds.
+- No Node or npm: nothing in the repo has a web UI. When MakeASound is the top-level project, eacp is fetched without its WebView module (`EACP_BUILD_WEBVIEW` defaults `OFF`); `-DEACP_BUILD_WEBVIEW=ON` brings it back for a plugin whose editor is a WebView (see [Web editors](#web-editors)). As a dependency, eacp's options are left to the consuming project.
 
 Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
 
@@ -66,8 +66,6 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 ```
 
 `Example` takes an optional driver name (`./Example "Core Audio"`, `./Example jack`) and prints what is available.
-
-`Apps/Demo` and `Apps/Synth` build macOS `.app` bundles with React/Vite UIs hosted through [eacp](https://github.com/eyalamirmusic/eacp)'s webview; their web assets are bundled at build time.
 
 ### Options
 
@@ -326,7 +324,7 @@ auto gain = Gain {};
 engine.start(devices.getDefaultDuplexConfig(), gain);
 ```
 
-`BusLayout::stereoInOut()` is the default layout; an instrument returns `BusLayout::instrument()` from `getBusLayout()` and reads `ctx.mainMidiIn()`, a `MIDI::Buffer` already sorted by offset, so a block is split around events with `mainOutput().getSubBuffer(from, length)`. A layout with no input bus never opens the capture side, so an instrument costs no microphone permission. `Apps/Synth` is the worked example: it runs `MakeASound::DSP::TestSynth` from the optional `MakeASoundDSP` library, a monophonic instrument with a choice of waveform, an attack/release envelope and a smoothed level, and `Plugins/Synth` plays the same synth as a plugin.
+`BusLayout::stereoInOut()` is the default layout; an instrument returns `BusLayout::instrument()` from `getBusLayout()` and reads `ctx.mainMidiIn()`, a `MIDI::Buffer` already sorted by offset, so a block is split around events with `mainOutput().getSubBuffer(from, length)`. A layout with no input bus never opens the capture side, so an instrument costs no microphone permission. `Plugins/Synth` is the worked example: it plays `MakeASound::DSP::TestSynth` from the optional `MakeASoundDSP` library, a monophonic instrument with a choice of waveform, an attack/release envelope and a smoothed level, as a plugin.
 
 ## Plugins
 
@@ -411,7 +409,7 @@ Every format opens the editor at its initial size put through `constraints().con
 
 ### Web editors
 
-MakeASound has no web-editor support of its own. A plugin that wants a web page as its editor builds one directly on eacp's `WebView` (and its vite build helpers): an `Editor` whose `view()` returns the `WebView`, with the page talking to the plugin's parameters through whatever bridge the plugin binds. The framework only sees an `Editor`, so the size policy, `requestResize` and `ResizeGrip` above apply to it as to any other.
+MakeASound has no web-editor support of its own. A plugin that wants a web page as its editor builds one directly on eacp's `WebView` (and its vite build helpers), configuring with `-DEACP_BUILD_WEBVIEW=ON` since a top-level MakeASound build fetches eacp without it: an `Editor` whose `view()` returns the `WebView`, with the page talking to the plugin's parameters through whatever bridge the plugin binds. The framework only sees an `Editor`, so the size policy, `requestResize` and `ResizeGrip` above apply to it as to any other.
 
 ## Running a plugin standalone
 
@@ -726,7 +724,7 @@ Lib/MakeASound/
   WinMIDI/          MIDI backend, Windows WinMM (hidden)
   ALSA/             MIDI backend, Linux sequencer (hidden)
 Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
-                    Demo, Synth (web UI)
+                    PluginScanner, PluginHost
 Plugins/            Gain, Synth: plugins built with makeasound_add_plugin;
                     GainApp: Gain in a standalone app of its own
 Tools/              PluginValidator: pluginval, auval or aaxval over the bundles on its command line
@@ -755,4 +753,4 @@ an AAX binary built with it is too (see [AAX](#aax)).
 
 ## Dependencies
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` by `MakeASoundCore` (it leaks through the reflected data structs), and is all the core links; miniaudio and whichever MIDI library the platform selected are `PRIVATE` to `MakeASound`, fully hidden behind the façades, and `MakeASound` links the core `PUBLIC`. `MakeASoundPlugin` and `MakeASoundDSP` link `MakeASoundCore` `PUBLIC`, not the device library; only `MakeASoundStandaloneCore` adds `MakeASound`. `MakeASoundPlugin` links `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`. The React demo apps pull React and vite through npm.
+Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and the plugin core, Apple's [AudioUnitSDK](https://github.com/apple/AudioUnitSDK) (tag `AudioUnitSDK-1.4.0`) for the AU format on macOS, Avid's AAX SDK 2.8.1 (from the [audiosdk/aax](https://github.com/audiosdk/aax) fork, pinned to a commit) for the AAX format, only with `MAKEASOUND_BUILD_AAX`, and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` by `MakeASoundCore` (it leaks through the reflected data structs), and is all the core links; miniaudio and whichever MIDI library the platform selected are `PRIVATE` to `MakeASound`, fully hidden behind the façades, and `MakeASound` links the core `PUBLIC`. `MakeASoundPlugin` and `MakeASoundDSP` link `MakeASoundCore` `PUBLIC`, not the device library; only `MakeASoundStandaloneCore` adds `MakeASound`. `MakeASoundPlugin` links `eacp-core` `PRIVATE`, and none of its headers includes eacp; `MakeASoundPluginUI` adds `eacp-ui` and `MakeASoundStandalone` `eacp-graphics`, both `PUBLIC`. As the top-level project, MakeASound fetches eacp without its WebView module, so nothing pulls React, vite or npm.

@@ -1,4 +1,5 @@
-# Not "Synth": Apps/Synth, the Engine demo that plays the same TestSynth, owns that name.
+# Not "Synth": the name was taken by a demo app when this was added, and renaming
+# the target now would move its build outputs.
 # An instrument, so the app asks for no microphone.
 makeasound_add_plugin(SynthPlugin
         FORMATS Standalone VST3 AU AUv3 AAX
