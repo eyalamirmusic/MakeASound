@@ -35,6 +35,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - Options: `MAKEASOUND_BUILD_DEVICES`, `_BUILD_PLUGIN`, `_BUILD_HOSTING` (needs `_BUILD_PLUGIN`; macOS and Windows for now), `_BUILD_APPS`, `_BUILD_EXAMPLES`, `_BUILD_AAX`, `_UNITY_BUILD`, `_CI_BUILD`, `_INSTALL_PLUGINS`, `_IOS_TEAM`.
 - `CMAKE_CXX_SCAN_FOR_MODULES` is OFF on purpose. A scanned source falls out of its unity chunk, which silently un-unities MSVC and clang-cl builds.
 - `-DCPM_<Name>_SOURCE=/path` points a dependency at a local checkout.
+- As the top-level project, `CMake/Findeacp.cmake` defaults `EACP_BUILD_WEBVIEW` OFF (nothing here has a web UI, so no Node); `-DEACP_BUILD_WEBVIEW=ON` brings it back. As a dependency, eacp's options are the consumer's.
 - Plugins are declared with `makeasound_add_plugin(<Name> FORMATS ... SOURCES ...)` (`CMake/MakeASoundPlugin.cmake`). Read that file before changing packaging, bundle layout or signing.
 - Examples live in `Plugins/Gain`, `Plugins/GainApp` and `Plugins/Synth`, and demo apps in `Apps/`.
 

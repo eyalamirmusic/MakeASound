@@ -1078,3 +1078,10 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   shows the generic editor, as Gain does. The `/` doubling in id paths
   (`Parameters/IdPath.h`, 2026-10-13), which the layer's port of Plug's pages
   surfaced, is general and stays.
+- 2026-10-15: the React demo apps `Apps/Demo` and `Apps/Synth` are removed, and
+  with them the last web UI and the last Node dependency in the repo;
+  `Plugins/Synth` remains the TestSynth example. `CMake/Findeacp.cmake` drops
+  `EACP_WEBVIEW_VITE_BUILD` and, when MakeASound is the top-level project,
+  defaults `EACP_BUILD_WEBVIEW` OFF (a cache default, so `-DEACP_BUILD_WEBVIEW=ON`
+  restores it); as a dependency, eacp's options stay the consumer's. Graphics,
+  GPU and UI are unaffected. The root `.gitignore` ignores `node_modules/`.
