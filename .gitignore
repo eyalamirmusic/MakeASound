@@ -27,5 +27,7 @@ xcschememanagement.plist
 *.xcworkspace
 *.DS_Store
 
+node_modules
+
 workspace.xml
 xcuserdata

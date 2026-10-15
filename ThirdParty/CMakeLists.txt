@@ -150,7 +150,8 @@ if (APPLE AND NOT IOS)
             NAME AudioUnitSDK
             GITHUB_REPOSITORY apple/AudioUnitSDK
             GIT_TAG AudioUnitSDK-1.4.0
-            DOWNLOAD_ONLY YES)
+            DOWNLOAD_ONLY YES
+            QUIET)
 
     set(AUSDK_DIR "${AudioUnitSDK_SOURCE_DIR}/src/AudioUnitSDK")
 
@@ -219,7 +220,8 @@ if (aax_sdk_platform)
             VERSION 2.8.1
             GITHUB_REPOSITORY audiosdk/aax
             GIT_TAG faf5d8e2c339b1c6053d86501465e5679b16314e
-            DOWNLOAD_ONLY YES)
+            DOWNLOAD_ONLY YES
+            QUIET)
 
     set(AAX_SDK_DIR "${AAXSDK_SOURCE_DIR}")
 
