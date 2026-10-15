@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.31)
 project(MakeASound)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+
+# Before anything is fetched, so the dependencies configure under it too.
+include(MakeASoundDefaults)
+
+if (PROJECT_IS_TOP_LEVEL)
+    makeasound_default_setup()
+endif ()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 
@@ -68,8 +77,6 @@ if (APPLE)
     enable_language(OBJCXX)
     set(CMAKE_OBJCXX_STANDARD 20)
 endif ()
-
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 
 # Every target of ours: the warnings, and link-time optimisation in Release to
 # match eacp, whose Release archives are LTO bitcode under Clang that a link

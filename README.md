@@ -86,6 +86,8 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
 | `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
 
+A top-level build runs `makeasound_default_setup()` (`CMake/MakeASoundDefaults.cmake`), which sets the deployment floors to macOS 11.0 and iOS 15.0 unless `CMAKE_OSX_DEPLOYMENT_TARGET` is already given. A project that fetches MakeASound can call it from its own root for the same defaults.
+
 To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
 
 ### Tests
