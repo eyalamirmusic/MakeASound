@@ -106,12 +106,14 @@ public:
     // How long the output rings after the input goes silent; 0 for none.
     virtual int tailSamples() const noexcept { return 0; }
 
-    // Runs in place of process() while the bypass PluginWrapper adds for an effect
-    // that declares none is on (a plugin with a bypass parameter of its own
-    // bypasses itself, and this is never called for it). The default puts the
-    // main input on the main output delayed by latencySamples(), so the bypassed
-    // signal lines up with the processed one, copies each MIDI in bus to the MIDI
-    // out bus of the same index, and clears every other output. Audio thread.
+    // Runs in place of process() while the bypass PluginWrapper adds is on: for
+    // an effect that declares none, and under a JUCE id scheme for any plugin
+    // that declares none, instruments included (a plugin with a bypass parameter
+    // of its own bypasses itself, and this is never called for it). The default
+    // puts the main input on the main output delayed by latencySamples(), so the
+    // bypassed signal lines up with the processed one, copies each MIDI in bus to
+    // the MIDI out bus of the same index, and clears every other output; with no
+    // main input it outputs silence and still passes MIDI. Audio thread.
     virtual void processBypassed(ProcessContext& context) noexcept;
 
     // Whether PluginWrapper adds its bypass when the plugin declares none. A

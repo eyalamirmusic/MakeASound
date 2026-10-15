@@ -721,6 +721,46 @@ auto tJucePath = test("Standalone/juceSettingsPathIsNamedAfterTheJuceBuild") = [
     check(juceSettingsPath("").empty());
 };
 
+// A port renamed since its JUCE build: name() is the new one, juce.pluginName
+// the JucePlugin_Name the JUCE standalone saved under.
+PluginDescription renamedPort(IdScheme scheme, std::string_view juceName)
+{
+    auto plugin = PluginDescription {};
+    plugin.name = "Fixture Port";
+    plugin.pluginCode = FourCC("Fxpt");
+    plugin.idScheme = scheme;
+    plugin.juce.pluginName = juceName;
+    return plugin;
+}
+
+auto tJuceImportName =
+    test("Standalone/aPortImportsFromItsJucePluginNamesSettings") = []
+{
+    auto port = renamedPort(IdScheme::JUCE, "Fixture");
+    check(StandaloneHost::juceImportPath(port) == juceSettingsPath("Fixture"));
+
+    // Without a JUCE name, the description's own; the legacy scheme is JUCE's too.
+    auto unnamed = renamedPort(IdScheme::JUCELegacyIndex, {});
+    check(StandaloneHost::juceImportPath(unnamed)
+          == juceSettingsPath("Fixture Port"));
+
+    // Where the platform has a JUCE folder, the two names are two files.
+    if (!juceSettingsPath("Fixture").empty())
+        check(StandaloneHost::juceImportPath(port)
+              != StandaloneHost::juceImportPath(unnamed));
+};
+
+auto tJuceNativeScheme = test("Standalone/aNativeSchemeImportsNoJuceSettings") = []
+{
+    // The module constructor reads the user's real settings folders, so it is
+    // not exercised here; this pins the path it imports from.
+    auto native = renamedPort(IdScheme::Native, "Fixture");
+    check(StandaloneHost::juceImportPath(native).empty());
+
+    auto plug = renamedPort(IdScheme::TamberPlug, "Fixture");
+    check(StandaloneHost::juceImportPath(plug).empty());
+};
+
 auto tJuceImport = test("Standalone/hostImportsAJuceBuildsSettingsOnce") = []
 {
     auto file = TempFile {};

@@ -108,9 +108,10 @@ public:
 
     explicit ParameterList(ParameterGroup& group, ParameterIdentity identity = {});
 
-    // The bypass PluginWrapper adds for an effect that declares none: one more
-    // exposed entry, last, so no other index moves, under no group and with its
-    // own id's host id. A no-op when the list already has a bypass.
+    // The bypass PluginWrapper adds for an effect that declares none, and under
+    // a JUCE id scheme for any plugin that declares none: one more exposed
+    // entry, last, so no other index moves, under no group and with its own id's
+    // host id. A no-op when the list already has a bypass.
     void addHostBypass(Parameter& param);
 
     // Recomputes every entry's ids under `identity`; a debug build prints and

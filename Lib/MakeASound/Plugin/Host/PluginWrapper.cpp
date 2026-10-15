@@ -31,7 +31,7 @@ PluginWrapper::PluginWrapper(OwningPointer<Plugin> pluginToUse,
                              ParameterIdentity identity)
     : pluginPtr(std::move(pluginToUse))
     , layout(pluginPtr->getBusLayout())
-    , holdCounts(addBypassAndCount(*pluginPtr, layout, identity), 0)
+    , holdCounts(addBypassAndCount(*pluginPtr, identity), 0)
     , live(std::make_shared<Live>())
 {
     live->plugin = pluginPtr.get();
@@ -44,20 +44,26 @@ PluginWrapper::~PluginWrapper()
     assert(isMessageThread());
 }
 
-bool PluginWrapper::addsBypass(const Plugin& plugin)
+// The shipped rule gives the bypass to a plugin whose declared layout has a main
+// input, an effect, and must not change. A JUCE-scheme port's instrument gets
+// one too, since JUCE's wrappers add a bypass to every plugin and its sessions
+// and automation lanes carry it; with no main input, a bypassed instrument
+// outputs silence.
+bool PluginWrapper::addsBypass(const Plugin& plugin,
+                               const ParameterIdentity& identity)
 {
-    return plugin.parameters().bypassIndex() < 0
-           && !plugin.getBusLayout().inputs.empty() && plugin.wantsHostBypass();
+    if (plugin.parameters().bypassIndex() >= 0 || !plugin.wantsHostBypass())
+        return false;
+
+    return identity.addedBypassFor == AddedBypassFor::AllPlugins
+           || !plugin.getBusLayout().inputs.empty();
 }
 
 // Decided once, on the declared layout, so the parameter list a host reads at
 // construction never changes under it, whatever layout is negotiated later.
-int PluginWrapper::addBypassAndCount(Plugin& plugin,
-                                     const BusLayout& declared,
-                                     ParameterIdentity identity)
+int PluginWrapper::addBypassAndCount(Plugin& plugin, ParameterIdentity identity)
 {
-    if (plugin.parameters().bypassIndex() < 0 && !declared.inputs.empty()
-        && plugin.wantsHostBypass())
+    if (addsBypass(plugin, identity))
         plugin.addHostBypass();
 
     // After the bypass, so it takes its scheme's id too.

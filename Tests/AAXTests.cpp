@@ -1134,6 +1134,44 @@ auto tJuceDeclaredBypass =
     check(params.bypass.isOn());
 };
 
+// JUCE's AAX wrapper gives an instrument MasterBypassID too; MakeASound's scheme
+// gives one none.
+auto tJuceInstrumentBypass =
+    test("AAX/aJuceInstrumentsAddedBypassIsMasterBypassID") = []
+{
+    auto collection = FakeCollection {};
+    check(Format::describeEffects(
+              collection, juceModule(), juceBundleId, "JUCE Package")
+          == AAX_SUCCESS);
+
+    for (auto* component: collection.effect("com.juce.tests.echo")->components)
+        check(component->property(AAX_eProperty_CanBypass) != 0);
+
+    auto native = describeTestModule();
+
+    for (auto* component: native.effect("com.makeasound.tests.Echo")->components)
+        check(component->property(AAX_eProperty_CanBypass) == 0);
+
+    auto host = AdapterHost<SynthPlugin>(JuceEffect {"com.juce.tests.echo"},
+                                         AAX_eStemFormat_None,
+                                         AAX_eStemFormat_Stereo);
+    const auto& list = host.plugin().parameters();
+    auto ids = registeredIds(*host.adapter);
+    check(ids.size() == 2);
+    check(!ids.empty() && ids.back() == "MasterBypassID");
+    check(masterBypassOf(*host.adapter) == "MasterBypassID");
+    check(list.bypassIndex() == 1 && list.entry(1).addedBypass);
+
+    // Past the 480-sample crossfade: nothing to delay, so silence.
+    check(host.hostWrites(list[1], 1.0) == AAX_SUCCESS);
+
+    for (auto b = 0; b < 10; ++b)
+        host.render(blockSize);
+
+    check(host.output(0, 0) == 0.f);
+    check(host.output(1, blockSize - 1) == 0.f);
+};
+
 struct JuceIdsParams : ParameterGroup
 {
     JuceIdsParams() { add(level, longest, accented, hidden); }

@@ -927,11 +927,17 @@ struct OwnBypassEffect : LatentEffect
     }
 };
 
+// MakeASound's own identity and a JUCE port's, for the added bypass's rule.
+constexpr auto nativeIdentity = ParameterIdentity {};
+constexpr auto juceIdentity = policyFor(IdScheme::JUCE, {}).parameters;
+constexpr auto juceLegacyIdentity =
+    policyFor(IdScheme::JUCELegacyIndex, {}).parameters;
+
 auto tAddedBypass = test("Plugin/anEffectWithoutABypassGetsOneOfItsOwn") = []
 {
     auto fresh = LatentEffect {};
     check(fresh.parameters().bypassIndex() < 0);
-    check(PluginWrapper::addsBypass(fresh));
+    check(PluginWrapper::addsBypass(fresh, nativeIdentity));
 
     auto wrapper = makeWrapper<LatentEffect>();
     const auto& list = wrapper.plugin().parameters();
@@ -968,13 +974,72 @@ auto tNoAddedBypass = test("Plugin/aPluginWithABypassOrNoInputGetsNoneAdded") = 
     check(gain.plugin().parameters().indexOf("__bypass") < 0);
     check(gain.plugin().parameters().bypassIndex()
           == gain.plugin().parameters().indexOf(&params.bypass));
-    check(!PluginWrapper::addsBypass(gain.plugin()));
+    check(!PluginWrapper::addsBypass(gain.plugin(), nativeIdentity));
+    check(!PluginWrapper::addsBypass(gain.plugin(), juceIdentity));
 
     auto synth = makeWrapper<SynthPlugin>();
     check(synth.plugin().parameters().indexOf("__bypass") < 0);
     check(synth.plugin().parameters().bypassIndex() < 0);
     check(synth.plugin().parameters().size() == 1);
-    check(!PluginWrapper::addsBypass(synth.plugin()));
+    check(!PluginWrapper::addsBypass(synth.plugin(), nativeIdentity));
+
+    // A JUCE port's instrument gets one, as JUCE's wrappers give it one; a Tamber
+    // Plug port's keeps the native rule.
+    check(PluginWrapper::addsBypass(synth.plugin(), juceIdentity));
+    check(PluginWrapper::addsBypass(synth.plugin(), juceLegacyIdentity));
+    check(!PluginWrapper::addsBypass(
+        synth.plugin(), policyFor(IdScheme::TamberPlug, {}).parameters));
+};
+
+// A JUCE port's instrument: no main input, so the bypass has nothing to delay
+// and fades to silence, while MIDI still passes through.
+auto tInstrumentBypass =
+    test("Plugin/aJuceInstrumentsAddedBypassSilencesAndPassesMidi") = []
+{
+    auto wrapper = PluginWrapper(
+        EA::makeOwned<SynthPlugin>(), PluginFormat::Unknown, juceIdentity);
+    const auto& list = wrapper.plugin().parameters();
+    check(list.size() == 2);
+    check(list.bypassIndex() == 1);
+    check(list.entry(1).addedBypass);
+    wrapper.prepare(48000, blockSize);
+
+    auto out = std::array<Block, 2> {};
+    auto block = [&]
+    {
+        float* outputs[] = {out[0].data(), out[1].data()};
+        wrapper.clearMidi();
+        wrapper.pushMidiIn(0, MIDI::Event::noteOn(0, 60, 1.f, 9));
+        wrapper.bindOutput(0, outputs, 2, blockSize);
+        wrapper.process();
+    };
+
+    block();
+    check(out[0] == filled(0.5f));
+    check(wrapper.midiOut()[0].size() == 1);
+
+    // 10 ms at 48 kHz is 480 samples, over by the eighth block.
+    setBypass(wrapper, true);
+    block();
+    check(out[0][0] < 0.5f && out[0][0] > 0.49f);
+    check(out[0][blockSize - 1] > 0.f && out[0][blockSize - 1] < 0.5f);
+    check(wrapper.midiOut()[0].size() == 1);
+
+    for (auto b = 0; b < 8; ++b)
+        block();
+
+    check(isSilent(out[0]));
+    check(isSilent(out[1]));
+    check(wrapper.midiOut()[0].size() == 1);
+    check(wrapper.midiOut()[0][0].sampleOffset == 9);
+
+    setBypass(wrapper, false);
+
+    for (auto b = 0; b < 9; ++b)
+        block();
+
+    check(out[0] == filled(0.5f));
+    check(out[1] == filled(0.5f));
 };
 
 // An effect that declines the added bypass.
@@ -986,7 +1051,8 @@ struct NoHostBypassEffect : LatentEffect
 auto tBypassOptOut = test("Plugin/anEffectCanDeclineTheAddedBypass") = []
 {
     auto fresh = NoHostBypassEffect {};
-    check(!PluginWrapper::addsBypass(fresh));
+    check(!PluginWrapper::addsBypass(fresh, nativeIdentity));
+    check(!PluginWrapper::addsBypass(fresh, juceIdentity));
 
     auto wrapper = makeWrapper<NoHostBypassEffect>();
     const auto& list = wrapper.plugin().parameters();
@@ -1496,11 +1562,43 @@ auto tForeignOwnBypass =
 {
     auto wrapper = makeWrapper<LegacyOwnBypassEffect>();
     auto& plugin = pluginOf<LegacyOwnBypassEffect>(wrapper);
-    check(!PluginWrapper::addsBypass(plugin));
+    check(!PluginWrapper::addsBypass(plugin, nativeIdentity));
 
     check(wrapper.loadForeignState(foreignState(legacyBlob, true)));
     check(plugin.lastBypass == std::optional {true});
     check(!plugin.params.bypass.isOn());
+};
+
+// A JUCE port's instrument: its saved trailer's bypass lands on the bypass the
+// wrapper added, and a Session document then carries it.
+struct LegacyInstrument : LegacyEffect
+{
+    BusLayout getBusLayout() const override { return BusLayout::instrument(); }
+};
+
+auto tForeignInstrumentBypass =
+    test("Plugin/aJuceInstrumentsForeignBypassLandsOnTheAddedOne") = []
+{
+    auto wrapper = PluginWrapper(
+        EA::makeOwned<LegacyInstrument>(), PluginFormat::VST3, juceIdentity);
+    check(wrapper.plugin().parameters().entry(2).addedBypass);
+    check(!isBypassed(wrapper));
+
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(isBypassed(wrapper));
+
+    auto session = wrapper.saveState(StateContext::Session);
+    check(contains(session, "__bypass"));
+
+    auto reloaded = PluginWrapper(
+        EA::makeOwned<LegacyInstrument>(), PluginFormat::VST3, juceIdentity);
+    reloaded.loadState(session, StateContext::Session);
+    check(isBypassed(reloaded));
+
+    // Under MakeASound's scheme there is none for it to land on.
+    auto native = makeWrapper<LegacyInstrument>();
+    check(native.plugin().parameters().bypassIndex() < 0);
+    check(native.loadForeignState(foreignState(legacyBlob, true)));
 };
 
 auto tForeignDeferred = test("Plugin/aForeignStateFromAnotherThreadLoadsLater") = []

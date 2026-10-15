@@ -61,9 +61,19 @@ StandaloneHost::StandaloneHost(const ModuleDescription& module)
                     PluginFormat::Standalone,
                     parameterIdentityFor(module.plugins[0]))
     , settingsPathName(settingsPath(module.vendor, pluginWrapper.plugin().name()))
-    , juceSettingsName(juceSettingsPath(pluginWrapper.plugin().name()))
+    , juceSettingsName(juceImportPath(module.plugins[0]))
 {
     restoreSession();
+}
+
+std::string StandaloneHost::juceImportPath(const PluginDescription& plugin)
+{
+    if (!identityPolicyFor(plugin).juceStandaloneImport)
+        return {};
+
+    auto name =
+        plugin.juce.pluginName.empty() ? plugin.name : plugin.juce.pluginName;
+    return juceSettingsPath(name);
 }
 
 StandaloneHost::StandaloneHost(OwningPointer<Plugin> plugin,

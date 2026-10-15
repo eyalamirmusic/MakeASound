@@ -264,4 +264,50 @@ auto tBypassedBlock = test("Allocations/pluginWrapperBypassedBlockIsOffTheHeap")
         check(drained > 0);
     }
 };
+
+// A JUCE port's instrument gets the bypass too: with no main input, nothing to
+// delay, through both crossfades and the steady bypassed blocks between.
+auto tInstrumentBypassedBlock =
+    test("Allocations/aJuceInstrumentsBypassedBlockIsOffTheHeap") = []
+{
+    auto wrapper = PluginWrapper(EA::makeOwned<SynthPlugin>(),
+                                 PluginFormat::Unknown,
+                                 policyFor(IdScheme::JUCE, {}).parameters);
+    auto bypass = wrapper.plugin().parameters().bypassIndex();
+    check(bypass >= 0);
+
+    auto host = Host {};
+    auto drained = 0;
+    wrapper.prepare(48000, blockSize);
+
+    auto block = [&]
+    {
+        wrapper.clearMidi();
+
+        for (auto i = 0; i < 32; ++i)
+            wrapper.pushMidiIn(0, MIDI::Event::noteOn(0, 60, 1.f, 32 - i));
+
+        wrapper.sortMidiInByOffset();
+        wrapper.bindOutput(0, host.outputs.data(), 2, blockSize);
+        wrapper.process();
+        drained += wrapper.midiOut()[0].size();
+    };
+
+    block();
+
+    auto count = allocationsIn(
+        [&]
+        {
+            for (auto b = 0; b < 20; ++b)
+            {
+                if (b == 2 || b == 12)
+                    wrapper.setNormalizedParameter(bypass, b == 2 ? 1.f : 0.f);
+
+                block();
+            }
+        });
+
+    check(count == 0);
+    check(drained == 21 * 32);
+};
 } // namespace

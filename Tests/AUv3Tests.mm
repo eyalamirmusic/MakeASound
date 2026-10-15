@@ -985,8 +985,10 @@ auto tJuceState = test("AUv3/aJuceStateLoadsThroughThePluginsReader") = []
     check(plugin.context == StateContext::Session);
     check(JuceFixtures::holdsFixtureValues(plugin.params));
 
-    // The tree follows the load at once.
-    check(near(target.parameterFor(plugin.params.cutoff).value, 440.f, 1e-2));
+    // The tree follows the load at once, the skewed cutoff normalized.
+    check(near(target.parameterFor(plugin.params.cutoff).value,
+               JuceFixtures::cutoffRange.toNormalized(440.f),
+               1e-5));
     check(near(target.parameterFor(plugin.params.mode).value, 2.f));
 
     // The next save is the native document, and it loads as one.
@@ -1017,7 +1019,9 @@ auto tJuceRefused = test("AUv3/aJuceStateThePluginRefusesMovesNothing") = []
     target.unit.fullStateForDocument = juce;
     check(target.plugin().legacyLoads == 1);
     check(JuceFixtures::holdsDefaults(target.plugin().params));
-    check(near(target.parameterFor(target.plugin().params.cutoff).value, 1000.f));
+    check(near(target.parameterFor(target.plugin().params.cutoff).value,
+               JuceFixtures::cutoffRange.toNormalized(1000.f),
+               1e-5));
 
     // Another component's codes never reach a plugin.
     auto echo = UnitHost<SynthPlugin>("Echo");
@@ -1095,7 +1099,9 @@ auto tJuceOffThread = test("AUv3/aJuceStateFromAWorkerLoadsOnTheMessageThread") 
     check(target.plugin().legacyLoads == 0);
     check(pumpUntil([&] { return target.plugin().legacyLoads == 1; }));
     check(JuceFixtures::holdsFixtureValues(target.plugin().params));
-    check(near(target.parameterFor(target.plugin().params.cutoff).value, 440.f, 1e-2));
+    check(near(target.parameterFor(target.plugin().params.cutoff).value,
+               JuceFixtures::cutoffRange.toNormalized(440.f),
+               1e-5));
 };
 
 auto tNotes = test("AUv3/notesReachTheInstrumentAtTheirOffsets") = []

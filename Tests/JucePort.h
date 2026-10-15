@@ -29,7 +29,7 @@ struct PortParams : ParameterGroup
     PortParams() { add(cutoff, mode, enabled, voices, env, quality); }
 
     FloatParam cutoff {"Cutoff",
-                       FloatRange {20.f, 20000.f, 0.f, 0.3f},
+                       JuceFixtures::cutoffRange,
                        1000.f,
                        {.id = "cutoff", .versionHint = 1}};
     ChoiceParam mode {
