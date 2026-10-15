@@ -15,31 +15,39 @@ aax param entry 0 id "4155597d" automatable 1
 plugin "Synth" code Echo scheme JUCE category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 73313124 address 8013864904 identifier "Level" aaxId "Level" groups {}
+core entry 1 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1652125811 address 1652125811 identifier "__bypass" aaxId "MasterBypassID" groups {}
 vst3 class 0x56535445 0x63686f73 0x796e7468 0x00000000
 vst3 param 0 entry 0 id 73313124 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 2080 ids 0x6d636d00..0x6d63751f flags 0x0/0x0
 vst3 midimap 0/0/0 0x6d636d00 0/0/1 0x6d636d01 0/0/127 0x6d636d7f 0/0/128 0x6d636d80 0/0/129 0x6d636d81 0/0/130 none 0/15/127 0x6d63751d 0/15/129 0x6d63751f 1/0/1 0x6d636d01
 au component aumu Echo MaSo
 au list 73313124
 au param entry 0 id 73313124 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
 auv3 param entry 0 address 8013864904 identifier "Level" strings 0
+au param entry 1 unlisted
 aax effect "com.makeasound.tests"
 aax native 4:0x6a636163
 aax param entry 0 id "Level" automatable 1
+aax param entry 1 id "MasterBypassID" automatable 1
 plugin "Synth" code Echo scheme JUCELegacyIndex category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Level" aaxId "0" groups {}
+core entry 1 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1 address 1 identifier "__bypass" aaxId "MasterBypassID" groups {}
 vst3 class 0x56535445 0x63686f73 0x796e7468 0x00000000
 vst3 param 0 entry 0 id 0 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 2080 ids 0x6d636d00..0x6d63751f flags 0x0/0x0
 vst3 midimap 0/0/0 0x6d636d00 0/0/1 0x6d636d01 0/0/127 0x6d636d7f 0/0/128 0x6d636d80 0/0/129 0x6d636d81 0/0/130 none 0/15/127 0x6d63751d 0/15/129 0x6d63751f 1/0/1 0x6d636d01
 au component aumu Echo MaSo
 au list 0
 au param entry 0 id 0 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
 auv3 param entry 0 address 0 identifier "Level" strings 0
+au param entry 1 unlisted
 aax effect "com.makeasound.tests"
 aax native 4:0x6a636163
 aax param entry 0 id "0" automatable 1
+aax param entry 1 id "MasterBypassID" automatable 1
 plugin "Synth" code Echo scheme TamberPlug category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Level" aaxId "00000000" groups {}

@@ -40,6 +40,11 @@ struct IdentityPolicy
     Vst3ClassRule vst3Class = Vst3ClassRule::Native;
     AAXPluginRule aaxPlugin = AAXPluginRule::Native;
 
+    // Not an id, but a JUCE build's all the same: whether the standalone, with
+    // no settings of its own, imports a JUCE build's settings file
+    // (StandaloneHost::juceImportPath).
+    bool juceStandaloneImport = false;
+
     constexpr bool operator==(const IdentityPolicy&) const = default;
 };
 
@@ -70,6 +75,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     params.juceMask31 = juce.studioOneCompatibleParameters;
     params.registration = Registration::All;
     params.juceChecks = true;
+    params.addedBypassFor = AddedBypassFor::AllPlugins;
     params.addedBypassId = legacy ? AddedBypassId::Index : AddedBypassId::JuceByps;
     params.addedBypassInAU = BypassPlacement::Unlisted;
     params.auv3 = legacy ? AUv3Ids::IndexAndKey : AUv3Ids::JuceHash64AndKey;
@@ -85,6 +91,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     policy.vst3Class =
         juce.vst3CanReplaceVst2 ? Vst3ClassRule::JuceVst2 : Vst3ClassRule::JuceVst3;
     policy.aaxPlugin = AAXPluginRule::Juce;
+    policy.juceStandaloneImport = true;
     return policy;
 }
 

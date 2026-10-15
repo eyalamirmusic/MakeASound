@@ -153,15 +153,18 @@ examples. What remains of it is under "Done when".
   maps 1 to 0 before the base call, so an AUv3 session loads in the v2 component.
 - **WP10.5, a bypass for every effect.** `PluginWrapper` adds a `BoolParam`
   `__bypass` (host id `0x54D1526F`) for an effect with a main input and no bypass
-  of its own, decided once at construction from the declared layout. It is
+  of its own, decided once at construction from the declared layout; under a JUCE
+  `IdScheme` (`ParameterIdentity::addedBypassFor`, `AddedBypassFor::AllPlugins`)
+  for any plugin with none, instruments included, as JUCE's VST3 and AAX
+  wrappers do (an instrument's bypassed output is silence). It is
   session-only, saved as a top-level `"__bypass"` key the wrapper strips before
   the plugin sees the document. While on, `process()` runs `virtual
   Plugin::processBypassed`, whose default delays the main input by
   `latencySamples()` through `Core/BypassDelay.{h,cpp}` and passes MIDI through;
   the delay grows in `fitBypassDelay`, from `notifyHostLatencyChanged` and from
   `PluginWrapper::takeLatencyChanged`, which every adapter's latency check now
-  calls. A toggle crossfades over 10 ms. `PluginWrapper::addsBypass` feeds AAX
-  `CanBypass`.
+  calls. A toggle crossfades over 10 ms. `PluginWrapper::addsBypass(plugin,
+  identity)` feeds AAX `CanBypass`.
 
 ### B. Settle before anything ships (done)
 
@@ -375,8 +378,10 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
     (`juceVst3BypassId`), under `JUCELegacyIndex` its index, and in either its AAX
     id, like a declared bypass's, `"MasterBypassID"`; it is `listedInAU` false.
     Its state key stays `__bypass` (identity names host ids only), and in
-    MakeASound's scheme it keeps `0x54D1526F`. `'prst'` is `juceVst3ProgramId`,
-    reserved for WP10.12.
+    MakeASound's scheme it keeps `0x54D1526F`. Under either JUCE scheme an
+    instrument gets it too, as JUCE's VST3 and AAX wrappers add it to every
+    plugin; MakeASound's scheme still adds it to effects only. `'prst'` is
+    `juceVst3ProgramId`, reserved for WP10.12.
   - *Classes:* `vst3ClassIdFor`, `makeASoundVst3ClassId`, `Compat::juceVst3ClassId`,
     `Compat::juceVst2ClassId`, `vst3ClassIdBytes(id, TuidLayout)`,
     `aaxNativeIdFor`, `Compat::juceAAXPluginId`, `aaxEffectIdFor`.
@@ -481,9 +486,10 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
       JUCE's normalized; the master bypass filtered from save and load; it now
       restores a JUCE-scheme port (`AAX/aJuceBuildsControlsChunkRestoresAJuceSchemePlugin`)
       and no longer mirrors after, its values returning through
-      `UpdateParameterNormalizedValue`. Not matched: JUCE's AAX gives an
-      instrument a `"MasterBypassID"` too, the wrapper adds a bypass to effects
-      only. An AudioSuite id (`juceAAXPluginId(..., true)`) if AudioSuite is
+      `UpdateParameterNormalizedValue`. Under a JUCE scheme an instrument gets
+      the added bypass too, `"MasterBypassID"` with `CanBypass`, as in JUCE's
+      AAX (`AAX/aJuceInstrumentsAddedBypassIsMasterBypassID`). Not matched: an
+      AudioSuite id (`juceAAXPluginId(..., true)`) if AudioSuite is
       ever added. Pro Tools by hand: a JUCE build's session (automation on a
       JUCE id, its `'elck'` and `'juce'`) opening in the port; aaxval on a
       JUCE-scheme build.
@@ -601,15 +607,20 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   (`loadApvtsTree`/`loadApvtsXml`/`loadJuceApvtsBlob` with `ApvtsOptions
   {rootType, mapId, missing}`, `MissingPolicy::Keep` the default as in JUCE).
   Cases in `JuceCompat/` against bytes JUCE 8.0.12 wrote, and in `Plugin/` for the
-  wrapper. Detection is safe, since a MakeASound document starts with `{`.
+  wrapper. Detection is safe, since a MakeASound document is JSON: it never
+  begins with `VstW` or `CcnK` and never ends in the `JUCEPrivateData` trailer's
+  magic.
 - **WP10.23, the adapters (done).** Each adapter's part is one
   `PluginWrapper::loadForeignState` call followed by its native-load epilogue
   (mirror every value, the latency check); off the message thread the wrapper
   queues the load and its values notification repeats the epilogue later.
-  - VST3 `setState`: a stream that is not JSON and is a VST2 bank, carries the
-    trailer JUCE's wrapper always appends, or is a bare `copyXmlToBinary` blob
-    goes through `Compat::juceVST3State(bytes, context)`; anything else, a
-    plugin's own non-JSON document included, to `loadState`. WP10.15 came along.
+  - VST3 `setState`: a stream that is a VST2 bank or carries the trailer JUCE's
+    wrapper appends, whatever its leading byte, or is a bare `copyXmlToBinary`
+    blob that does not start with `{`, goes through
+    `Compat::juceVST3State(bytes, context)`; anything else, a plugin's own
+    non-JSON document included, to `loadState`. A JUCE build old enough to write
+    no trailer, whose own plugin state was JSON, cannot be told from a native
+    document and still loads natively. WP10.15 came along.
   - AU `RestoreState`, when `MakeASoundState` is absent and `jucePluginState` is
     there: the base gets a copy with `data` removed (`Globals()` never grows) and
     `version` 1 made 0, then `JuceAU`, then the values mirrored into
@@ -624,10 +635,14 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
     equal in `CompareActiveChunk`. Neither is listed or written.
   - Standalone: with no settings file to read, `StandaloneHost` imports
     `Compat::juceStandaloneState` of the JUCE build's settings file as
-    `JuceStandalone`, from `juceSettingsPath(name())` (per-platform TUs) for the
-    module constructors, or from the path a port passes to the plugin-and-path
-    constructor when its `JucePlugin_Name` was not its `name()`. The audio and
-    MIDI setup are not imported.
+    `JuceStandalone`, from `juceImportPath()` for the module constructors
+    (`juceSettingsPath` of `juce.pluginName`, else the description's name; only
+    under a JUCE id scheme, `IdentityPolicy::juceStandaloneImport`), or from the
+    path a plugin-and-path constructor is given. Under `Native` or `TamberPlug`
+    the module constructor imports nothing, since such a plugin never had a JUCE
+    build; the
+    plugin-and-path constructor still imports an explicit path under any
+    scheme. The audio and MIDI setup are not imported.
   - A session moves to the native JSON on its first save; nothing writes JUCE's
     framing. Later, if wanted: a legacy XML written beside the native document,
     for downgrade safety.

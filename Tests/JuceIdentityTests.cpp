@@ -358,6 +358,58 @@ auto tOwnBypass = test("JuceCompat/aDeclaredBypassIsTheMasterBypass") = []
     check(bypass.listedInAU);
 };
 
+// JUCE's VST3 and AAX wrappers add the bypass to an instrument too; MakeASound's
+// scheme keeps it to effects.
+auto tInstrumentBypass = test("JuceCompat/aJuceInstrumentGetsTheAddedBypass") = []
+{
+    using TestPlugins::SynthPlugin;
+
+    auto native = PluginWrapper(EA::makeOwned<SynthPlugin>(), PluginFormat::VST3);
+    check(native.plugin().parameters().bypassIndex() < 0);
+    check(native.plugin().parameters().size() == 1);
+
+    auto ported =
+        PluginWrapper(EA::makeOwned<SynthPlugin>(), PluginFormat::VST3, juce);
+    const auto& list = ported.plugin().parameters();
+    check(list.size() == 2);
+    check(list.bypassIndex() == 1);
+
+    const auto& bypass = list.entry(1);
+    check(bypass.addedBypass);
+    check(bypass.id == PluginWrapper::bypassStateKey);
+    check(bypass.hostId == juceVst3BypassId);
+    check(bypass.address == juceVst3BypassId);
+    check(bypass.aaxId == "MasterBypassID");
+    check(!bypass.listedInAU);
+    check(list.isHostExposed(1));
+    check(list.indexOfHostId(juceVst3BypassId) == 1);
+
+    // The declared parameter keeps JUCE's hash of its key.
+    check(list.entry(0).hostId != juceVst3BypassId);
+    check(!list.entry(0).bypass);
+};
+
+// Under JUCELegacyIndex the bypass is the index after the plugin's own, as in a
+// JUCE build of the same instrument.
+auto tLegacyInstrumentBypass =
+    test("JuceCompat/aLegacyInstrumentsBypassIsTheLastIndex") = []
+{
+    auto legacy = PluginWrapper(
+        EA::makeOwned<TestPlugins::SynthPlugin>(), PluginFormat::AAX, juceLegacy);
+    const auto& list = legacy.plugin().parameters();
+    check(list.size() == 2);
+    check(list.bypassIndex() == 1);
+
+    const auto& bypass = list.entry(1);
+    check(bypass.addedBypass);
+    check(bypass.hostId == 1u);
+    check(bypass.address == 1u);
+    check(bypass.aaxId == "MasterBypassID");
+    check(!bypass.listedInAU);
+    check(list.entry(0).hostId == 0u);
+    check(list.entry(0).aaxId == "0");
+};
+
 struct RebuildingEffect : TestPlugins::LatentEffect
 {
     void rebuild() { setParameters(ParameterList {params}); }

@@ -266,19 +266,22 @@ struct EnvelopeParams : ParameterGroup
         "Attack", 0.f, 5.f, 0.01f, {.id = "attack", .versionHint = 1}};
 };
 
-// The fixture's parameters as a port would declare them. `voices` is a float
-// over the int's range, which takes the same plain values. Each has the
+// The JUCE fixture's cutoff range, NormalisableRange<float> (20, 20000, 0, 0.3):
+// what a host lane's normalized value means for it.
+inline constexpr auto cutoffRange = FloatRange {20.f, 20000.f, 0.f, 0.3f};
+
+// The fixture's parameters as a port would declare them, each with the
 // versionHint an AU needs.
 struct FixtureParams : ParameterGroup
 {
     FixtureParams() { add(cutoff, mode, enabled, voices, env, tone, extra); }
 
     FloatParam cutoff {
-        "Cutoff", 20.f, 20000.f, 1000.f, {.id = "cutoff", .versionHint = 1}};
+        "Cutoff", cutoffRange, 1000.f, {.id = "cutoff", .versionHint = 1}};
     ChoiceParam mode {
         "Mode", {"Clean", "Warm", "Hot"}, 0, {.id = "mode", .versionHint = 1}};
     BoolParam enabled {"Enabled", true, {.id = "enabled", .versionHint = 1}};
-    FloatParam voices {"Voices", 1.f, 16.f, 8.f, {.id = "voices", .versionHint = 1}};
+    IntParam voices {"Voices", 1, 16, 8, {.id = "voices", .versionHint = 1}};
     EnvelopeParams env;
     FloatParam tone {
         "Tone", 0.f, 1.f, 0.5f, {.id = "tone&\xc3\xa9\"<>", .versionHint = 1}};
@@ -290,7 +293,7 @@ struct FixtureParams : ParameterGroup
 inline bool holdsFixtureValues(const FixtureParams& params)
 {
     return fixtureNear(params.cutoff.get(), 440.f) && params.mode.getIndex() == 2
-           && !params.enabled.isOn() && fixtureNear(params.voices.get(), 5.f)
+           && !params.enabled.isOn() && params.voices.get() == 5
            && fixtureNear(params.env.attack.get(), 0.25f)
            && fixtureNear(params.tone.get(), 0.75f);
 }
@@ -299,14 +302,15 @@ inline bool holdsFixtureValues(const FixtureParams& params)
 inline bool holdsDefaults(const FixtureParams& params)
 {
     return fixtureNear(params.cutoff.get(), 1000.f) && params.mode.getIndex() == 0
-           && params.enabled.isOn() && fixtureNear(params.voices.get(), 8.f)
+           && params.enabled.isOn() && params.voices.get() == 8
            && fixtureNear(params.env.attack.get(), 0.01f)
            && fixtureNear(params.tone.get(), 0.5f);
 }
 
 // The JUCE plugin above ported: an effect with no bypass parameter of its own,
 // so the wrapper adds one, reading what its JUCE build saved through
-// loadJuceApvtsBlob. It records what each foreign load handed it, and refuses
+// loadJuceApvtsBlob. It records what each foreign load handed it (`bytes` the
+// plugin's own, as the format's reader took them apart), and refuses
 // every one while `refuse` is set.
 struct FixturePlugin : StatePlugin<State<FixtureParams>>
 {
@@ -322,6 +326,7 @@ struct FixturePlugin : StatePlugin<State<FixtureParams>>
         context = foreign.context;
         bypass = foreign.bypass;
         program = foreign.program;
+        bytes = std::string {foreign.bytes};
 
         if (refuse)
             return false;
@@ -337,6 +342,7 @@ struct FixturePlugin : StatePlugin<State<FixtureParams>>
     StateContext context = StateContext::Preset;
     std::optional<bool> bypass;
     std::optional<int> program;
+    std::string bytes;
 };
 
 // The parameter the wrapper added to a FixturePlugin, on (1) or off (0).

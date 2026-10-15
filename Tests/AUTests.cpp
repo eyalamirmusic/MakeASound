@@ -2131,8 +2131,10 @@ auto tJuceState = test("AU/aJuceClassInfoLoadsThroughThePluginsReader") = []
     check(plugin.origin == ForeignOrigin::JuceAU);
     check(plugin.context == StateContext::Session);
     check(JuceFixtures::holdsFixtureValues(plugin.params));
-    check(
-        near(target.hostValue(target.hostIdOf(plugin.params.cutoff)), 440.f, 1e-2));
+    // The skewed cutoff's host value is its normalized one.
+    check(near(target.hostValue(target.hostIdOf(plugin.params.cutoff)),
+               JuceFixtures::cutoffRange.toNormalized(440.f),
+               1e-5));
 
     // The JUCE build's ids never reached Globals(), which must not grow.
     check(!hasGlobalParameter(target.unit, juceCutoffId));
@@ -2190,8 +2192,8 @@ auto tJuceRefused = test("AU/aJuceClassInfoThePluginRefusesMovesNothing") = []
     check(target.plugin().legacyLoads == 1);
     check(JuceFixtures::holdsDefaults(target.plugin().params));
     check(near(target.hostValue(target.hostIdOf(target.plugin().params.cutoff)),
-               1000.f,
-               1e-2));
+               JuceFixtures::cutoffRange.toNormalized(1000.f),
+               1e-5));
     check(!hasGlobalParameter(target.unit, juceCutoffId));
 
     // Another component's codes are refused before the plugin hears of it.
@@ -2222,8 +2224,8 @@ auto tJuceOffThread =
 
     // Its parameterValuesChanged mirrored the values into Globals().
     check(near(target.hostValue(target.hostIdOf(target.plugin().params.cutoff)),
-               440.f,
-               1e-2));
+               JuceFixtures::cutoffRange.toNormalized(440.f),
+               1e-5));
     check(!hasGlobalParameter(target.unit, juceCutoffId));
 };
 

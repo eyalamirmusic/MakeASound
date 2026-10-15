@@ -15,11 +15,12 @@ namespace MakeASound
 // In order: parameters, setPlayhead, clearMidi/pushMidiIn/sortMidiInByOffset,
 //   bindInput/bindOutput per bus, process(), drain midiOut().
 //
-// An effect that declares no bypass parameter gets one here: a BoolParam
-// "Bypass" (id `__bypass`) appended to its parameters() as the bypass entry, so
-// every format's host bypass reaches it. While it is on, process() runs the
-// plugin's processBypassed() instead, with a 10 ms crossfade either way, and a
-// Session document carries it as the top-level key `__bypass`.
+// An effect that declares no bypass parameter gets one here (under a JUCE
+// IdScheme, any plugin, instruments included, as JUCE's wrappers do): a
+// BoolParam "Bypass" (id `__bypass`) appended to its parameters() as the bypass
+// entry, so every format's host bypass reaches it. While it is on, process()
+// runs the plugin's processBypassed() instead, with a 10 ms crossfade either way,
+// and a Session document carries it as the top-level key `__bypass`.
 class PluginWrapper
 {
 public:
@@ -33,10 +34,13 @@ public:
                            PluginFormat format = PluginFormat::Unknown,
                            ParameterIdentity identity = {});
 
-    // Whether a wrapper around `plugin` adds a bypass: it has none of its own and
-    // its declared layout has a main input. For code that describes a plugin
-    // without wrapping it, as the AAX description does.
-    static bool addsBypass(const Plugin& plugin);
+    // Whether a wrapper around `plugin` under `identity` adds a bypass: it has
+    // none of its own, wants one (Plugin::wantsHostBypass), and either its
+    // declared layout has a main input or the identity gives one to every plugin
+    // (AddedBypassFor::AllPlugins, a JUCE scheme's: JUCE's VST3 and AAX wrappers
+    // give instruments one too). For code that describes a plugin without
+    // wrapping it, as the AAX description does, with its description's identity.
+    static bool addsBypass(const Plugin& plugin, const ParameterIdentity& identity);
 
     // Message thread only: a deferred load running there holds the plugin.
     ~PluginWrapper();
@@ -160,9 +164,7 @@ private:
         int startSample = 0;
     };
 
-    static int addBypassAndCount(Plugin& plugin,
-                                 const BusLayout& declared,
-                                 ParameterIdentity identity);
+    static int addBypassAndCount(Plugin& plugin, ParameterIdentity identity);
 
     Parameter* parameterAt(int index) const noexcept;
     Parameter* writableParameterAt(int index) const noexcept;

@@ -33,11 +33,11 @@ namespace MakeASound::Standalone
 // once more. The settings file holds the stream config, the open MIDI ports by
 // name and the plugin's Session document.
 //
-// With no settings file to read, the host imports what a JUCE build of the
-// plugin's standalone saved, from that build's settings file (juceSettingsPath):
-// its `filterState` goes to the plugin's loadForeignState as JuceStandalone, as
-// a Session. Its audio and MIDI setup are not read. The next save writes the
-// native file, so the import happens once.
+// With no settings file to read, a port under a JUCE id scheme imports what a
+// JUCE build of the plugin's standalone saved, from that build's settings file
+// (juceImportPath): its `filterState` goes to the plugin's loadForeignState as
+// JuceStandalone, as a Session. Its audio and MIDI setup are not read. The next
+// save writes the native file, so the import happens once.
 //
 // Message thread only, construction and destruction included: PluginWrapper
 // asserts it. A UI built over the host must be destroyed before it, so the editor
@@ -46,14 +46,16 @@ class StandaloneHost
 {
 public:
     // The module's first plugin, its settings at settingsPath(vendor, name), a
-    // JUCE build's at juceSettingsPath(name).
+    // JUCE build's at juceImportPath() of its description.
     StandaloneHost();
     explicit StandaloneHost(const ModuleDescription& module);
 
     // Any plugin, its settings at settingsFile; an empty path reads and writes
     // no file. juceSettingsFile, when not empty, is a JUCE build's settings file
-    // to import from when settingsFile gives nothing: juceSettingsPath() of the
-    // JUCE build's JucePlugin_Name, for a port whose name changed. `identity` is
+    // to import from when settingsFile gives nothing, under any id scheme. The
+    // module constructor already handles a renamed port, through juce.pluginName
+    // in juceImportPath(); this one is for a plugin not built from a
+    // description, or for an explicit path. `identity` is
     // the wrapper's (parameterIdentityFor() of the plugin's description); the
     // standalone has no host ids, so it only keeps the plugin's parameter list
     // as every format sees it.
@@ -63,6 +65,13 @@ public:
                    ParameterIdentity identity = {});
 
     ~StandaloneHost();
+
+    // The JUCE build's settings file the module constructor imports from:
+    // juceSettingsPath() of juce.pluginName, or of the description's name when
+    // that is empty. Empty unless the description's identity policy says a JUCE
+    // build came before (IdentityPolicy::juceStandaloneImport, the JUCE
+    // schemes'): under Native or TamberPlug no JUCE build saved anything.
+    static std::string juceImportPath(const PluginDescription& plugin);
 
     StandaloneHost(const StandaloneHost&) = delete;
     StandaloneHost& operator=(const StandaloneHost&) = delete;

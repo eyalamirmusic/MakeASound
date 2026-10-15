@@ -886,6 +886,30 @@ auto tJuceState = test("VST3/aJuceSessionLoadsThroughThePluginsReader") = []
     check(JuceFixtures::addedBypassOf(target.plugin()) == 1.f);
 };
 
+// A JUCE plugin whose own getStateInformation wrote JSON: its wrapper's trailer
+// still marks it a JUCE build's, and the JSON reaches the plugin's reader, not
+// the native load.
+auto tJuceJson = test("VST3/aJuceSessionWhoseOwnStateIsJsonReachesTheReader") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    auto json = std::string {"{\"cutoff\": 440, \"mode\": 2}"};
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   json, JuceFixtures::bytesOf(JuceFixtures::bypassedTrailer)));
+
+    check(host.adapter->setState(&stream) == Steinberg::kResultOk);
+
+    auto& plugin = host.plugin();
+    check(plugin.legacyLoads == 1);
+    check(plugin.origin == ForeignOrigin::JuceVST3);
+    check(plugin.bytes == json);
+    check(plugin.bypass == std::optional {true});
+
+    // The fixture's reader takes only APVTS state, so nothing moved.
+    check(JuceFixtures::holdsDefaults(plugin.params));
+};
+
 auto tJuceVst2Bank = test("VST3/aJuceVst2BankLoadsItsChunk") = []
 {
     auto host = AdapterHost<FixturePlugin> {};
@@ -963,8 +987,29 @@ Vst::ParamID juceId(std::string_view key)
     return MakeASound::Compat::juceStringHash(key) & 0x7fffffffu;
 }
 
-// The fixture's cutoff (20..20000, linear here) at 440.
-constexpr auto fixtureCutoffNormalized = (440.0 - 20.0) / 19980.0;
+// The fixture's cutoff (20..20000, skew 0.3) at 440, where its state puts it.
+const auto fixtureCutoffNormalized =
+    static_cast<double>(JuceFixtures::cutoffRange.toNormalized(440.f));
+
+// JUCE 8.0.12's NormalisableRange<float>::convertFrom0to1 and snapToLegalValue
+// (juce_NormalisableRange.h) for the fixture's cutoff, step for step: the plain
+// value a JUCE build's AudioParameterFloat::setValue stores for a lane's value.
+// The real anchor is the pinned constants (216.665802f, 7678.31152f) in
+// VST3/aJuceLaneLandsOnTheJuceBuildsPlainValue, computed by running JUCE
+// 8.0.12's own arithmetic; this helper documents the formula.
+float juceCutoffFrom0to1(float proportion)
+{
+    auto start = 20.f;
+    auto end = 20000.f;
+    auto skew = 0.3f;
+    proportion = proportion < 0.f ? 0.f : (proportion > 1.f ? 1.f : proportion);
+
+    if (skew != 1.f && proportion > 0.f)
+        proportion = std::exp(std::log(proportion) / skew);
+
+    auto value = start + (end - start) * proportion;
+    return (value <= start || end <= start) ? start : (value >= end ? end : value);
+}
 
 const ModuleDescription& juceModule()
 {
@@ -1108,6 +1153,37 @@ auto tJuceSessionIds = test("VST3/aJuceSessionKeepsItsAutomationIds") = []
     check(controller->getParamNormalized(juceBypass) == 0.0);
 
     component->terminate();
+};
+
+// A lane's normalized value, through the process queue and through the
+// controller, lands on the plain value the JUCE build set for it: the cutoff's
+// skewed curve, the int's rounding.
+auto tJuceLaneValues = test("VST3/aJuceLaneLandsOnTheJuceBuildsPlainValue") = []
+{
+    auto host =
+        AdapterHost<FixturePlugin> {policyFor(IdScheme::JUCE, {}).parameters};
+    auto& params = host.plugin().params;
+
+    // JUCE 8.0.12 on macOS: convertFrom0to1(0.25f) is 216.665802f. The pinned
+    // constants, computed by running JUCE's own arithmetic, are the real anchor;
+    // juceCutoffFrom0to1 documents the formula. Another libm may round exp and
+    // log an ulp apart, so the exact check is against that formula run here.
+    auto juceAtQuarter = juceCutoffFrom0to1(0.25f);
+    check(std::abs(juceAtQuarter - 216.665802f) <= 216.665802f * 1e-6f);
+
+    host.addPoint(juceCutoffMasked, 0, 0.25);
+    host.addPoint(juceId("voices"), 0, 0.63);
+    host.fillBlock(blockSize);
+    host.run();
+    check(params.cutoff.get() == juceAtQuarter);
+
+    // AudioParameterInt: 1 + 0.63 * 15 = 10.45, rounded.
+    check(params.voices.get() == 10);
+
+    check(host.adapter->setParamNormalized(juceCutoffMasked, 0.75)
+          == Steinberg::kResultTrue);
+    check(params.cutoff.get() == juceCutoffFrom0to1(0.75f));
+    check(std::abs(params.cutoff.get() - 7678.31152f) <= 7678.31152f * 1e-6f);
 };
 
 // JUCE publishes a non-automatable parameter, without kCanAutomate; MakeASound's
@@ -2183,6 +2259,61 @@ auto tAddedBypass = test("VST3/theWrappersBypassIsTheHostsBypass") = []
     for (auto& channel: host.outputs[0].storage)
         for (auto s = 0; s < blockSize; ++s)
             check(channel[static_cast<size_t>(s)] == 0.5f);
+};
+
+// An instrument: JUCE's wrapper gives it 'byps' too, so a JUCE port's does; under
+// MakeASound's scheme an instrument still gets no bypass.
+auto tInstrumentBypass = test("VST3/aJuceInstrumentHasTheWrappersBypassAsByps") = []
+{
+    auto bypassesOf = [](Adapter& adapter, Vst::ParamID& bypassId)
+    {
+        auto bypasses = 0;
+
+        for (auto i = 0; i < adapter.getParameterCount(); ++i)
+        {
+            auto info = Vst::ParameterInfo {};
+            adapter.getParameterInfo(i, info);
+
+            if ((info.flags & Vst::ParameterInfo::kIsBypass) != 0)
+            {
+                ++bypasses;
+                bypassId = info.id;
+            }
+        }
+
+        return bypasses;
+    };
+
+    auto native = AdapterHost<SynthPlugin> {};
+    auto unused = Vst::ParamID {};
+    check(bypassesOf(*native.adapter, unused) == 0);
+
+    auto ported = AdapterHost<SynthPlugin> {
+        MakeASound::policyFor(MakeASound::IdScheme::JUCE, {}).parameters};
+    auto& adapter = *ported.adapter;
+    auto bypassId = Vst::ParamID {};
+    check(bypassesOf(adapter, bypassId) == 1);
+    check(bypassId == 0x62797073u); // 'byps'
+
+    // One more than the native one's, whatever the MIDI controllers add.
+    check(adapter.getParameterCount() == native.adapter->getParameterCount() + 1);
+
+    ported.plugin().params.level.setValue(0.5f);
+    ported.addPoint(bypassId, 0, 1.0);
+
+    // Past the 480-sample crossfade: nothing to delay, so silence.
+    for (auto b = 0; b < 10; ++b)
+    {
+        ported.fillBlock(blockSize);
+        ported.run();
+        ported.clearQueues();
+    }
+
+    check(adapter.getParamNormalized(bypassId) == 1.0);
+
+    for (auto& channel: ported.outputs[0].storage)
+        for (auto s = 0; s < blockSize; ++s)
+            check(channel[static_cast<size_t>(s)] == 0.f);
 };
 
 // The latency follows a parameter: once the host's write has run the adapter's

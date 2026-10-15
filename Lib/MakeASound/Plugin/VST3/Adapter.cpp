@@ -24,17 +24,22 @@ namespace
 // What a JUCE VST3 writes, as positively as it can be told: a VST2 bank, the
 // private-data trailer its wrapper always appends, or a copyXmlToBinary blob
 // from one old enough to have had no trailer. A MakeASound document is JSON, and
-// a plugin's own non-JSON document carries none of these.
+// a plugin's own non-JSON document carries none of these. The trailer and bank
+// checks ignore the leading byte: a JUCE plugin's own state may be JSON too, yet
+// its wrapper still appends the trailer, which no MakeASound document ends in.
+// Only the XML blob is ruled out by a leading '{', since it starts with "VC2!".
 bool isJuceState(std::string_view bytes)
 {
+    if (Compat::stripJucePrivateData(bytes).pluginState.size() != bytes.size()
+        || Compat::readVst2Bank(bytes).has_value())
+        return true;
+
     auto first = bytes.find_first_not_of(" \t\r\n");
 
     if (first == std::string_view::npos || bytes[first] == '{')
         return false;
 
-    return Compat::readVst2Bank(bytes).has_value()
-           || Compat::stripJucePrivateData(bytes).pluginState.size() != bytes.size()
-           || Compat::isJuceXmlBlob(bytes);
+    return Compat::isJuceXmlBlob(bytes);
 }
 } // namespace
 

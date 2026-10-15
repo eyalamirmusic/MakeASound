@@ -374,7 +374,7 @@ auto tApvtsMap = test("JuceCompat/aMapNamesTheJuceIds") = []
         }};
 
     check(loadJuceApvtsBlob(bytesOf(apvtsBlob), params, options).has_value());
-    check(near(params.voices.get(), 1.f));
+    check(params.voices.get() == 1);
     check(near(params.env.attack.get(), 0.25f));
     check(paths.size() == 7);
     check(paths[4] == "env/attack");
@@ -402,7 +402,7 @@ auto tApvtsXmlEdges = test("JuceCompat/apvtsReadsAsSetNewStateDoes") = []
     // The last PARAM of an id wins, one with no value is the default, text with
     // no number is 0, and only PARAM children count.
     check(near(params.cutoff.get(), 200.f));
-    check(near(params.voices.get(), 8.f));
+    check(params.voices.get() == 8);
     check(params.mode.getIndex() == 0);
     check(near(params.tone.get(), 0.5f));
     check(params.enabled.isOn());

@@ -99,6 +99,17 @@ enum class BypassPlacement
     Unlisted
 };
 
+// Which plugins that declare no bypass get the one PluginWrapper adds.
+enum class AddedBypassFor
+{
+    // One whose declared layout has a main input: an effect, not an instrument.
+    Effects,
+
+    // Every one, instruments included, as JUCE's VST3 and AAX wrappers do. With
+    // no main input, a bypassed instrument outputs silence.
+    AllPlugins
+};
+
 // The AUv3 AUParameter address and identifier.
 enum class AUv3Ids
 {
@@ -242,6 +253,7 @@ struct ParameterIdentity
     // ParameterList::identityProblems().
     bool juceChecks = false;
 
+    AddedBypassFor addedBypassFor = AddedBypassFor::Effects;
     AddedBypassId addedBypassId = AddedBypassId::PathHash;
     BypassPlacement addedBypassInAU = BypassPlacement::Listed;
     AUv3Ids auv3 = AUv3Ids::HostIdAndPath;
