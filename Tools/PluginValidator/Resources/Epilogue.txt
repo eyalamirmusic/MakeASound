@@ -1,0 +1,1 @@
+Exits with the number of bundles that failed, or 2 when the arguments are unusable. It knows nothing of this build: what to validate is always an argument, such as <build>/VST3.

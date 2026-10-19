@@ -16,8 +16,11 @@
 #include <eacp/Core/App/Args.h>
 #include <eacp/Core/Utils/Strings.h>
 
+#include <ResEmbed/ResEmbed.h>
+
 #include <chrono>
 #include <cstdio>
+#include <string>
 #include <thread>
 
 using namespace MakeASound;
@@ -32,31 +35,12 @@ namespace Strings = eacp::Strings;
 constexpr auto exitOk = 0;
 constexpr auto exitDatabaseNotWritten = 5;
 
-constexpr auto description =
-    R"(Describes the audio plugins installed on this machine.
-
-A sweep finds every VST3 module in the platform's VST3 folders and, on macOS,
-every hostable Audio Unit, then loads each one in a WORKER PROCESS: this binary
-relaunched with --makeasound-scan, several at a time. A plugin that crashes or
-hangs takes down only its own worker and is recorded as crashed.
-
-A sweep is incremental: only plugins that are new or changed since the last one
-are loaded. A plugin that failed stays blacklisted until it changes, and one no
-longer installed is dropped. --force starts from nothing.)";
-
-constexpr auto epilogue = R"(Worker mode:
-  PluginScanner --makeasound-scan <target>
-
-loads one target, a .vst3 module or an Audio Unit identifier
-(type:subtype:manufacturer), and prints one line to stdout: MAKEASOUND_SCAN:
-followed by the result as compact JSON. See MakeASound's Docs/PluginScanning.md.
-
-Exit codes:
-  0  answered (a plugin that failed to load is an answer, not a failure)
-  2  the arguments made no sense
-  3  worker: nothing is installed under that name
-  4  worker: no format claims the target
-  5  the database could not be written)";
+// The --help text, from Resources/ (embedded by res_embed_add). A file's final
+// newline is trimmed, since the parser would print it as one more blank line.
+std::string helpText(const std::string& name)
+{
+    return Strings::trim(ResEmbed::get(name, "PluginScannerHelp").toStringView());
+}
 
 const char* statusWord(const ModuleScan& scan)
 {
@@ -159,9 +143,9 @@ int runRequestedMode()
     // argv[0] before this ran.
     auto options = ScanSessionOptions();
 
-    auto cli = eacp::Args::Parser {"PluginScanner", description};
+    auto cli = eacp::Args::Parser {"PluginScanner", helpText("Description.txt")};
     addScanOptions(cli, options);
-    cli.epilogue(epilogue);
+    cli.epilogue(helpText("Epilogue.txt"));
 
     if (const auto code = cli.exitCodeFor(cli.parse()))
         return *code;

@@ -9,6 +9,8 @@
 #include <eacp/Core/Utils/StdPath.h>
 #include <eacp/Core/Utils/Strings.h>
 
+#include <ResEmbed/ResEmbed.h>
+
 #include <algorithm>
 #include <exception>
 #include <filesystem>
@@ -23,6 +25,13 @@ namespace Strings = eacp::Strings;
 
 namespace
 {
+// The --help text, from Resources/ (embedded by res_embed_add). A file's final
+// newline is trimmed, since the parser would print it as one more blank line.
+std::string helpText(const std::string& name)
+{
+    return Strings::trim(ResEmbed::get(name, "PluginValidatorHelp").toStringView());
+}
+
 struct Arguments
 {
     Pluginval::Options options;
@@ -158,13 +167,7 @@ int main(int argc, char* argv[])
     auto paths = MakeASound::Vector<eacp::FilePath> {};
     auto& options = args.options;
 
-    auto cli = eacp::Args::Parser {
-        "PluginValidator",
-        "Validates each bundle named, and every .vst3, .component and .aaxplugin "
-        "in each folder named: a .vst3 through Tracktion's pluginval, a "
-        ".component through auval -strict after installing it into the user's "
-        "Components folder, an .aaxplugin through every aaxval test in the AAX "
-        "Validator folder (both macOS only)."};
+    auto cli = eacp::Args::Parser {"PluginValidator", helpText("Description.txt")};
 
     cli.option("--strictness", options.strictness, "pluginval's strictness level")
         .atLeast(1)
@@ -184,9 +187,7 @@ int main(int argc, char* argv[])
         .fromEnv("MAKEASOUND_AAX_TOOLS");
     cli.option("--logs", args.logs, "where each bundle's full log is written");
     cli.positional(paths, "bundle", "a bundle, or a folder of bundles");
-    cli.epilogue("Exits with the number of bundles that failed, or 2 when the "
-                 "arguments are unusable. It knows nothing of this build: what to "
-                 "validate is always an argument, such as <build>/VST3.");
+    cli.epilogue(helpText("Epilogue.txt"));
 
     if (auto code = cli.exitCodeFor(cli.parse(argc, argv)))
         return *code;

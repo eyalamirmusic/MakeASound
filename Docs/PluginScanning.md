@@ -219,7 +219,7 @@ database, a vendor's family of apps say, pass one path to all of them.
 
 ## Writing a custom front end
 
-`Apps/PluginScanner/main.cpp` is the whole recipe, in under two hundred lines: build a
+`Apps/PluginScanner/Main.cpp` is the whole recipe, in under two hundred lines: build a
 `FormatManager`, answer `runScanWorkerIfRequested` first, parse the command line
 into `ScanSessionOptions`, print what `onStarted`, `onTargetFinished` and
 `onFinished` report, and pump `poll()`.

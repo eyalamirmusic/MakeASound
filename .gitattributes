@@ -2,3 +2,8 @@
 # generate, and regenerated in place with LF endings: keep them LF on every
 # checkout, whatever core.autocrlf says.
 Tests/Identity/*.txt text eol=lf
+
+# Help text embedded byte for byte into the apps and tools: a CRLF checkout
+# would put a carriage return at the end of every line of --help.
+Apps/*/Resources/*.txt text eol=lf
+Tools/*/Resources/*.txt text eol=lf
