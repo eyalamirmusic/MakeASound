@@ -240,6 +240,10 @@ private:
 
     std::atomic<bool> resetPending {false};
 
+    // kAudioUnitProperty_OfflineRender, which the SDK does not handle: each
+    // block's ProcessContext::isOffline.
+    std::atomic<bool> offlineRender {false};
+
     // What the host last fetched; -1 while it has no baseline to be told about.
     std::atomic<int> lastReportedLatency {-1};
 

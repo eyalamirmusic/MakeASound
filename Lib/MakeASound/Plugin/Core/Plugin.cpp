@@ -1,9 +1,29 @@
 #include "Plugin.h"
 
 #include <algorithm>
+#include <atomic>
 
 namespace MakeASound
 {
+
+namespace
+{
+std::atomic<PluginFormat>& loadedFormat() noexcept
+{
+    static auto format = std::atomic<PluginFormat> {PluginFormat::Unknown};
+    return format;
+}
+} // namespace
+
+PluginFormat currentPluginFormat() noexcept
+{
+    return loadedFormat().load(std::memory_order_relaxed);
+}
+
+void setCurrentPluginFormat(PluginFormat format) noexcept
+{
+    loadedFormat().store(format, std::memory_order_relaxed);
+}
 
 bool Plugin::acceptsLayout(const BusLayout& proposed) const
 {
@@ -107,6 +127,11 @@ void Plugin::setTrackInfo(TrackInfo info)
 {
     currentTrackInfo = std::move(info);
     onTrackInfoChanged(currentTrackInfo);
+}
+
+void Plugin::setHostName(std::string name)
+{
+    hostApplicationName = std::move(name);
 }
 
 void Plugin::loadStateExceptParameters(std::string_view data, StateContext context)

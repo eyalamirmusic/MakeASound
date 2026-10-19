@@ -9,6 +9,7 @@
 #include "../Realtime/MessageThread.h"
 
 #include "pluginterfaces/gui/iplugview.h"
+#include "pluginterfaces/vst/ivsthostapplication.h"
 
 #include <algorithm>
 #include <cassert>
@@ -124,6 +125,17 @@ tresult PLUGIN_API Adapter::initialize(FUnknown* context)
         return result;
 
     adoptHostMessageThread();
+
+    // Before the host negotiates a layout, which a plugin may do by host.
+    if (auto host = Steinberg::FUnknownPtr<Vst::IHostApplication>(context))
+    {
+        // An array type: `auto` would decay it to a pointer into a temporary.
+        Vst::String128 name {};
+
+        if (host->getName(name) == Steinberg::kResultOk)
+            pluginWrapper.setHostName(toUtf8(name));
+    }
+
     addBuses();
     registerParameters();
     registerShadowParameters();
@@ -438,6 +450,7 @@ tresult PLUGIN_API Adapter::process(Vst::ProcessData& data) noexcept
     pluginWrapper.setPlayhead(data.processContext != nullptr
                                   ? toPlayhead(*data.processContext)
                                   : Playhead {});
+    pluginWrapper.setOffline(processSetup.processMode == Vst::kOffline);
 
     if (data.inputEvents != nullptr)
         collectEvents(*data.inputEvents);

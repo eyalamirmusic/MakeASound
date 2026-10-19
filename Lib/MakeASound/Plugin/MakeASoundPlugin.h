@@ -22,6 +22,7 @@
 #include "State/State.h"
 #include "Core/HostEditListener.h"
 #include "Core/TrackInfo.h"
+#include "Core/HostProcess.h"
 #include "Core/Editor.h"
 #include "Core/Plugin.h"
 #include "Core/StatePlugin.h"

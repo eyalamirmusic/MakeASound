@@ -30,8 +30,9 @@ public:
     Backend getBackend() const;
 
     // Device ids and channel counts are per-API: this stops the stream and drops
-    // the config instead of carrying it across, so follow with getDefaultConfig()
-    // and start(). A backend that won't come up enumerates nothing.
+    // the config instead of carrying it across, so follow with a fresh default
+    // config (getDefaultOutputConfig() or the direction you want) and start(). A
+    // backend that won't come up enumerates nothing.
     Error setBackend(Backend backendToUse);
 
     // One per direction rather than one that guesses: claiming a capture side an app
@@ -41,6 +42,9 @@ public:
     StreamConfig getDefaultOutputConfig() const;
     StreamConfig getDefaultInputConfig() const;
     StreamConfig getDefaultDuplexConfig() const;
+
+    // Legacy: getDefaultDuplexConfig() under its old name, kept for existing
+    // callers. New code asks for a direction.
     StreamConfig getDefaultConfig() const;
 
     // What the platform's audio session should be while a stream is open. Applied by

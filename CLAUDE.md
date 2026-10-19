@@ -58,7 +58,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - `lastCallbackUs` stays in microseconds.
 - Device and MIDI port ids are registry slots keyed by stable identity, not enumeration positions.
 - miniaudio is initialised with `ma_ios_session_category_none` and `noAudioSessionActivate`. The iOS session is ours, and preserving this matters when editing `initContext`.
-- There is no `getDefaultConfig()`. A direction-explicit default exists because an unwanted capture side costs a microphone permission.
+- Defaults are direction-explicit (`getDefaultOutputConfig()`, `...InputConfig()`, `...DuplexConfig()`), because an unwanted capture side costs a microphone permission. `getDefaultConfig()` is only a legacy alias for the duplex one, kept for old callers: don't use it in new code, examples or docs.
 - Core MIDI clients live on the process-wide `NotifyLoop` thread. ALSA sends use `snd_seq_event_output` and drain, never `_direct`, which allocates. In WinMM, `drainMessages()` is the audio thread's, so nothing that notifies runs there.
 
 **Plugin core**

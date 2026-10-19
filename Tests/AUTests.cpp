@@ -1669,6 +1669,66 @@ auto tBypassAnswered = test("AU/bypassIsAnsweredOnlyWithABypassParameter") = []
     check(writeBypass(echo, 1) != noErr);
 };
 
+template <typename P>
+OSStatus writeOffline(UnitHost<P>& host, UInt32 value)
+{
+    return AudioUnitSetProperty(host.unit,
+                                kAudioUnitProperty_OfflineRender,
+                                kAudioUnitScope_Global,
+                                0,
+                                &value,
+                                sizeof(value));
+}
+
+auto tOffline = test("AU/offlineRenderReachesTheBlockAsOffline") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+
+    auto size = UInt32 {};
+    auto writable = Boolean {};
+    check(AudioUnitGetPropertyInfo(host.unit,
+                                   kAudioUnitProperty_OfflineRender,
+                                   kAudioUnitScope_Global,
+                                   0,
+                                   &size,
+                                   &writable)
+          == noErr);
+    check(size == sizeof(UInt32));
+    check(writable);
+
+    check(host.render(maxBlock) == noErr);
+    check(!host.plugin().offline);
+
+    check(writeOffline(host, 1) == noErr);
+
+    auto value = UInt32 {7};
+    size = sizeof(value);
+    check(AudioUnitGetProperty(host.unit,
+                               kAudioUnitProperty_OfflineRender,
+                               kAudioUnitScope_Global,
+                               0,
+                               &value,
+                               &size)
+          == noErr);
+    check(value == 1);
+
+    check(host.render(maxBlock) == noErr);
+    check(host.plugin().offline);
+
+    check(writeOffline(host, 0) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(!host.plugin().offline);
+};
+
+auto tAUFormat = test("AU/anInstanceSetsTheFormatBeforeTheLayout") = []
+{
+    setCurrentPluginFormat(PluginFormat::Unknown);
+
+    auto host = UnitHost<GainPlugin>("Gain");
+    check(currentPluginFormat() == PluginFormat::AU);
+    check(host.plugin().format() == PluginFormat::AU);
+};
+
 auto tBypassReads = test("AU/readingBypassFollowsTheParameter") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");

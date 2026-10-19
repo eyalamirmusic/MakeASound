@@ -121,6 +121,7 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
         ++processed;
         inputBuses = context.inputs.size();
         playhead = context.playhead;
+        offline = context.isOffline;
 
         record(context.mainInput(), seenInput);
         record(context.mainOutput(), seenOutput);
@@ -160,6 +161,9 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
     PluginFormat formatAtPrepare = PluginFormat::Unknown;
     ProcessSpec spec;
     Playhead playhead;
+
+    // The last block's ProcessContext::isOffline.
+    bool offline = false;
     int processed = 0;
     int resets = 0;
     int inputBuses = 0;
@@ -235,6 +239,52 @@ struct LatentEffect : StatePlugin<State<LatentParams>>
     int latency = 0;
     int processed = 0;
     int bypassed = 0;
+};
+
+// A JUCE port's nested groups, whose ids its JUCE build prefixed with every
+// enclosing group's id: "Low" in "EQ" in "Drive-Filter" was "Drive-Filter-EQ-Low"
+// (IdentityOverrides::juceKeyGroupSeparator). Its bypass is declared, as a JUCE
+// plugin's getBypassParameter() is (IdentityOverrides::declaredBypassInAU).
+struct GroupedEQParams : ParameterGroup
+{
+    GroupedEQParams()
+        : ParameterGroup("EQ")
+    {
+        add(low);
+    }
+
+    FloatParam low {"Low", -12.f, 12.f, 0.f, {.versionHint = 1}};
+};
+
+struct GroupedDriveParams : ParameterGroup
+{
+    GroupedDriveParams()
+        : ParameterGroup("Drive-Filter")
+    {
+        add(amount, eq);
+    }
+
+    FloatParam amount {"Amount", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    GroupedEQParams eq;
+};
+
+struct GroupedKeyParams : ParameterGroup
+{
+    GroupedKeyParams() { add(gain, drive, bypass); }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    GroupedDriveParams drive;
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+};
+
+struct GroupedKeyPlugin : StatePlugin<State<GroupedKeyParams>>
+{
+    std::string_view name() const override { return "Grouped"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
 };
 
 struct SynthParams : ParameterGroup

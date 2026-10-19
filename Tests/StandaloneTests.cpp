@@ -547,11 +547,16 @@ GainPlugin& gainOf(StandaloneHost& host)
 auto tHostRoundTrip = test("Standalone/hostRestoresTheSessionItSaved") = []
 {
     auto file = TempFile {};
+    setCurrentPluginFormat(PluginFormat::Unknown);
 
     {
         auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
         check(host.settingsFile() == file.path);
         check(host.wrapper().plugin().format() == PluginFormat::Standalone);
+
+        // The standalone is its own host.
+        check(host.wrapper().plugin().hostName() == "Gain");
+        check(currentPluginFormat() == PluginFormat::Standalone);
 
         gainOf(host).params.gain.setValue(-6.f);
         gainOf(host).params.width.setValue(0.9f);

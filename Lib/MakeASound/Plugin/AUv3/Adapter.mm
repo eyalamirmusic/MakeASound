@@ -139,6 +139,7 @@ OwningPointer<Adapter> Adapter::create(AUAudioUnit* unit,
                                        const PluginDescription& plugin,
                                        NSError** outError)
 {
+    setCurrentPluginFormat(PluginFormat::AUv3);
     auto created = plugin.create ? plugin.create() : OwningPointer<Plugin> {};
 
     if (!created)
@@ -163,6 +164,8 @@ Adapter::Adapter(AUAudioUnit* unitToUse,
     , lastPluginValue(pluginWrapper.plugin().parameters().size(), 0.f)
     , undoHostWrite(pluginWrapper.plugin().parameters().size(), false)
 {
+    // No setHostName(): AUAudioUnit never names its host, so hostName() stays
+    // empty. Out of process, hostProcessName() names the extension, not the host.
     adoptHostMessageThread();
     this->plugin().setHostEditListener(this);
 
@@ -502,6 +505,7 @@ void Adapter::renderBlock(AudioUnitRenderActionFlags*,
     applyEvents(events, timestamp, frames);
     pluginWrapper.setPlayhead(
         readPlayhead(render.musicalContext, render.transportState, timestamp));
+    pluginWrapper.setOffline(renderingOffline.load(std::memory_order_relaxed));
     pluginWrapper.sortMidiInByOffset();
     bindOutputs(frames, singleOutput);
     pluginWrapper.process();

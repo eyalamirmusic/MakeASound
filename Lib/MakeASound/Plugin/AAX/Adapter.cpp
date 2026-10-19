@@ -117,9 +117,18 @@ AAX_Result Adapter::createWrapper()
     checked = controller->GetOutputStemFormat(&output);
     checked = controller->GetSampleRate(&rate);
 
+    setCurrentPluginFormat(PluginFormat::AAX);
     auto wrapper = EA::makeOwned<PluginWrapper>(description->create(),
                                                 PluginFormat::AAX,
                                                 parameterIdentityFor(*description));
+
+    // Unchecked: a host may not implement it. Before the layout, which a plugin
+    // may negotiate by host.
+    auto hostName = AAX_CString {};
+
+    if (controller->GetHostName(&hostName) == AAX_SUCCESS)
+        wrapper->setHostName(hostName.StdString());
+
     auto layout = layoutFor(wrapper->busLayout(), {input, output});
 
     if (!layout || !wrapper->setLayout(*layout))
@@ -385,6 +394,14 @@ AAX_Result
 {
     auto result = AAX_CEffectParameters::NotificationReceived(type, data, size);
 
+    if (type == AAX_eNotificationEvent_EnteringOfflineMode
+        || type == AAX_eNotificationEvent_ExitingOfflineMode)
+    {
+        offline.store(type == AAX_eNotificationEvent_EnteringOfflineMode,
+                      std::memory_order_relaxed);
+        return result;
+    }
+
     if (type != AAX_eNotificationEvent_TrackNameChanged || data == nullptr
         || !pluginWrapper)
         return result;
@@ -504,6 +521,7 @@ void Adapter::renderSlice(AlgorithmContext& context,
     }
 
     wrapper.setPlayhead(playhead);
+    wrapper.setOffline(offline.load(std::memory_order_relaxed));
     wrapper.sortMidiInByOffset();
 
     auto hasInputs = inputChannels > 0 && context.inputs != nullptr;

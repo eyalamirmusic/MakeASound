@@ -18,8 +18,9 @@ namespace MakeASound::VST3
 // object over a PluginWrapper, turning host calls into the wrapper's per-block
 // steps. MIDI controllers arrive through IMidiMapping on hidden shadow
 // parameters when the description asks for them (vst3MidiControllersFor()); the
-// plugin's own edits leave through HostEditListener, and the host's channel
-// context reaches the plugin's trackInfo() through IInfoListener.
+// plugin's own edits leave through HostEditListener, the host's channel
+// context reaches the plugin's trackInfo() through IInfoListener, and the name
+// initialize()'s IHostApplication gives reaches its hostName().
 class Adapter
     : public Vst::SingleComponentEffect
     , public Vst::IMidiMapping

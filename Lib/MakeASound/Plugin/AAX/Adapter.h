@@ -79,7 +79,8 @@ public:
     AAX_Result TimerWakeup() override;
 
     // After the base's: AAX_eNotificationEvent_TrackNameChanged becomes the
-    // plugin's track name, the one thing about the track Pro Tools tells.
+    // plugin's track name, the one thing about the track Pro Tools tells, and
+    // Entering/ExitingOfflineMode every later block's isOffline.
     AAX_Result NotificationReceived(AAX_CTypeID type,
                                     const void* data,
                                     uint32_t size) override;
@@ -144,6 +145,9 @@ private:
 
     // How many times the plugin marked its non-parameter state changed.
     std::atomic<int32_t> stateChanges {0};
+
+    // Between Pro Tools' Entering and ExitingOfflineMode (a bounce).
+    std::atomic<bool> offline {false};
 };
 
 } // namespace MakeASound::AAX

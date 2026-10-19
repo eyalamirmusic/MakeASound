@@ -124,6 +124,14 @@ using MakeASound::AUv3::Adapter;
     adapter->setShouldBypassEffect(shouldBypassEffect);
 }
 
+- (void)setRenderingOffline:(BOOL)renderingOffline
+{
+    [super setRenderingOffline:renderingOffline];
+
+    if (adapter)
+        adapter->setRenderingOffline(renderingOffline);
+}
+
 - (void)reset
 {
     adapter->reset();

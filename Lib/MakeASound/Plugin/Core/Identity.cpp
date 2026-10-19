@@ -23,6 +23,12 @@ IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept
     if (overrides.addedBypassInAU)
         params.addedBypassInAU = *overrides.addedBypassInAU;
 
+    if (overrides.declaredBypassInAU)
+        params.declaredBypassInAU = *overrides.declaredBypassInAU;
+
+    if (overrides.juceKeyGroupSeparator)
+        params.juceKeyGroupSeparator = overrides.juceKeyGroupSeparator;
+
     if (overrides.vst3Controllers)
         params.vst3Controllers = *overrides.vst3Controllers;
 

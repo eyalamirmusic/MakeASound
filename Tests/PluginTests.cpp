@@ -5,6 +5,8 @@
 
 #include "TestPlugins.h"
 
+#include <MakeASound/Plugin/Core/HostProcess.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <eacp/Core/Threads/EventLoop.h>
@@ -222,6 +224,49 @@ auto tFractionalRate = test("Plugin/prepareHandsThePluginTheRateUnrounded") = []
     check(plugin.spec.sampleRate == 44055.94);
     check(plugin.spec.roundedSampleRate() == 44056);
 };
+
+auto tHostName = test("Plugin/theWrapperHandsThePluginTheHostName") = []
+{
+    auto wrapper = makeWrapper();
+    check(wrapper.plugin().hostName().empty());
+
+    wrapper.setHostName("Live");
+    check(wrapper.plugin().hostName() == "Live");
+};
+
+// Declares a sidechain only as a VST3, as a JUCE plugin that asked
+// PluginHostType for its wrapper type in its constructor's layout would.
+struct FormatLayoutPlugin : Plugin
+{
+    std::string_view name() const override { return "Format Layout"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+
+        if (format() == PluginFormat::VST3)
+            layout.inputs.add({"Sidechain", 1});
+
+        return layout;
+    }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+auto tFormatFirst = test("Plugin/theFormatIsSetBeforeTheLayoutIsSampled") = []
+{
+    auto vst3 =
+        PluginWrapper(EA::makeOwned<FormatLayoutPlugin>(), PluginFormat::VST3);
+    check(vst3.plugin().format() == PluginFormat::VST3);
+    check(vst3.busLayout().inputs.size() == 2);
+
+    auto unknown = PluginWrapper(EA::makeOwned<FormatLayoutPlugin>());
+    check(unknown.busLayout().inputs.size() == 1);
+};
+
+auto tProcessName = test("Plugin/hostProcessNameNamesThisExecutable") = []
+{ check(hostProcessName() == "MakeASoundTests"); };
 
 auto tParameterIds = test("Plugin/parametersCarryIdsAndHashedHostIds") = []
 {

@@ -44,13 +44,17 @@ const PluginDescription& descriptionOf(AudioComponentInstance instance)
     return *plugin;
 }
 
+// Its format set at once: the bus counts the base class takes come from its
+// layout, before the wrapper exists.
 OwningPointer<Plugin> createPlugin(const PluginDescription& plugin)
 {
+    setCurrentPluginFormat(PluginFormat::AU);
     auto created = plugin.create ? plugin.create() : OwningPointer<Plugin> {};
 
     if (!created)
         au::Throw(kAudioUnitErr_InvalidProperty);
 
+    created->setFormat(PluginFormat::AU);
     return created;
 }
 
@@ -199,6 +203,8 @@ Adapter::Adapter(AudioComponentInstance instance,
           std::move(plugin), PluginFormat::AU, parameterIdentityFor(description))
     , space(description)
 {
+    // No setHostName(): the AudioUnit API never names its host, so hostName()
+    // stays empty. hostProcessName() is the plugin's fallback.
     adoptHostMessageThread();
     this->plugin().setHostEditListener(this);
 
@@ -665,6 +671,11 @@ OSStatus Adapter::GetPropertyInfo(AudioUnitPropertyID id,
                 outWritable = true;
                 return noErr;
 
+            case kAudioUnitProperty_OfflineRender:
+                outDataSize = sizeof(UInt32);
+                outWritable = true;
+                return noErr;
+
             default:
                 break;
         }
@@ -747,6 +758,11 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
                 *static_cast<UInt32*>(outData) = isBypassed() ? 1 : 0;
                 return noErr;
 
+            case kAudioUnitProperty_OfflineRender:
+                *static_cast<UInt32*>(outData) =
+                    offlineRender.load(std::memory_order_relaxed) ? 1 : 0;
+                return noErr;
+
             case kAudioUnitProperty_MIDIOutputCallbackInfo:
             {
                 const auto& buses = pluginWrapper.busLayout().midiOutputs;
@@ -820,6 +836,16 @@ OSStatus Adapter::SetProperty(AudioUnitPropertyID id,
             return kAudioUnitErr_InvalidPropertyValue;
 
         return setBypass(*static_cast<const UInt32*>(inData) != 0);
+    }
+
+    if (scope == kAudioUnitScope_Global && id == kAudioUnitProperty_OfflineRender)
+    {
+        if (inData == nullptr || inDataSize < sizeof(UInt32))
+            return kAudioUnitErr_InvalidPropertyValue;
+
+        offlineRender.store(*static_cast<const UInt32*>(inData) != 0,
+                            std::memory_order_relaxed);
+        return noErr;
     }
 
     // The SDK does not dispatch it; Logic restores a document's state through it.
@@ -1169,6 +1195,7 @@ OSStatus Adapter::Render(AudioUnitRenderActionFlags& flags,
     reconcileParameters();
     bindInputs(flags, timestamp, frames);
     pluginWrapper.setPlayhead(readPlayhead(*this, timestamp));
+    pluginWrapper.setOffline(offlineRender.load(std::memory_order_relaxed));
     pluginWrapper.sortMidiInByOffset();
     bindOutputs(frames);
     pluginWrapper.process();

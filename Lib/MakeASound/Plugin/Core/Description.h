@@ -55,7 +55,11 @@ enum class Category
 std::string_view defaultSubcategory(Category category) noexcept;
 
 // Pro Tools' plug-in categories, SDK-free. Default is Instrument for
-// Category::Instrument and MidiEffect, Effect otherwise.
+// Category::Instrument and MidiEffect, Effect otherwise. MidiEffect is Pro
+// Tools' MIDI effect category (AAX_EPlugInCategory_MIDIEffect), whatever the
+// Category: a JUCE build that shipped a synth there (an arpeggiator's Avid
+// variant, say) keeps Category::Instrument, so its audio output and MIDI input
+// stay as they were, and sets this.
 enum class AAXCategory
 {
     Default,
@@ -70,7 +74,8 @@ enum class AAXCategory
     Dither,
     SoundField,
     Effect,
-    Instrument
+    Instrument,
+    MidiEffect
 };
 
 using PluginCreateFn = std::function<OwningPointer<Plugin>()>;
@@ -137,6 +142,17 @@ struct IdentityOverrides
     std::optional<AUValueSpace> auValues = {};
     std::optional<AUUnits> auUnits = {};
     std::optional<BypassPlacement> addedBypassInAU = {};
+
+    // Whether an AU lists the bypass the plugin declares ({.bypass = true}),
+    // which every profile does (ParameterIdentity::declaredBypassInAU). A JUCE
+    // port whose bypass was only getBypassParameter() sets Unlisted, as JUCE's
+    // AU never listed it; it still answers kAudioUnitProperty_BypassEffect.
+    std::optional<BypassPlacement> declaredBypassInAU = {};
+
+    // ParameterIdentity::juceKeyGroupSeparator: every grouped parameter's
+    // hostKey prefixed with its groups' ids, each followed by this. A JUCE port
+    // whose parameter ids were "<GroupId>-<id>" sets '-'.
+    std::optional<char> juceKeyGroupSeparator = {};
 
     // The VST3 MIDI controller parameters' layout (ParameterIdentity::
     // vst3Controllers): JUCE's for a JUCE profile, MakeASound's at 0x7fff0000
