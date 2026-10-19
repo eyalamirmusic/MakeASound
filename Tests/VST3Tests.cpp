@@ -13,6 +13,7 @@
 
 #include <pluginterfaces/gui/iplugview.h>
 #include <pluginterfaces/vst/ivstchannelcontextinfo.h>
+#include <pluginterfaces/vst/ivsthostapplication.h>
 #include <pluginterfaces/vst/ivstmidicontrollers.h>
 
 #if MAKEASOUND_VST3_HAS_VIEW
@@ -213,6 +214,58 @@ auto tFactoryCreates = test("VST3/createInstanceAnswersEveryInterface") = []
               &none)
           == Steinberg::kNoInterface);
     check(none == nullptr);
+};
+
+auto tFactoryFormat = test("VST3/createInstanceSetsTheProcessFormat") = []
+{
+    MakeASound::setCurrentPluginFormat(MakeASound::PluginFormat::Unknown);
+
+    // What the plugin's creation saw, before any wrapper existed.
+    auto seenInConstructor = MakeASound::PluginFormat::Unknown;
+
+    auto module = ModuleDescription {};
+    module.vendor = "MakeASound Tests";
+    module.manufacturerCode = "MaSo";
+    module.plugins.add({.name = "Gain",
+                        .pluginCode = "Gain",
+                        .create = [&]
+                        {
+                            seenInConstructor = MakeASound::currentPluginFormat();
+                            return EA::makeOwned<GainPlugin>();
+                        }});
+
+    auto factory = Steinberg::owned(MakeASound::VST3::makeFactory(module));
+    auto cid = MakeASound::VST3::classIdFor(module, module.plugins[0]);
+
+    auto* object = static_cast<void*>(nullptr);
+    check(
+        factory->createInstance(reinterpret_cast<Steinberg::FIDString>(cid.toTUID()),
+                                Vst::IComponent::iid,
+                                &object)
+        == Steinberg::kResultOk);
+
+    auto component = Steinberg::owned(static_cast<Vst::IComponent*>(object));
+    check(seenInConstructor == MakeASound::PluginFormat::VST3);
+    check(MakeASound::currentPluginFormat() == MakeASound::PluginFormat::VST3);
+};
+
+auto tOffline = test("VST3/anOfflineSetupReachesTheBlockAsOffline") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+
+    host.fillBlock(blockSize);
+    host.run();
+    check(!host.plugin().offline);
+
+    host.configure(48000.0, blockSize, Vst::kOffline);
+    host.fillBlock(blockSize);
+    host.run();
+    check(host.plugin().offline);
+
+    host.configure(48000.0, blockSize, Vst::kRealtime);
+    host.fillBlock(blockSize);
+    host.run();
+    check(!host.plugin().offline);
 };
 
 auto tBuses = test("VST3/busesFollowTheLayout") = []
@@ -1839,6 +1892,57 @@ auto tChannelContext = test("VST3/theChannelContextReachesTheTrackInfo") = []
     check(host.adapter->setChannelContextInfos(nullptr)
           == Steinberg::kInvalidArgument);
     check(plugin.trackInfoChanges == 2);
+};
+
+// The host context initialize() receives, naming the host. Stack-owned.
+struct TestHostApplication final : Vst::IHostApplication
+{
+    tresult PLUGIN_API getName(Vst::String128 name) override
+    {
+        MakeASound::VST3::copyTo(name, hostName);
+        return Steinberg::kResultOk;
+    }
+
+    tresult PLUGIN_API createInstance(Steinberg::TUID,
+                                      Steinberg::TUID,
+                                      void** obj) override
+    {
+        *obj = nullptr;
+        return Steinberg::kResultFalse;
+    }
+
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID _iid,
+                                      void** obj) override
+    {
+        QUERY_INTERFACE(_iid, obj, Steinberg::FUnknown::iid, Vst::IHostApplication)
+        QUERY_INTERFACE(_iid, obj, Vst::IHostApplication::iid, Vst::IHostApplication)
+        *obj = nullptr;
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1; }
+
+    std::string hostName;
+};
+
+auto tHostName = test("VST3/initializeTellsThePluginTheHostName") = []
+{
+    auto adapter = Steinberg::owned(new Adapter(EA::makeOwned<GainPlugin>()));
+    check(adapter->plugin().hostName().empty());
+
+    // UTF-8 through the host's UTF-16 and back.
+    auto application = TestHostApplication {};
+    application.hostName = "Live \xc3\xbc";
+    check(adapter->initialize(&application) == Steinberg::kResultOk);
+    check(adapter->plugin().hostName() == "Live \xc3\xbc");
+    adapter->terminate();
+
+    // A host with no IHostApplication leaves it empty.
+    auto unnamed = Steinberg::owned(new Adapter(EA::makeOwned<GainPlugin>()));
+    check(unnamed->initialize(nullptr) == Steinberg::kResultOk);
+    check(unnamed->plugin().hostName().empty());
+    unnamed->terminate();
 };
 
 // One block of `numSamples` with nothing from the host, whose output changes the

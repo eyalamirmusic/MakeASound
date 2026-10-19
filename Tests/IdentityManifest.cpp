@@ -76,8 +76,20 @@ void describeCore(const ModuleDescription&,
                         vst3MidiControllersFor(plugin) ? 1 : 0));
 
     if (const auto& overrides = plugin.overrides; overrides != IdentityOverrides {})
+    {
         out.push_back(print("core overrides indexedThroughVersion %d",
                             overrides.indexedThroughVersion.value_or(-1)));
+
+        // Only where set, so a manifest from before them reads the same.
+        if (overrides.declaredBypassInAU)
+            out.back() += *overrides.declaredBypassInAU == BypassPlacement::Listed
+                              ? " declaredBypassInAU Listed"
+                              : " declaredBypassInAU Unlisted";
+
+        if (overrides.juceKeyGroupSeparator)
+            out.back() += print(" juceKeyGroupSeparator '%c'",
+                                *overrides.juceKeyGroupSeparator);
+    }
 
     auto wrapper = PluginWrapper(
         plugin.create(), PluginFormat::Unknown, parameterIdentityFor(plugin));
@@ -253,6 +265,44 @@ Vector<Case> cases()
                       .idScheme = IdScheme::TamberPlug});
     result.add({"TamberPlug", plug});
 
+    // A JUCE port's declared bypass, unlisted in an AU as JUCE's AU never
+    // listed it; and once listed, as every profile does by default.
+    auto unlisted = ModuleDescription {};
+    unlisted.vendor = "MakeASound Identity";
+    unlisted.manufacturerCode = "MaSo";
+    unlisted.plugins.add(
+        {.name = "Unlisted Bypass Gain",
+         .pluginCode = "Gnul",
+         .create = creator<GainPlugin>(),
+         .idScheme = IdScheme::JUCE,
+         .overrides = {.declaredBypassInAU = BypassPlacement::Unlisted}});
+    unlisted.plugins.add({.name = "Listed Bypass Gain",
+                          .pluginCode = "Gnli",
+                          .create = creator<GainPlugin>(),
+                          .idScheme = IdScheme::JUCE});
+    result.add({"UnlistedBypassGain", unlisted});
+
+    // Nested groups whose JUCE ids carried every group's prefix, under JUCE's
+    // ids with and without the separator, and under MakeASound's.
+    auto grouped = ModuleDescription {};
+    grouped.vendor = "MakeASound Identity";
+    grouped.manufacturerCode = "MaSo";
+    grouped.plugins.add(
+        {.name = "Grouped",
+         .pluginCode = "Grpd",
+         .create = creator<GroupedKeyPlugin>(),
+         .idScheme = IdScheme::JUCE,
+         .overrides = {.declaredBypassInAU = BypassPlacement::Unlisted,
+                       .juceKeyGroupSeparator = '-'}});
+    grouped.plugins.add({.name = "Grouped Leaf Keys",
+                         .pluginCode = "Grpl",
+                         .create = creator<GroupedKeyPlugin>(),
+                         .idScheme = IdScheme::JUCE});
+    grouped.plugins.add({.name = "Grouped Native",
+                         .pluginCode = "Grpn",
+                         .create = creator<GroupedKeyPlugin>()});
+    result.add({"GroupedKeys", grouped});
+
     return result;
 }
 
@@ -425,6 +475,96 @@ auto tJucePort = test("Identity/jucePortMatchesItsManifest") = []
 
 auto tTamberPlug = test("Identity/tamberPlugPortsMatchTheirManifest") = []
 { check(IdentityManifest::matchesGolden("TamberPlug")); };
+
+auto tUnlistedBypass = test("Identity/unlistedBypassGainMatchesItsManifest") = []
+{ check(IdentityManifest::matchesGolden("UnlistedBypassGain")); };
+
+auto tGroupedKeys = test("Identity/groupedKeysMatchTheirManifest") = []
+{ check(IdentityManifest::matchesGolden("GroupedKeys")); };
+
+MakeASound::OwningPointer<MakeASound::Plugin> createGrouped()
+{
+    return EA::makeOwned<TestPlugins::GroupedKeyPlugin>();
+}
+
+// GroupedKeyPlugin under JUCE's ids.
+MakeASound::PluginDescription groupedDescription(std::optional<char> separator)
+{
+    return {.name = "Grouped",
+            .pluginCode = "Grpd",
+            .create = createGrouped,
+            .idScheme = MakeASound::IdScheme::JUCE,
+            .overrides = {.juceKeyGroupSeparator = separator}};
+}
+
+auto tGroupKey = test("Identity/aGroupSeparatorPrefixesTheHashedKey") = []
+{
+    using namespace MakeASound;
+
+    auto description = groupedDescription('-');
+    auto wrapper = PluginWrapper(description.create(),
+                                 PluginFormat::Unknown,
+                                 parameterIdentityFor(description));
+    const auto& list = wrapper.plugin().parameters();
+
+    auto low = list.indexOf("Drive-Filter/EQ/Low");
+    check(low >= 0);
+
+    const auto& entry = list.entry(low);
+    check(entry.hostKey == "Drive-Filter-EQ-Low");
+    check(entry.hostId
+          == (Compat::juceStringHash("Drive-Filter-EQ-Low") & 0x7fffffffu));
+    check(entry.aaxId == "Drive-Filter-EQ-Low");
+    check(entry.identifier == "Drive-Filter-EQ-Low");
+    check(entry.address == Compat::juceStringHash64("Drive-Filter-EQ-Low"));
+
+    // One group deep, and at the root nothing changes.
+    check(list.entry(list.indexOf("Drive-Filter/Amount")).hostKey
+          == "Drive-Filter-Amount");
+    check(list.entry(list.indexOf("Gain")).hostKey == "Gain");
+    check(list.identityProblems().empty());
+
+    // Without the separator the key is the leaf, as before.
+    auto leaf = groupedDescription({});
+    auto leafWrapper = PluginWrapper(
+        leaf.create(), PluginFormat::Unknown, parameterIdentityFor(leaf));
+    const auto& leafList = leafWrapper.plugin().parameters();
+    check(leafList.entry(leafList.indexOf("Drive-Filter/EQ/Low")).hostKey == "Low");
+};
+
+auto tDeclaredBypass = test("Identity/aDeclaredBypassCanBeUnlistedInAnAU") = []
+{
+    using namespace MakeASound;
+
+    auto description = groupedDescription({});
+    auto listed = PluginWrapper(description.create(),
+                                PluginFormat::Unknown,
+                                parameterIdentityFor(description));
+    const auto& listedList = listed.plugin().parameters();
+    check(listedList.bypassIndex() >= 0);
+    check(listedList.entry(listedList.bypassIndex()).listedInAU);
+
+    description.overrides.declaredBypassInAU = BypassPlacement::Unlisted;
+    check(parameterIdentityFor(description).declaredBypassInAU
+          == BypassPlacement::Unlisted);
+
+    auto unlisted = PluginWrapper(description.create(),
+                                  PluginFormat::Unknown,
+                                  parameterIdentityFor(description));
+    const auto& list = unlisted.plugin().parameters();
+    auto bypass = list.bypassIndex();
+    check(bypass >= 0);
+    check(!list.entry(bypass).listedInAU);
+    check(!list.entry(bypass).addedBypass);
+
+    // Every other entry stays listed, and the added bypass's own rule is apart.
+    for (auto i = 0; i < list.size(); ++i)
+        if (i != bypass)
+            check(list.entry(i).listedInAU);
+
+    check(parameterIdentityFor(description).addedBypassInAU
+          == BypassPlacement::Unlisted);
+};
 
 // CI builds RelWithDebInfo, where nothing asserts: every plugin a manifest
 // describes is checked here as well.

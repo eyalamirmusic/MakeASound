@@ -717,6 +717,91 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   forwards. A React parameter page shipped by the library is no longer planned
   (2026-10-14).
 
+## Modalics port: SysEx cap
+
+Assessment only (2026-10-19); nothing is changed yet. `MIDI::SysEx::maxBytes = 32`
+caps every SysEx that crosses a plugin format: longer ones are dropped on the way
+in, and out of the plugin nothing longer can be made.
+
+**What Modalics needs.** A grep of `BeatScholar/` and `Toolbox/Modules` for
+`isSysEx`, `SysEx`, `sysex`, `createSysExMessage` and `getSysExData` finds no
+product that builds or parses a SysEx longer than a few bytes:
+
+- `ea_midi_injecter` (`GlobalMidiInfo.cpp`) makes a 4-byte payload as a "blank"
+  message, and `CommandBase.cpp` refuses to inject a SysEx.
+- BeatScholar's `FixedChannelProcessor` and EON-Arp's `SysexFilter` (`numBytes
+  == 3` only) drop SysEx; `ea_midi_player` skips it; `ea_midi_utils` and
+  `ea_midi_processors/Learn` only classify it (MIDI learn ignores it).
+- Pass-through is the only real need. MIDIReMod (`modalics_midiator_audio`,
+  `MIDIFilterProcessor::shouldPass`) passes everything that is not a note, CC,
+  aftertouch or pitch bend, SysEx of any length included; PluginBuddy hands the
+  host's MIDI to the plugins it hosts, and its `MidiMonitor` prints whatever
+  arrives. Under JUCE those carry any length. Under MakeASound a dump over 32
+  bytes would vanish silently between the host and the plugin.
+
+So the cap costs Modalics fidelity in two MIDI pass-through products and nothing
+else. Many hosts do not deliver SysEx to plugins at all (Live), which narrows it
+further.
+
+**Where 32 is assumed.**
+
+- `MIDI/MIDI.h`: `SysEx::data` is `std::array<uint8_t, 32>` inside the `Event`
+  variant, so it sets `sizeof(MIDI::Event)` (about 48 bytes now); `RawBytes`
+  (`toBytes()`) reuses the constant; `Event::sysEx()` asserts on it.
+- The four plugin conversions drop anything longer: `VST3/Conversion.cpp`
+  (`DataEvent`, in), `AU/Conversion.cpp` (`HandleSysEx`) and AU output through
+  `toBytes()`, `AUv3/Conversion.mm` (in) and `Adapter.mm` (out through
+  `toBytes()`), and `AAX/Conversion.cpp`, whose parser's assembly buffer is
+  `Adapter::sysExBuffer`, sized to the cap. AAX output carries no SysEx at all
+  (`packetFor` refuses it; an `AAX_CMidiPacket` holds 4 bytes, so output would
+  need splitting into packets regardless of the cap).
+- The hosting side: `Hosting/AU/HostedAudioUnit.cpp` (`MusicDeviceSysEx` out,
+  packet SysEx back in, capped). `VST3HostedPlugin` carries no SysEx either way
+  today, which matters to PluginBuddy as much as the cap does.
+- The device side is already uncapped where it matters: ports assemble into
+  `MidiBackend::maxSysExBytes` (64 KiB) and hand long dumps to callback mode.
+  Only queue mode carries `MIDI::Event`s, so only dumps that fit the cap reach
+  `MidiBlockSync` and the `SPSCQueue<MidiInputEvent, 2048>` per port.
+- Every container of events scales with `sizeof(Event)`: `ProcessContext`'s
+  `defaultMidiCapacity = 1024` per MIDI bus in and out, `MidiEvents` (1024),
+  each port's queue (2048), the standalone's `SPSCQueue<MIDI::Event, 256>` and
+  `MidiSender`'s 1024. `Buffer::sortByOffset` and every `add` copy whole events.
+- Tests: `MidiParserTests`, `MidiManagerTests`, `ALSABackendTests`, the
+  VST3/AU/AUv3/AAX suites' SysEx cases, and the allocation suites
+  (`AllocationTests`, `RealtimeThreadAllocationTests`, `AAXAllocationTests`)
+  pin the current length limits.
+
+**Option A: a larger fixed cap (say 256).** One constant, and every path stays
+allocation-free by construction. But `sizeof(Event)` goes from about 48 to about
+270 bytes: each MIDI bus's preallocated buffer grows from about 48 KiB to about
+270 KiB per direction, each device port's queue from about 128 KiB to about
+576 KiB, and every note-on, sort and copy moves 270 bytes. It still drops a
+real patch dump (often kilobytes), so it moves the cliff rather than removing
+it.
+
+**Option B: an out-of-line arena per `MIDI::Buffer`.** `SysEx` keeps a small
+inline payload (today's 32, so `Event` does not grow) and, past it, refers to
+bytes in a byte arena the owning `Buffer` preallocates beside its events (sized
+by the format, e.g. 64 KiB per bus, the device side's default). The plugin and
+the adapters add a long one through `Buffer::addSysEx(bytes, size, offset)`,
+which fails rather than grows when the arena is full, just as `pushMidiIn` does
+for events; `clear()` resets both. Costs: an event that refers to its buffer's
+arena cannot be copied into another buffer as a plain value, so `addFrom`,
+`processBypassed`'s MIDI copy, the standalone's queues and `MidiBlockSync` must
+copy through the arena (or carry long dumps only through callback mode, as the
+device side already does); and `asSysEx()` returns a span rather than an array.
+It stays allocation-free on the audio thread, keeps `Event` small, and has no
+length limit besides the arena.
+
+**Recommendation.** Keep 32 for the port's first ship: no Modalics product
+originates a long SysEx, and the pass-through loss is limited to hosts that send
+one. If MIDIReMod or PluginBuddy must pass dumps through, choose B, scoped to
+`MIDI::Buffer`, the four plugin conversions and the hosting conversions (adding
+SysEx to `VST3HostedPlugin`); the device queues keep inline SysEx and callback
+mode. A is cheaper to write but
+pays its memory and copy cost on every event to solve a case it only half
+solves. Either way, AAX output needs its own packet splitting first.
+
 ## Decisions log
 
 - 2026-10-10: `Buffer` is one move-only class, owning or referring, offset-based
@@ -1085,3 +1170,30 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
   defaults `EACP_BUILD_WEBVIEW` OFF (a cache default, so `-DEACP_BUILD_WEBVIEW=ON`
   restores it); as a dependency, eacp's options stay the consumer's. Graphics,
   GPU and UI are unaffected. The root `.gitignore` ignores `node_modules/`.
+- 2026-10-19 (Modalics port): `Plugin::hostName()`, the host application's
+  name, set by the adapter through `PluginWrapper::setHostName` before layout
+  negotiation: VST3 from `IHostApplication::getName` in `initialize()`, AAX from
+  `AAX_IController::GetHostName` in `EffectInit`, the standalone as the plugin's
+  own name; AU and AUv3 leave it empty, having no such API. `hostProcessName()`
+  (`Core/HostProcess.h`, per-platform TUs) is the fallback, the one JUCE's
+  `PluginHostType` uses, and the only answer in a constructor or under AU.
+  `AAXCategory::MidiEffect` (appended) puts any plugin, an instrument included,
+  in `AAX_EPlugInCategory_MIDIEffect`, as EON-Arp-MIDI-Avid ships.
+  `getDefaultConfig()` stays as a legacy alias for the duplex config (restored on
+  2026-09-08); docs and examples use the direction-explicit calls.
+- 2026-10-19 (Modalics port, Phase 2 additions): `IdentityOverrides::
+  declaredBypassInAU` (`BypassPlacement`, every profile `Listed`) unlists a
+  declared bypass in AU and AUv3, as JUCE's AU never listed `getBypassParameter()`;
+  `listedInAU` now reads the added or the declared rule by which bypass it is.
+  `IdentityOverrides::juceKeyGroupSeparator` prefixes each grouped entry's
+  `hostKey` with its groups' own ids (computed in `assignIds`, since the identity
+  reaches a list only with `setIdentity`), so every key-reading rule sees the
+  JUCE build's full id. `PluginWrapper` sets `format()` before sampling
+  `getBusLayout()`; the AU adapter, the AU component description and the AAX
+  description set it on the instances they sample outside a wrapper. A
+  module-wide `currentPluginFormat()` is set by each format's entry point before
+  it creates a plugin. `ProcessContext::isOffline` comes from VST3's process
+  mode, AU's `OfflineRender` property, AUv3's `renderingOffline` and AAX's
+  offline-mode notifications. `Plugin::nameForMidiNote` (VST3 pitch names) is
+  deferred: it needs `IUnitInfo` and a program list, which nothing has yet.
+  New goldens `UnlistedBypassGain` and `GroupedKeys`; no existing one moved.

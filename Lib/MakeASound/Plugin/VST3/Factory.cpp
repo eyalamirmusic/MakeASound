@@ -22,6 +22,7 @@ FUnknown* createAdapter(void* context)
     try
     {
         const auto* description = static_cast<const PluginDescription*>(context);
+        setCurrentPluginFormat(PluginFormat::VST3);
         auto plugin = description->create();
 
         if (plugin == nullptr)

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string_view>
 
 namespace MakeASound
@@ -87,15 +88,20 @@ enum class AddedBypassId
     Index
 };
 
-// Whether an AU host sees the added bypass in the parameter list, or only
-// through kAudioUnitProperty_BypassEffect.
+// Whether an AU host sees a bypass in the parameter list, or only through
+// kAudioUnitProperty_BypassEffect (AUv3: shouldBypassEffect). Set apart for the
+// bypass PluginWrapper adds (addedBypassInAU) and the one the plugin declares
+// (declaredBypassInAU).
 enum class BypassPlacement
 {
-    // Listed, with versionHint 0, so first in a (hint, id) order.
+    // Listed: the added one with versionHint 0, so first in a (hint, id) order;
+    // a declared one with its own hint.
     Listed,
 
     // JUCE's AU and AUv3 do not list the bypass they answer through the
     // property, so listing it would move every Logic automation index by one.
+    // That holds for a JUCE plugin's own bypass too (getBypassParameter()),
+    // which a port declares with {.bypass = true}.
     Unlisted
 };
 
@@ -256,6 +262,20 @@ struct ParameterIdentity
     AddedBypassFor addedBypassFor = AddedBypassFor::Effects;
     AddedBypassId addedBypassId = AddedBypassId::PathHash;
     BypassPlacement addedBypassInAU = BypassPlacement::Listed;
+
+    // The declared bypass (a parameter with {.bypass = true}) in an AU list.
+    // Every profile lists it; IdentityOverrides::declaredBypassInAU unlists it.
+    BypassPlacement declaredBypassInAU = BypassPlacement::Listed;
+
+    // When set, every entry's hostKey is its enclosing groups' own ids,
+    // outermost first, each followed by this, then the parameter's hostKey():
+    // "Drive-Filter-EQ-Low" for "Low" in "EQ" in "Drive-Filter" under '-'. A
+    // root-level entry and the added bypass keep their own key. Every rule that
+    // reads the hostKey (JuceKeyHash, the AUv3 identifier and hash, the AAX
+    // KeyOrOverride id, JUCE's duplicate checks) sees the prefixed one. For a
+    // JUCE port whose ids carried their groups' prefix.
+    std::optional<char> juceKeyGroupSeparator = {};
+
     AUv3Ids auv3 = AUv3Ids::HostIdAndPath;
     AAXIdRule aaxIds = AAXIdRule::HexHostId;
     GroupIdRule groups = GroupIdRule::Path;

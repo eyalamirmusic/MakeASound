@@ -85,6 +85,13 @@ public:
     // The next render resets the plugin.
     void reset() noexcept;
 
+    // AUAudioUnit's renderingOffline, as the host sets it: each block's
+    // ProcessContext::isOffline.
+    void setRenderingOffline(bool offline) noexcept
+    {
+        renderingOffline.store(offline, std::memory_order_relaxed);
+    }
+
     // fullState is a Preset, fullStateForDocument a Session.
     NSDictionary<NSString*, id>* fullState(StateContext context);
     void setFullState(NSDictionary<NSString*, id>* state, StateContext context);
@@ -199,6 +206,7 @@ private:
     OwningPointer<Render> state;
 
     std::atomic<bool> resetPending {false};
+    std::atomic<bool> renderingOffline {false};
 
     // What the host last fetched; -1 while it has no baseline to be told about.
     std::atomic<int> lastReportedLatency {-1};

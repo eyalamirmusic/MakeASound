@@ -122,6 +122,10 @@ void checkProcessIsOffTheHeap(bool inPlace)
 
     host.configure(44100.0, 32);
     check(allocationsOverBlocks(host, inPlace, 32) == 0);
+
+    // A bounce: the offline flag on every block.
+    host.configure(44100.0, 32, Vst::kOffline);
+    check(allocationsOverBlocks(host, inPlace, 32) == 0);
 }
 
 auto tEffectProcess = test("Allocations/vst3EffectProcessIsOffTheHeap") = []

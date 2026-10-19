@@ -320,13 +320,15 @@ struct AdapterHost
     AdapterHost(const AdapterHost&) = delete;
     AdapterHost& operator=(const AdapterHost&) = delete;
 
-    void configure(double sampleRate, int maxSamplesPerBlock)
+    void configure(double sampleRate,
+                   int maxSamplesPerBlock,
+                   int32 processMode = Vst::kRealtime)
     {
         adapter->setProcessing(false);
         adapter->setActive(false);
 
         auto setup = Vst::ProcessSetup {
-            Vst::kRealtime, Vst::kSample32, maxSamplesPerBlock, sampleRate};
+            processMode, Vst::kSample32, maxSamplesPerBlock, sampleRate};
         adapter->setupProcessing(setup);
         adapter->setActive(true);
         adapter->setProcessing(true);

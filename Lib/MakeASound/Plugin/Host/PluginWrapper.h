@@ -12,7 +12,7 @@ namespace MakeASound
 {
 
 // The per-block pipeline every format adapter shares; a bad index is a no-op.
-// In order: parameters, setPlayhead, clearMidi/pushMidiIn/sortMidiInByOffset,
+// In order: parameters, setPlayhead and setOffline, clearMidi/pushMidiIn/sortMidiInByOffset,
 //   bindInput/bindOutput per bus, process(), drain midiOut().
 //
 // An effect that declares no bypass parameter gets one here (under a JUCE
@@ -97,6 +97,10 @@ public:
     // other (never the audio thread: queuing allocates), and dropped by teardown.
     void setTrackInfo(TrackInfo info);
 
+    // The host application's name, for the plugin's hostName(). Message thread,
+    // before setLayout() and prepare(), so the plugin can negotiate by it.
+    void setHostName(std::string name);
+
     // Host writes; each is dropped while the parameter is held.
     void setNormalizedParameter(int index, float normalized) noexcept;
     void setParameter(int index, float plain) noexcept;
@@ -111,6 +115,10 @@ public:
     bool isParameterHeld(int index) const noexcept;
 
     void setPlayhead(const Playhead& playhead) noexcept;
+
+    // Audio thread, beside setPlayhead: the block's ProcessContext::isOffline.
+    // It stays as set until set again.
+    void setOffline(bool offline) noexcept;
 
     void clearMidi() noexcept;
 

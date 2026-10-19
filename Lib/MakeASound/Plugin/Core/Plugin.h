@@ -27,6 +27,21 @@ enum class PluginFormat
     Standalone
 };
 
+// The format this module was last loaded as, for code with no plugin instance at
+// hand (a static layout helper, a "which wrapper am I" check), as JUCE's
+// PluginHostType::jucePlugInClientCurrentWrapperType. Unknown until a format's
+// entry point sets it: the VST3 factory's createInstance, the AU and AUv3
+// instance creation, AAX's EffectInit and the StandaloneHost constructor, each
+// before it creates the plugin. One value per loaded module (each bundle links
+// its own copy), so in practice per process; a process that loads two formats
+// of the same module at once, such as a test binary linking every adapter,
+// sees whichever set it last, which this does not support. Prefer
+// Plugin::format() wherever an instance exists. Any thread.
+PluginFormat currentPluginFormat() noexcept;
+
+// The entry points' half of currentPluginFormat().
+void setCurrentPluginFormat(PluginFormat format) noexcept;
+
 // Which format of which framework wrote a state that is not ours.
 enum class ForeignOrigin
 {
@@ -96,6 +111,16 @@ public:
     // Set by the wrapper right after construction, so valid from prepare() on.
     PluginFormat format() const noexcept { return pluginFormat; }
     void setFormat(PluginFormat formatToUse) noexcept { pluginFormat = formatToUse; }
+
+    // The host application's name as the host gives it ("Live", "Pro Tools
+    // 2024.6.0"), empty when it gives none. VST3 tells it in initialize()
+    // (IHostApplication::getName), AAX in EffectInit (AAX_IController::
+    // GetHostName, which carries a version), the standalone as the plugin's own
+    // name; AU and AUv3 have no API for it and leave it empty. Set by the adapter
+    // before the layout is negotiated and before prepare(), never before the
+    // constructor returns: code that needs a host earlier, or under AU, reads
+    // hostProcessName() (Core/HostProcess.h). Message thread.
+    const std::string& hostName() const noexcept { return hostApplicationName; }
 
     // The default accepts the declared channel counts and nothing else.
     virtual bool acceptsLayout(const BusLayout& proposed) const;
@@ -209,6 +234,10 @@ private:
     // The wrapper's, on the message thread: keeps it, then onTrackInfoChanged().
     void setTrackInfo(TrackInfo info);
     TrackInfo currentTrackInfo;
+
+    // The wrapper's, on the message thread.
+    void setHostName(std::string name);
+    std::string hostApplicationName;
 
     // The wrapper's, after the bypass: every host id under the plugin's
     // description's scheme, kept for a list set again later.

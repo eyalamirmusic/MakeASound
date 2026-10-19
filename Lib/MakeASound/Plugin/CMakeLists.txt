@@ -33,6 +33,17 @@ else ()
     target_sources(MakeASoundPlugin PRIVATE Realtime/MessageThread-Default.cpp)
 endif ()
 
+# hostProcessName(): the executable's name, however the platform tells it.
+if (APPLE)
+    target_sources(MakeASoundPlugin PRIVATE Core/HostProcess-Apple.cpp)
+elseif (WIN32)
+    target_sources(MakeASoundPlugin PRIVATE Core/HostProcess-Windows.cpp)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(MakeASoundPlugin PRIVATE Core/HostProcess-Linux.cpp)
+else ()
+    target_sources(MakeASoundPlugin PRIVATE Core/HostProcess-Default.cpp)
+endif ()
+
 # The core, not the device library: a plugin's host is its audio and MIDI. Only
 # the standalone format links MakeASound.
 target_link_libraries(MakeASoundPlugin PUBLIC MakeASoundCore PRIVATE eacp-core)

@@ -1,0 +1,87 @@
+plugin "Grouped" code Grpd scheme JUCE category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core overrides indexedThroughVersion -1 declaredBypassInAU Unlisted juceKeyGroupSeparator '-'
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
+core entry 1 "Drive-Filter/Amount" key "Drive-Filter-Amount" hint 1 automatable 1 session 0 bypass no hostId 1157565738 address 7523776394769487854 identifier "Drive-Filter-Amount" aaxId "Drive-Filter-Amount" groups {[Drive-Filter|Drive-Filter]}
+core entry 2 "Drive-Filter/EQ/Low" key "Drive-Filter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1244218181 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" aaxId "Drive-Filter-EQ-Low" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|EQ]}
+core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 2004703496 address 706374336526 identifier "Bypass" aaxId "MasterBypassID" groups {}
+vst3 class 0x56535447 0x72706467 0x726f7570 0x65640000
+vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1157565738 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 2 entry 2 id 1244218181 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 3 entry 3 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Grpd MaSo
+au list 2211743 1157565738 1244218181
+au param entry 0 id 2211743 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 0 address 74151583 identifier "Gain" strings 0
+au param entry 1 id 1157565738 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 1 address 7523776394769487854 identifier "Drive-Filter-Amount" strings 0
+au param entry 2 id 1244218181 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 2 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" strings 0
+au param entry 3 unlisted
+aax effect "com.makeasound.tests"
+aax native 2:0x6a636363
+aax param entry 0 id "Gain" automatable 1
+aax param entry 1 id "Drive-Filter-Amount" automatable 1
+aax param entry 2 id "Drive-Filter-EQ-Low" automatable 1
+aax param entry 3 id "MasterBypassID" automatable 1
+plugin "Grouped Leaf Keys" code Grpl scheme JUCE category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
+core entry 1 "Drive-Filter/Amount" key "Amount" hint 1 automatable 1 session 0 bypass no hostId 1964981368 address 694614684428 identifier "Amount" aaxId "Amount" groups {[Drive-Filter|Drive-Filter]}
+core entry 2 "Drive-Filter/EQ/Low" key "Low" hint 1 automatable 1 session 0 bypass no hostId 76596 address 786606 identifier "Low" aaxId "Low" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|EQ]}
+core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 2004703496 address 706374336526 identifier "Bypass" aaxId "MasterBypassID" groups {}
+vst3 class 0x56535447 0x72706c67 0x726f7570 0x6564206c
+vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1964981368 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 2 entry 2 id 76596 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 3 entry 3 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Grpl MaSo
+au list 76596 2211743 1964981368 2004703496
+au param entry 0 id 2211743 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 0 address 74151583 identifier "Gain" strings 0
+au param entry 1 id 1964981368 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 1 address 694614684428 identifier "Amount" strings 0
+au param entry 2 id 76596 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 2 address 786606 identifier "Low" strings 0
+au param entry 3 id 2004703496 position 3 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 3 address 706374336526 identifier "Bypass" strings 1
+aax effect "com.makeasound.tests"
+aax native 2:0x6a636363
+aax param entry 0 id "Gain" automatable 1
+aax param entry 1 id "Amount" automatable 1
+aax param entry 2 id "Low" automatable 1
+aax param entry 3 id "MasterBypassID" automatable 1
+plugin "Grouped Native" code Grpn scheme Native category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
+core entry 1 "Drive-Filter/Amount" key "Amount" hint 1 automatable 1 session 0 bypass no hostId 664227721 address 664227721 identifier "Drive-Filter/Amount" aaxId "27974f89" groups {[Drive-Filter|Drive-Filter]}
+core entry 2 "Drive-Filter/EQ/Low" key "Low" hint 1 automatable 1 session 0 bypass no hostId 101390374 address 101390374 identifier "Drive-Filter/EQ/Low" aaxId "060b1826" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|Drive-Filter/EQ]}
+core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 877923789 address 877923789 identifier "Bypass" aaxId "34540dcd" groups {}
+vst3 class 0x4d61536f 0x4772706e 0x56535433 0x00000000
+vst3 param 0 entry 0 id 461402910 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 664227721 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 2 entry 2 id 101390374 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 3 entry 3 id 877923789 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Grpn MaSo
+au list 101390374 461402910 664227721 877923789
+au param entry 0 id 461402910 position 1 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 0 address 461402910 identifier "Gain" strings 0
+au param entry 1 id 664227721 position 2 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 1 address 664227721 identifier "Drive-Filter/Amount" strings 0
+au param entry 2 id 101390374 position 0 min -12 max 12 default 0 unit 0 flags 0xc8800010 mid 0 strings 0
+auv3 param entry 2 address 101390374 identifier "Drive-Filter/EQ/Low" strings 0
+au param entry 3 id 877923789 position 3 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 3 address 877923789 identifier "Bypass" strings 1
+aax effect "com.makeasound.tests.Grpn"
+aax native 2:0x47727070
+aax param entry 0 id "1b80731e" automatable 1
+aax param entry 1 id "27974f89" automatable 1
+aax param entry 2 id "060b1826" automatable 1
+aax param entry 3 id "34540dcd" automatable 1

@@ -42,12 +42,20 @@ std::string portName(int id, const Vector<MidiPortInfo>& ports)
 
     return {};
 }
+
+// The standalone is its own host: the plugin's name, or "Standalone".
+std::string standaloneHostName(const Plugin& plugin)
+{
+    auto name = plugin.name();
+    return name.empty() ? std::string("Standalone") : std::string(name);
+}
 } // namespace
 
 OwningPointer<Plugin>
     StandaloneHost::createFirstPlugin(const ModuleDescription& module)
 {
     assert(!module.plugins.empty() && "describeModule() names no plugin");
+    setCurrentPluginFormat(PluginFormat::Standalone);
     return module.plugins[0].create();
 }
 
@@ -63,6 +71,7 @@ StandaloneHost::StandaloneHost(const ModuleDescription& module)
     , settingsPathName(settingsPath(module.vendor, pluginWrapper.plugin().name()))
     , juceSettingsName(juceImportPath(module.plugins[0]))
 {
+    pluginWrapper.setHostName(standaloneHostName(pluginWrapper.plugin()));
     restoreSession();
 }
 
@@ -84,6 +93,9 @@ StandaloneHost::StandaloneHost(OwningPointer<Plugin> plugin,
     , settingsPathName(std::move(settingsFile))
     , juceSettingsName(std::move(juceSettingsFile))
 {
+    // The plugin came already built; from here on, the module is a standalone.
+    setCurrentPluginFormat(PluginFormat::Standalone);
+    pluginWrapper.setHostName(standaloneHostName(pluginWrapper.plugin()));
     restoreSession();
 }
 

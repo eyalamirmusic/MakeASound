@@ -145,7 +145,10 @@ bool describeEffect(AAX_ICollection& collection,
                     const PluginDescription& plugin,
                     std::string_view bundleId)
 {
+    // Described as the adapter will run it: a layout may depend on the format.
+    setCurrentPluginFormat(PluginFormat::AAX);
     auto instance = plugin.create();
+    instance->setFormat(PluginFormat::AAX);
     auto declared = instance->getBusLayout();
 
     auto accepted = Vector<std::pair<int, BusLayout>> {};
@@ -231,6 +234,8 @@ uint32_t categoryFor(const PluginDescription& plugin) noexcept
             return AAX_EPlugInCategory_Effect;
         case AAXCategory::Instrument:
             return AAX_ePlugInCategory_SWGenerators;
+        case AAXCategory::MidiEffect:
+            return AAX_EPlugInCategory_MIDIEffect;
         case AAXCategory::Default:
             break;
     }

@@ -74,7 +74,9 @@ public:
         // Outermost first; empty for a parameter of the root group.
         Vector<EnclosingGroup> groups;
 
-        // The parameter's hostKey(): the leaf key a JUCE scheme hashes.
+        // The key a JUCE scheme hashes: the parameter's hostKey(), its leaf
+        // key, or under ParameterIdentity::juceKeyGroupSeparator that key
+        // prefixed with its groups' own ids.
         std::string hostKey;
 
         // The AUv3 AUParameterAddress, by AUv3Ids: the host id;
@@ -94,7 +96,8 @@ public:
         // The bypass PluginWrapper added, rather than one the plugin declared.
         bool addedBypass = false;
 
-        // False only for the added bypass under BypassPlacement::Unlisted.
+        // False only for the bypass entry whose placement (addedBypassInAU or
+        // declaredBypassInAU) is BypassPlacement::Unlisted.
         bool listedInAU = true;
 
         // Under ParamIdRule::Index, an entry added after the port: its

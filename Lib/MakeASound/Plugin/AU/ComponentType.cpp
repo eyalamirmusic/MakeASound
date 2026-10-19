@@ -12,6 +12,11 @@ ComponentInfo componentInfoFor(const ModuleDescription& module,
                                const PluginDescription& plugin)
 {
     auto created = plugin.create ? plugin.create() : OwningPointer<Plugin> {};
+
+    // Described as the adapter will run it: a layout may depend on the format.
+    if (created)
+        created->setFormat(PluginFormat::AU);
+
     auto layout = created ? created->getBusLayout() : BusLayout {};
 
     auto info = ComponentInfo {.subtype = plugin.pluginCode.toUint32(),

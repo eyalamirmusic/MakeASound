@@ -86,6 +86,14 @@ struct ProcessContext
     Playhead playhead;
     ParameterChanges paramChanges;
 
+    // The host renders this block faster or slower than real time (a bounce,
+    // an export), so the plugin may trade speed for quality and must not count
+    // on the wall clock. The VST3 adapter reads ProcessSetup::processMode ==
+    // kOffline, the AU kAudioUnitProperty_OfflineRender, the AUv3
+    // renderingOffline, and AAX its Entering/ExitingOfflineMode notifications;
+    // a device stream and the standalone are always real time.
+    bool isOffline = false;
+
 private:
     Buffer detachedInput;
     Buffer detachedOutput;

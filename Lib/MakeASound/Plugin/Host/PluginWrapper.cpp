@@ -24,18 +24,24 @@ float stepTowards(float from, float target, float step) noexcept
     return from < target ? std::min(target, from + step)
                          : std::max(target, from - step);
 }
+
+// Before anything samples the plugin: a layout may depend on format().
+OwningPointer<Plugin> withFormat(OwningPointer<Plugin> plugin, PluginFormat format)
+{
+    plugin->setFormat(format);
+    return plugin;
+}
 } // namespace
 
 PluginWrapper::PluginWrapper(OwningPointer<Plugin> pluginToUse,
                              PluginFormat format,
                              ParameterIdentity identity)
-    : pluginPtr(std::move(pluginToUse))
+    : pluginPtr(withFormat(std::move(pluginToUse), format))
     , layout(pluginPtr->getBusLayout())
     , holdCounts(addBypassAndCount(*pluginPtr, identity), 0)
     , live(std::make_shared<Live>())
 {
     live->plugin = pluginPtr.get();
-    pluginPtr->setFormat(format);
     context.prepare(layout);
 }
 
@@ -300,6 +306,11 @@ void PluginWrapper::setTrackInfo(TrackInfo info)
         });
 }
 
+void PluginWrapper::setHostName(std::string name)
+{
+    pluginPtr->setHostName(std::move(name));
+}
+
 bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
 {
     try
@@ -408,6 +419,11 @@ bool PluginWrapper::isParameterHeld(int index) const noexcept
 void PluginWrapper::setPlayhead(const Playhead& playhead) noexcept
 {
     context.playhead = playhead;
+}
+
+void PluginWrapper::setOffline(bool offline) noexcept
+{
+    context.isOffline = offline;
 }
 
 void PluginWrapper::clearMidi() noexcept

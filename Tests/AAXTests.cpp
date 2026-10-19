@@ -263,6 +263,12 @@ auto tCategory = test("AAX/theCategoryDefaultsByKindUnlessNamed") = []
     plugin.category = Category::Effect;
     plugin.aaxCategory = AAXCategory::Dynamics;
     check(Format::categoryFor(plugin) == AAX_ePlugInCategory_Dynamics);
+
+    // An instrument in Pro Tools' MIDI effect category, as a JUCE synth with
+    // AAX_EPlugInCategory_MIDIEffect shipped.
+    plugin.category = Category::Instrument;
+    plugin.aaxCategory = AAXCategory::MidiEffect;
+    check(Format::categoryFor(plugin) == AAX_EPlugInCategory_MIDIEffect);
 };
 
 auto tPrepare = test("AAX/initializePreparesThePluginAtTheControllersRate") = []
@@ -948,6 +954,32 @@ auto tTrackName = test("AAX/aTrackNameNotificationReachesTheTrackInfo") = []
     host.adapter->NotificationReceived(
         AAX_eNotificationEvent_TrackNameChanged, nullptr, 0);
     check(plugin.trackInfoChanges == 1);
+};
+
+auto tOffline = test("AAX/theOfflineModeNotificationsReachTheBlock") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    check(currentPluginFormat() == PluginFormat::AAX);
+
+    host.render(blockSize);
+    check(!host.plugin().offline);
+
+    host.adapter->NotificationReceived(
+        AAX_eNotificationEvent_EnteringOfflineMode, nullptr, 0);
+    host.render(blockSize);
+    check(host.plugin().offline);
+
+    host.adapter->NotificationReceived(
+        AAX_eNotificationEvent_ExitingOfflineMode, nullptr, 0);
+    host.render(blockSize);
+    check(!host.plugin().offline);
+};
+
+// FakeController::GetHostName answers "MakeASound Tests".
+auto tHostName = test("AAX/effectInitTellsThePluginTheHostName") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    check(host.plugin().hostName() == "MakeASound Tests");
 };
 
 auto tMirror = test("AAX/aValueThePluginMovesReachesTheHostOnTheTimer") = []

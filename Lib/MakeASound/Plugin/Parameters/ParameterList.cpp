@@ -50,6 +50,25 @@ std::string_view firstCodePoints(std::string_view utf8, int count) noexcept
     return utf8;
 }
 
+// The parameter's own key, under the separator prefixed with each enclosing
+// group's own id, outermost first, each followed by it.
+std::string groupedKey(const ParameterList::Entry& entry,
+                       std::optional<char> separator)
+{
+    auto key = std::string {};
+
+    if (separator)
+    {
+        for (const auto& group: entry.groups)
+        {
+            key += group.ownId;
+            key += *separator;
+        }
+    }
+
+    return key + entry.param->hostKey();
+}
+
 std::string shared(const std::string& what,
                    const std::string& first,
                    const std::string& second)
@@ -194,6 +213,8 @@ void ParameterList::assignIds()
     for (auto position = 0; position < entries.size(); ++position)
     {
         auto& entry = entries[position];
+        entry.hostKey = groupedKey(entry, ids.juceKeyGroupSeparator);
+
         auto indexRule = ids.paramIds == ParamIdRule::Index;
 
         entry.postPort = indexRule && !entry.addedBypass
@@ -265,8 +286,9 @@ void ParameterList::finishIds(Entry& entry) const
     if (ids.aaxIds != AAXIdRule::HexHostId && entry.bypass)
         entry.aaxId = std::string {juceAAXBypassId};
 
-    entry.listedInAU =
-        !(entry.addedBypass && ids.addedBypassInAU == BypassPlacement::Unlisted);
+    auto placement =
+        entry.addedBypass ? ids.addedBypassInAU : ids.declaredBypassInAU;
+    entry.listedInAU = !(entry.bypass && placement == BypassPlacement::Unlisted);
 
     for (auto& group: entry.groups)
         group.identifier = ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
