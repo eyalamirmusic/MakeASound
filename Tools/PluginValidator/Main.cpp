@@ -1,31 +1,25 @@
-// PluginValidator [--strictness N] [--skip-gui-tests] [--timeout-ms N]
-//                 [--version vX.Y.Z] [--stress N] [--aax-tools <dir>]
-//                 [--logs <dir>] <bundle or folder>...
-//
-// Validates each bundle named, and every .vst3, .component and .aaxplugin in each
-// folder named: a .vst3 through Tracktion's pluginval, a .component through
-// auval -strict after installing it into the user's Components folder, an
-// .aaxplugin through every aaxval test in the AAX Validator folder that
-// --aax-tools or MAKEASOUND_AAX_TOOLS names (both macOS only). Exits with the
-// number that failed. It knows nothing of this build: what to validate is always
-// an argument.
+// PluginValidator: pluginval, auval or aaxval over the bundles and folders named
+// on the command line (--help lists the options).
 
 #include <MakeASound/Plugin/Validation/Pluginval.h>
 
+#include <eacp/Core/App/Args.h>
+#include <eacp/Core/Utils/Console.h>
 #include <eacp/Core/Utils/Files.h>
 #include <eacp/Core/Utils/StdPath.h>
+#include <eacp/Core/Utils/Strings.h>
 
 #include <algorithm>
-#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <string>
-#include <string_view>
+#include <cmath>
 
 namespace Pluginval = MakeASound::Pluginval;
+namespace Console = eacp::Console;
+namespace Strings = eacp::Strings;
 
 namespace
 {
@@ -35,25 +29,6 @@ struct Arguments
     eacp::FilePath logs {std::filesystem::temp_directory_path() / "PluginValidator"};
     MakeASound::Vector<eacp::FilePath> bundles;
 };
-
-void printUsage()
-{
-    std::cerr
-        << "usage: PluginValidator [--strictness N] [--skip-gui-tests] "
-           "[--timeout-ms N] [--version vX.Y.Z] [--stress N] [--aax-tools <dir>] "
-           "[--logs <dir>] <bundle or folder>...\n"
-           "  .vst3: pluginval (--strictness, --skip-gui-tests, --timeout-ms, "
-           "--version)\n"
-           "  .component: auval -strict (--stress), macOS only\n"
-           "  .aaxplugin: aaxval from the AAX Validator folder --aax-tools or "
-           "MAKEASOUND_AAX_TOOLS names, macOS only\n";
-}
-
-eacp::FilePath aaxToolsFromEnvironment()
-{
-    auto* folder = std::getenv("MAKEASOUND_AAX_TOOLS");
-    return folder == nullptr ? eacp::FilePath {} : eacp::FilePath {folder};
-}
 
 bool isFolderOfBundles(const eacp::FilePath& path)
 {
@@ -71,51 +46,25 @@ bool isFolderOfBundles(const eacp::FilePath& path)
            && extension != ".aaxplugin";
 }
 
-Arguments parseArguments(int argc, char* argv[])
+// Each folder named becomes the bundles directly inside it.
+MakeASound::Vector<eacp::FilePath>
+    expandFolders(const MakeASound::Vector<eacp::FilePath>& paths)
 {
-    auto args = Arguments {};
-    args.options.aaxTools = aaxToolsFromEnvironment();
+    auto bundles = MakeASound::Vector<eacp::FilePath> {};
 
-    for (auto i = 1; i < argc; ++i)
+    for (const auto& path: paths)
     {
-        auto arg = std::string_view {argv[i]};
-
-        auto value = [&]
+        if (!isFolderOfBundles(path))
         {
-            if (i + 1 >= argc)
-                throw std::invalid_argument(std::string(arg) + " needs a value");
+            bundles.push_back(path);
+            continue;
+        }
 
-            return std::string {argv[++i]};
-        };
-
-        if (arg == "--strictness")
-            args.options.strictness = std::stoi(value());
-        else if (arg == "--skip-gui-tests")
-            args.options.guiTests = false;
-        else if (arg == "--timeout-ms")
-            args.options.timeout = {std::stoll(value())};
-        else if (arg == "--version")
-            args.options.version = value();
-        else if (arg == "--stress")
-            args.options.stress = std::stoi(value());
-        else if (arg == "--aax-tools")
-            args.options.aaxTools = eacp::FilePath {value()};
-        else if (arg == "--logs")
-            args.logs = eacp::FilePath {value()};
-        else if (arg.starts_with("--"))
-            throw std::invalid_argument("unknown option " + std::string(arg));
-        else if (auto path = eacp::FilePath {std::string {arg}};
-                 isFolderOfBundles(path))
-            for (auto& bundle: Pluginval::findBundles(path))
-                args.bundles.push_back(std::move(bundle));
-        else
-            args.bundles.emplace_back(std::move(path));
+        for (const auto& bundle: Pluginval::findBundles(path))
+            bundles.push_back(bundle);
     }
 
-    if (args.bundles.empty())
-        throw std::invalid_argument("nothing to validate");
-
-    return args;
+    return bundles;
 }
 
 std::string toolFor(const eacp::FilePath& bundle)
@@ -163,7 +112,7 @@ void printTail(const std::string& log, int count)
     auto first = std::max(0, lines.size() - count);
 
     for (auto i = first; i < lines.size(); ++i)
-        std::cout << "    " << lines[i] << '\n';
+        Console::print("    " + lines[i]);
 }
 
 int run(const Arguments& args)
@@ -179,24 +128,24 @@ int run(const Arguments& args)
 
     for (const auto& bundle: args.bundles)
     {
-        std::cout << toolFor(bundle) << ' ' << bundleName(bundle) << " ..."
-                  << std::endl;
+        auto name = bundleName(bundle);
+        Console::print(Strings::concat(toolFor(bundle), " ", name, " ..."));
 
         auto result = Pluginval::validate(pluginval, bundle, args.options);
         auto log = writeLog(result, args.logs);
-        auto seconds = static_cast<int>(result.seconds + 0.5);
+        auto seconds = std::lround(result.seconds);
 
         if (result.passed)
         {
-            std::cout << "PASS " << bundleName(bundle) << " (" << seconds << " s)\n";
+            Console::print(Strings::concat("PASS ", name, " (", seconds, " s)"));
             continue;
         }
 
         ++failures;
-        std::cout << "FAIL " << bundleName(bundle) << " (exit " << result.exitCode
-                  << ", " << seconds << " s)\n";
+        Console::print(Strings::concat(
+            "FAIL ", name, " (exit ", result.exitCode, ", ", seconds, " s)"));
         printTail(result.log, 25);
-        std::cout << "    full log: " << log.str() << '\n';
+        Console::print("    full log: " + log.str());
     }
 
     return failures;
@@ -205,19 +154,55 @@ int run(const Arguments& args)
 
 int main(int argc, char* argv[])
 {
+    auto args = Arguments {};
+    auto paths = MakeASound::Vector<eacp::FilePath> {};
+    auto& options = args.options;
+
+    auto cli = eacp::Args::Parser {
+        "PluginValidator",
+        "Validates each bundle named, and every .vst3, .component and .aaxplugin "
+        "in each folder named: a .vst3 through Tracktion's pluginval, a "
+        ".component through auval -strict after installing it into the user's "
+        "Components folder, an .aaxplugin through every aaxval test in the AAX "
+        "Validator folder (both macOS only)."};
+
+    cli.option("--strictness", options.strictness, "pluginval's strictness level")
+        .atLeast(1)
+        .atMost(10);
+    cli.flag("--skip-gui-tests", options.guiTests, "skip pluginval's editor tests")
+        .negated();
+    cli.option("--timeout-ms",
+               options.timeout.count,
+               "pluginval's timeout per test, in milliseconds")
+        .atLeast(1);
+    cli.option("--version", options.version, "the pluginval release to fetch");
+    cli.option("--stress", options.stress, "auval's -stress iterations, 0 for none")
+        .atLeast(0);
+    cli.option("--aax-tools",
+               options.aaxTools,
+               "the unpacked AAX Validator folder, holding CommandLineTools/dsh")
+        .fromEnv("MAKEASOUND_AAX_TOOLS");
+    cli.option("--logs", args.logs, "where each bundle's full log is written");
+    cli.positional(paths, "bundle", "a bundle, or a folder of bundles");
+    cli.epilogue("Exits with the number of bundles that failed, or 2 when the "
+                 "arguments are unusable. It knows nothing of this build: what to "
+                 "validate is always an argument, such as <build>/VST3.");
+
+    if (auto code = cli.exitCodeFor(cli.parse(argc, argv)))
+        return *code;
+
     try
     {
-        return run(parseArguments(argc, argv));
-    }
-    catch (const std::invalid_argument& e)
-    {
-        std::cerr << "PluginValidator: " << e.what() << '\n';
-        printUsage();
-        return 1;
+        args.bundles = expandFolders(paths);
+
+        if (args.bundles.empty())
+            return cli.fail("nothing to validate");
+
+        return run(args);
     }
     catch (const std::exception& e)
     {
-        std::cerr << "PluginValidator: " << e.what() << '\n';
+        Console::printError(Strings::concat("PluginValidator: ", e.what()));
         return 1;
     }
 }

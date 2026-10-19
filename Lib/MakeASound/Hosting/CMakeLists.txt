@@ -24,6 +24,7 @@ add_library(MakeASoundHosting STATIC
         HostedPlugin.cpp
         PluginCache.cpp
         Scan/ExecutablePath.cpp
+        Scan/ScanArgs.cpp
         Scan/ScanCoordinator.cpp
         Scan/Scanner.cpp
         Scan/ScanSession.cpp

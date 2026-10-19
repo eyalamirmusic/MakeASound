@@ -13,7 +13,7 @@ std::string pathOrDefault(const std::string& path)
 
 Host::Host(HostOptions optionsToUse)
     : options(std::move(optionsToUse))
-    , cache(pathOrDefault(options.cachePath))
+    , cache(pathOrDefault(options.scan.cachePath))
 {
     formats.addDefaultFormats();
 
@@ -30,16 +30,11 @@ Host::~Host()
 
 void Host::scan(bool force, bool autoPoll)
 {
-    auto sweep = Hosting::ScanSessionOptions();
+    auto sweep = options.scan;
     sweep.cachePath = cache.path();
-    sweep.searchFolders = options.folders;
-    sweep.useDefaultFolders = options.useDefaultFolders;
-    sweep.formats = options.scanFormats;
     sweep.forceRescan = force;
-    sweep.worker = options.worker;
-    sweep.timeoutMs = options.scanTimeoutMs;
 
-    session = EA::makeOwned<Hosting::ScanSession>(formats, sweep);
+    session = EA::makeOwned<Hosting::ScanSession>(formats, std::move(sweep));
 
     session->onTargetFinished =
         [this](int done, int total, const Hosting::ModuleScan& scan)

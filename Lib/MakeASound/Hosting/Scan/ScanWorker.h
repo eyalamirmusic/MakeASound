@@ -66,27 +66,43 @@ void printScanResult(const ModuleScan& scan);
 // with a path (Miro's reader is forgiving, so the path is the shape check).
 std::optional<ModuleScan> decodeScanResult(std::string_view workerOutput);
 
-// Runs the scan when argv asks for one, and answers the exit code for main() to
-// return; nullopt when it does not, so main() carries on:
+// Runs the scan when the command line asks for one, and answers the exit code
+// for main() to return; nullopt when it does not, so main() carries on. It
+// reads the command line eacp stored (eacp::Apps::runConsole or
+// setCommandLineArgs), so nothing passes argc/argv down to it:
 //
-//     int main(int argc, char** argv)
+//     int runRequestedMode()
 //     {
 //         auto formats = FormatManager();
 //         formats.addDefaultFormats();
 //
-//         if (auto code = runScanWorkerIfRequested(argc, argv, formats))
+//         if (auto code = runScanWorkerIfRequested(formats))
 //             return *code;
 //         ...
+//     }
+//
+//     int main(int argc, char** argv)
+//     {
+//         return eacp::Apps::runConsole(argc, argv, runRequestedMode);
 //     }
 //
 // The target is classified and scanned through `formats`, so a worker answers
 // about exactly the formats its host adds. Call with an event loop available on
 // this thread: loading a plugin expects one.
+std::optional<int> runScanWorkerIfRequested(const FormatManager& formats);
+
+// The same over an explicit argv, argv[0] skipped, for a main() that has not
+// stored its command line with eacp.
 std::optional<int>
     runScanWorkerIfRequested(int argc, char** argv, const FormatManager& formats);
 
-// The target after the scan argument, nullopt when the argument is absent, and
-// an empty string when it is there with nothing after it.
+// The target after the scan argument in the stored command line, nullopt when
+// the argument is absent, and an empty string when it is there with nothing
+// after it. Cheap, and loads nothing: a main() asks it to decide between the
+// worker and the app before starting either.
+std::optional<std::string> requestedScanTarget();
+
+// The same over an explicit argv, argv[0] skipped.
 std::optional<std::string> requestedScanTarget(int argc, char** argv);
 
 } // namespace MakeASound::Hosting

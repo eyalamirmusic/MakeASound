@@ -17,21 +17,11 @@ using namespace MakeASound;
 
 struct HostOptions
 {
-    // The plugin database. Empty: this app's own, in its application-data
-    // folder (Hosting::defaultPluginCachePath()).
-    std::string cachePath;
-
-    // Where to look besides the formats' own folders, and whether to look there.
-    Vector<std::string> folders;
-    bool useDefaultFolders = true;
-
-    // The formats a scan sweeps; empty for every one this platform hosts.
-    Vector<PluginFormat> scanFormats;
-
-    // Who loads each plugin during a scan (this app relaunched, by default) and
-    // how long one may take.
-    Hosting::WorkerCommand worker = Hosting::defaultWorkerCommand();
-    int scanTimeoutMs = 30000;
+    // What a scan sweeps, as ScanSessionOptions' defaults have it: this app's
+    // own database (Hosting::defaultPluginCachePath()), every format this
+    // platform hosts, and this app relaunched as the worker. Its forceRescan is
+    // scan()'s argument.
+    Hosting::ScanSessionOptions scan;
 
     // What a loaded plugin shows as its editor; empty, and it shows none.
     Hosting::HostedEditorFactory editors;

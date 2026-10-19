@@ -2,7 +2,7 @@
 # as, in one binary, which other apps can ship as their scanner. A plain
 # executable, not an app bundle: the linker's ad hoc signature is all it needs to
 # load third-party bundles here. See Docs/PluginScanning.md for shipping one.
-add_executable(PluginScanner main.cpp Options.cpp)
+add_executable(PluginScanner main.cpp)
 
 makeasound_enable_hosting(PluginScanner)
 target_link_libraries(PluginScanner PRIVATE eacp-core)
