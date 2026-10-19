@@ -171,7 +171,7 @@ it, free of the graphics stack.
 Turns a target that already exists, an app or a plugin, into a host:
 
 ```cmake
-add_executable(MyHost main.cpp)
+add_executable(MyHost Main.cpp)
 makeasound_enable_hosting(MyHost)
 ```
 

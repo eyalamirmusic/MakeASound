@@ -40,14 +40,23 @@ endif ()
 # standalone format, the main test suite).
 option(MAKEASOUND_BUILD_DEVICES
        "Build MakeASound, the device library (audio and MIDI I/O; fetches miniaudio)" ON)
-option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (top-level builds only)" ON)
-option(MAKEASOUND_BUILD_TESTS "Build the unit tests (top-level builds only)" ON)
-option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
+# What a top-level build builds beyond the libraries: the apps, the example plugins,
+# the tools and the tests, plus the plugin core and hosting by default. A consumer
+# gets none of it, but a workspace that adds this tree as a subdirectory to build it
+# against local checkouts wants all of it, and cannot make PROJECT_IS_TOP_LEVEL true,
+# so it sets this instead.
+option(MAKEASOUND_BUILD_ALL
+       "Build the apps, examples, tools and tests too (default: only as the top-level project)"
        ${PROJECT_IS_TOP_LEVEL})
+option(MAKEASOUND_BUILD_APPS "Build the example/demo apps (with MAKEASOUND_BUILD_ALL only)" ON)
+option(MAKEASOUND_BUILD_TESTS "Build the unit tests (with MAKEASOUND_BUILD_ALL only)" ON)
+option(MAKEASOUND_BUILD_PLUGIN "Build MakeASoundPlugin, the SDK-free plugin core (needs eacp)"
+       ${MAKEASOUND_BUILD_ALL})
 option(MAKEASOUND_BUILD_HOSTING
        "Build MakeASoundHosting, scanning and loading third-party plugins (needs MAKEASOUND_BUILD_PLUGIN)"
-       ${PROJECT_IS_TOP_LEVEL})
-option(MAKEASOUND_BUILD_EXAMPLES "Build the example plugins in Plugins/ (top-level builds only)" ON)
+       ${MAKEASOUND_BUILD_ALL})
+option(MAKEASOUND_BUILD_EXAMPLES
+       "Build the example plugins in Plugins/ (with MAKEASOUND_BUILD_ALL only)" ON)
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" ON)
 option(MAKEASOUND_BUILD_AAX
        "Fetch Avid's AAX SDK and build the AAX format (macOS, Windows x64; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
@@ -110,12 +119,12 @@ endif ()
 
 add_subdirectory(Lib)
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_APPS AND MAKEASOUND_BUILD_DEVICES
+if (MAKEASOUND_BUILD_ALL AND MAKEASOUND_BUILD_APPS AND MAKEASOUND_BUILD_DEVICES
         AND NOT MAKEASOUND_DESCRIBE_BUILD)
     add_subdirectory(Apps)
 endif ()
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUGIN)
+if (MAKEASOUND_BUILD_ALL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(Plugins)
 
     if (NOT MAKEASOUND_DESCRIBE_BUILD)
@@ -123,7 +132,7 @@ if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_EXAMPLES AND MAKEASOUND_BUILD_PLUG
     endif ()
 endif ()
 
-if (PROJECT_IS_TOP_LEVEL AND MAKEASOUND_BUILD_TESTS AND NOT MAKEASOUND_DESCRIBE_BUILD)
+if (MAKEASOUND_BUILD_ALL AND MAKEASOUND_BUILD_TESTS AND NOT MAKEASOUND_DESCRIBE_BUILD)
     enable_testing()
     add_subdirectory(Tests)
 endif ()

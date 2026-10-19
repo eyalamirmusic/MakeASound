@@ -1,0 +1,13 @@
+Worker mode:
+  PluginScanner --makeasound-scan <target>
+
+loads one target, a .vst3 module or an Audio Unit identifier
+(type:subtype:manufacturer), and prints one line to stdout: MAKEASOUND_SCAN:
+followed by the result as compact JSON. See MakeASound's Docs/PluginScanning.md.
+
+Exit codes:
+  0  answered (a plugin that failed to load is an answer, not a failure)
+  2  the arguments made no sense
+  3  worker: nothing is installed under that name
+  4  worker: no format claims the target
+  5  the database could not be written
