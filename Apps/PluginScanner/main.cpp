@@ -10,9 +10,11 @@
 // to load a plugin (VST3 module init, an AUv3's asynchronous instantiation), and
 // the sweep runs there too so both share one exit path.
 
-#include "Options.h"
+#include <MakeASound/Hosting/MakeASoundHosting.h>
 
 #include <eacp/Core/App/App.h>
+#include <eacp/Core/App/Args.h>
+#include <eacp/Core/Utils/Strings.h>
 
 #include <chrono>
 #include <cstdio>
@@ -23,6 +25,39 @@ using namespace MakeASound::Hosting;
 
 namespace
 {
+namespace Strings = eacp::Strings;
+
+// What a sweep returns besides Args::badArguments. Worker mode returns
+// ScanWorkerExit's codes, which share 0 and 2 with these.
+constexpr auto exitOk = 0;
+constexpr auto exitDatabaseNotWritten = 5;
+
+constexpr auto description =
+    R"(Describes the audio plugins installed on this machine.
+
+A sweep finds every VST3 module in the platform's VST3 folders and, on macOS,
+every hostable Audio Unit, then loads each one in a WORKER PROCESS: this binary
+relaunched with --makeasound-scan, several at a time. A plugin that crashes or
+hangs takes down only its own worker and is recorded as crashed.
+
+A sweep is incremental: only plugins that are new or changed since the last one
+are loaded. A plugin that failed stays blacklisted until it changes, and one no
+longer installed is dropped. --force starts from nothing.)";
+
+constexpr auto epilogue = R"(Worker mode:
+  PluginScanner --makeasound-scan <target>
+
+loads one target, a .vst3 module or an Audio Unit identifier
+(type:subtype:manufacturer), and prints one line to stdout: MAKEASOUND_SCAN:
+followed by the result as compact JSON. See MakeASound's Docs/PluginScanning.md.
+
+Exit codes:
+  0  answered (a plugin that failed to load is an answer, not a failure)
+  2  the arguments made no sense
+  3  worker: nothing is installed under that name
+  4  worker: no format claims the target
+  5  the database could not be written)";
+
 const char* statusWord(const ModuleScan& scan)
 {
     if (scan.crashed)
@@ -36,33 +71,15 @@ std::string detailText(const ModuleScan& scan)
     if (!scan.error.empty())
         return scan.error;
 
-    return std::to_string(scan.classes.size())
-           + (scan.classes.size() == 1 ? " class" : " classes");
-}
-
-ScanSessionOptions sessionOptionsFor(const PluginScanner::Options& options)
-{
-    auto result = ScanSessionOptions();
-
-    result.cachePath = options.outputPath;
-    result.searchFolders = options.folders;
-    result.useDefaultFolders = options.useDefaultFolders;
-    result.formats = options.formats;
-    result.forceRescan = options.force;
-    result.jobs = options.jobs;
-    result.timeoutMs = options.timeoutMs;
-
-    // The workers are this binary relaunched, the default.
-    result.worker = defaultWorkerCommand();
-
-    return result;
+    const auto count = scan.classes.size();
+    return Strings::concat(count, count == 1 ? " class" : " classes");
 }
 
 // Prints what the sweep reports, all of it on stderr: stdout is the worker
 // protocol's, and a sweep's stays empty.
-int sweep(const FormatManager& formats, const PluginScanner::Options& options)
+int sweep(const FormatManager& formats, ScanSessionOptions options)
 {
-    auto session = ScanSession(formats, sessionOptionsFor(options));
+    auto session = ScanSession(formats, std::move(options));
     auto saved = false;
 
     session.onStarted = [](const ScanSessionPlan& plan)
@@ -88,7 +105,7 @@ int sweep(const FormatManager& formats, const PluginScanner::Options& options)
     {
         std::fprintf(stderr,
                      "[%*d/%d] %-7s %s - %s\n",
-                     static_cast<int>(std::to_string(total).size()),
+                     static_cast<int>(Strings::concat(total).size()),
                      index,
                      total,
                      statusWord(scan),
@@ -125,50 +142,38 @@ int sweep(const FormatManager& formats, const PluginScanner::Options& options)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
-    return static_cast<int>(saved ? PluginScanner::Exit::ok
-                                  : PluginScanner::Exit::databaseNotWritten);
+    return saved ? exitOk : exitDatabaseNotWritten;
 }
 
-int runRequestedMode(int argc, char** argv)
+// Both modes read the command line runConsole stored before calling this.
+int runRequestedMode()
 {
     auto formats = FormatManager();
     formats.addDefaultFormats();
 
     // A worker first: its command line is the protocol's, not this tool's.
-    if (const auto code = runScanWorkerIfRequested(argc, argv, formats))
+    if (const auto code = runScanWorkerIfRequested(formats))
         return *code;
 
-    const auto options = PluginScanner::parseOptions(argc, argv);
+    // Its worker is this binary relaunched, the default: runConsole recorded
+    // argv[0] before this ran.
+    auto options = ScanSessionOptions();
 
-    if (!options.error.empty())
-    {
-        std::fprintf(stderr, "PluginScanner: %s\n", options.error.c_str());
-        return static_cast<int>(PluginScanner::Exit::badArguments);
-    }
+    auto cli = eacp::Args::Parser {"PluginScanner", description};
+    addScanOptions(cli, options);
+    cli.epilogue(epilogue);
 
-    if (options.mode == PluginScanner::Mode::help)
-    {
-        std::fputs(PluginScanner::helpText().c_str(), stdout);
-        return static_cast<int>(PluginScanner::Exit::ok);
-    }
+    if (const auto code = cli.exitCodeFor(cli.parse()))
+        return *code;
 
-    return sweep(formats, options);
+    return sweep(formats, std::move(options));
 }
 } // namespace
 
 int main(int argc, char** argv)
 {
-    // Before the loop, so the worker command relaunches argv[0].
-    eacp::Apps::setCommandLineArgs(argc, argv);
-
-    return eacp::Apps::run(
-        [argc, argv]
-        {
-            // The embedded Info.plist already says LSUIElement, which keeps this
-            // process and every worker off the Dock from the first frame; this
-            // confirms it for a build that lost the section. Inside the callback,
-            // because the loop sets the policy on its way in.
-            eacp::Apps::setDockIconVisible(false);
-            eacp::Apps::quit(runRequestedMode(argc, argv));
-        });
+    // The embedded Info.plist says LSUIElement, which keeps this process and
+    // every worker off the Dock from the first frame; runConsole hides the icon
+    // as well, for a build that lost the section.
+    return eacp::Apps::runConsole(argc, argv, runRequestedMode);
 }

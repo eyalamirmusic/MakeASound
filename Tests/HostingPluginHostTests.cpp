@@ -20,14 +20,14 @@ namespace fs = std::filesystem;
 PluginHost::HostOptions fixtureOptions(const fs::path& folder)
 {
     auto options = PluginHost::HostOptions();
-    options.cachePath = (folder / "Plugins.json").string();
-    options.folders = {MAKEASOUND_HOST_FIXTURE_VST3_DIR};
-    options.useDefaultFolders = false;
-    options.scanFormats = {PluginFormat::VST3};
-    options.worker.executable = MAKEASOUND_FAKE_SCAN_WORKER;
-    options.worker.argumentPrefix = {
+    options.scan.cachePath = (folder / "Plugins.json").string();
+    options.scan.searchFolders = {MAKEASOUND_HOST_FIXTURE_VST3_DIR};
+    options.scan.useDefaultFolders = false;
+    options.scan.formats = {PluginFormat::VST3};
+    options.scan.worker.executable = MAKEASOUND_FAKE_SCAN_WORKER;
+    options.scan.worker.argumentPrefix = {
         "--fake-worker", "formats", "--makeasound-scan"};
-    options.scanTimeoutMs = 2000;
+    options.scan.timeoutMs = 2000;
     options.startsAudio = false;
     return options;
 }

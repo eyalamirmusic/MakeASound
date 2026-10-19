@@ -9,6 +9,8 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <eacp/Core/App/AppEnvironment.h>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -312,6 +314,35 @@ auto tWorkerArguments = test("HostingScan/theWorkerAnswersOnlyWhenAsked") = []
     char* absent[] = {program, flag, missing};
     check(runScanWorkerIfRequested(3, absent, formats)
           == static_cast<int>(ScanWorkerExit::noSuchTarget));
+};
+
+auto tWorkerStoredArguments =
+    test("HostingScan/theWorkerReadsTheCommandLineEacpStored") = []
+{
+    const auto formats = StubFormats();
+    auto& stored = eacp::Apps::getAppEnvironment().commandLineArgs;
+    const auto saved = stored;
+
+    char program[] = "--makeasound-scan";
+    char other[] = "--verbose";
+    char* none[] = {program, other};
+    eacp::Apps::setCommandLineArgs(2, none);
+    const auto programIsSkipped = !requestedScanTarget().has_value()
+                                  && !runScanWorkerIfRequested(formats).has_value();
+
+    char host[] = "host";
+    char flag[] = "--makeasound-scan";
+    char unknown[] = "/a/readme.txt";
+    char* unclaimed[] = {host, flag, unknown};
+    eacp::Apps::setCommandLineArgs(3, unclaimed);
+    const auto target = requestedScanTarget();
+    const auto code = runScanWorkerIfRequested(formats);
+
+    stored = saved;
+
+    check(programIsSkipped);
+    check(target == std::optional<std::string>("/a/readme.txt"));
+    check(code == static_cast<int>(ScanWorkerExit::unknownTarget));
 };
 
 auto tCoordinatorOk = test("HostingScan/aWorkerResultIsReportedThroughTheNoise") = []

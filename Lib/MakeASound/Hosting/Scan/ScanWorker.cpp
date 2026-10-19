@@ -4,6 +4,8 @@
 
 #include <Miro/Reflection/Serialize.h>
 
+#include <eacp/Core/App/AppEnvironment.h>
+
 #include <cstdio>
 
 namespace MakeASound::Hosting
@@ -92,15 +94,43 @@ std::optional<ModuleScan> decodeScanResult(std::string_view workerOutput)
     }
 }
 
-std::optional<std::string> requestedScanTarget(int argc, char** argv)
+namespace
 {
+// argv without argv[0]; a null entry reads as empty.
+Vector<std::string> argumentsOf(int argc, char** argv)
+{
+    auto arguments = Vector<std::string>();
+
     for (auto i = 1; i < argc; ++i)
+        arguments.add(argv[i] != nullptr ? std::string(argv[i]) : std::string());
+
+    return arguments;
+}
+
+// The command line eacp stored (runConsole, setCommandLineArgs), without the
+// executable.
+Vector<std::string> storedArguments()
+{
+    const auto& stored = eacp::Apps::getAppEnvironment().commandLineArgs;
+    auto arguments = Vector<std::string>();
+
+    for (auto i = 1; i < static_cast<int>(stored.size()); ++i)
+        arguments.add(stored[i]);
+
+    return arguments;
+}
+
+std::optional<std::string> targetIn(const Vector<std::string>& arguments)
+{
+    const auto count = static_cast<int>(arguments.size());
+
+    for (auto i = 0; i < count; ++i)
     {
-        if (argv[i] == nullptr || scanArgument != argv[i])
+        if (arguments[i] != scanArgument)
             continue;
 
-        if (i + 1 < argc && argv[i + 1] != nullptr)
-            return std::string(argv[i + 1]);
+        if (i + 1 < count)
+            return arguments[i + 1];
 
         return std::string();
     }
@@ -108,10 +138,10 @@ std::optional<std::string> requestedScanTarget(int argc, char** argv)
     return std::nullopt;
 }
 
-std::optional<int>
-    runScanWorkerIfRequested(int argc, char** argv, const FormatManager& formats)
+std::optional<int> runWorkerFor(const Vector<std::string>& arguments,
+                                const FormatManager& formats)
 {
-    const auto requested = requestedScanTarget(argc, argv);
+    const auto requested = targetIn(arguments);
 
     if (!requested.has_value())
         return std::nullopt;
@@ -138,6 +168,28 @@ std::optional<int>
 
     printScanResult(outcome.scan);
     return static_cast<int>(ScanWorkerExit::ok);
+}
+} // namespace
+
+std::optional<std::string> requestedScanTarget()
+{
+    return targetIn(storedArguments());
+}
+
+std::optional<std::string> requestedScanTarget(int argc, char** argv)
+{
+    return targetIn(argumentsOf(argc, argv));
+}
+
+std::optional<int> runScanWorkerIfRequested(const FormatManager& formats)
+{
+    return runWorkerFor(storedArguments(), formats);
+}
+
+std::optional<int>
+    runScanWorkerIfRequested(int argc, char** argv, const FormatManager& formats)
+{
+    return runWorkerFor(argumentsOf(argc, argv), formats);
 }
 
 } // namespace MakeASound::Hosting

@@ -44,27 +44,32 @@ debugger.
 ## Two worker topologies
 
 **The host relaunches itself** (the default, `defaultWorkerCommand()`). Make
-`runScanWorkerIfRequested` the first thing `main` does after the event loop is up:
+`runScanWorkerIfRequested` the first thing `main` does after the event loop is up.
+Both it and `requestedScanTarget` read the command line eacp stored, so `main`
+hands argc/argv over once and never again (`Apps/PluginHost/Main.cpp`):
 
 ```cpp
+int runScanWorker()
+{
+    auto formats = FormatManager();
+    formats.addDefaultFormats();
+
+    return runScanWorkerIfRequested(formats).value_or(0);
+}
+
 int main(int argc, char** argv)
 {
     eacp::Apps::setCommandLineArgs(argc, argv);
 
-    return eacp::Apps::run([argc, argv] {
-        auto formats = FormatManager();
-        formats.addDefaultFormats();
+    if (requestedScanTarget())
+        return eacp::Apps::runConsole(runScanWorker);
 
-        if (auto code = runScanWorkerIfRequested(argc, argv, formats))
-        {
-            eacp::Apps::quit(*code);
-            return;
-        }
-
-        // ...the app as usual
-    });
+    return eacp::Apps::run<MyApp>(); // ...the app as usual
 }
 ```
+
+The `(argc, argv)` overloads of both remain for a `main` that does not store its
+command line with eacp.
 
 One binary, nothing extra to ship. The worker needs a running event loop: VST3
 module initialisation expects one, and an AUv3 answers `AudioComponentInstantiate`
@@ -215,9 +220,18 @@ database, a vendor's family of apps say, pass one path to all of them.
 ## Writing a custom front end
 
 `Apps/PluginScanner/main.cpp` is the whole recipe, in under two hundred lines: build a
-`FormatManager`, answer `runScanWorkerIfRequested` first, map the command line onto
-`ScanSessionOptions`, print what `onStarted`, `onTargetFinished` and `onFinished`
-report, and pump `poll()`. A GUI does the same with `setAutoPoll(true)`, reads
+`FormatManager`, answer `runScanWorkerIfRequested` first, parse the command line
+into `ScanSessionOptions`, print what `onStarted`, `onTargetFinished` and
+`onFinished` report, and pump `poll()`.
+
+The command line is `addScanOptions(parser, options)` (`Scan/ScanArgs.h`), which
+declares the scanner's options on an `eacp::Args::Parser`, each bound straight onto
+a `ScanSessionOptions` field: `--output` (`cachePath`), `--folder`
+(`searchFolders`, repeatable), `--no-default-folders`, `--format VST3|AU`
+(repeatable), `--force`, `--jobs` (at least 1) and `--timeout` in milliseconds (at
+least 0). The parser handles `--help` and reports a bad argument as exit code 2;
+the worker check still runs before it, so a worker's command line never reaches
+it. The caller includes `<eacp/Core/App/Args.h>` and links `eacp-core`. A GUI does the same with `setAutoPoll(true)`, reads
 `session.cache()` as results land to fill its list, and calls `cancel()` from a
 button: what was scanned is still saved, and `onFinished` fires with `cancelled`
 set. Keep stdout empty outside worker mode; it is the protocol's.

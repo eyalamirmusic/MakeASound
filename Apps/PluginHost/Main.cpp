@@ -227,24 +227,26 @@ struct App
 
 } // namespace PluginHost
 
+namespace
+{
+// This app relaunched as a scan worker: load the one plugin, answer, leave.
+int runScanWorker()
+{
+    auto formats = MakeASound::Hosting::FormatManager();
+    formats.addDefaultFormats();
+
+    return MakeASound::Hosting::runScanWorkerIfRequested(formats).value_or(0);
+}
+} // namespace
+
+// The command line is stored once, here; the worker check, the worker and the
+// app all read it from eacp.
 int main(int argc, char** argv)
 {
     eacp::Apps::setCommandLineArgs(argc, argv);
 
-    // This app relaunched as a scan worker: load the one plugin, answer, leave.
-    if (MakeASound::Hosting::requestedScanTarget(argc, argv))
-        return eacp::Apps::run(
-            [argc, argv]
-            {
-                eacp::Apps::setDockIconVisible(false);
-
-                auto formats = MakeASound::Hosting::FormatManager();
-                formats.addDefaultFormats();
-
-                auto code = MakeASound::Hosting::runScanWorkerIfRequested(
-                    argc, argv, formats);
-                eacp::Apps::quit(code.value_or(0));
-            });
+    if (MakeASound::Hosting::requestedScanTarget())
+        return eacp::Apps::runConsole(runScanWorker);
 
     return eacp::Apps::run<PluginHost::App>();
 }
