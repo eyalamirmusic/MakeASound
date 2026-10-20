@@ -13,10 +13,11 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <eacp/Core/Utils/Format.h>
+
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <string>
 #include <utility>
 
@@ -112,9 +113,8 @@ auto tMakeASound = test("Parameters/theMakeASoundSchemeIsUnchanged") = []
     check(list.entry(4).hostKey == "attack");
 
     // The AAX id: eight lowercase hex digits of the host id.
-    char hex[9] {};
-    std::snprintf(hex, sizeof(hex), "%08x", list.entry(0).hostId);
-    check(list.entry(0).aaxId == hex);
+    check(list.entry(0).aaxId
+          == eacp::Strings::format("{:08x}", list.entry(0).hostId));
 
     const auto& groups = list.entry(4).groups;
     check(groups.size() == 2);

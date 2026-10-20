@@ -18,7 +18,7 @@ void describeAAX(const ModuleDescription&,
 {
     namespace AAX = MakeASound::AAX;
 
-    out.push_back(print("aax effect \"%s\"",
+    out.push_back(print("aax effect \"{}\"",
                         aaxEffectIdFor(AAX::moduleBundleId(), plugin).c_str()));
 
     auto wrapper = PluginWrapper(
@@ -31,7 +31,7 @@ void describeAAX(const ModuleDescription&,
         if (auto layout = AAX::layoutFor(wrapper.busLayout(), pairs[index]))
             if (instance.acceptsLayout(*layout))
                 natives +=
-                    print(" %d:0x%08x", index, AAX::nativePluginId(plugin, index));
+                    print(" {}:0x{:08x}", index, AAX::nativePluginId(plugin, index));
 
     out.push_back("aax native" + natives);
 
@@ -40,7 +40,7 @@ void describeAAX(const ModuleDescription&,
     for (auto index = 0; index < list.size(); ++index)
         if (list.isRegistered(index))
             out.push_back(print(
-                "aax param entry %d id \"%s\" automatable %d",
+                "aax param entry {} id \"{}\" automatable {}",
                 index,
                 std::string(AAX::registeredId(list.entry(index).aaxId)).c_str(),
                 list.entry(index).automatable ? 1 : 0));

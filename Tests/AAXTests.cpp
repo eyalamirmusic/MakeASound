@@ -14,6 +14,7 @@
 #include <NanoTest/NanoTest.h>
 
 #include <eacp/Core/Threads/EventLoop.h>
+#include <eacp/Core/Utils/Format.h>
 
 #include <algorithm>
 #include <array>
@@ -21,7 +22,6 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
-#include <cstdio>
 #include <set>
 #include <thread>
 
@@ -397,9 +397,8 @@ auto tParamIds = test("AAX/theParameterIdsAreTheHostIdsInHex") = []
         auto id = AAX_CString {};
         check(host.adapter->GetParameterIDFromIndex(i, &id) == AAX_SUCCESS);
 
-        auto hex = std::array<char, 9> {};
-        std::snprintf(hex.data(), hex.size(), "%08x", list.entry(i).hostId);
-        check(id.StdString() == hex.data());
+        check(id.StdString()
+              == eacp::Strings::format("{:08x}", list.entry(i).hostId));
         check(id.StdString() == list.entry(i).aaxId);
         check(host.adapter->indexOf(id.Get()) == i);
     }

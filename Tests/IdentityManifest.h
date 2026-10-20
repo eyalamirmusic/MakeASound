@@ -9,7 +9,8 @@
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
-#include <cstdio>
+#include <eacp/Core/Utils/Format.h>
+
 #include <functional>
 #include <string>
 #include <string_view>
@@ -48,14 +49,11 @@ std::string describeIdentity(const ModuleDescription& module,
 // Whether a line's tag is one a built section writes.
 bool isDescribedHere(std::string_view line);
 
-// printf into a std::string.
+// A brace pattern ("{:08x}") into a std::string, through eacp's formatter.
 template <typename... Args>
-std::string print(const char* format, Args... args)
+std::string print(std::string_view pattern, const Args&... args)
 {
-    auto size = std::snprintf(nullptr, 0, format, args...);
-    auto text = std::string(static_cast<size_t>(size), '\0');
-    std::snprintf(text.data(), text.size() + 1, format, args...);
-    return text;
+    return eacp::Strings::format(pattern, args...);
 }
 
 std::string fourCC(uint32_t code);

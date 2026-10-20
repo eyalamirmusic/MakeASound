@@ -176,7 +176,9 @@ protected:
     static float roundToIndex(float plain) noexcept;
 
     static std::optional<float> parseNumber(std::string_view text);
-    static std::string formatNumber(const char* format, float value);
+    // value through a std::format-style brace pattern ("{:+.1f} dB"), checked at
+    // run time: a bad pattern comes back as error text, never a throw.
+    static std::string formatNumber(std::string_view pattern, float value);
     static std::string shortestText(float value);
     static std::string_view trim(std::string_view text) noexcept;
     static bool equalsIgnoringCase(std::string_view a, std::string_view b) noexcept;

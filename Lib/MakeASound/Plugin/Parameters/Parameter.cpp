@@ -1,9 +1,10 @@
 #include "Parameter.h"
 
+#include <eacp/Core/Utils/Format.h>
+
 #include <cctype>
 #include <cerrno>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 
 namespace MakeASound
@@ -114,7 +115,7 @@ float Parameter::toPlain(float normalized) const noexcept
 
 std::string Parameter::valueToText(float plain) const
 {
-    auto text = formatNumber("%.2f", plain);
+    auto text = formatNumber("{:.2f}", plain);
 
     if (text.find('.') != std::string::npos)
     {
@@ -166,28 +167,14 @@ std::optional<float> Parameter::parseNumber(std::string_view text)
     return value;
 }
 
-std::string Parameter::formatNumber(const char* format, float value)
+std::string Parameter::formatNumber(std::string_view pattern, float value)
 {
-    char buffer[64];
-    std::snprintf(buffer, sizeof buffer, format, static_cast<double>(value));
-    return buffer;
+    return eacp::Strings::format(pattern, value);
 }
 
 std::string Parameter::shortestText(float value)
 {
-    for (auto digits = 6; digits < 9; ++digits)
-    {
-        char buffer[32];
-        std::snprintf(
-            buffer, sizeof buffer, "%.*g", digits, static_cast<double>(value));
-
-        if (std::strtof(buffer, nullptr) == value)
-            return buffer;
-    }
-
-    char buffer[32];
-    std::snprintf(buffer, sizeof buffer, "%.9g", static_cast<double>(value));
-    return buffer;
+    return eacp::Strings::shortestRoundTrip(value);
 }
 
 std::string_view Parameter::trim(std::string_view text) noexcept

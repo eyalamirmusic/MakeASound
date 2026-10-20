@@ -11,6 +11,7 @@
 #include <NanoTest/NanoTest.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -58,7 +59,7 @@ std::string groupsOf(const ParameterList::Entry& entry)
 
     for (const auto& group: entry.groups)
         text += (text.empty() ? "" : " ")
-                + print("[%s|%s]", group.id.c_str(), group.identifier.c_str());
+                + print("[{}|{}]", group.id.c_str(), group.identifier.c_str());
 
     return text;
 }
@@ -69,8 +70,8 @@ void describeCore(const ModuleDescription&,
                   Lines& out)
 {
     const auto& juce = plugin.juce;
-    out.push_back(print("core juce studioOne %d legacyAutomation %d "
-                        "replaceVst2 %d midiControllers %d",
+    out.push_back(print("core juce studioOne {} legacyAutomation {} "
+                        "replaceVst2 {} midiControllers {}",
                         juce.studioOneCompatibleParameters ? 1 : 0,
                         juce.forceLegacyParameterAutomationType ? 1 : 0,
                         juce.vst3CanReplaceVst2 ? 1 : 0,
@@ -78,7 +79,7 @@ void describeCore(const ModuleDescription&,
 
     if (const auto& overrides = plugin.overrides; overrides != IdentityOverrides {})
     {
-        out.push_back(print("core overrides indexedThroughVersion %d",
+        out.push_back(print("core overrides indexedThroughVersion {}",
                             overrides.indexedThroughVersion.value_or(-1)));
 
         // Only where set, so a manifest from before them reads the same.
@@ -88,7 +89,7 @@ void describeCore(const ModuleDescription&,
                               : " declaredBypassInAU Unlisted";
 
         if (overrides.juceKeyGroupSeparator)
-            out.back() += print(" juceKeyGroupSeparator '%c'",
+            out.back() += print(" juceKeyGroupSeparator '{}'",
                                 *overrides.juceKeyGroupSeparator);
     }
 
@@ -100,9 +101,9 @@ void describeCore(const ModuleDescription&,
     {
         const auto& entry = list.entry(index);
         out.push_back(print(
-            "core entry %d \"%s\" key \"%s\" hint %d automatable %d session %d "
-            "bypass %s hostId %u address %llu identifier \"%s\" aaxId \"%s\" "
-            "groups {%s}",
+            "core entry {} \"{}\" key \"{}\" hint {} automatable {} session {} "
+            "bypass {} hostId {} address {} identifier \"{}\" aaxId \"{}\" "
+            "groups {{{}}}",
             index,
             entry.id.c_str(),
             entry.hostKey.c_str(),
@@ -414,14 +415,11 @@ std::string describeIdentity(const ModuleDescription& module,
                              const PluginDescription& plugin)
 {
     auto lines = Lines {};
-    lines.push_back(print("plugin \"%.*s\" code %s scheme %.*s category %.*s",
-                          static_cast<int>(plugin.name.size()),
-                          plugin.name.data(),
+    lines.push_back(print("plugin \"{}\" code {} scheme {} category {}",
+                          plugin.name,
                           fourCC(plugin.pluginCode.toUint32()).c_str(),
-                          static_cast<int>(schemeName(plugin.idScheme).size()),
-                          schemeName(plugin.idScheme).data(),
-                          static_cast<int>(categoryName(plugin.category).size()),
-                          categoryName(plugin.category).data()));
+                          schemeName(plugin.idScheme),
+                          categoryName(plugin.category)));
 
     for (const auto& section: sections())
         section.describe(module, plugin, lines);
