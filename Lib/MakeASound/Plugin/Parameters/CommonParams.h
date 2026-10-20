@@ -34,7 +34,7 @@ struct DecibelParam : FloatParam
 
     std::string valueToText(float db) const override
     {
-        return formatNumber("%+.1f dB", db);
+        return formatNumber("{:+.1f} dB", db);
     }
 };
 
@@ -73,7 +73,7 @@ struct HzParam : FloatParam
 
     std::string valueToText(float hz) const override
     {
-        return formatNumber("%.2f Hz", hz);
+        return formatNumber("{:.2f} Hz", hz);
     }
 
     float textToValue(std::string_view text) const override
@@ -110,9 +110,9 @@ struct TimeParam : FloatParam
     std::string valueToText(float seconds) const override
     {
         if (seconds < 1.f)
-            return formatNumber("%.0f ms", seconds * 1000.f);
+            return formatNumber("{:.0f} ms", seconds * 1000.f);
 
-        return formatNumber("%.2f s", seconds);
+        return formatNumber("{:.2f} s", seconds);
     }
 
     float textToValue(std::string_view text) const override
@@ -152,7 +152,7 @@ struct PercentParam : FloatParam
 
     std::string valueToText(float fraction) const override
     {
-        return formatNumber("%.0f %%", fraction * 100.f);
+        return formatNumber("{:.0f} %", fraction * 100.f);
     }
 
     float textToValue(std::string_view text) const override
@@ -175,7 +175,7 @@ struct BipolarParam : FloatParam
 
     std::string valueToText(float fraction) const override
     {
-        return formatNumber("%+.0f %%", fraction * 100.f);
+        return formatNumber("{:+.0f} %", fraction * 100.f);
     }
 
     float textToValue(std::string_view text) const override
@@ -214,7 +214,8 @@ struct SemitoneParam : FloatParam
 
     std::string valueToText(float semitones) const override
     {
-        return formatNumber("%+.0f st", static_cast<float>(std::lround(semitones)));
+        return formatNumber("{:+.0f} st",
+                            static_cast<float>(std::lround(semitones)));
     }
 };
 
@@ -233,7 +234,7 @@ struct NoteParam : FloatParam
 
     std::string valueToText(float note) const override
     {
-        return formatNumber("%.0f", static_cast<float>(std::lround(note)));
+        return formatNumber("{:.0f}", static_cast<float>(std::lround(note)));
     }
 };
 

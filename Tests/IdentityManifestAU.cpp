@@ -24,7 +24,7 @@ void describeAU(const ModuleDescription& module,
                 Lines& out)
 {
     auto component = MakeASound::AU::componentInfoFor(module, plugin);
-    out.push_back(print("au component %s %s %s",
+    out.push_back(print("au component {} {} {}",
                         fourCC(component.type).c_str(),
                         fourCC(component.subtype).c_str(),
                         fourCC(component.manufacturer).c_str()));
@@ -38,7 +38,7 @@ void describeAU(const ModuleDescription& module,
     auto ids = std::string {};
 
     for (auto index: order)
-        ids += print(" %u", static_cast<unsigned>(list.entry(index).hostId));
+        ids += print(" {}", static_cast<unsigned>(list.entry(index).hostId));
 
     out.push_back("au list" + ids);
 
@@ -48,7 +48,7 @@ void describeAU(const ModuleDescription& module,
 
         if (!space.isListed(list, index))
         {
-            out.push_back(print("au param entry %d unlisted", index));
+            out.push_back(print("au param entry {} unlisted", index));
             continue;
         }
 
@@ -62,8 +62,8 @@ void describeAU(const ModuleDescription& module,
         const auto& param = *entry.param;
 
         out.push_back(print(
-            "au param entry %d id %u position %d min %.9g max %.9g default %.9g "
-            "unit %u flags 0x%08x mid %.9g strings %d",
+            "au param entry {} id {} position {} min {:.9g} max {:.9g} "
+            "default {:.9g} unit {} flags 0x{:08x} mid {:.9g} strings {}",
             index,
             static_cast<unsigned>(entry.hostId),
             static_cast<int>(position),
@@ -76,8 +76,8 @@ void describeAU(const ModuleDescription& module,
             space.hasValueStrings(entry, MakeASound::AU::AUFlavour::V2) ? 1 : 0));
 
         out.push_back(print(
-            "auv3 param entry %d address %llu identifier \"%s\" "
-            "strings %d",
+            "auv3 param entry {} address {} identifier \"{}\" "
+            "strings {}",
             index,
             static_cast<unsigned long long>(entry.address),
             entry.identifier.c_str(),

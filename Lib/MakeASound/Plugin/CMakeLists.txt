@@ -4,7 +4,8 @@ set(CMAKE_FOLDER Lib/Plugin)
 find_package(eacp REQUIRED)
 
 # MakeASoundPlugin: the SDK-free plugin core; format adapters add their SDK on top.
-# eacp-core backs its message-thread marshalling, kept out of every public header.
+# eacp-core backs its message-thread marshalling and text formatting, kept out of
+# every public header.
 add_library(MakeASoundPlugin STATIC
         Compat/ApvtsXml.cpp
         Compat/JuceIdentity.cpp

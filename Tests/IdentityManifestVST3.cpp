@@ -30,9 +30,9 @@ std::string assignment(MakeASound::VST3::Adapter& adapter,
                                             id);
 
     if (result != Steinberg::kResultOk)
-        return print("%d/%d/%d none", bus, channel, controller);
+        return print("{}/{}/{} none", bus, channel, controller);
 
-    return print("%d/%d/%d 0x%08x", bus, channel, controller, id);
+    return print("{}/{}/{} 0x{:08x}", bus, channel, controller, id);
 }
 
 void describeVST3(const ModuleDescription& module,
@@ -40,7 +40,7 @@ void describeVST3(const ModuleDescription& module,
                   Lines& out)
 {
     auto classId = vst3ClassIdFor(module, plugin);
-    out.push_back(print("vst3 class 0x%08x 0x%08x 0x%08x 0x%08x",
+    out.push_back(print("vst3 class 0x{:08x} 0x{:08x} 0x{:08x} 0x{:08x}",
                         classId[0],
                         classId[1],
                         classId[2],
@@ -68,15 +68,16 @@ void describeVST3(const ModuleDescription& module,
 
         if (entry >= 0 && list.isRegistered(entry))
         {
-            out.push_back(print("vst3 param %d entry %d id %u steps %d default %.9g "
-                                "flags 0x%x unit %d",
-                                index,
-                                entry,
-                                info.id,
-                                info.stepCount,
-                                info.defaultNormalizedValue,
-                                info.flags,
-                                info.unitId));
+            out.push_back(
+                print("vst3 param {} entry {} id {} steps {} default {:.9g} "
+                      "flags 0x{:x} unit {}",
+                      index,
+                      entry,
+                      info.id,
+                      info.stepCount,
+                      info.defaultNormalizedValue,
+                      static_cast<unsigned>(info.flags),
+                      info.unitId));
             continue;
         }
 
@@ -88,12 +89,13 @@ void describeVST3(const ModuleDescription& module,
     }
 
     if (others > 0)
-        out.push_back(print("vst3 controllers %d ids 0x%08x..0x%08x flags 0x%x/0x%x",
-                            others,
-                            lowest,
-                            highest,
-                            allFlags,
-                            anyFlags));
+        out.push_back(
+            print("vst3 controllers {} ids 0x{:08x}..0x{:08x} flags 0x{:x}/0x{:x}",
+                  others,
+                  lowest,
+                  highest,
+                  static_cast<unsigned>(allFlags),
+                  static_cast<unsigned>(anyFlags)));
     else
         out.push_back("vst3 controllers 0");
 

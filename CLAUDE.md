@@ -62,7 +62,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - Core MIDI clients live on the process-wide `NotifyLoop` thread. ALSA sends use `snd_seq_event_output` and drain, never `_direct`, which allocates. In WinMM, `drainMessages()` is the audio thread's, so nothing that notifies runs there.
 
 **Plugin core**
-- `MakeASoundPlugin` includes no eacp header and no format SDK. eacp is confined to the `Realtime/MessageThread*.cpp` TUs, and `Editor.h` only forward-declares the view.
+- No public `MakeASoundPlugin` header includes eacp or a format SDK. Its `.cpp` files may use eacp Core utilities (today `Realtime/MessageThread*.cpp`, and `Parameters/Parameter.cpp` for `Strings::format`), and `Editor.h` only forward-declares the view.
 - Adapters drive `PluginWrapper` in its documented order and never call the plugin's `process` themselves. The wrapper is destroyed on the message thread.
 - Audio-thread code is allocation-free. A new realtime path gets a case in the allocation suites: `AllocationTests.cpp` (device library only; it must build without the plugin core), `PluginAllocationTests.cpp`, or the per-format `*AllocationTests`.
 - Parameter state keys and host ids derive from the id *path*. Pin `id`/`hostId` before regrouping, or every session and automation lane breaks. A `/` inside one id is doubled in the path (`Parameters/IdPath.h`); build and split paths only through `appendIdSegment` and `splitIdPath`, never by hand.
