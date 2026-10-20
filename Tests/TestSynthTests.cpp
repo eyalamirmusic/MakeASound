@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cmath>
 
+namespace TestSynthTests
+{
 using namespace nano;
 
 using MakeASound::Buffer;
@@ -234,3 +236,4 @@ auto tFrequency = test("TestSynth/noteToFrequencyIsEqualTemperament") = []
 };
 
 } // namespace
+} // namespace TestSynthTests

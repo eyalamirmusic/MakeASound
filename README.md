@@ -83,7 +83,8 @@ open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
 | `MAKEASOUND_DESCRIBE_CMAKE_ARGS` | empty | Extra configure arguments for an iOS tree's macOS sub-build that writes the AUv3 plists. |
 | `MAKEASOUND_BUILD_AAX` | `OFF` | Fetch Avid's AAX SDK and build the AAX format (macOS and Windows x64, with the plugin core). Off, no Avid code is fetched or compiled. See [AAX](#aax) for the licence this puts on an AAX binary. |
 | `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library and its own targets. |
-| `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here and in every dependency, plus eacp's precompiled headers. |
+| `MAKEASOUND_UNITY_BUILD_TESTS` | `OFF` | Jumbo build of the test executables (`MakeASoundTests`, `MakeASoundCoreTests` and the test-side helpers). Off for local work, where an edit to one test file would rebuild its whole chunk. |
+| `MAKEASOUND_CI_BUILD` | `OFF` | What CI configures with: unity builds here (the tests included) and in every dependency, plus eacp's precompiled headers. |
 
 A top-level build runs `makeasound_default_setup()` (`CMake/MakeASoundDefaults.cmake`), which sets the deployment floors to macOS 11.0 and iOS 15.0 unless `CMAKE_OSX_DEPLOYMENT_TARGET` is already given. A project that fetches MakeASound can call it from its own root for the same defaults.
 

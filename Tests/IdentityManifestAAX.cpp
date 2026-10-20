@@ -6,6 +6,8 @@
 
 #include "IdentityManifest.h"
 
+namespace IdentityManifestAAX
+{
 namespace
 {
 using namespace IdentityManifest;
@@ -46,3 +48,4 @@ void describeAAX(const ModuleDescription&,
 
 auto added = addSection({{"aax"}, describeAAX});
 } // namespace
+} // namespace IdentityManifestAAX

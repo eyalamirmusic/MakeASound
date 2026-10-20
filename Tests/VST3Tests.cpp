@@ -34,6 +34,8 @@
 #include <string>
 #include <thread>
 
+namespace VST3Tests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace VST3Host;
@@ -2646,3 +2648,4 @@ auto tPlugGoldens = test("VST3/aTamberPlugPortPublishesWhatPlugsVST3Did") = []
         TamberPlugFixtures::chorusPublished);
 };
 } // namespace
+} // namespace VST3Tests

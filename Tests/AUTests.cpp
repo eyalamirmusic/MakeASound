@@ -24,6 +24,8 @@
 #include <string>
 #include <thread>
 
+namespace AUTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace AUHost;
@@ -3083,3 +3085,4 @@ auto tPlugReaderFirst = test("AU/aTamberPlugPortsOwnReaderStillComesFirst") = []
     check(TamberPlugFixtures::holdsSVFValues(refusing.plugin().params));
 };
 } // namespace
+} // namespace AUTests

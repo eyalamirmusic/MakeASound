@@ -21,6 +21,8 @@
 #error "MAKEASOUND_FAKE_SCAN_WORKER must name the FakeScanWorker executable"
 #endif
 
+namespace HostingScanTests
+{
 using namespace nano;
 using namespace HostingTestFormats;
 
@@ -802,3 +804,4 @@ auto tSessionCancel = test("HostingScan/aCancelledSweepSavesWhatItHas") = []
     fs::remove_all(folder);
 };
 } // namespace
+} // namespace HostingScanTests

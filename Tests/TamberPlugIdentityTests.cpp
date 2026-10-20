@@ -14,6 +14,8 @@
 #include <optional>
 #include <string_view>
 
+namespace TamberPlugIdentityTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -210,3 +212,4 @@ auto tInserted = test("TamberPlug/aPostPortParameterMidTreeMovesNoOldId") = []
 };
 
 } // namespace
+} // namespace TamberPlugIdentityTests

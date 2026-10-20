@@ -11,6 +11,8 @@
 #include <atomic>
 #include <thread>
 
+namespace SPSCQueueTests
+{
 using namespace nano;
 using MakeASound::SPSCQueue;
 
@@ -216,3 +218,4 @@ auto tConcurrentTiny =
     check(receivedCount.load(std::memory_order_relaxed) == total);
 };
 } // namespace
+} // namespace SPSCQueueTests

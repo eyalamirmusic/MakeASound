@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <array>
 
+namespace IdentityManifestVST3
+{
 namespace
 {
 using namespace IdentityManifest;
@@ -115,3 +117,4 @@ void describeVST3(const ModuleDescription& module,
 
 auto added = addSection({{"vst3"}, describeVST3});
 } // namespace
+} // namespace IdentityManifestVST3

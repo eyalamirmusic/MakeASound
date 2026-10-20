@@ -18,8 +18,13 @@
 #include <string>
 #include <utility>
 
+namespace AUPlistTests
+{
 using namespace nano;
 using namespace MakeASound;
+
+// Ours, not the Objective-C runtime's, where a unity build sees both.
+using MakeASound::Category;
 
 namespace
 {
@@ -263,3 +268,4 @@ auto tAUType = test("AUPlist/bothPlistsTakeTheDescriptionsAUType") = []
     std::filesystem::remove(appex);
 };
 } // namespace
+} // namespace AUPlistTests

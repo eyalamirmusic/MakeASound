@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+namespace StandaloneUITests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace MakeASound::Standalone;
@@ -281,3 +283,4 @@ auto tRatioEditor = test("Standalone/aRatioLockedEditorKeepsItsShape") = []
     check(dragged.x == 2.f * dragged.y);
 };
 } // namespace
+} // namespace StandaloneUITests

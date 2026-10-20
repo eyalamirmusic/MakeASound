@@ -14,9 +14,15 @@
 #include <fstream>
 #include <string>
 
+namespace HostingCacheTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
+
+// The database's description, not the plugin core's, where a unity build sees
+// both.
+using MakeASound::Hosting::PluginDescription;
 
 namespace
 {
@@ -636,3 +642,4 @@ auto tStamp = test("HostingCache/aBundleStampsFromItsBinary") = []
     removeFolder(root);
 };
 } // namespace
+} // namespace HostingCacheTests

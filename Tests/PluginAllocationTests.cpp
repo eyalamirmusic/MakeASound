@@ -13,6 +13,8 @@
 #include <thread>
 #include <type_traits>
 
+namespace PluginAllocationTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using Probe::allocationsIn;
@@ -311,3 +313,4 @@ auto tInstrumentBypassedBlock =
     check(drained == 21 * 32);
 };
 } // namespace
+} // namespace PluginAllocationTests

@@ -12,6 +12,8 @@
 
 #include <algorithm>
 
+namespace IdentityManifestAU
+{
 namespace
 {
 using namespace IdentityManifest;
@@ -117,3 +119,4 @@ auto tPostPortListing = test("Identity/aPostPortParameterListsLastInAnAU") = []
         check(list.entry(order[slot]).hostId == static_cast<uint32_t>(slot));
 };
 } // namespace
+} // namespace IdentityManifestAU

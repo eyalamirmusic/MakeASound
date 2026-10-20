@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+namespace ParameterTests
+{
 using namespace nano;
 
 using MakeASound::BipolarParam;
@@ -985,3 +987,4 @@ auto tVersionHint = test("Parameters/theVersionHintIsCarried") = []
     check(unset.versionHint() == 0);
 };
 } // namespace
+} // namespace ParameterTests

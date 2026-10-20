@@ -19,17 +19,21 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 option(MAKEASOUND_UNITY_BUILD "Enable unity (jumbo) build for the MakeASound library" OFF)
+option(MAKEASOUND_UNITY_BUILD_TESTS "Compile the test executables as unity builds" OFF)
 option(MAKEASOUND_CI_BUILD
        "Mirror the flag set CI builds with: unity builds here and in every dependency, eacp's own CI set" OFF)
 
 # A cold build of the plugin core compiles all of eacp and the VST3 SDK, so CI
-# compiles everything as unity builds, under ccache (see ci.yml). Off by
-# default: a unity build rebuilds a whole chunk per edit, the wrong trade for an
-# edit-compile loop. Cache entries, because the dependencies read them when CPM
-# configures them.
+# compiles everything as unity builds, the test executables included, under
+# ccache (see ci.yml). Off by default: a unity build rebuilds a whole chunk per
+# edit, the wrong trade for an edit-compile loop, and a test file is what an
+# edit-compile loop edits most. Cache entries, because the dependencies read them
+# when CPM configures them.
 if (MAKEASOUND_CI_BUILD)
     set(MAKEASOUND_UNITY_BUILD ON CACHE BOOL
             "Enable unity (jumbo) build for the MakeASound library" FORCE)
+    set(MAKEASOUND_UNITY_BUILD_TESTS ON CACHE BOOL
+            "Compile the test executables as unity builds" FORCE)
     set(EACP_CI_BUILD ON CACHE BOOL "Mirror the exact flag set used by CI builds" FORCE)
     set(MIRO_UNITY_BUILD ON CACHE BOOL "Enable CMake unity build for the Miro library" FORCE)
     set(ESIMD_UNITY_BUILD ON CACHE BOOL "Compile ESIMD as a CMake unity build" FORCE)

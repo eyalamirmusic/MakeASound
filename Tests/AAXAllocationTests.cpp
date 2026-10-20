@@ -8,6 +8,8 @@
 
 #include <NanoTest/NanoTest.h>
 
+namespace AAXAllocationTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace AAXHost;
@@ -143,3 +145,4 @@ auto tHeld = test("Allocations/aaxHeldParameterRenderIsOffTheHeap") = []
     checkHeldRenderIsOffTheHeap(host);
 };
 } // namespace
+} // namespace AAXAllocationTests

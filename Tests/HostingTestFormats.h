@@ -23,6 +23,10 @@ using namespace MakeASound;
 using namespace MakeASound::Hosting;
 using EA::makeOwned;
 
+// The database's description, not the plugin core's, where a unity build sees
+// both.
+using MakeASound::Hosting::PluginDescription;
+
 class StubFileFormat : public HostFormat
 {
 public:

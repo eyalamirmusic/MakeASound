@@ -25,6 +25,8 @@
 #include <set>
 #include <thread>
 
+namespace AAXTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace AAXHost;
@@ -1463,3 +1465,4 @@ auto tControlsUnderJuce =
     check(JuceFixtures::holdsDefaults(native.plugin().params));
 };
 } // namespace
+} // namespace AAXTests

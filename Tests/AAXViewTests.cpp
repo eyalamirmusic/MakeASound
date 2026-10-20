@@ -12,6 +12,8 @@
 
 #include <NanoTest/NanoTest.h>
 
+namespace AAXViewTests
+{
 namespace
 {
 using namespace nano;
@@ -279,3 +281,4 @@ auto tWrongType = test("AAX/aForeignContainerTypeEmbedsNothing") = []
 };
 
 } // namespace
+} // namespace AAXViewTests

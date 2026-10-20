@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <array>
 
+namespace VST3AllocationTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace VST3Host;
@@ -316,3 +318,4 @@ auto tHeldPath = test("Allocations/vst3HeldParameterPathIsOffTheHeap") = []
     check(host.handler.edits.size() == static_cast<size_t>(numParams) * 2);
 };
 } // namespace
+} // namespace VST3AllocationTests

@@ -761,7 +761,8 @@ function(_makeasound_add_describe_build)
 
     # The compiler launchers too, so a tree compiled through ccache compiles its
     # host build through it as well.
-    foreach (option MAKEASOUND_BUILD_EXAMPLES MAKEASOUND_UNITY_BUILD MAKEASOUND_CI_BUILD
+    foreach (option MAKEASOUND_BUILD_EXAMPLES MAKEASOUND_UNITY_BUILD
+            MAKEASOUND_UNITY_BUILD_TESTS MAKEASOUND_CI_BUILD
             CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
             CMAKE_OBJCXX_COMPILER_LAUNCHER)
         if (DEFINED ${option})

@@ -11,6 +11,8 @@
 #include <atomic>
 #include <thread>
 
+namespace RealtimeSwapTests
+{
 using namespace nano;
 
 using MakeASound::RealtimeSwap;
@@ -227,3 +229,4 @@ auto tReentrantTeardown =
     check(destroyed);
 };
 } // namespace
+} // namespace RealtimeSwapTests

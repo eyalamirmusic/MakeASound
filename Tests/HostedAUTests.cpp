@@ -20,6 +20,8 @@
 #include <filesystem>
 #include <map>
 
+namespace HostedAUTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -512,3 +514,4 @@ auto tAppleDelay = test("HostedAU/applesDelayLoadsThroughTheFormats") = []
     check(formats.load(missing).plugin == nullptr);
 };
 } // namespace
+} // namespace HostedAUTests

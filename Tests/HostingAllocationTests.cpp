@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <string>
 
+namespace HostingAllocationTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -127,3 +129,4 @@ auto tInstrument = test("Allocations/aHostedInstrumentsMidiTouchesNothing") = []
     check(context.midiOut[0].size() == 3);
 };
 } // namespace
+} // namespace HostingAllocationTests

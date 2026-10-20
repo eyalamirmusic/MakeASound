@@ -7,6 +7,8 @@
 
 #include <cmath>
 
+namespace RealtimeTests
+{
 using namespace nano;
 
 using MakeASound::Buffer;
@@ -208,3 +210,4 @@ auto tNests = test("ScopedNoDenormals/innerGuardKeepsTheOuterOne") = []
 #endif
 };
 } // namespace
+} // namespace RealtimeTests

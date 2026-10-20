@@ -12,6 +12,8 @@
 
 #include <algorithm>
 
+namespace AUAllocationTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace AUHost;
@@ -289,3 +291,4 @@ auto tPlugPort = test("Allocations/auTamberPlugPortRenderIsOffTheHeap") = []
     check(count == 0);
 };
 } // namespace
+} // namespace AUAllocationTests

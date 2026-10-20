@@ -451,6 +451,8 @@ std::string fourCC(uint32_t code)
 
 } // namespace IdentityManifest
 
+namespace IdentityManifestTests
+{
 namespace
 {
 using namespace nano;
@@ -834,3 +836,4 @@ auto tSections = test("Identity/theCoreSectionIsAlwaysDescribed") = []
     check(!IdentityManifest::isDescribedHere("nosuchformat param 0"));
 };
 } // namespace
+} // namespace IdentityManifestTests

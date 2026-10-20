@@ -21,6 +21,8 @@
 #include <thread>
 #include <vector>
 
+namespace StandaloneTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace std::chrono_literals;
@@ -837,3 +839,4 @@ auto tJuceRefused =
     check(JuceFixtures::holdsDefaults(fixtureOf(host).params));
 };
 } // namespace
+} // namespace StandaloneTests

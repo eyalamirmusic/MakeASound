@@ -476,8 +476,8 @@ jobs:
       # The simulator is the only place the suite can actually execute for iOS.
       # Both configures build the examples' -Standalone apps too (the default
       # app's iOS shell), and the suite includes the standalone ones.
-      # Left non-unity on purpose: between this and the device build above, both
-      # the unity and per-TU compile paths get exercised on iOS.
+      # A CI build like the device one above, so the library, the plugin cores and
+      # the test executables all compile as unity builds here too.
       - name: Configure (simulator)
         shell: bash
         run: |
