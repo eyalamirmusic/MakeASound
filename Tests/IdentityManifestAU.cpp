@@ -85,7 +85,7 @@ void describeAU(const ModuleDescription& module,
     }
 }
 
-auto added = addSection({{"au", "auv3"}, describeAU});
+auto added = addSection({2, {"au", "auv3"}, describeAU});
 
 using namespace nano;
 

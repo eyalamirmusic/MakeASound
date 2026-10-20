@@ -140,6 +140,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
         # A ViewRect is pixels on Windows, and an unscaled view follows the DPI.
         if (WIN32 AND TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
             list(APPEND MAKEASOUND_TEST_SOURCES VST3ViewTests-Windows.cpp)
+
+            # Out of unity: its windows.h defines near/far/min/max for every file
+            # after it in the batch.
+            set_source_files_properties(VST3ViewTests-Windows.cpp PROPERTIES
+                    SKIP_UNITY_BUILD_INCLUSION ON)
         endif ()
     endif ()
 

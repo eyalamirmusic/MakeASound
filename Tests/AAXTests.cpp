@@ -25,17 +25,22 @@
 #include <set>
 #include <thread>
 
+// The test binary's bundle id, as EntryPoint.cpp defines a module's. Outside the
+// file's namespace, which does not enclose MakeASound::AAX.
+std::string_view MakeASound::AAX::moduleBundleId() noexcept
+{
+    return AAXHost::bundleId;
+}
+
 namespace AAXTests
 {
 using namespace nano;
 using namespace TestPlugins;
 using namespace AAXHost;
 
-// The test binary's bundle id, as EntryPoint.cpp defines a module's.
-std::string_view MakeASound::AAX::moduleBundleId() noexcept
-{
-    return AAXHost::bundleId;
-}
+// Wins over the Objective-C runtime's global Category, which an Apple header
+// earlier in a unity batch can bring in.
+using MakeASound::Category;
 
 namespace
 {

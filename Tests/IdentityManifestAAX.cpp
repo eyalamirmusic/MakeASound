@@ -46,6 +46,6 @@ void describeAAX(const ModuleDescription&,
                 list.entry(index).automatable ? 1 : 0));
 }
 
-auto added = addSection({{"aax"}, describeAAX});
+auto added = addSection({3, {"aax"}, describeAAX});
 } // namespace
 } // namespace IdentityManifestAAX

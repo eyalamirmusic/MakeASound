@@ -866,7 +866,7 @@ inline const ModuleDescription& juceModule()
                                .idScheme = IdScheme::JUCE,
                                .aaxEffectId = "com.juce.tests.gain"});
         described.plugins.add({.name = "Echo",
-                               .category = Category::Instrument,
+                               .category = MakeASound::Category::Instrument,
                                .pluginCode = "Echo",
                                .create = createRecorded<TestPlugins::SynthPlugin>,
                                .idScheme = IdScheme::JUCE,
