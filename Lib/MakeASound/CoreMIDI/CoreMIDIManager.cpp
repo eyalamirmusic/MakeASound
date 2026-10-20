@@ -158,6 +158,13 @@ NotifyLoop::NotifyLoop()
             auto* idle = CFRunLoopSourceCreate(nullptr, 0, &context);
             CFRunLoopAddSource(CFRunLoopGetCurrent(), idle, kCFRunLoopDefaultMode);
 
+            // Never disposed, so the MIDI server always has a client of ours (see
+            // the header). Created here, before any manager's, so the
+            // notification pin lands on this loop as before. A failure is the
+            // first manager's to report: its own create fails the same way.
+            MIDIClientCreate(
+                CFSTR("MakeASound Keep-Alive"), nullptr, nullptr, &keepAlive);
+
             signal->set_value();
 
             // Anything in the process can CFRunLoopStop this loop, and every
