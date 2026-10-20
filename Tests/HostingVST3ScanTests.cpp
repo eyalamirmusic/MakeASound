@@ -16,6 +16,8 @@
 #error "MAKEASOUND_HOST_FIXTURE_VST3_DIR must name the fixtures' VST3 folder"
 #endif
 
+namespace HostingVST3ScanTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -260,3 +262,4 @@ auto tSweep = test("HostingVST3Scan/aSweepOfTheFixturesBlacklistsTheBadOnes") = 
     fs::remove_all(folder);
 };
 } // namespace
+} // namespace HostingVST3ScanTests

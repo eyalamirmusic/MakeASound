@@ -14,6 +14,8 @@
 #include <cmath>
 #include <vector>
 
+namespace PluginUITests
+{
 using namespace nano;
 using namespace TestPlugins;
 
@@ -221,3 +223,4 @@ auto tDrag = test("PluginUI/aGripDragAsksForTheStartSizePlusTheTravel") = []
 auto tDragRefused = test("PluginUI/aGripDragIgnoresWhatTheHostDid") = []
 { dragFollowsThePointer(false); };
 } // namespace
+} // namespace PluginUITests

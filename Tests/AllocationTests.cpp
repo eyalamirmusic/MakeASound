@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <new>
 
+namespace AllocationTests
+{
 using namespace nano;
 using Probe::allocationsIn;
 
@@ -742,3 +744,4 @@ auto tTestSynthBlock = test("Allocations/testSynthBlockStaysOffTheHeap") = []
     check(count == 0);
 };
 } // namespace
+} // namespace AllocationTests

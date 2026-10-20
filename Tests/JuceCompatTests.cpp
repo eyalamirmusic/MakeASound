@@ -17,6 +17,8 @@
 #include <string_view>
 #include <vector>
 
+namespace JuceCompatTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Compat;
@@ -408,3 +410,4 @@ auto tApvtsXmlEdges = test("JuceCompat/apvtsReadsAsSetNewStateDoes") = []
     check(params.enabled.isOn());
 };
 } // namespace
+} // namespace JuceCompatTests

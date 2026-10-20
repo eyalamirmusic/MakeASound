@@ -10,6 +10,8 @@
 
 #include <NanoTest/NanoTest.h>
 
+namespace HostingAUAllocationTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -104,3 +106,4 @@ auto tInstrument = test("Allocations/aHostedAudioUnitsMidiTouchesNothing") = []
     check(context.midiOut.size() == 1 && context.midiOut[0].size() == 3);
 };
 } // namespace
+} // namespace HostingAUAllocationTests

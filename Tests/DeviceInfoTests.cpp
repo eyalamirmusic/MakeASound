@@ -8,6 +8,8 @@
 
 #include <array>
 
+namespace DeviceInfoTests
+{
 using namespace nano;
 using MakeASound::AudioCallbackInfo;
 using MakeASound::Backend;
@@ -348,3 +350,4 @@ auto tEqualityDetectsChange =
     check(first != channelsChanged);
 };
 } // namespace
+} // namespace DeviceInfoTests

@@ -19,6 +19,8 @@
 #error "MAKEASOUND_HOST_FIXTURE_VST3_DIR must name the fixtures' VST3 folder"
 #endif
 
+namespace HostedVST3Tests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -502,3 +504,4 @@ auto tMidi = test("HostedVST3/midiGoesInAndComesBackOut") = []
     check(block.context.midiOut[0][0].isNoteOff());
 };
 } // namespace
+} // namespace HostedVST3Tests

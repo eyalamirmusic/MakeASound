@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+namespace StateTests
+{
 using namespace nano;
 
 using MakeASound::BoolParam;
@@ -515,3 +517,4 @@ auto tMarkChanged = test("State/deserializeBroadcastsAChange") = []
     check(changes == 2);
 };
 } // namespace
+} // namespace StateTests

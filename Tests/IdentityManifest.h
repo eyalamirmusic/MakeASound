@@ -24,17 +24,21 @@ using Lines = std::vector<std::string>;
 using DescribeFn = std::function<void(
     const ModuleDescription& module, const PluginDescription& plugin, Lines& out)>;
 
-// One format's part: the tags its lines start with, and what writes them.
+// One format's part: where its lines go among the others' (the core is 0), the
+// tags its lines start with, and what writes them.
 struct Section
 {
+    int order = 0;
     std::vector<std::string_view> tags;
     DescribeFn describe;
 };
 
-// Every section built into this binary, the core's first.
+// Every section built into this binary, by order, the core's first.
 std::vector<Section>& sections();
 
-// For a format TU's namespace-scope initialiser.
+// For a format TU's namespace-scope initialiser. It keeps sections() in order,
+// because the order format TUs initialise in is unspecified (a unity build or
+// the linker can change it).
 bool addSection(Section section);
 
 // The plugin's lines from every section, each ending in a newline.

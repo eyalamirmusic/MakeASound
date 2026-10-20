@@ -15,6 +15,8 @@
 #error "MAKEASOUND_PLUGIN_SCANNER must name the PluginScanner executable"
 #endif
 
+namespace HostingScannerAppTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -123,3 +125,4 @@ auto tSweep = test("HostingScannerApp/aSweepWritesTheDatabaseAndStaysQuiet") = [
     fs::remove_all(folder);
 };
 } // namespace
+} // namespace HostingScannerAppTests

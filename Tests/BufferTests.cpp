@@ -13,6 +13,8 @@
 #include <array>
 #include <type_traits>
 
+namespace BufferTests
+{
 using namespace nano;
 using MakeASound::Buffer;
 using MakeASound::Channel;
@@ -521,3 +523,4 @@ auto tReadOnly = test("Buffer/aReadOnlyBufferRefersToAConstTable") = []
     check(sumOf(input) == 108.0f);
 };
 } // namespace
+} // namespace BufferTests

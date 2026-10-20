@@ -16,6 +16,8 @@
 #include <iostream>
 #include <string_view>
 
+namespace PluginvalTests
+{
 using namespace nano;
 namespace Pluginval = MakeASound::Pluginval;
 
@@ -254,3 +256,4 @@ auto pluginvalNoDish = test("Pluginval/aaxvalFailsWhenTheDishDoesNotLoad") = []
     check(!result.passed);
     check(result.log.find("FAIL load_dish aaxval: no dish") != std::string::npos);
 };
+} // namespace PluginvalTests

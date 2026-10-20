@@ -14,6 +14,8 @@
 #include <thread>
 #include <type_traits>
 
+namespace StandaloneAllocationTests
+{
 using namespace nano;
 using namespace TestPlugins;
 using Probe::allocationsIn;
@@ -173,3 +175,4 @@ auto tStandaloneLive = test("Allocations/standaloneLiveCallbackIsOffTheHeap") = 
     check(violations == 0);
 };
 } // namespace
+} // namespace StandaloneAllocationTests

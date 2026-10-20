@@ -10,6 +10,7 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -393,13 +394,19 @@ bool matchesGolden(std::string_view file)
 
 std::vector<Section>& sections()
 {
-    static auto all = std::vector<Section> {{{"plugin", "core"}, describeCore}};
+    static auto all = std::vector<Section> {{0, {"plugin", "core"}, describeCore}};
     return all;
 }
 
 bool addSection(Section section)
 {
-    sections().push_back(std::move(section));
+    auto& all = sections();
+    auto after = std::upper_bound(all.begin(),
+                                  all.end(),
+                                  section.order,
+                                  [](int order, const Section& existing)
+                                  { return order < existing.order; });
+    all.insert(after, std::move(section));
     return true;
 }
 
@@ -451,6 +458,8 @@ std::string fourCC(uint32_t code)
 
 } // namespace IdentityManifest
 
+namespace IdentityManifestTests
+{
 namespace
 {
 using namespace nano;
@@ -834,3 +843,4 @@ auto tSections = test("Identity/theCoreSectionIsAlwaysDescribed") = []
     check(!IdentityManifest::isDescribedHere("nosuchformat param 0"));
 };
 } // namespace
+} // namespace IdentityManifestTests

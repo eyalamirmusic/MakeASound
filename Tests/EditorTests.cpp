@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <vector>
 
+namespace EditorTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -225,3 +227,4 @@ auto tReaches = test("Editor/requestResizeHandsTheHostTheConstrainedSize") = []
     check(host.requests.size() == 2);
 };
 } // namespace
+} // namespace EditorTests

@@ -14,6 +14,8 @@
 #include <initializer_list>
 #include <vector>
 
+namespace MidiParserTests
+{
 using namespace nano;
 using MakeASound::MidiMessageView;
 using MakeASound::MidiParser;
@@ -430,3 +432,4 @@ auto tNoBuffer = test("MidiParser/withNoBufferEverySysExIsDropped") = []
     check(recorder.is(0, {0x90, 0x3C, 0x64}));
 };
 } // namespace
+} // namespace MidiParserTests

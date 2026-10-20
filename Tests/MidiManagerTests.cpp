@@ -26,6 +26,8 @@
 #include <mach/mach_time.h>
 #endif
 
+namespace MidiManagerTests
+{
 using namespace nano;
 using namespace std::chrono_literals;
 
@@ -397,3 +399,4 @@ auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
     check(removed > 0);
 };
 } // namespace
+} // namespace MidiManagerTests

@@ -9,6 +9,8 @@
 
 #include <filesystem>
 
+namespace HostingPluginHostAppTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -33,3 +35,4 @@ auto tWorker = test("HostingPluginHost/theAppIsItsOwnScanWorker") = []
           && scan->classes[0].name == "HostFixtureEffect");
 };
 } // namespace
+} // namespace HostingPluginHostAppTests

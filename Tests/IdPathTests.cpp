@@ -16,6 +16,8 @@
 #include <string_view>
 #include <vector>
 
+namespace IdPathTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -301,3 +303,4 @@ auto tPostPort = test("TamberPlug/aPostPortLeafWithASlashHashesItsPath") = []
     check(list.identityProblems().empty());
 };
 } // namespace
+} // namespace IdPathTests

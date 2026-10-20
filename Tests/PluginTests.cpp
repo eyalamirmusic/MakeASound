@@ -20,9 +20,6 @@
 #include <thread>
 #include <vector>
 
-using namespace nano;
-using namespace TestPlugins;
-
 namespace MakeASound
 {
 ModuleDescription describeModule()
@@ -53,7 +50,13 @@ ModuleDescription describeModule()
 
 // Tests live in an anonymous namespace: NanoTest registers a case by
 // constructing a namespace-scope variable, so two files naming one the same way
-// would otherwise collide at link time.
+// would otherwise collide at link time. Inside one named after the file too, as
+// in every suite: a unity build compiles several files as one translation unit.
+namespace PluginTests
+{
+using namespace nano;
+using namespace TestPlugins;
+
 namespace
 {
 std::atomic<int> deferredLoads {0};
@@ -1806,3 +1809,4 @@ auto tRenameNotifies = test("Plugin/aRenameTellsTheHostOnlyWhenANameChanged") = 
     plugin.setHostEditListener(nullptr);
 };
 } // namespace
+} // namespace PluginTests

@@ -36,11 +36,22 @@ endfunction()
 
 _makeasound_check_core_links(MakeASoundCore)
 
+# The test-side targets defined here, as unity builds under
+# MAKEASOUND_UNITY_BUILD_TESTS (CI). Per target rather than CMAKE_UNITY_BUILD for
+# the directory: the fixture plugins in HostFixtures/ and BundleIds/ are
+# makeasound_add_plugin targets, which follow MAKEASOUND_UNITY_BUILD as every
+# plugin does. Every file-local helper must be unique within its target.
+function(_makeasound_test_unity target)
+    set_target_properties(${target} PROPERTIES
+            UNITY_BUILD ${MAKEASOUND_UNITY_BUILD_TESTS})
+endfunction()
+
 nano_add_executable(MakeASoundCoreTests
         SOURCES CoreTests.cpp
         TARGETS MakeASoundCore)
 set_target_properties(MakeASoundCoreTests PROPERTIES
         INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+_makeasound_test_unity(MakeASoundCoreTests)
 
 # The main suite covers the device library, so a core-only build stops here.
 if (NOT TARGET MakeASound)
@@ -65,6 +76,10 @@ set(MAKEASOUND_TEST_TARGETS MakeASound MakeASoundDSP)
 # dismisses; this TU routes it to stderr and aborts, so a case fails instead.
 if (WIN32)
     list(APPEND MAKEASOUND_TEST_SOURCES AssertReporting-Windows.cpp)
+
+    # Out of unity: its WIN32_LEAN_AND_MEAN must not reach another file's windows.h.
+    set_source_files_properties(AssertReporting-Windows.cpp PROPERTIES
+            SKIP_UNITY_BUILD_INCLUSION ON)
 endif ()
 
 if (MAKEASOUND_BUILD_PLUGIN)
@@ -125,6 +140,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
         # A ViewRect is pixels on Windows, and an unscaled view follows the DPI.
         if (WIN32 AND TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
             list(APPEND MAKEASOUND_TEST_SOURCES VST3ViewTests-Windows.cpp)
+
+            # Out of unity: its windows.h defines near/far/min/max for every file
+            # after it in the batch.
+            set_source_files_properties(VST3ViewTests-Windows.cpp PROPERTIES
+                    SKIP_UNITY_BUILD_INCLUSION ON)
         endif ()
     endif ()
 
@@ -151,6 +171,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
         set_target_properties(MakeASoundAUTestModule PROPERTIES
                 OBJCXX_STANDARD 23
                 INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+        _makeasound_test_unity(MakeASoundAUTestModule)
 
         list(APPEND MAKEASOUND_TEST_SOURCES AUTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundAUTestModule MakeASoundAUDescribe)
@@ -237,6 +258,7 @@ if (MAKEASOUND_BUILD_PLUGIN)
             target_sources(FakeScanWorker PRIVATE AssertReporting-Windows.cpp)
         endif ()
         set_makeasound_target_settings(FakeScanWorker)
+        _makeasound_test_unity(FakeScanWorker)
         set(MAKEASOUND_TEST_FAKE_SCAN_WORKER ON)
 
         # Real VST3 modules to scan: the fixtures, built beside the suite.
@@ -382,6 +404,15 @@ set_property(DIRECTORY APPEND PROPERTY
 # Release LTO as every target of ours has: eacp's Release archives are LTO bitcode
 # under Clang, which a link without -flto cannot read.
 set_target_properties(MakeASoundTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+_makeasound_test_unity(MakeASoundTests)
+
+# VST3Common.h renames IEditController's setState/getState while it includes the
+# SDK, and has to come before any other SDK header: a unity batch is one TU, so
+# it opens each batch rather than relying on which suite comes first.
+if (MAKEASOUND_UNITY_BUILD_TESTS AND TARGET vst3sdk)
+    set_target_properties(MakeASoundTests PROPERTIES UNITY_BUILD_CODE_BEFORE_INCLUDE
+            "#include <MakeASound/Plugin/VST3/VST3Common.h>")
+endif ()
 
 if (MAKEASOUND_TEST_AUV3_SOURCES)
     set_source_files_properties(${MAKEASOUND_TEST_AUV3_SOURCES} PROPERTIES

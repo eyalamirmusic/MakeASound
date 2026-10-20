@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <vector>
 
+namespace ALSABackendTests
+{
 using namespace nano;
 
 using MakeASound::Error;
@@ -221,3 +223,4 @@ auto tFilter = test("Alsa/ourOwnPlumbingIsNotAPortAHostCanOpen") = []
     check(!filter.shouldSkip(ALSA::Address {24, 0}));
 };
 } // namespace
+} // namespace ALSABackendTests

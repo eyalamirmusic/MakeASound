@@ -19,6 +19,8 @@
 #include <filesystem>
 #include <thread>
 
+namespace HostingAUScanTests
+{
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
@@ -204,3 +206,4 @@ auto tBlacklist = test("HostingAUScan/aCrashedAudioUnitStaysBlacklisted") = []
     check(!cache.isBlacklisted(appleDelay));
 };
 } // namespace
+} // namespace HostingAUScanTests

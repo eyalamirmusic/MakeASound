@@ -15,6 +15,8 @@
 #include <thread>
 #include <vector>
 
+namespace EngineTests
+{
 using namespace nano;
 using namespace std::chrono_literals;
 
@@ -683,3 +685,4 @@ auto tMidiAlignment = test("Engine/loopbackMidiLandsInsideTheBlock") = []
     check(inRange);
 };
 } // namespace
+} // namespace EngineTests

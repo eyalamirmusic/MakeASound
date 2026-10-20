@@ -12,6 +12,8 @@
 
 #include <algorithm>
 
+namespace IdentityManifestAU
+{
 namespace
 {
 using namespace IdentityManifest;
@@ -83,7 +85,7 @@ void describeAU(const ModuleDescription& module,
     }
 }
 
-auto added = addSection({{"au", "auv3"}, describeAU});
+auto added = addSection({2, {"au", "auv3"}, describeAU});
 
 using namespace nano;
 
@@ -117,3 +119,4 @@ auto tPostPortListing = test("Identity/aPostPortParameterListsLastInAnAU") = []
         check(list.entry(order[slot]).hostId == static_cast<uint32_t>(slot));
 };
 } // namespace
+} // namespace IdentityManifestAU

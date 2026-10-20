@@ -8,6 +8,8 @@
 
 #include <string>
 
+namespace VST3SDKLoaderTests
+{
 using namespace nano;
 
 namespace
@@ -22,3 +24,4 @@ auto tMissingModule = test("VST3SDK/aMissingModuleFailsToLoadWithAReason") = []
     check(!error.empty());
 };
 } // namespace
+} // namespace VST3SDKLoaderTests

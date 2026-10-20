@@ -13,6 +13,8 @@
 
 #include <string>
 
+namespace VST3SDKTests
+{
 using namespace nano;
 
 namespace
@@ -65,3 +67,4 @@ auto tHostApplication = test("VST3SDK/theHostApplicationAnswersItsName") = []
     check(!Steinberg::Vst::StringConvert::convert(name).empty());
 };
 } // namespace
+} // namespace VST3SDKTests

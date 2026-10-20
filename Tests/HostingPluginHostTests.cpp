@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <thread>
 
+namespace HostingPluginHostTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -107,3 +109,4 @@ auto tHost = test("HostingPluginHost/theHostScansListsAndLoads") = []
     fs::remove_all(folder);
 };
 } // namespace
+} // namespace HostingPluginHostTests

@@ -26,6 +26,8 @@
 #include <string>
 #include <string_view>
 
+namespace TamberPlugStateTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -598,3 +600,4 @@ auto tPartsState =
     check(TamberPlugFixtures::plugNear(preset.params.partA.level.get(), 0.25f));
 };
 } // namespace
+} // namespace TamberPlugStateTests

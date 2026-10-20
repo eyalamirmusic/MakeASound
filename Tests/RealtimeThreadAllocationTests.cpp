@@ -22,6 +22,8 @@
 #include <thread>
 #include <vector>
 
+namespace RealtimeThreadAllocationTests
+{
 using namespace nano;
 using namespace std::chrono_literals;
 
@@ -418,3 +420,4 @@ auto tQueuedDrain = test("Allocations/drainingRealQueuedMidiTouchesNothing") = [
     check(drained > 0);
 };
 } // namespace
+} // namespace RealtimeThreadAllocationTests

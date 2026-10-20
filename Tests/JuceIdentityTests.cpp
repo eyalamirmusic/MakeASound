@@ -20,6 +20,8 @@
 #include <string>
 #include <utility>
 
+namespace JuceIdentityTests
+{
 using namespace nano;
 using namespace MakeASound;
 
@@ -684,3 +686,4 @@ auto tPolicies = test("JuceCompat/eachProfileResolvesToItsRules") = []
 };
 
 } // namespace
+} // namespace JuceIdentityTests

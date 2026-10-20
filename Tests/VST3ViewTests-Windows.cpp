@@ -13,6 +13,8 @@
 
 #include <cmath>
 
+namespace VST3ViewTestsWindows
+{
 using namespace nano;
 using namespace TestPlugins;
 using namespace VST3Host;
@@ -55,3 +57,4 @@ auto tUnscaled = test("VST3/anUnscaledWindowsViewFollowsTheDpi") = []
     check(hostScaled.getHeight() == points.height * 2);
 };
 } // namespace
+} // namespace VST3ViewTestsWindows
