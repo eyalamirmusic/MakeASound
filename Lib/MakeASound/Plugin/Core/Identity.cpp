@@ -26,8 +26,16 @@ IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept
     if (overrides.declaredBypassInAU)
         params.declaredBypassInAU = *overrides.declaredBypassInAU;
 
+    // A port whose parameter ids carried their groups' ids built each group's
+    // id from its parent's the same way: where the profile names a group by its
+    // own id, it takes the joined path.
     if (overrides.juceKeyGroupSeparator)
+    {
         params.juceKeyGroupSeparator = overrides.juceKeyGroupSeparator;
+
+        if (params.groups == GroupIdRule::OwnId)
+            params.groups = GroupIdRule::JoinedOwnIds;
+    }
 
     if (overrides.vst3Controllers)
         params.vst3Controllers = *overrides.vst3Controllers;

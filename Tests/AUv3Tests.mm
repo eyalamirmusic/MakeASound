@@ -620,6 +620,46 @@ auto tNested = test("AUv3/nestedGroupsNestInTheTree") = []
     check([tree.children[2].identifier isEqualToString:@"Pan"]);
 };
 
+auto tJoinedGroups =
+    test("AUv3/aJucePortsGroupsAreIdentifiedByTheirJoinedPaths") = []
+{
+    // Two "EQ"s, whose JUCE build's groups were "DriveFilter-EQ" and
+    // "MasterFilter-EQ" (GroupIdRule::JoinedOwnIds), each still named "EQ".
+    auto description =
+        PluginDescription {.name = "Twin EQs",
+                           .idScheme = IdScheme::JUCE,
+                           .overrides = {.juceKeyGroupSeparator = '-'}};
+    auto params = TwinEQParams {};
+    auto list = ParameterList {params, parameterIdentityFor(description)};
+    auto* tree = AUv3::makeParameterTree(list);
+
+    check(tree.children.count == 2);
+
+    auto index = NSUInteger {0};
+
+    for (NSString* parent in @[ @"DriveFilter", @"MasterFilter" ])
+    {
+        auto* filter = static_cast<AUParameterGroup*>(tree.children[index++]);
+        check([filter isKindOfClass:[AUParameterGroup class]]);
+        check([filter.identifier isEqualToString:parent]);
+        check([filter.displayName isEqualToString:parent]);
+        check(filter.children.count == 2);
+
+        auto* amount = filter.children[0];
+        check([amount.identifier
+            isEqualToString:[parent stringByAppendingString:@"-Amount"]]);
+
+        auto* eq = static_cast<AUParameterGroup*>(filter.children[1]);
+        check([eq isKindOfClass:[AUParameterGroup class]]);
+        check(
+            [eq.identifier isEqualToString:[parent stringByAppendingString:@"-EQ"]]);
+        check([eq.displayName isEqualToString:@"EQ"]);
+        check(eq.children.count == 1);
+        check([eq.children[0].identifier
+            isEqualToString:[parent stringByAppendingString:@"-EQ-Low"]]);
+    }
+};
+
 auto tText = test("AUv3/textAndValuesGoThroughTheParameter") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");

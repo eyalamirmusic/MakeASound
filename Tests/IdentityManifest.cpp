@@ -305,6 +305,23 @@ Vector<Case> cases()
                          .create = creator<GroupedKeyPlugin>()});
     result.add({"GroupedKeys", grouped});
 
+    // Two "EQ" groups under different parents, whose JUCE groups' ids were the
+    // joined paths, under JUCE's ids, and with the same override under
+    // MakeASound's, whose groups keep their id paths.
+    auto twins = ModuleDescription {};
+    twins.vendor = "MakeASound Identity";
+    twins.manufacturerCode = "MaSo";
+    twins.plugins.add({.name = "Twin EQs",
+                       .pluginCode = "Twin",
+                       .create = creator<TwinEQPlugin>(),
+                       .idScheme = IdScheme::JUCE,
+                       .overrides = {.juceKeyGroupSeparator = '-'}});
+    twins.plugins.add({.name = "Twin EQs Native",
+                       .pluginCode = "Twnn",
+                       .create = creator<TwinEQPlugin>(),
+                       .overrides = {.juceKeyGroupSeparator = '-'}});
+    result.add({"TwinGroups", twins});
+
     return result;
 }
 
@@ -489,6 +506,9 @@ auto tUnlistedBypass = test("Identity/unlistedBypassGainMatchesItsManifest") = [
 auto tGroupedKeys = test("Identity/groupedKeysMatchTheirManifest") = []
 { check(IdentityManifest::matchesGolden("GroupedKeys")); };
 
+auto tTwinGroups = test("Identity/twinGroupsMatchTheirManifest") = []
+{ check(IdentityManifest::matchesGolden("TwinGroups")); };
+
 MakeASound::OwningPointer<MakeASound::Plugin> createGrouped()
 {
     return EA::makeOwned<TestPlugins::GroupedKeyPlugin>();
@@ -571,6 +591,204 @@ auto tDeclaredBypass = test("Identity/aDeclaredBypassCanBeUnlistedInAnAU") = []
 
     check(parameterIdentityFor(description).addedBypassInAU
           == BypassPlacement::Unlisted);
+};
+
+MakeASound::OwningPointer<MakeASound::Plugin> createTwins()
+{
+    return EA::makeOwned<TestPlugins::TwinEQPlugin>();
+}
+
+// TwinEQPlugin under `scheme`, with or without the separator.
+MakeASound::PluginDescription twinDescription(MakeASound::IdScheme scheme,
+                                              std::optional<char> separator)
+{
+    return {.name = "Twin EQs",
+            .pluginCode = "Twin",
+            .create = createTwins,
+            .idScheme = scheme,
+            .overrides = {.juceKeyGroupSeparator = separator}};
+}
+
+auto tGroupRule = test("Identity/aGroupSeparatorJoinsAJuceProfilesGroupIds") = []
+{
+    using namespace MakeASound;
+
+    auto joined = parameterIdentityFor(twinDescription(IdScheme::JUCE, '-'));
+    check(joined.groups == GroupIdRule::JoinedOwnIds);
+
+    auto legacy =
+        parameterIdentityFor(twinDescription(IdScheme::JUCELegacyIndex, '-'));
+    check(legacy.groups == GroupIdRule::JoinedOwnIds);
+
+    // Without the separator a JUCE profile's groups keep their own ids, and
+    // MakeASound's keep their paths with it.
+    check(parameterIdentityFor(twinDescription(IdScheme::JUCE, {})).groups
+          == GroupIdRule::OwnId);
+    check(parameterIdentityFor(twinDescription(IdScheme::Native, '-')).groups
+          == GroupIdRule::Path);
+    check(parameterIdentityFor(twinDescription(IdScheme::TamberPlug, '-')).groups
+          == GroupIdRule::Path);
+};
+
+auto tJoinedGroups = test("Identity/sameNamedNestedGroupsTakeTheirJoinedPaths") = []
+{
+    using namespace MakeASound;
+
+    auto description = twinDescription(IdScheme::JUCE, '-');
+    auto wrapper = PluginWrapper(description.create(),
+                                 PluginFormat::Unknown,
+                                 parameterIdentityFor(description));
+    const auto& list = wrapper.plugin().parameters();
+    check(list.identityProblems().empty());
+
+    for (auto parent: {std::string {"DriveFilter"}, std::string {"MasterFilter"}})
+    {
+        auto low = list.indexOf(parent + "/EQ/Low");
+        check(low >= 0);
+
+        const auto& entry = list.entry(low);
+        check(entry.groups.size() == 2);
+
+        const auto& outer = entry.groups[0];
+        check(outer.id == parent && outer.ownId == parent);
+        check(outer.identifier == parent);
+        check(outer.name == parent);
+
+        // The JUCE build's group id; the state key and the name are unchanged.
+        const auto& eq = entry.groups[1];
+        check(eq.identifier == parent + "-EQ");
+        check(eq.id == parent + "/EQ");
+        check(eq.ownId == "EQ");
+        check(eq.name == "EQ");
+
+        check(entry.displayName == parent + " EQ Low");
+        check(entry.hostKey == parent + "-EQ-Low");
+        check(entry.hostId == (Compat::juceStringHash(entry.hostKey) & 0x7fffffffu));
+        check(entry.identifier == entry.hostKey);
+        check(entry.aaxId == entry.hostKey);
+    }
+
+    // By their own ids, JUCE's duplicate group id check sees two "EQ"s.
+    auto params = TestPlugins::TwinEQParams {};
+    auto ownIdentity = parameterIdentityFor(description);
+    ownIdentity.groups = GroupIdRule::OwnId;
+
+    auto byOwnId = ParameterList(params, ownIdentity);
+    auto problems = byOwnId.identityProblems();
+    check(problems.size() == 1);
+    check(!problems.empty()
+          && problems[0].find("share the id \"EQ\"") != std::string::npos);
+
+    // MakeASound's scheme names them by their paths, separator or not.
+    auto native = twinDescription(IdScheme::Native, '-');
+    auto nativeWrapper = PluginWrapper(
+        native.create(), PluginFormat::Unknown, parameterIdentityFor(native));
+    const auto& nativeList = nativeWrapper.plugin().parameters();
+    const auto& nativeEq =
+        nativeList.entry(nativeList.indexOf("MasterFilter/EQ/Low")).groups[1];
+    check(nativeEq.identifier == "MasterFilter/EQ");
+    check(nativeList.identityProblems().empty());
+};
+
+struct JoinedClashParams : MakeASound::ParameterGroup
+{
+    struct Flat : MakeASound::ParameterGroup
+    {
+        Flat()
+            : ParameterGroup("A-B")
+        {
+            add(x);
+        }
+
+        MakeASound::FloatParam x {"X"};
+    };
+
+    struct Inner : MakeASound::ParameterGroup
+    {
+        Inner()
+            : ParameterGroup("B")
+        {
+            add(y);
+        }
+
+        MakeASound::FloatParam y {"Y"};
+    };
+
+    struct Outer : MakeASound::ParameterGroup
+    {
+        Outer()
+            : ParameterGroup("A")
+        {
+            add(inner);
+        }
+
+        Inner inner;
+    };
+
+    JoinedClashParams() { add(flat, outer); }
+
+    Flat flat;
+    Outer outer;
+};
+
+auto tJoinedClash = test("Identity/twoGroupsWithOneJoinedPathClash") = []
+{
+    using namespace MakeASound;
+
+    // "A-B" at the root and "B" in "A" are two groups whose JUCE ids were both
+    // "A-B"; their parameters' keys, "A-B-X" and "A-B-Y", are distinct.
+    auto identity = policyFor(IdScheme::JUCE, {}).parameters;
+    identity.juceKeyGroupSeparator = '-';
+    identity.groups = GroupIdRule::JoinedOwnIds;
+
+    auto params = JoinedClashParams {};
+    auto list = ParameterList(params, identity);
+    check(list.entry(0).hostKey == "A-B-X");
+    check(list.entry(1).hostKey == "A-B-Y");
+    check(list.entry(1).groups[1].identifier == "A-B");
+
+    auto problems = list.identityProblems();
+    check(problems.size() == 1);
+    check(!problems.empty()
+          && problems[0].find("share the id \"A-B\"") != std::string::npos);
+};
+
+// A group's id names only the group: under every manifest plugin's own rules
+// and with its groups named by their paths instead, every entry has the same
+// key, host id, address, identifier, AAX id and AU listing.
+auto tGroupIdsMoveNoKey = test("Identity/theGroupIdRuleMovesNoParameterId") = []
+{
+    using namespace MakeASound;
+
+    for (const auto& golden: IdentityManifest::cases())
+    {
+        for (const auto& plugin: golden.module.plugins)
+        {
+            auto identity = parameterIdentityFor(plugin);
+            auto byPath = identity;
+            byPath.groups = GroupIdRule::Path;
+
+            auto wrapper =
+                PluginWrapper(plugin.create(), PluginFormat::Unknown, identity);
+            auto pathWrapper =
+                PluginWrapper(plugin.create(), PluginFormat::Unknown, byPath);
+            const auto& list = wrapper.plugin().parameters();
+            const auto& pathList = pathWrapper.plugin().parameters();
+            check(list.size() == pathList.size());
+
+            for (auto i = 0; i < list.size() && i < pathList.size(); ++i)
+            {
+                const auto& entry = list.entry(i);
+                const auto& other = pathList.entry(i);
+                check(entry.hostKey == other.hostKey);
+                check(entry.hostId == other.hostId);
+                check(entry.address == other.address);
+                check(entry.identifier == other.identifier);
+                check(entry.aaxId == other.aaxId);
+                check(entry.listedInAU == other.listedInAU);
+            }
+        }
+    }
 };
 
 // CI builds RelWithDebInfo, where nothing asserts: every plugin a manifest

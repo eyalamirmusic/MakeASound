@@ -151,7 +151,11 @@ struct IdentityOverrides
 
     // ParameterIdentity::juceKeyGroupSeparator: every grouped parameter's
     // hostKey prefixed with its groups' ids, each followed by this. A JUCE port
-    // whose parameter ids were "<GroupId>-<id>" sets '-'.
+    // whose parameter ids were "<GroupId>-<id>" sets '-'. Where the profile
+    // names a group by its own id (GroupIdRule::OwnId, a JUCE one's), it also
+    // makes that GroupIdRule::JoinedOwnIds: a group's id is its enclosing
+    // groups' own ids and its own joined by this, "<ParentId>-<id>", as such a
+    // port's JUCE groups' ids were. Names are untouched.
     std::optional<char> juceKeyGroupSeparator = {};
 
     // The VST3 MIDI controller parameters' layout (ParameterIdentity::

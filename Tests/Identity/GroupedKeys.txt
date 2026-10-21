@@ -3,7 +3,7 @@ core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core overrides indexedThroughVersion -1 declaredBypassInAU Unlisted juceKeyGroupSeparator '-'
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
 core entry 1 "Drive-Filter/Amount" key "Drive-Filter-Amount" hint 1 automatable 1 session 0 bypass no hostId 1157565738 address 7523776394769487854 identifier "Drive-Filter-Amount" aaxId "Drive-Filter-Amount" groups {[Drive-Filter|Drive-Filter]}
-core entry 2 "Drive-Filter/EQ/Low" key "Drive-Filter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1244218181 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" aaxId "Drive-Filter-EQ-Low" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|EQ]}
+core entry 2 "Drive-Filter/EQ/Low" key "Drive-Filter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1244218181 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" aaxId "Drive-Filter-EQ-Low" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|Drive-Filter-EQ]}
 core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 2004703496 address 706374336526 identifier "Bypass" aaxId "MasterBypassID" groups {}
 vst3 class 0x56535447 0x72706467 0x726f7570 0x65640000
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0

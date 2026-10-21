@@ -43,8 +43,10 @@ public:
         std::string id;
         std::string name;
 
-        // The AUv3 AUParameterGroup identifier, by GroupIdRule: the id path,
-        // or the group's own id, as JUCE's tree names it.
+        // The AUv3 AUParameterGroup identifier, by GroupIdRule: the id path;
+        // the group's own id, as JUCE's tree names it; or the own ids from the
+        // root joined by juceKeyGroupSeparator ("Drive-Filter-EQ"). JUCE's
+        // duplicate group id check compares it.
         std::string identifier;
 
         // The group's own id, the last segment of the path.

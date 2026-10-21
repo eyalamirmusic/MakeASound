@@ -287,6 +287,40 @@ struct GroupedKeyPlugin : StatePlugin<State<GroupedKeyParams>>
     void process(ProcessContext&) noexcept override {}
 };
 
+// Two groups of one type, each holding an "EQ": a JUCE port whose groups' ids
+// carried their parents' too, so its JUCE build's were "DriveFilter-EQ" and
+// "MasterFilter-EQ", distinct where the own ids are not
+// (GroupIdRule::JoinedOwnIds).
+struct TwinFilterParams : ParameterGroup
+{
+    explicit TwinFilterParams(std::string_view nameToUse)
+        : ParameterGroup(nameToUse)
+    {
+        add(amount, eq);
+    }
+
+    FloatParam amount {"Amount", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    GroupedEQParams eq;
+};
+
+struct TwinEQParams : ParameterGroup
+{
+    TwinEQParams() { add(drive, master); }
+
+    TwinFilterParams drive {"DriveFilter"};
+    TwinFilterParams master {"MasterFilter"};
+};
+
+struct TwinEQPlugin : StatePlugin<State<TwinEQParams>>
+{
+    std::string_view name() const override { return "Twin EQs"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
 struct SynthParams : ParameterGroup
 {
     SynthParams() { add(level); }

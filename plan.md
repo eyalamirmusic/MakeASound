@@ -261,6 +261,10 @@ Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10, 10.11,
   at 532-545). MakeASound puts everything in `kRootUnitId` and has no clumps.
   `ParameterList::Entry::groups` already carries the data and
   `SingleComponentEffect` derives from `EditControllerEx1`, so `addUnit` is enough.
+  A unit's id hashes `EnclosingGroup::identifier`, JUCE's `getID()` under every
+  `GroupIdRule` (the joined path under `JoinedOwnIds`), and its name is the
+  group's own `name`, JUCE's `getName()`; a clump's name is the names joined by
+  the separator, as `AU_1.mm:535-545` builds it.
   AUv3 has its groups already; AAX pages are skipped.
 - **WP10.11, AAX `parameterInfoChanged`.** JUCE's `syncParameterAttributes`
   (`AAX.cpp:2193-2218`) updates the name, type and steps of the live
@@ -510,8 +514,9 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
     (`juce_core/text/juce_String.cpp:562-580`). VST3 and AU ids are
     `hashCode(leafId) & 0x7fffffff` (`juce_VST3ClientExtensions.cpp:43-51`,
     `AU_1.mm:2387-2398`); an AUv3 address is `hashCode64` unmasked, its identifier
-    the bare leaf id and a group's identifier the group's own id
-    (`AUv3.mm:1235-1287, 1781-1787`); an AAX `AAX_CParamID` is the id string itself
+    the bare leaf id and a group's identifier the group's own id, its `getID()`
+    (`AUv3.mm:1235-1287, 1781-1787`; `JoinedOwnIds` for a port that built a
+    group's id from its parent's); an AAX `AAX_CParamID` is the id string itself
     (`AAX.cpp:1744-1748`), at most 31 characters and unique after truncation
     (asserted, `juce_AudioProcessor.cpp:455-483`). Legacy mode indexes every
     parameter (AU `UseIndexedParameters`; AAX `"0"`, `"1"`, …).
@@ -1197,3 +1202,15 @@ solves. Either way, AAX output needs its own packet splitting first.
   offline-mode notifications. `Plugin::nameForMidiNote` (VST3 pitch names) is
   deferred: it needs `IUnitInfo` and a program list, which nothing has yet.
   New goldens `UnlistedBypassGain` and `GroupedKeys`; no existing one moved.
+- 2026-10-20 (Modalics port): `GroupIdRule::JoinedOwnIds`. Modalics' JUCE
+  groups took the parent's id, a `-` and their own name as their id
+  (`"DriveFilter-EQ"`) and their own name as their name, so its two `EQ`s were
+  distinct to JUCE's `checkForDuplicateGroupIDs` (`juce_AudioProcessor.cpp:500-514`)
+  and to the AUv3 tree (`createGroupWithIdentifier: group.getID()`,
+  `AUv3.mm:1287`), but clashed under `OwnId`. `identityPolicyFor` turns a
+  profile's `OwnId` into `JoinedOwnIds` when `juceKeyGroupSeparator` is set, and
+  `finishIds` builds each identifier as `groupedKey` builds the parameter's key,
+  so the duplicate check, the AUv3 tree and the manifests read the joined path.
+  Host keys, ids, state keys and names are untouched; the native and Plug
+  profiles keep `Path`. Goldens: `GroupedKeys`' "Grouped" `EQ` identifier
+  became `Drive-Filter-EQ` (its one changed line), and `TwinGroups` is new.

@@ -1,0 +1,69 @@
+plugin "Twin EQs" code Twin scheme JUCE category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core overrides indexedThroughVersion -1 juceKeyGroupSeparator '-'
+core entry 0 "DriveFilter/Amount" key "DriveFilter-Amount" hint 1 automatable 1 session 0 bypass no hostId 321726243 address 10683264967546494069 identifier "DriveFilter-Amount" aaxId "DriveFilter-Amount" groups {[DriveFilter|DriveFilter]}
+core entry 1 "DriveFilter/EQ/Low" key "DriveFilter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 408378686 address 10683265006604786842 identifier "DriveFilter-EQ-Low" aaxId "DriveFilter-EQ-Low" groups {[DriveFilter|DriveFilter] [DriveFilter/EQ|DriveFilter-EQ]}
+core entry 2 "MasterFilter/Amount" key "MasterFilter-Amount" hint 1 automatable 1 session 0 bypass no hostId 915587339 address 14387816683657700243 identifier "MasterFilter-Amount" aaxId "MasterFilter-Amount" groups {[MasterFilter|MasterFilter]}
+core entry 3 "MasterFilter/EQ/Low" key "MasterFilter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1002239782 address 14387816722715993016 identifier "MasterFilter-EQ-Low" aaxId "MasterFilter-EQ-Low" groups {[MasterFilter|MasterFilter] [MasterFilter/EQ|MasterFilter-EQ]}
+core entry 4 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1652125811 address 1652125811 identifier "__bypass" aaxId "MasterBypassID" groups {}
+vst3 class 0x56535454 0x77696e74 0x77696e20 0x65717300
+vst3 param 0 entry 0 id 321726243 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 408378686 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 2 entry 2 id 915587339 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 3 entry 3 id 1002239782 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 4 entry 4 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Twin MaSo
+au list 321726243 408378686 915587339 1002239782
+au param entry 0 id 321726243 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 0 address 10683264967546494069 identifier "DriveFilter-Amount" strings 0
+au param entry 1 id 408378686 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 1 address 10683265006604786842 identifier "DriveFilter-EQ-Low" strings 0
+au param entry 2 id 915587339 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 2 address 14387816683657700243 identifier "MasterFilter-Amount" strings 0
+au param entry 3 id 1002239782 position 3 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 3 address 14387816722715993016 identifier "MasterFilter-EQ-Low" strings 0
+au param entry 4 unlisted
+aax effect "com.makeasound.tests"
+aax native 2:0x6a636363
+aax param entry 0 id "DriveFilter-Amount" automatable 1
+aax param entry 1 id "DriveFilter-EQ-Low" automatable 1
+aax param entry 2 id "MasterFilter-Amount" automatable 1
+aax param entry 3 id "MasterFilter-EQ-Low" automatable 1
+aax param entry 4 id "MasterBypassID" automatable 1
+plugin "Twin EQs Native" code Twnn scheme Native category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core overrides indexedThroughVersion -1 juceKeyGroupSeparator '-'
+core entry 0 "DriveFilter/Amount" key "DriveFilter-Amount" hint 1 automatable 1 session 0 bypass no hostId 1415272502 address 1415272502 identifier "DriveFilter/Amount" aaxId "545b5836" groups {[DriveFilter|DriveFilter]}
+core entry 1 "DriveFilter/EQ/Low" key "DriveFilter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1486085965 address 1486085965 identifier "DriveFilter/EQ/Low" aaxId "5893df4d" groups {[DriveFilter|DriveFilter] [DriveFilter/EQ|DriveFilter/EQ]}
+core entry 2 "MasterFilter/Amount" key "MasterFilter-Amount" hint 1 automatable 1 session 0 bypass no hostId 1188742474 address 1188742474 identifier "MasterFilter/Amount" aaxId "46dac54a" groups {[MasterFilter|MasterFilter]}
+core entry 3 "MasterFilter/EQ/Low" key "MasterFilter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1909657185 address 1909657185 identifier "MasterFilter/EQ/Low" aaxId "71d30e61" groups {[MasterFilter|MasterFilter] [MasterFilter/EQ|MasterFilter/EQ]}
+core entry 4 "__bypass" key "__bypass" hint 0 automatable 1 session 1 bypass added hostId 1423004271 address 1423004271 identifier "__bypass" aaxId "54d1526f" groups {}
+vst3 class 0x4d61536f 0x54776e6e 0x56535433 0x00000000
+vst3 param 0 entry 0 id 1415272502 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1486085965 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 2 entry 2 id 1188742474 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 3 entry 3 id 1909657185 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 4 entry 4 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Twnn MaSo
+au list 1423004271 1188742474 1415272502 1486085965 1909657185
+au param entry 0 id 1415272502 position 2 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 0 address 1415272502 identifier "DriveFilter/Amount" strings 0
+au param entry 1 id 1486085965 position 3 min -12 max 12 default 0 unit 0 flags 0xc8800010 mid 0 strings 0
+auv3 param entry 1 address 1486085965 identifier "DriveFilter/EQ/Low" strings 0
+au param entry 2 id 1188742474 position 1 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 2 address 1188742474 identifier "MasterFilter/Amount" strings 0
+au param entry 3 id 1909657185 position 4 min -12 max 12 default 0 unit 0 flags 0xc8800010 mid 0 strings 0
+auv3 param entry 3 address 1909657185 identifier "MasterFilter/EQ/Low" strings 0
+au param entry 4 id 1423004271 position 0 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 4 address 1423004271 identifier "__bypass" strings 1
+aax effect "com.makeasound.tests.Twnn"
+aax native 2:0x54776e70
+aax param entry 0 id "545b5836" automatable 1
+aax param entry 1 id "5893df4d" automatable 1
+aax param entry 2 id "46dac54a" automatable 1
+aax param entry 3 id "71d30e61" automatable 1
+aax param entry 4 id "54d1526f" automatable 1

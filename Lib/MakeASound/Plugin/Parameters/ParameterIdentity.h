@@ -150,7 +150,16 @@ enum class GroupIdRule
     Path,
 
     // The group's own id, as JUCE's tree names it.
-    OwnId
+    OwnId,
+
+    // The group's own id prefixed with every enclosing group's own id, outermost
+    // first, each followed by ParameterIdentity::juceKeyGroupSeparator:
+    // "Drive-Filter-EQ" for "EQ" in "Drive-Filter" under '-'. For a JUCE port
+    // whose groups' ids (AudioProcessorParameterGroup::getID()) carried their
+    // parents' prefix, as its parameter ids did: JUCE's tree named each group by
+    // that id, and its duplicate group id check compared them, so two "EQ"s under
+    // different parents were distinct. The own id where no separator is set.
+    JoinedOwnIds
 };
 
 // GetParameterList's order.
@@ -273,7 +282,8 @@ struct ParameterIdentity
     // root-level entry and the added bypass keep their own key. Every rule that
     // reads the hostKey (JuceKeyHash, the AUv3 identifier and hash, the AAX
     // KeyOrOverride id, JUCE's duplicate checks) sees the prefixed one. For a
-    // JUCE port whose ids carried their groups' prefix.
+    // JUCE port whose ids carried their groups' prefix. GroupIdRule::JoinedOwnIds
+    // joins the groups' own ids with it too.
     std::optional<char> juceKeyGroupSeparator = {};
 
     AUv3Ids auv3 = AUv3Ids::HostIdAndPath;

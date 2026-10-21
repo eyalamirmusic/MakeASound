@@ -290,8 +290,31 @@ void ParameterList::finishIds(Entry& entry) const
         entry.addedBypass ? ids.addedBypassInAU : ids.declaredBypassInAU;
     entry.listedInAU = !(entry.bypass && placement == BypassPlacement::Unlisted);
 
+    // The enclosing groups' own ids, each followed by the separator, as
+    // groupedKey() prefixes a parameter's key.
+    auto joined = std::string {};
+
     for (auto& group: entry.groups)
-        group.identifier = ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
+    {
+        switch (ids.groups)
+        {
+            case GroupIdRule::Path:
+                group.identifier = group.id;
+                break;
+
+            case GroupIdRule::OwnId:
+                group.identifier = group.ownId;
+                break;
+
+            case GroupIdRule::JoinedOwnIds:
+                group.identifier = joined + group.ownId;
+
+                if (ids.juceKeyGroupSeparator)
+                    joined = group.identifier + *ids.juceKeyGroupSeparator;
+
+                break;
+        }
+    }
 }
 
 uint32_t ParameterList::derivedHostId(const Entry& entry, int index) const noexcept
