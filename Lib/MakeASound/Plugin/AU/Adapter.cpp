@@ -114,6 +114,21 @@ void assertVersionHints(const ParameterList& list, const ParameterSpace& space)
         assert(unhinted < 0 && "A parameter has no ParameterOptions::versionHint");
 }
 
+// kAudioUnitProperty_ElementName, which the SDK also saves in ClassInfo's
+// "element-name": the bus's name, as JUCE's AU names each element after its bus
+// (AU_1.mm syncAudioUnitWithChannelSet), an empty one included. JUCE names only
+// an enabled bus, so one with no channels stays unnamed and the host draws its
+// own "Input #2".
+void nameElement(au::AUElement& element, const Bus& bus)
+{
+    if (bus.numChannels <= 0)
+        return;
+
+    auto name = makeCFString(bus.name);
+    element.SetName(name);
+    CFRelease(name);
+}
+
 constexpr auto valueTimerInterval = static_cast<int64_t>(NSEC_PER_SEC / 30);
 } // namespace
 
@@ -315,14 +330,18 @@ void Adapter::PostConstructor()
     const auto& layout = pluginWrapper.busLayout();
 
     for (auto bus = 0; bus < layout.inputs.size(); ++bus)
-        Input(static_cast<UInt32>(bus))
-            .SetStreamFormat(floatFormat(layout.inputs[bus].numChannels));
+    {
+        auto& input = Input(static_cast<UInt32>(bus));
+        input.SetStreamFormat(floatFormat(layout.inputs[bus].numChannels));
+        nameElement(input, layout.inputs[bus]);
+    }
 
     for (auto bus = 0; bus < layout.outputs.size(); ++bus)
     {
         auto& output = Output(static_cast<UInt32>(bus));
         output.SetStreamFormat(floatFormat(layout.outputs[bus].numChannels));
         output.SetWillAllocateBuffer(true);
+        nameElement(output, layout.outputs[bus]);
     }
 
     // JUCE_FORCE_USE_LEGACY_PARAM_IDS: the SDK's own indexed list, as JUCE's

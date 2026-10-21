@@ -88,9 +88,11 @@ std::string shadowName(const Vst3Controllers& controllers,
 class ProxyParameter : public Vst::Parameter
 {
 public:
-    // `unitToUse` is the unit the parameter is published in (unitIdFor()).
-    explicit ProxyParameter(const ParameterList::Entry& entryToUse,
-                            Vst::UnitID unitToUse = Vst::kRootUnitId);
+    // The steps follow identity's StepRule; `unitToUse` is the unit the
+    // parameter is published in (unitIdFor()).
+    ProxyParameter(const ParameterList::Entry& entryToUse,
+                   const ParameterIdentity& identity,
+                   Vst::UnitID unitToUse = Vst::kRootUnitId);
 
     // Re-reads title, units, steps and default for parameterInfoChanged().
     void refreshInfo();
@@ -107,6 +109,9 @@ private:
     // The list outlives the controller.
     const ParameterList::Entry& entry;
     Vst::UnitID unit = Vst::kRootUnitId;
+
+    StepRule steps;
+    bool juceLegacyAutomationType;
 };
 
 // The unit an entry is published in: its innermost group's

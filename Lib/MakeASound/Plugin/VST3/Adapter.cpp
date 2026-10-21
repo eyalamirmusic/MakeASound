@@ -186,8 +186,8 @@ void Adapter::registerParameters()
 
     for (auto i = 0; i < list.size(); ++i)
         if (isRegistered(i))
-            parameters.addParameter(
-                new ProxyParameter(list.entry(i), unitIdFor(list, list.entry(i))));
+            parameters.addParameter(new ProxyParameter(
+                list.entry(i), list.identity(), unitIdFor(list, list.entry(i))));
 
     // IUnitInfo, which EditControllerEx1 answers from these.
     Vst::String128 name {};

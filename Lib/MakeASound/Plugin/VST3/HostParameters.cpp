@@ -1,6 +1,7 @@
 #include "VST3Common.h"
 #include "HostParameters.h"
 #include "Text.h"
+#include "../Compat/JuceIdentity.h"
 
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 
@@ -124,9 +125,12 @@ Vector<UnitDescription> unitsFor(const ParameterList& list)
 }
 
 ProxyParameter::ProxyParameter(const ParameterList::Entry& entryToUse,
+                               const ParameterIdentity& identity,
                                Vst::UnitID unitToUse)
     : entry(entryToUse)
     , unit(unitToUse)
+    , steps(identity.steps)
+    , juceLegacyAutomationType(identity.juceLegacyAutomationType)
 {
     refreshInfo();
     valueNormalized = info.defaultNormalizedValue;
@@ -140,7 +144,9 @@ void ProxyParameter::refreshInfo()
     copyTo(info.title, entry.displayName);
     copyTo(info.shortTitle, p.shortName());
     copyTo(info.units, p.label());
-    info.stepCount = p.numSteps();
+    info.stepCount = steps == StepRule::JuceDiscrete
+                         ? Compat::juceVST3StepCount(p, juceLegacyAutomationType)
+                         : p.numSteps();
     info.defaultNormalizedValue = p.toNormalized(p.defaultValue());
     info.unitId = unit;
     // Only a JUCE scheme registers a non-automatable entry, published without

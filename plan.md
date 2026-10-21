@@ -432,8 +432,9 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
       MakeASound's scheme (a JUCE hash there is printed, the parameter winning);
       `'byps'` is below 2^31 and gets `kIsBypass`. `'prst'` with WP10.12; JUCE's
       MIDI CC parameters skipped. JUCE's `stepCount` is 0 for every
-      non-discrete parameter (an `AudioParameterInt` included) where ours is
-      `numSteps()`: display only, not an id, left as is.
+      non-discrete parameter (an `AudioParameterInt` included); since 2026-10-20
+      a JUCE scheme publishes the same (`StepRule::JuceDiscrete`), the native
+      scheme still `numSteps()`.
     - AU v2 (done): the wrapper takes `parameterIdentityFor`, and
       `componentInfoFor` the description's `auType`, so both plists register it;
       the factory's dispatch is `AU/Factory.h`'s `dispatchFactory` (by the
@@ -1208,3 +1209,20 @@ solves. Either way, AAX output needs its own packet splitting first.
   deferred: it needs a program list on the root unit, which nothing has yet
   (`IUnitInfo` units are in, WP10.10).
   New goldens `UnlistedBypassGain` and `GroupedKeys`; no existing one moved.
+- 2026-10-20 (Modalics port): the AU v2 adapter names each input and output
+  element after its bus (`kAudioUnitProperty_ElementName`, and so ClassInfo's
+  `element-name`), as JUCE's `syncAudioUnitWithChannelSet` does: every profile,
+  an empty name as an empty string, a bus with no channels unnamed. Hosts showed
+  "Input #1" before. AUv3 already named its `AUAudioUnitBus`es. A new rule,
+  `ParameterIdentity::steps` (`StepRule`), sets the VST3 `stepCount` and the AAX
+  type and steps: `NumSteps` (the native and TamberPlug profiles, unchanged) or
+  `JuceDiscrete` (both JUCE profiles), which publishes what JUCE 8.0.12's
+  wrappers did (`Compat::juceVST3StepCount`, `Compat::juceAAXSteps`): VST3
+  `isDiscrete() ? numSteps() : 0`, AAX Discrete only when `isDiscrete()` with
+  `min(getNumSteps(), 2048)` steps for every parameter (2048 for a continuous
+  one), both following `juceLegacyAutomationType`. A stepped `FloatParam` reads
+  as stepped in `Compat::juceNumSteps` where JUCE's `AudioParameterFloat`
+  ignores its interval: under a JUCE scheme that shows only as its AAX step count
+  and its stepCount under the legacy automation type. Golden `JucePort` moved:
+  `voices` (an `IntParam`) has VST3 steps 0 under JUCE and JUCELegacyIndex, as
+  `JucePort::juceVST3` recorded JUCE publishing; no other golden moved.

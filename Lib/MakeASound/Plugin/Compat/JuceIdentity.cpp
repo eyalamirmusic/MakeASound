@@ -1,5 +1,7 @@
 #include "JuceIdentity.h"
 
+#include <algorithm>
+
 namespace MakeASound::Compat
 {
 
@@ -110,6 +112,31 @@ JuceAUParameterInfo juceAUParameterInfo(const Parameter& param,
     info.v2ValueStrings = info.discrete && scheme != IdScheme::JUCELegacyIndex;
     info.v3ValueStrings = info.discrete && !legacyType;
     return info;
+}
+
+int juceNumSteps(const Parameter& param) noexcept
+{
+    auto steps = param.numSteps();
+    return steps > 0 && steps < juceDefaultNumSteps ? steps + 1
+                                                    : juceDefaultNumSteps;
+}
+
+int juceVST3StepCount(const Parameter& param, bool legacyAutomationType) noexcept
+{
+    if (!legacyAutomationType && !param.isDiscrete())
+        return 0;
+
+    auto steps = juceNumSteps(param);
+    return steps > 0 && steps < juceDefaultNumSteps ? steps - 1 : 0;
+}
+
+JuceAAXSteps juceAAXSteps(const Parameter& param, bool legacyAutomationType) noexcept
+{
+    auto result = JuceAAXSteps {};
+    result.numberOfSteps = std::min(juceNumSteps(param), juceAAXMaxSteps);
+    result.discrete =
+        legacyAutomationType ? result.numberOfSteps <= 1000 : param.isDiscrete();
+    return result;
 }
 
 } // namespace MakeASound::Compat

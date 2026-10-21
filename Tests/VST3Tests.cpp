@@ -2510,9 +2510,9 @@ void checkPlugsVST3(const TamberPlugFixtures::PlugParameter (&published)[count])
 }
 
 // What JUCE 8.0.12's own VST3 build of JucePort's twin published (JucePort.h),
-// under each JUCE scheme. MakeASound differs only where noted: kIsList on a
-// choice, and an int's steps (JUCE's AudioParameterInt is not discrete to its
-// VST3 wrapper; MakeASound's IntParam has a step per value).
+// under each JUCE scheme. MakeASound differs only in kIsList on a choice. The
+// steps are StepRule::JuceDiscrete's: an int has none, as JUCE's
+// AudioParameterInt is not discrete to its VST3 wrapper.
 void checkJucesVST3(MakeASound::IdScheme scheme)
 {
     auto legacy = scheme == MakeASound::IdScheme::JUCELegacyIndex;
@@ -2536,13 +2536,64 @@ void checkJucesVST3(MakeASound::IdScheme scheme)
               == (std::string_view {juce.key} == "attack"
                       ? JucePort::juceEnvelopeUnit
                       : Vst::kRootUnitId));
-
-        if (std::string_view {juce.key} == "voices")
-            check(info.stepCount == 15 && juce.stepCount == 0);
-        else
-            check(info.stepCount == juce.stepCount);
+        check(info.stepCount == juce.stepCount);
     }
 }
+
+// One parameter of each kind of steps, in registration order: a stepped float,
+// an int, a choice, a bool, a continuous float (the gain), then the added bypass.
+struct StepKindParams : ParameterGroup
+{
+    StepKindParams() { add(stepped, count, mode, enabled, gain); }
+
+    static constexpr auto hint = ParameterOptions {.versionHint = 1};
+
+    FloatParam stepped {"Stepped", {0.f, 1.f, 0.25f}, 0.5f, hint};
+    IntParam count {"Count", 1, 8, 2, hint};
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, hint};
+    BoolParam enabled {"Enabled", true, hint};
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, hint};
+};
+
+// MakeASound's scheme publishes every stepped parameter's numSteps() as its
+// stepCount; a JUCE scheme only a choice's and a bool's, as JUCE's VST3 does
+// (Param::updateParameterInfo), the stepped float and the int 0.
+auto tStepRules = test("VST3/stepCountFollowsTheStepRule") = []
+{
+    using Steps = std::vector<int>;
+
+    auto stepsUnder = [](const MakeASound::ParameterIdentity& identity)
+    {
+        auto host = AdapterHost<GainPluginOf<StepKindParams>> {identity};
+        auto& adapter = *host.adapter;
+        auto steps = Steps {};
+
+        for (auto index = 0; index < adapter.getParameterCount(); ++index)
+        {
+            auto info = Vst::ParameterInfo {};
+            check(adapter.getParameterInfo(index, info) == Steinberg::kResultOk);
+            steps.push_back(info.stepCount);
+        }
+
+        return steps;
+    };
+
+    check(stepsUnder({}) == Steps {4, 7, 2, 1, 0, 1});
+
+    for (auto scheme:
+         {MakeASound::IdScheme::JUCE, MakeASound::IdScheme::JUCELegacyIndex})
+        check(stepsUnder(MakeASound::policyFor(scheme, {}).parameters)
+              == Steps {0, 0, 2, 1, 0, 1});
+
+    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE: every parameter's
+    // getNumSteps() - 1, the int's included, and 0 for a continuous one. (JUCE's
+    // AudioParameterFloat would answer 0 for the stepped float too, since it
+    // ignores its interval; Compat::juceNumSteps.)
+    auto legacyType = MakeASound::JuceSettings {};
+    legacyType.forceLegacyParameterAutomationType = true;
+    auto policy = MakeASound::policyFor(MakeASound::IdScheme::JUCE, legacyType);
+    check(stepsUnder(policy.parameters) == Steps {4, 7, 2, 1, 0, 1});
+};
 
 auto tJuceGoldens = test("VST3/aJucePortPublishesWhatJucesVST3Did") = []
 {

@@ -21,6 +21,7 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -142,6 +143,26 @@ struct TwoOutputSynth : Plugin
     }
 
     int processed = 0;
+};
+
+// Buses with names of their own, one of them empty and one with no channels.
+struct NamedBusEffect : Plugin
+{
+    std::string_view name() const override { return "NamedBuses"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout {};
+        layout.inputs.add({"Main In", 2});
+        layout.inputs.add({"Sidechain", 2, false});
+        layout.outputs.add({"Main Out", 2});
+        layout.outputs.add({"", 2, false});
+        layout.outputs.add({"Disabled", 0, false});
+        return layout;
+    }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
 };
 
 // Records every controller value it is handed, in order.
@@ -607,6 +628,86 @@ auto tTwoOutputs = test("AU/everyOutputBusCarriesItsBlockWhicheverRendersFirst")
         for (const auto& channel: host.outputs[bus].storage)
             for (auto s = 0; s < maxBlock; ++s)
                 check(channel[s] == (bus == 0 ? 0.25f : 0.75f));
+};
+
+// kAudioUnitProperty_ElementName, nullopt when the element has none.
+std::optional<std::string>
+    elementNameOf(AudioUnit unit, AudioUnitScope scope, AudioUnitElement element)
+{
+    auto name = CFStringRef {};
+    auto size = UInt32 {sizeof(name)};
+
+    if (AudioUnitGetProperty(
+            unit, kAudioUnitProperty_ElementName, scope, element, &name, &size)
+            != noErr
+        || name == nullptr)
+        return std::nullopt;
+
+    auto text = MakeASound::AU::toUtf8(name);
+    CFRelease(name);
+    return text;
+}
+
+// JUCE's AU names each element after its bus (AU_1.mm
+// syncAudioUnitWithChannelSet), an empty name included, and leaves a bus with no
+// channels unnamed; the SDK saves the names in ClassInfo's "element-name".
+auto tElementNames = test("AU/eachElementIsNamedAfterItsBus") = []
+{
+    {
+        auto gain = UnitHost<GainPlugin>("Gain", Start::Open);
+        check(elementNameOf(gain.unit, kAudioUnitScope_Input, 0) == "Input");
+        check(elementNameOf(gain.unit, kAudioUnitScope_Output, 0) == "Output");
+
+        auto synth = UnitHost<SynthPlugin>("Echo", Start::Open);
+        check(synth.elementCount(kAudioUnitScope_Input) == 0);
+        check(elementNameOf(synth.unit, kAudioUnitScope_Output, 0) == "Output");
+    }
+
+    auto standIn = ScopedStandIn<NamedBusEffect>(Module::gainStandIn);
+    auto host = UnitHost<NamedBusEffect>("Gain", Start::Open);
+    check(host.elementCount(kAudioUnitScope_Input) == 2);
+    check(host.elementCount(kAudioUnitScope_Output) == 3);
+
+    using Names = std::vector<std::optional<std::string>>;
+
+    auto namesOf = [&](AudioUnitScope scope)
+    {
+        auto names = Names {};
+
+        for (auto element = UInt32 {}; element < host.elementCount(scope); ++element)
+            names.push_back(elementNameOf(host.unit, scope, element));
+
+        return names;
+    };
+
+    auto inputs = Names {"Main In", "Sidechain"};
+    auto outputs = Names {"Main Out", "", std::nullopt};
+    check(namesOf(kAudioUnitScope_Input) == inputs);
+    check(namesOf(kAudioUnitScope_Output) == outputs);
+
+    // In ClassInfo: {"1": {"0": "Main In", "1": "Sidechain"}, "2": {...}}.
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+    auto* dictionary = static_cast<CFDictionaryRef>(info.value);
+    auto* saved = static_cast<CFDictionaryRef>(
+        CFDictionaryGetValue(dictionary, CFSTR(kAUPresetElementNameKey)));
+    check(saved != nullptr && CFGetTypeID(saved) == CFDictionaryGetTypeID());
+
+    if (saved == nullptr)
+        return;
+
+    auto* input =
+        static_cast<CFDictionaryRef>(CFDictionaryGetValue(saved, CFSTR("1")));
+    auto* output =
+        static_cast<CFDictionaryRef>(CFDictionaryGetValue(saved, CFSTR("2")));
+    check(input != nullptr && CFDictionaryGetCount(input) == 2);
+    check(output != nullptr && CFDictionaryGetCount(output) == 2);
+
+    if (input == nullptr)
+        return;
+
+    auto* sidechain =
+        static_cast<CFStringRef>(CFDictionaryGetValue(input, CFSTR("1")));
+    check(MakeASound::AU::toUtf8(sidechain) == "Sidechain");
 };
 
 std::vector<AudioUnitParameterID> parameterListOf(AudioUnit unit)
