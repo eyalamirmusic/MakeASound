@@ -2532,6 +2532,10 @@ void checkJucesVST3(MakeASound::IdScheme scheme)
         check(info.id == (legacy ? juce.legacyId : juce.id));
         check(near(info.defaultNormalizedValue, juce.defaultValue, 1e-6));
         check((info.flags & ~Vst::ParameterInfo::kIsList) == juce.flags);
+        check(info.unitId
+              == (std::string_view {juce.key} == "attack"
+                      ? JucePort::juceEnvelopeUnit
+                      : Vst::kRootUnitId));
 
         if (std::string_view {juce.key} == "voices")
             check(info.stepCount == 15 && juce.stepCount == 0);
@@ -2549,6 +2553,134 @@ auto tJuceGoldens = test("VST3/aJucePortPublishesWhatJucesVST3Did") = []
     port.juce.vst3CanReplaceVst2 = false;
     auto module = MakeASound::ModuleDescription {.manufacturerCode = "MaSo"};
     check(MakeASound::vst3ClassIdFor(module, port) == JucePort::juceVST3ClassId);
+};
+
+// IUnitInfo as a host asks for it, through queryInterface.
+std::vector<Vst::UnitInfo> unitsOf(Adapter& adapter)
+{
+    auto units = std::vector<Vst::UnitInfo> {};
+    auto* unitInfo = static_cast<Vst::IUnitInfo*>(nullptr);
+
+    if (adapter.queryInterface(Vst::IUnitInfo::iid,
+                               reinterpret_cast<void**>(&unitInfo))
+        != Steinberg::kResultOk)
+        return units;
+
+    for (auto index = 0; index < unitInfo->getUnitCount(); ++index)
+    {
+        auto info = Vst::UnitInfo {};
+        check(unitInfo->getUnitInfo(index, info) == Steinberg::kResultTrue);
+        units.push_back(info);
+    }
+
+    unitInfo->release();
+    return units;
+}
+
+Vst::ParameterInfo infoOf(Adapter& adapter, Vst::ParamID id)
+{
+    for (auto index = 0; index < adapter.getParameterCount(); ++index)
+    {
+        auto info = Vst::ParameterInfo {};
+        adapter.getParameterInfo(index, info);
+
+        if (info.id == id)
+            return info;
+    }
+
+    return {};
+}
+
+// The JUCE port's one group is a unit under the root, as JUCE's.
+auto tJuceUnits = test("VST3/aJucePortsGroupIsAUnitAsInJuce") = []
+{
+    auto host = AdapterHost<JucePort::PortPlugin> {
+        MakeASound::policyFor(MakeASound::IdScheme::JUCE, {}).parameters};
+    auto units = unitsOf(*host.adapter);
+
+    check(units.size() == 2);
+    check(units[0].id == Vst::kRootUnitId);
+    check(units[0].parentUnitId == Vst::kNoParentUnitId);
+    check(units[0].programListId == Vst::kNoProgramListId);
+    check(MakeASound::VST3::toUtf8(units[0].name) == "Root Unit");
+    check(units[1].id == JucePort::juceEnvelopeUnit);
+    check(units[1].parentUnitId == Vst::kRootUnitId);
+    check(MakeASound::VST3::toUtf8(units[1].name) == "Envelope");
+};
+
+// BitFuzzer's nested groups (TwinGroupPlugin) publish the units and unit ids
+// its JUCE build did, the two "EQ" groups apart, every grouped parameter in its
+// innermost group's unit and at the ids JUCE gave it.
+auto tTwinUnits = test("VST3/nestedGroupsAreTheUnitsJuceGaveThem") = []
+{
+    const auto& description = JucePort::twinGroupsDescription();
+    auto host =
+        AdapterHost<TwinGroupPlugin> {MakeASound::parameterIdentityFor(description)};
+    auto& adapter = *host.adapter;
+    auto units = unitsOf(adapter);
+
+    check(units.size() == 1 + std::size(JucePort::twinGroupsUnits));
+    check(units[0].id == Vst::kRootUnitId);
+
+    for (size_t index = 0;
+         index < std::size(JucePort::twinGroupsUnits) && index + 1 < units.size();
+         ++index)
+    {
+        const auto& juce = JucePort::twinGroupsUnits[index];
+        const auto& ours = units[index + 1];
+        check(ours.id == juce.id);
+        check(ours.parentUnitId == juce.parent);
+        check(ours.programListId == Vst::kNoProgramListId);
+        check(MakeASound::VST3::toUtf8(ours.name) == juce.name);
+    }
+
+    for (const auto& juce: JucePort::twinGroupsParameters)
+    {
+        auto info = infoOf(adapter, juce.hostId);
+        check(info.id == juce.hostId);
+        check(info.unitId == juce.unit);
+    }
+
+    const auto& list = adapter.plugin().parameters();
+    check(infoOf(adapter, list.entry(list.indexOf("In")).hostId).unitId
+          == Vst::kRootUnitId);
+    check(list.identityProblems().empty());
+};
+
+// Under MakeASound's ids a unit's id is FNV-1a of its group's path, and its
+// parent the enclosing group's unit.
+auto tNativeUnits = test("VST3/nativeGroupsAreUnitsByPath") = []
+{
+    auto host = AdapterHost<TwinGroupPlugin> {};
+    auto& adapter = *host.adapter;
+    auto units = unitsOf(adapter);
+
+    check(units.size() == 5);
+
+    if (units.size() != 5)
+        return;
+
+    auto drive = static_cast<Vst::UnitID>(MakeASound::hostIdFor("DriveFilter"));
+    auto driveEQ = static_cast<Vst::UnitID>(MakeASound::hostIdFor("DriveFilter/EQ"));
+    check(units[1].id == drive && units[1].parentUnitId == Vst::kRootUnitId);
+    check(units[2].id == driveEQ && units[2].parentUnitId == drive);
+    check(MakeASound::VST3::toUtf8(units[2].name) == "EQ");
+    check(units[4].id
+          == static_cast<Vst::UnitID>(MakeASound::hostIdFor("MasterFilter/EQ")));
+
+    const auto& list = adapter.plugin().parameters();
+    check(
+        infoOf(adapter, list.entry(list.indexOf("DriveFilter/EQ/Low")).hostId).unitId
+        == driveEQ);
+};
+
+// Tamber Plug's VST3 had no units: its ports publish none (hostGroups off).
+auto tPlugUnits = test("VST3/aTamberPlugPortHasNoUnits") = []
+{
+    auto identity =
+        MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {}).parameters;
+    auto host = AdapterHost<TamberPlugFixtures::SVFPort> {identity};
+    check(unitsOf(*host.adapter).empty());
 };
 
 // A JUCE port's MIDI controller parameters are JUCE's (JucePort.h): the

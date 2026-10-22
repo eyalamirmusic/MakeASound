@@ -240,8 +240,9 @@ The original items:
 
 ### C. Cheap adapter work (next)
 
-Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10, 10.11,
-10.12, 10.13, 10.14 and 10.16 are not started.
+Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10 is in
+(branch `port/parameter-groups`); 10.11, 10.12, 10.13, 10.14 and 10.16 are not
+started.
 
 - **WP10.9, "not automatable" apart from "hidden" (partly done).** JUCE still publishes a
   non-automatable parameter: VST3 without `kCanAutomate` (`VST3.cpp:922`), AU with
@@ -258,10 +259,19 @@ Status: WP10.15 and WP10.17 are in (with E); WP10.9 is half in; WP10.10, 10.11,
   548-563`, `info.unitId` at 914), asserting uniqueness and `!= kRootUnitId`
   (668-680), and an AU clump per group (`kAudioUnitParameterFlag_HasClump`, a
   1-based `clumpID`, `AU_1.mm:1078-1084`, and `kAudioUnitProperty_ParameterClumpName`
-  at 532-545). MakeASound puts everything in `kRootUnitId` and has no clumps.
-  `ParameterList::Entry::groups` already carries the data and
-  `SingleComponentEffect` derives from `EditControllerEx1`, so `addUnit` is enough.
-  AUv3 has its groups already; AAX pages are skipped.
+  at 532-545). AUv3 has its groups already; AAX pages are skipped.
+  **Done:** `ParameterList::groups()` lists every named group once, in
+  `getSubgroups(true)` order, with its parent, its `GroupIdRule` identifier,
+  VST3 unit id and AU clump name. The VST3 adapter `addUnit`s a "Root Unit" and
+  one unit per group with a registered entry and sets each `ParameterInfo::unitId`;
+  the AU v2 adapter sets `HasClump` (clump id = group index + 1) and answers
+  `CopyClumpName`. Under `GroupIdRule::OwnId` the identifier is JUCE's group id
+  (with `juceKeyGroupSeparator`, the path of own ids, "DriveFilter-EQ"), the unit
+  id its `hashCode & 0x7fffffff` and the clump name the names joined by the
+  separator ('|' without one); under `Path` the path, `hostIdFor(path)` and the
+  names joined by spaces. `identityProblems()` reports a unit id of 0 or one two
+  groups share. `ParameterIdentity::hostGroups` (off for `TamberPlug`, whose formats
+  had neither) turns both off. Program lists and note names are still open.
 - **WP10.11, AAX `parameterInfoChanged`.** JUCE's `syncParameterAttributes`
   (`AAX.cpp:2193-2218`) updates the name, type and steps of the live
   `AAX_IParameter`s; do the same with `SetName`, `SetType` and `SetNumberOfSteps`.
@@ -446,8 +456,8 @@ settings (ids, codes, `CAN_REPLACE_VST2`, the AAX identifier).
       ours reads `Globals()` (the reconcile keeps them equal), its value-strings
       call answers `InvalidParameter` for a continuous parameter where ours
       answers `InvalidProperty`, and turning bypass off resets JUCE's processor
-      where ours crossfades. Clumps (WP10.10) and meters (WP10.18) have no
-      MakeASound counterpart yet.
+      where ours crossfades. Clumps (WP10.10) are JUCE's now; meters (WP10.18)
+      have no MakeASound counterpart yet.
     - AUv3 (done): the wrapper takes `parameterIdentityFor`; the tree is built
       by `makeParameterTree(list, space)` from `Entry::identifier`,
       `Entry::address` and `EnclosingGroup::identifier`, leaving out entries
@@ -1195,5 +1205,6 @@ solves. Either way, AAX output needs its own packet splitting first.
   it creates a plugin. `ProcessContext::isOffline` comes from VST3's process
   mode, AU's `OfflineRender` property, AUv3's `renderingOffline` and AAX's
   offline-mode notifications. `Plugin::nameForMidiNote` (VST3 pitch names) is
-  deferred: it needs `IUnitInfo` and a program list, which nothing has yet.
+  deferred: it needs a program list on the root unit, which nothing has yet
+  (`IUnitInfo` units are in, WP10.10).
   New goldens `UnlistedBypassGain` and `GroupedKeys`; no existing one moved.

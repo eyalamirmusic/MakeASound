@@ -75,6 +75,13 @@ public:
                                       AudioUnitParameterID id,
                                       CFArrayRef* outStrings) override;
 
+    // kAudioUnitProperty_ParameterClumpName: the name of the group whose clump
+    // GetParameterInfo gave (ParameterSpace::addClump), +1 for the host.
+    OSStatus CopyClumpName(AudioUnitScope scope,
+                           UInt32 clumpId,
+                           UInt32 desiredNameLength,
+                           CFStringRef* outClumpName) override;
+
     OSStatus GetPropertyInfo(AudioUnitPropertyID id,
                              AudioUnitScope scope,
                              AudioUnitElement element,

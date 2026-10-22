@@ -88,7 +88,9 @@ std::string shadowName(const Vst3Controllers& controllers,
 class ProxyParameter : public Vst::Parameter
 {
 public:
-    explicit ProxyParameter(const ParameterList::Entry& entryToUse);
+    // `unitToUse` is the unit the parameter is published in (unitIdFor()).
+    explicit ProxyParameter(const ParameterList::Entry& entryToUse,
+                            Vst::UnitID unitToUse = Vst::kRootUnitId);
 
     // Re-reads title, units, steps and default for parameterInfoChanged().
     void refreshInfo();
@@ -104,6 +106,27 @@ private:
 
     // The list outlives the controller.
     const ParameterList::Entry& entry;
+    Vst::UnitID unit = Vst::kRootUnitId;
 };
+
+// The unit an entry is published in: its innermost group's
+// (ParameterList::Group::unitId) where the identity's hostGroups publishes
+// groups, the root unit otherwise.
+Vst::UnitID unitIdFor(const ParameterList& list,
+                      const ParameterList::Entry& entry) noexcept;
+
+// IUnitInfo's units where the identity's hostGroups publishes groups, in
+// order: the root unit ("Root Unit", as JUCE's), then each group with a
+// registered entry below it, in groups() order, with its parent's unit (the
+// root unit at the top level) and its own name, as JUCE's VST3 wrapper's.
+// None otherwise, as before units existed.
+struct UnitDescription
+{
+    Vst::UnitID id = Vst::kRootUnitId;
+    Vst::UnitID parent = Vst::kNoParentUnitId;
+    std::string name;
+};
+
+Vector<UnitDescription> unitsFor(const ParameterList& list);
 
 } // namespace MakeASound::VST3

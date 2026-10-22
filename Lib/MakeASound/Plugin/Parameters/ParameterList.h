@@ -44,11 +44,42 @@ public:
         std::string name;
 
         // The AUv3 AUParameterGroup identifier, by GroupIdRule: the id path,
-        // or the group's own id, as JUCE's tree names it.
+        // or JUCE's group id (Group::identifier).
         std::string identifier;
 
         // The group's own id, the last segment of the path.
         std::string ownId;
+
+        // Its index in groups().
+        int index = -1;
+    };
+
+    // A named group as the hosts see it, one per id path.
+    struct Group
+    {
+        // Its id path, its name and its own id, as EnclosingGroup's.
+        std::string id;
+        std::string name;
+        std::string ownId;
+
+        // By GroupIdRule: the id path, or JUCE's group id, the own id or under
+        // juceKeyGroupSeparator the enclosing groups' own ids and its own
+        // joined by it ("DriveFilter-EQ"). The AUv3 group identifier and what
+        // JUCE's duplicate group id check compares.
+        std::string identifier;
+
+        // The enclosing group's index in groups(), -1 at the root.
+        int parent = -1;
+
+        // The VST3 UnitID, by GroupIdRule: hostIdFor(id path), or
+        // String::hashCode(identifier) & 0x7fffffff as JUCE's VST3 wrapper.
+        // Never 0 (kRootUnitId) nor another group's, or identityProblems() says.
+        uint32_t unitId = 0;
+
+        // The AU kAudioUnitProperty_ParameterClumpName, by GroupIdRule: the
+        // names from the outermost group down, joined by spaces, or by JUCE's
+        // separator ("DriveFilter-EQ"). Its clump id is its index + 1.
+        std::string clumpName;
     };
 
     struct Entry
@@ -128,8 +159,10 @@ public:
     // alike, an explicit host id below 2^31 unless JUCE's mask is off, an AAX
     // id at most 31 characters, and no host id among the VST3 MIDI controller
     // parameters' where there are any (a JUCE port's only reported, never
-    // asserted), and no id beginning or ending with '/', which no id path can
-    // delimit (IdPath.h). In any build, so a Release test can run it.
+    // asserted), no id beginning or ending with '/', which no id path can
+    // delimit (IdPath.h), and, where hostGroups publishes them, no two groups'
+    // VST3 unit ids alike nor one the root unit's. In any build, so a Release
+    // test can run it.
     Vector<std::string> identityProblems() const;
 
     // Re-reads every entry's display name from its parameter's current name(),
@@ -142,6 +175,12 @@ public:
 
     Parameter& operator[](int index) const noexcept { return *entries[index].param; }
     const Entry& entry(int index) const noexcept { return entries[index]; }
+
+    // Every named group around an entry, in the order JUCE's getSubgroups(true)
+    // walks a tree: depth-first in registration order, each group before the
+    // groups inside it. A group with no parameter anywhere below is no entry's,
+    // so it is not here.
+    const Vector<Group>& groups() const noexcept { return groupList; }
 
     // -1 when absent.
     int indexOf(const Parameter* param) const noexcept;
@@ -187,7 +226,9 @@ private:
              bool automatable,
              std::span<const ParameterGroup* const> groups);
     void assignIds();
+    void assignGroupIds();
     void finishIds(Entry& entry) const;
+    void findGroupProblems(Vector<std::string>& problems) const;
     uint32_t derivedHostId(const Entry& entry, int index) const noexcept;
     void indexHostIds();
     void findBypass();
@@ -198,6 +239,7 @@ private:
     bool isMidiControllerId(uint32_t hostId) const noexcept;
 
     Vector<Entry> entries;
+    Vector<Group> groupList;
 
     // Each entry's display name before its parameter's name: the enclosing
     // groups' names and a space, or empty. Parallel to `entries`.

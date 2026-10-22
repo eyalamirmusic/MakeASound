@@ -114,7 +114,7 @@ constexpr JucePublishedAU juceAU[] = {
 };
 
 // JUCE's AU clumps a grouped parameter (kAudioUnitParameterFlag_HasClump, the
-// group's index + 1); MakeASound's AU has no clumps yet.
+// group's index + 1), as MakeASound's AU does: attack's flags carry it, clump 1.
 constexpr uint32_t juceAUHasClump = 0x00100000u;
 
 struct JucePublishedVST3
@@ -129,7 +129,8 @@ struct JucePublishedVST3
 
 // In registration order: declaration order, then the bypass JUCE's wrapper
 // adds ('byps', or the next index under legacy ids). Attack's unit is its
-// group's (hashCode 100589) in JUCE; MakeASound's VST3 units are WP10.10.
+// group's, String::hashCode("env") = 100589 (juceEnvelopeUnit, named
+// "Envelope"), in JUCE and MakeASound alike; every other one is in the root.
 constexpr JucePublishedVST3 juceVST3[] = {
     {"cutoff", 798419949u, 0, 0, 0.404752135, 0x1},
     {"mode", 3357091u, 1, 2, 0.5, 0x1},
@@ -139,6 +140,8 @@ constexpr JucePublishedVST3 juceVST3[] = {
     {"quality", 651215103u, 5, 0, 0.5, 0x0},
     {"__bypass", 0x62797073u, 6, 1, 0.0, 0x10001},
 };
+
+constexpr int32_t juceEnvelopeUnit = 100589;
 
 // The MIDI controller parameters JUCE's VST3 registered for the twin (it wants
 // MIDI input), in both id modes: 16 x 130 from 0x6d636d00, flags 0, default 0,
@@ -193,9 +196,73 @@ inline const PluginDescription& description(IdScheme scheme)
     return scheme == IdScheme::JUCELegacyIndex ? legacy : juce;
 }
 
+// TestPlugins::TwinGroupPlugin as Modalics BitFuzzer ships: JUCE's ids with
+// the '-' group separator and its getBypassParameter() bypass unlisted in AU.
+inline const PluginDescription& twinGroupsDescription()
+{
+    static const auto twin = PluginDescription {
+        .name = "Twin Groups",
+        .pluginCode = "Twng",
+        .create =
+            []
+        {
+            return TestPlugins::Module::create<TestPlugins::TwinGroupPlugin>(
+                PluginCreateFn {});
+        },
+        .idScheme = IdScheme::JUCE,
+        .overrides = {.declaredBypassInAU = BypassPlacement::Unlisted,
+                      .juceKeyGroupSeparator = '-'}};
+
+    return twin;
+}
+
+// What Modalics BitFuzzer's JUCE build published for the same groups
+// (Toolbox/Tests/Golden/BitFuzzer/identity-{VST3,AU}.json, captured from it):
+// its VST3 units, String::hashCode of each JUCE group id & 0x7fffffff, under
+// the root unit or their parent's, named by the group alone; its AU clumps,
+// numbered in getSubgroups(true) order from 1 and named by the path of names
+// joined by the separator; and the host ids of the grouped parameters.
+struct JuceUnit
+{
+    const char* groupId;
+    int32_t id;
+    int32_t parent;
+    const char* name;
+    uint32_t clumpId;
+    const char* clumpName;
+};
+
+constexpr JuceUnit twinGroupsUnits[] = {
+    {"DriveFilter", 1670588802, 0, "DriveFilter", 1, "DriveFilter"},
+    {"DriveFilter-EQ", 577503447, 1670588802, "EQ", 2, "DriveFilter-EQ"},
+    {"MasterFilter", 786523290, 0, "MasterFilter", 3, "MasterFilter"},
+    {"MasterFilter-EQ", 121294527, 786523290, "EQ", 4, "MasterFilter-EQ"},
+};
+
+struct JuceGroupedParameter
+{
+    const char* path;
+    uint32_t hostId;
+    int32_t unit;
+};
+
+constexpr JuceGroupedParameter twinGroupsParameters[] = {
+    {"DriveFilter/Cutoff", 386515640u, 1670588802},
+    {"DriveFilter/Reso", 930441562u, 1670588802},
+    {"DriveFilter/EQ/Low", 408378686u, 577503447},
+    {"DriveFilter/EQ/High", 1922195704u, 577503447},
+    {"MasterFilter/Cutoff", 980376736u, 786523290},
+    {"MasterFilter/Reso", 600333634u, 786523290},
+    {"MasterFilter/EQ/Low", 1002239782u, 121294527},
+    {"MasterFilter/EQ/High", 1004536848u, 121294527},
+};
+
 // Null for any other subtype.
 inline const PluginDescription* descriptionFor(uint32_t subtype)
 {
+    if (twinGroupsDescription().pluginCode.toUint32() == subtype)
+        return &twinGroupsDescription();
+
     for (auto scheme: {IdScheme::JUCE, IdScheme::JUCELegacyIndex})
         if (description(scheme).pluginCode.toUint32() == subtype)
             return &description(scheme);
