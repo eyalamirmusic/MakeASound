@@ -1157,6 +1157,50 @@ auto tJuceIds = test("AAX/aJuceSchemesParameterIdsAreJuces") = []
     check(host.adapter->indexOf("env/attack") == -1);
 };
 
+// JUCE's AAX (addAudioProcessorParameters): Discrete only for a choice or a bool,
+// and every parameter min(getNumSteps(), 2048) steps, so an int is Continuous
+// with one step per value and a float Continuous with 2048, under either JUCE
+// scheme. MakeASound's own scheme makes any stepped parameter Discrete
+// (onlyExposedParametersWithTheirSteps).
+auto tJuceSteps = test("AAX/aJuceSchemesStepsAndTypesAreJuces") = []
+{
+    struct Expected
+    {
+        std::string_view id;
+        std::string_view legacyId;
+        int32_t steps;
+        AAX_EParameterType type;
+    };
+
+    constexpr auto discrete = AAX_eParameterType_Discrete;
+    constexpr auto continuous = AAX_eParameterType_Continuous;
+    constexpr Expected expected[] = {
+        {"cutoff", "0", 2048, continuous},
+        {"mode", "1", 3, discrete},
+        {"enabled", "2", 2, discrete},
+        {"voices", "3", 16, continuous},
+        {"attack", "4", 2048, continuous},
+        {"MasterBypassID", "MasterBypassID", 2, discrete}};
+
+    for (auto legacy: {false, true})
+    {
+        auto host = AdapterHost<FixturePlugin>(
+            JuceEffect {legacy ? "com.juce.tests.legacy" : juceBundleId});
+
+        for (const auto& param: expected)
+        {
+            auto id = std::string(legacy ? param.legacyId : param.id);
+            auto steps = int32_t {};
+            auto type = AAX_EParameterType {};
+            check(host.adapter->GetParameterNumberOfSteps(id.c_str(), &steps)
+                  == AAX_SUCCESS);
+            check(host.adapter->GetParameterType(id.c_str(), &type) == AAX_SUCCESS);
+            check(steps == param.steps);
+            check(type == param.type);
+        }
+    }
+};
+
 auto tJuceDeclaredBypass =
     test("AAX/aDeclaredBypassIsMasterBypassIDUnderAJuceScheme") = []
 {

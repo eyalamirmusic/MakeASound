@@ -114,6 +114,21 @@ void assertVersionHints(const ParameterList& list, const ParameterSpace& space)
         assert(unhinted < 0 && "A parameter has no ParameterOptions::versionHint");
 }
 
+// kAudioUnitProperty_ElementName, which the SDK also saves in ClassInfo's
+// "element-name": the bus's name, as JUCE's AU names each element after its bus
+// (AU_1.mm syncAudioUnitWithChannelSet), an empty one included. JUCE names only
+// an enabled bus, so one with no channels stays unnamed and the host draws its
+// own "Input #2".
+void nameElement(au::AUElement& element, const Bus& bus)
+{
+    if (bus.numChannels <= 0)
+        return;
+
+    auto name = makeCFString(bus.name);
+    element.SetName(name);
+    CFRelease(name);
+}
+
 constexpr auto valueTimerInterval = static_cast<int64_t>(NSEC_PER_SEC / 30);
 } // namespace
 
@@ -225,6 +240,13 @@ Adapter::Adapter(AudioComponentInstance instance,
     lastPluginValue.resize(exposed.size());
     movedByPlugin =
         std::make_unique<std::atomic<bool>[]>(static_cast<size_t>(exposed.size()));
+    toldHost =
+        std::make_unique<std::atomic<float>[]>(static_cast<size_t>(exposed.size()));
+    for (auto i = 0; i < list.size(); ++i)
+        slotOfIndex.add(-1);
+
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+        slotOfIndex[exposed[slot]] = slot;
 
     if (!exposed.empty())
         valueTimer = std::make_unique<ValueTimer>(*this);
@@ -315,14 +337,18 @@ void Adapter::PostConstructor()
     const auto& layout = pluginWrapper.busLayout();
 
     for (auto bus = 0; bus < layout.inputs.size(); ++bus)
-        Input(static_cast<UInt32>(bus))
-            .SetStreamFormat(floatFormat(layout.inputs[bus].numChannels));
+    {
+        auto& input = Input(static_cast<UInt32>(bus));
+        input.SetStreamFormat(floatFormat(layout.inputs[bus].numChannels));
+        nameElement(input, layout.inputs[bus]);
+    }
 
     for (auto bus = 0; bus < layout.outputs.size(); ++bus)
     {
         auto& output = Output(static_cast<UInt32>(bus));
         output.SetStreamFormat(floatFormat(layout.outputs[bus].numChannels));
         output.SetWillAllocateBuffer(true);
+        nameElement(output, layout.outputs[bus]);
     }
 
     // JUCE_FORCE_USE_LEGACY_PARAM_IDS: the SDK's own indexed list, as JUCE's
@@ -341,6 +367,7 @@ void Adapter::PostConstructor()
 
     // Every id now, so no SetParameterRT ever inserts on the render thread.
     mirrorParametersToHost();
+    markAllToldHost();
 }
 
 double Adapter::outputSampleRate()
@@ -398,6 +425,7 @@ OSStatus Adapter::Initialize()
     // The host's values stay as it set them: a choice snaps in the plugin, and
     // Globals() keeps the value the host wrote.
     pushParametersToPlugin();
+    markAllToldHost();
 
     const auto& list = plugin().parameters();
 
@@ -508,7 +536,26 @@ OSStatus Adapter::GetParameterInfo(AudioUnitScope scope,
     if (index < 0)
         return kAudioUnitErr_InvalidParameter;
 
-    space.fillInfo(plugin().parameters().entry(index), info);
+    const auto& entry = plugin().parameters().entry(index);
+    space.fillInfo(entry, info);
+    space.addClump(entry, info);
+    return noErr;
+}
+
+OSStatus Adapter::CopyClumpName(AudioUnitScope scope,
+                                UInt32 clumpId,
+                                UInt32,
+                                CFStringRef* outClumpName)
+{
+    if (scope != kAudioUnitScope_Global)
+        return kAudioUnitErr_InvalidScope;
+
+    auto* name = space.copyClumpName(plugin().parameters(), clumpId);
+
+    if (name == nullptr)
+        return kAudioUnitErr_InvalidPropertyValue;
+
+    *outClumpName = name;
     return noErr;
 }
 
@@ -559,6 +606,7 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
     if (result == noErr)
     {
         setFromHost(index, value);
+        markToldHost(slotOfIndex[index]);
 
         if (isMessageThread())
         {
@@ -607,6 +655,7 @@ OSStatus Adapter::setBypass(bool on) noexcept
         return result;
 
     pluginWrapper.setParameter(index, plain);
+    markToldHost(slotOfIndex[index]);
     notifyHost(index, kAudioUnitEvent_ParameterValueChange);
     return noErr;
 }
@@ -946,6 +995,7 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
     auto document = std::optional<std::string> {};
     auto foreignBytes = std::optional<std::string> {};
     auto foreignOrigin = ForeignOrigin::JuceAU;
+    auto wasBypassed = isBypassed();
 
     try
     {
@@ -1002,6 +1052,17 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
             pushParametersToPlugin();
         }
 
+        // Now, from the restoring thread, as JUCE's AU posts its values from
+        // setStateInformation: each event reads the restored value. Off the
+        // message thread the rest of the load runs later, and whatever it
+        // reports the host has by then is not posted again, since that event
+        // could land after a newer host write and undo it in the host's view.
+        postUntoldValues();
+
+        if (isBypassed() != wasBypassed)
+            PropertyChanged(
+                kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
+
         notifyHostIfLatencyChanged();
     }
     catch (...)
@@ -1031,6 +1092,7 @@ void Adapter::reconcileParameters() noexcept
             setFromHost(index, *host);
             lastHostValue[slot] = *host;
             lastPluginValue[slot] = pluginWrapper.getParameter(index);
+            markToldHost(slot);
             continue;
         }
 
@@ -1332,6 +1394,43 @@ void Adapter::notifyHost(int index, AudioUnitEventType type) noexcept
     AUEventListenerNotify(nullptr, nullptr, &event);
 }
 
+void Adapter::markToldHost(int slot) noexcept
+{
+    if (slot >= 0 && slot < exposed.size())
+        toldHost[slot].store(pluginWrapper.getParameter(exposed[slot]),
+                             std::memory_order_relaxed);
+}
+
+void Adapter::markAllToldHost() noexcept
+{
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+        markToldHost(slot);
+}
+
+bool Adapter::postUntoldValues() noexcept
+{
+    const auto& list = plugin().parameters();
+    auto any = false;
+
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+    {
+        auto index = exposed[slot];
+        auto value = pluginWrapper.getParameter(index);
+        auto moved = movedByPlugin[slot].exchange(false, std::memory_order_relaxed);
+
+        if (!moved && value == toldHost[slot].load(std::memory_order_relaxed))
+            continue;
+
+        any = true;
+        std::ignore = Globals()->SetParameterOrError(
+            list.entry(index).hostId, space.toHost(list.entry(index), value), true);
+        toldHost[slot].store(value, std::memory_order_relaxed);
+        notifyHost(index, kAudioUnitEvent_ParameterValueChange);
+    }
+
+    return any;
+}
+
 void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);
@@ -1348,6 +1447,7 @@ void Adapter::performParameterEdit(int index, float) noexcept
     {
         std::ignore = Globals()->SetParameterOrError(
             list.entry(index).hostId, hostValueOf(index), true);
+        markToldHost(slotOfIndex[index]);
         notifyHost(index, kAudioUnitEvent_ParameterValueChange);
     }
 
@@ -1387,6 +1487,7 @@ void Adapter::postMovedParameters() noexcept
             continue;
 
         any = true;
+        markToldHost(slot);
         notifyHost(exposed[slot], kAudioUnitEvent_ParameterValueChange);
 
         if (exposed[slot] == bypass)
@@ -1398,17 +1499,14 @@ void Adapter::postMovedParameters() noexcept
         notifyHostIfLatencyChanged();
 }
 
-// Every value into Globals() and an event for each, since the host cannot tell
-// which moved; the next render takes Globals() as a host write of the same values.
+// Only the values the host does not have: a plugin reports a load the host made
+// off the message thread once the rest of it has run here, by when the host has
+// read the values and may have written newer ones (pluginval writes, restores and
+// reads back, parameter by parameter). The next render takes Globals() as a host
+// write of the same values.
 void Adapter::parameterValuesChanged() noexcept
 {
-    mirrorParametersToHost();
-
-    for (auto slot = 0; slot < exposed.size(); ++slot)
-    {
-        movedByPlugin[slot].store(false, std::memory_order_relaxed);
-        notifyHost(exposed[slot], kAudioUnitEvent_ParameterValueChange);
-    }
+    postUntoldValues();
 
     if (plugin().parameters().bypassIndex() >= 0)
         PropertyChanged(kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);

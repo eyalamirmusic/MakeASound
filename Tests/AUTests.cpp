@@ -21,6 +21,7 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -142,6 +143,26 @@ struct TwoOutputSynth : Plugin
     }
 
     int processed = 0;
+};
+
+// Buses with names of their own, one of them empty and one with no channels.
+struct NamedBusEffect : Plugin
+{
+    std::string_view name() const override { return "NamedBuses"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout {};
+        layout.inputs.add({"Main In", 2});
+        layout.inputs.add({"Sidechain", 2, false});
+        layout.outputs.add({"Main Out", 2});
+        layout.outputs.add({"", 2, false});
+        layout.outputs.add({"Disabled", 0, false});
+        return layout;
+    }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
 };
 
 // Records every controller value it is handed, in order.
@@ -607,6 +628,86 @@ auto tTwoOutputs = test("AU/everyOutputBusCarriesItsBlockWhicheverRendersFirst")
         for (const auto& channel: host.outputs[bus].storage)
             for (auto s = 0; s < maxBlock; ++s)
                 check(channel[s] == (bus == 0 ? 0.25f : 0.75f));
+};
+
+// kAudioUnitProperty_ElementName, nullopt when the element has none.
+std::optional<std::string>
+    elementNameOf(AudioUnit unit, AudioUnitScope scope, AudioUnitElement element)
+{
+    auto name = CFStringRef {};
+    auto size = UInt32 {sizeof(name)};
+
+    if (AudioUnitGetProperty(
+            unit, kAudioUnitProperty_ElementName, scope, element, &name, &size)
+            != noErr
+        || name == nullptr)
+        return std::nullopt;
+
+    auto text = MakeASound::AU::toUtf8(name);
+    CFRelease(name);
+    return text;
+}
+
+// JUCE's AU names each element after its bus (AU_1.mm
+// syncAudioUnitWithChannelSet), an empty name included, and leaves a bus with no
+// channels unnamed; the SDK saves the names in ClassInfo's "element-name".
+auto tElementNames = test("AU/eachElementIsNamedAfterItsBus") = []
+{
+    {
+        auto gain = UnitHost<GainPlugin>("Gain", Start::Open);
+        check(elementNameOf(gain.unit, kAudioUnitScope_Input, 0) == "Input");
+        check(elementNameOf(gain.unit, kAudioUnitScope_Output, 0) == "Output");
+
+        auto synth = UnitHost<SynthPlugin>("Echo", Start::Open);
+        check(synth.elementCount(kAudioUnitScope_Input) == 0);
+        check(elementNameOf(synth.unit, kAudioUnitScope_Output, 0) == "Output");
+    }
+
+    auto standIn = ScopedStandIn<NamedBusEffect>(Module::gainStandIn);
+    auto host = UnitHost<NamedBusEffect>("Gain", Start::Open);
+    check(host.elementCount(kAudioUnitScope_Input) == 2);
+    check(host.elementCount(kAudioUnitScope_Output) == 3);
+
+    using Names = std::vector<std::optional<std::string>>;
+
+    auto namesOf = [&](AudioUnitScope scope)
+    {
+        auto names = Names {};
+
+        for (auto element = UInt32 {}; element < host.elementCount(scope); ++element)
+            names.push_back(elementNameOf(host.unit, scope, element));
+
+        return names;
+    };
+
+    auto inputs = Names {"Main In", "Sidechain"};
+    auto outputs = Names {"Main Out", "", std::nullopt};
+    check(namesOf(kAudioUnitScope_Input) == inputs);
+    check(namesOf(kAudioUnitScope_Output) == outputs);
+
+    // In ClassInfo: {"1": {"0": "Main In", "1": "Sidechain"}, "2": {...}}.
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+    auto* dictionary = static_cast<CFDictionaryRef>(info.value);
+    auto* saved = static_cast<CFDictionaryRef>(
+        CFDictionaryGetValue(dictionary, CFSTR(kAUPresetElementNameKey)));
+    check(saved != nullptr && CFGetTypeID(saved) == CFDictionaryGetTypeID());
+
+    if (saved == nullptr)
+        return;
+
+    auto* input =
+        static_cast<CFDictionaryRef>(CFDictionaryGetValue(saved, CFSTR("1")));
+    auto* output =
+        static_cast<CFDictionaryRef>(CFDictionaryGetValue(saved, CFSTR("2")));
+    check(input != nullptr && CFDictionaryGetCount(input) == 2);
+    check(output != nullptr && CFDictionaryGetCount(output) == 2);
+
+    if (input == nullptr)
+        return;
+
+    auto* sidechain =
+        static_cast<CFStringRef>(CFDictionaryGetValue(input, CFSTR("1")));
+    check(MakeASound::AU::toUtf8(sidechain) == "Sidechain");
 };
 
 std::vector<AudioUnitParameterID> parameterListOf(AudioUnit unit)
@@ -2068,6 +2169,103 @@ auto tBulkPosted = test("AU/manyValuesChangedPostsAnEventPerParameter") = []
     AUListenerDispose(listener);
 };
 
+template <typename P>
+std::vector<AudioUnitParameterID> listedIds(UnitHost<P>& host)
+{
+    const auto& list = host.plugin().parameters();
+    auto ids = std::vector<AudioUnitParameterID> {};
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isHostExposed(i))
+            ids.push_back(list.entry(i).hostId);
+
+    return ids;
+}
+
+// The last value the log holds for `id`, as a host caching event values has it.
+std::optional<float> lastValueOf(const GestureLog& log, AudioUnitParameterID id)
+{
+    auto value = std::optional<float> {};
+
+    for (auto i = 0; i < log.ids.size(); ++i)
+        if (log.ids[i] == id && log.types[i] == kAudioUnitEvent_ParameterValueChange)
+            value = log.values[i];
+
+    return value;
+}
+
+// JUCE's AU hosting (pluginval's) restores ClassInfo from its own thread, reads
+// the values back, and keeps whatever value events land later: those must carry
+// the restored values, posted for each parameter the restore changed.
+auto tRestorePosted =
+    test("AU/aRestoreOffTheMessageThreadPostsTheRestoredValues") = []
+{
+    auto source = UnitHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+
+    auto target = UnitHost<GainPlugin>("Gain");
+    const auto& params = target.plugin().params;
+    auto gainId = target.hostIdOf(params.gain);
+    auto modeId = target.hostIdOf(params.mode);
+    auto ids = listedIds(target);
+    auto log = GestureLog {};
+    auto listener = listenForValues(target, log, ids);
+
+    check(target.hostWrites(gainId, -7.f) == noErr);
+
+    auto status = OSStatus {-1};
+    std::thread([&] { status = restoreClassInfo(target, info.value); }).join();
+    check(status == noErr);
+    check(near(target.hostValue(gainId), -12.f));
+
+    check(pumpUntil(
+        [&] { return lastValueOf(log, gainId) && lastValueOf(log, modeId); }));
+    pumpFor(150);
+
+    check(near(*lastValueOf(log, gainId), -12.f));
+    check(near(*lastValueOf(log, modeId), 2.f));
+
+    for (auto id: ids)
+        if (auto value = lastValueOf(log, id))
+            check(near(*value, target.hostValue(id)));
+
+    AUListenerDispose(listener);
+};
+
+// A plugin reports a load the host made off the message thread once the rest of
+// it has run there, by when the host may have written a newer value and restored
+// again: an event for the value the host wrote, posted then and landing after the
+// host read the restored one back, would undo the restore in the host's view.
+auto tNoStaleValues =
+    test("AU/aValuesChangedReportPostsNoValueTheHostAlreadyHas") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& params = host.plugin().params;
+    auto gainId = host.hostIdOf(params.gain);
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, listedIds(host));
+
+    check(host.hostWrites(gainId, -7.f) == noErr);
+    host.plugin().notifyHostParameterValuesChanged();
+
+    check(restoreClassInfo(host, info.value) == noErr);
+    check(near(host.hostValue(gainId), 0.f));
+
+    pumpFor(150);
+    check(lastValueOf(log, gainId).has_value());
+    check(near(*lastValueOf(log, gainId), 0.f));
+
+    // Nothing the plugin moved, so nothing is posted.
+    log = GestureLog {};
+    host.plugin().notifyHostParameterValuesChanged();
+    pumpFor(150);
+    check(log.types.empty());
+
+    AUListenerDispose(listener);
+};
+
 auto tClassInfoPosted = test("AU/markChangedPostsClassInfo") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");
@@ -3023,8 +3221,8 @@ auto tPlugGoldens = test("AU/aTamberPlugPortPublishesWhatPlugsAUDid") = []
 };
 
 // What JUCE 8.0.12's own AU build of JucePort's twin published (JucePort.h):
-// the list and every parameter's info, but for the clump JUCE gives a grouped
-// parameter, which MakeASound's AU has not yet.
+// the list and every parameter's info, the clump JUCE gives a grouped
+// parameter included (its group's index + 1).
 void checkJucesAUInfo(AudioUnit unit,
                       AudioUnitParameterID id,
                       const JucePort::JucePublishedAU& juce)
@@ -3035,10 +3233,92 @@ void checkJucesAUInfo(AudioUnit unit,
     check(ours.info.maxValue == juce.maxValue);
     check(near(ours.info.defaultValue, juce.defaultValue, 1e-6));
     check(ours.info.unit == juce.unit);
-    check(ours.info.flags == (juce.flags & ~JucePort::juceAUHasClump));
+    check(ours.info.flags == juce.flags);
     check(((juce.flags & JucePort::juceAUHasClump) != 0)
           == (std::string_view {juce.key} == "attack"));
+
+    if ((juce.flags & JucePort::juceAUHasClump) != 0)
+        check(ours.info.clumpID == 1);
 }
+
+// kAudioUnitProperty_ParameterClumpName as a host asks: the name, or the
+// status of a refusal with an empty name.
+std::pair<OSStatus, std::string> clumpNameOf(AudioUnit unit, UInt32 clumpId)
+{
+    auto info =
+        AudioUnitParameterNameInfo {.inID = clumpId,
+                                    .inDesiredLength = kAudioUnitParameterName_Full,
+                                    .outName = nullptr};
+    auto size = UInt32 {sizeof(info)};
+    auto status = AudioUnitGetProperty(unit,
+                                       kAudioUnitProperty_ParameterClumpName,
+                                       kAudioUnitScope_Global,
+                                       0,
+                                       &info,
+                                       &size);
+    auto name = toUtf8(info.outName);
+
+    if (info.outName != nullptr)
+        CFRelease(info.outName);
+
+    return {status, name};
+}
+
+// JUCE's twin's one group is clump 1, named after it.
+auto tJuceClumps = test("AU/aJucePortsGroupIsAClumpAsInJuce") = []
+{
+    auto host = UnitHost<PortPlugin>(portComponentFor(IdScheme::JUCE));
+    check(clumpNameOf(host.unit, 1)
+          == std::pair<OSStatus, std::string> {noErr, "Envelope"});
+    check(clumpNameOf(host.unit, 2).first != noErr);
+};
+
+// BitFuzzer's nested groups (TwinGroupPlugin) are the clumps its JUCE AU
+// published: numbered in getSubgroups(true) order, each parameter in its
+// innermost group's, named by the path of names joined by '-', the two "EQ"
+// groups apart.
+auto tTwinClumps = test("AU/nestedGroupsAreTheClumpsJuceGaveThem") = []
+{
+    auto host = UnitHost<TwinGroupPlugin>(twinGroupsComponent());
+
+    for (const auto& juce: JucePort::twinGroupsUnits)
+        check(clumpNameOf(host.unit, juce.clumpId)
+              == std::pair<OSStatus, std::string> {noErr, juce.clumpName});
+
+    for (const auto& juce: JucePort::twinGroupsParameters)
+    {
+        auto ours = publishedInfo(host.unit, juce.hostId);
+        check(ours.status == noErr);
+        check((ours.info.flags & kAudioUnitParameterFlag_HasClump) != 0);
+
+        auto unit = std::find_if(std::begin(JucePort::twinGroupsUnits),
+                                 std::end(JucePort::twinGroupsUnits),
+                                 [&](const auto& u) { return u.id == juce.unit; });
+        check(unit != std::end(JucePort::twinGroupsUnits));
+
+        if (unit != std::end(JucePort::twinGroupsUnits))
+            check(ours.info.clumpID == unit->clumpId);
+    }
+
+    // "In" is at the root, with no clump; and an id past the groups names none.
+    auto in = publishedInfo(host.unit, Compat::juceStringHash("In") & 0x7fffffffu);
+    check(in.status == noErr);
+    check((in.info.flags & kAudioUnitParameterFlag_HasClump) == 0);
+    check(clumpNameOf(host.unit, 5).first != noErr);
+};
+
+// Tamber Plug's AU had no clumps: its ports give none.
+auto tPlugClumps = test("AU/aTamberPlugPortHasNoClumps") = []
+{
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+
+    for (auto id: parameterListOf(host.unit))
+        check((publishedInfo(host.unit, id).info.flags
+               & kAudioUnitParameterFlag_HasClump)
+              == 0);
+
+    check(clumpNameOf(host.unit, 1).first != noErr);
+};
 
 auto tJuceGoldens = test("AU/aJucePortPublishesWhatJucesAUDid") = []
 {

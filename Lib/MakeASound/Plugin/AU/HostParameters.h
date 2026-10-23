@@ -108,6 +108,19 @@ public:
     CFArrayRef copyValueStrings(const ParameterList::Entry& entry,
                                 AUFlavour flavour) const;
 
+    // The AU v2 clump of the entry's innermost group, its index in groups()
+    // plus one (JUCE's numbering), where hostGroups publishes groups; 0 (no
+    // clump, kAudioUnitClumpID_System being reserved) for an entry at the root
+    // or when it does not. fillInfo leaves clumps out, since the AUv3 tree has
+    // its groups instead; addClump sets HasClump and the id.
+    UInt32 clumpIdFor(const ParameterList::Entry& entry) const noexcept;
+    void addClump(const ParameterList::Entry& entry,
+                  AudioUnitParameterInfo& info) const noexcept;
+
+    // kAudioUnitProperty_ParameterClumpName: the group's
+    // ParameterList::Group::clumpName, null for an id no group has.
+    CFStringRef copyClumpName(const ParameterList& list, UInt32 clumpId) const;
+
 private:
     Compat::JuceAUParameterInfo
         juceInfo(const ParameterList::Entry& entry) const noexcept;

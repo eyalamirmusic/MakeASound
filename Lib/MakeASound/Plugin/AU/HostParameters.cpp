@@ -333,8 +333,8 @@ void ParameterSpace::fillInfo(const ParameterList::Entry& entry,
 
         case AUUnits::Juce:
         {
-            // AU_1.mm GetParameterInfo, less clumps and meters, which
-            // MakeASound has not.
+            // AU_1.mm GetParameterInfo, less meters, which MakeASound has
+            // not, and clumps, which addClump adds for the v2 unit.
             auto juce = juceInfo(entry);
 
             if (juce.indexedUnit)
@@ -439,6 +439,36 @@ CFArrayRef ParameterSpace::copyValueStrings(const ParameterList::Entry& entry,
     }
 
     return array;
+}
+
+UInt32 ParameterSpace::clumpIdFor(const ParameterList::Entry& entry) const noexcept
+{
+    if (!rules.hostGroups || entry.groups.empty())
+        return 0;
+
+    return static_cast<UInt32>(entry.groups.back().index + 1);
+}
+
+void ParameterSpace::addClump(const ParameterList::Entry& entry,
+                              AudioUnitParameterInfo& info) const noexcept
+{
+    if (auto clump = clumpIdFor(entry); clump != 0)
+    {
+        info.flags |= kAudioUnitParameterFlag_HasClump;
+        info.clumpID = clump;
+    }
+}
+
+CFStringRef ParameterSpace::copyClumpName(const ParameterList& list,
+                                          UInt32 clumpId) const
+{
+    const auto& groups = list.groups();
+
+    if (!rules.hostGroups || clumpId == 0
+        || clumpId > static_cast<UInt32>(groups.size()))
+        return nullptr;
+
+    return makeCFString(groups[static_cast<int>(clumpId) - 1].clumpName);
 }
 
 } // namespace MakeASound::AU

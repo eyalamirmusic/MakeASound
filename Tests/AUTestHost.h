@@ -177,6 +177,24 @@ inline AudioComponent plugPortComponentFor(FourCC code)
     return component;
 }
 
+// JucePort::twinGroupsDescription(), BitFuzzer's groups under its JUCE ids, once.
+inline AudioComponent twinGroupsComponent()
+{
+    static auto* component = []
+    {
+        auto info =
+            AU::componentInfoFor(portModule(), JucePort::twinGroupsDescription());
+        auto desc =
+            AudioComponentDescription {.componentType = info.type,
+                                       .componentSubType = info.subtype,
+                                       .componentManufacturer = info.manufacturer};
+        return AudioComponentRegister(
+            &desc, CFSTR("MakeASound Tests: Twin Groups"), 0x10000, &portFactory);
+    }();
+
+    return component;
+}
+
 using HostBuffers::HostBus;
 using HostBuffers::SentMidi;
 

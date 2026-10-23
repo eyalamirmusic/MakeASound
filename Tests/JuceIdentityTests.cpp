@@ -183,6 +183,43 @@ auto tDiscrete = test("Parameters/discreteAndBooleanAreJuces") = []
     check(!stepped.isDiscrete() && stepped.numSteps() == 10);
 };
 
+// JUCE 8.0.12's getNumSteps(): a choice's choices, a bool's 2, an int's values
+// and the default 0x7fffffff for a continuous float; then what its VST3
+// (Param::updateParameterInfo) and AAX (addAudioProcessorParameters) wrappers
+// make of it, with and without JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE.
+auto tJuceSteps = test("Parameters/vst3AndAAXStepsAreJuces") = []
+{
+    auto params = FixtureParams {};
+    auto wide = IntParam {"Wide", 0, 5000, 0};
+
+    check(Compat::juceNumSteps(params.mode) == 3);
+    check(Compat::juceNumSteps(params.enabled) == 2);
+    check(Compat::juceNumSteps(params.voices) == 16);
+    check(Compat::juceNumSteps(params.cutoff) == Compat::juceDefaultNumSteps);
+
+    // Only a discrete parameter has VST3 steps, unless the legacy type.
+    check(Compat::juceVST3StepCount(params.mode, false) == 2);
+    check(Compat::juceVST3StepCount(params.enabled, false) == 1);
+    check(Compat::juceVST3StepCount(params.voices, false) == 0);
+    check(Compat::juceVST3StepCount(params.cutoff, false) == 0);
+    check(Compat::juceVST3StepCount(params.mode, true) == 2);
+    check(Compat::juceVST3StepCount(params.voices, true) == 15);
+    check(Compat::juceVST3StepCount(params.cutoff, true) == 0);
+
+    using Steps = Compat::JuceAAXSteps;
+
+    // Steps for every parameter, at most 2048; Discrete for a discrete one, or
+    // under the legacy type for one of at most 1000 steps.
+    check(Compat::juceAAXSteps(params.mode, false) == Steps {3, true});
+    check(Compat::juceAAXSteps(params.enabled, false) == Steps {2, true});
+    check(Compat::juceAAXSteps(params.voices, false) == Steps {16, false});
+    check(Compat::juceAAXSteps(params.cutoff, false) == Steps {2048, false});
+    check(Compat::juceAAXSteps(wide, false) == Steps {2048, false});
+    check(Compat::juceAAXSteps(params.voices, true) == Steps {16, true});
+    check(Compat::juceAAXSteps(params.cutoff, true) == Steps {2048, false});
+    check(Compat::juceAAXSteps(wide, true) == Steps {2048, false});
+};
+
 auto tChoiceRounding = test("Parameters/aChoiceRoundsHalfToEven") = []
 {
     auto choice = ChoiceParam {"Mode", {"A", "B", "C", "D"}};

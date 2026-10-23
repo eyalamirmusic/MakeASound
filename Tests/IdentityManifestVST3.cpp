@@ -4,6 +4,7 @@
 
 #include <MakeASound/Plugin/VST3/Adapter.h>
 #include <MakeASound/Plugin/VST3/HostParameters.h>
+#include <MakeASound/Plugin/VST3/Text.h>
 
 #include "IdentityManifest.h"
 
@@ -98,6 +99,18 @@ void describeVST3(const ModuleDescription& module,
                   static_cast<unsigned>(anyFlags)));
     else
         out.push_back("vst3 controllers 0");
+
+    for (auto index = 0; index < adapter->getUnitCount(); ++index)
+    {
+        auto unit = Vst::UnitInfo {};
+        adapter->getUnitInfo(index, unit);
+        out.push_back(print("vst3 unit {} id {} parent {} programs {} name \"{}\"",
+                            index,
+                            unit.id,
+                            unit.parentUnitId,
+                            unit.programListId,
+                            MakeASound::VST3::toUtf8(unit.name).c_str()));
+    }
 
     auto mapped = std::string {};
 
