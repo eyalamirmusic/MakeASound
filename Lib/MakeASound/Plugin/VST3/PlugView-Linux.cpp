@@ -22,4 +22,9 @@ void PlugView::applyContentScale() noexcept
         embedded->setPixelsPerPoint(scale);
 }
 
+bool PlugView::unhandledKey(const eacp::Graphics::KeyEvent&)
+{
+    return false;
+}
+
 } // namespace MakeASound::VST3

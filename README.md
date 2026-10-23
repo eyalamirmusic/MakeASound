@@ -415,6 +415,15 @@ Every format opens the editor at its initial size put through `constraints().con
 
 MakeASound has no web-editor support of its own. A plugin that wants a web page as its editor builds one directly on eacp's `WebView` (and its vite build helpers), configuring with `-DEACP_BUILD_WEBVIEW=ON` since a top-level MakeASound build fetches eacp without it: an `Editor` whose `view()` returns the `WebView`, with the page talking to the plugin's parameters through whatever bridge the plugin binds. The framework only sees an `Editor`, so the size policy, `requestResize` and `ResizeGrip` above apply to it as to any other.
 
+Keys the page does not consume should still reach the DAW's shortcuts (spacebar transport) and the standalone's typing keyboard. Turn on the `WebView`'s `forwardUnhandledKeys` and hand them to the editor's host:
+
+```cpp
+webView.onUnhandledKeyEvent = [this](const eacp::Graphics::KeyEvent& key)
+{ return forwardUnhandledKey(key); };
+```
+
+`Editor::forwardUnhandledKey` gives the key to `EditorHost::unhandledKey` and returns whether the host claimed it. The standalone plays it on the typing keyboard and claims it. A VST3 view on Windows posts it to the window the host attached it to, where eacp's own fallback would only send it back to the editor's window, and claims it. Everywhere else the host declines, and the `WebView` sends the key on up the responder chain to the DAW as before. Any editor whose own view leaves a key unused can do the same.
+
 ## Running a plugin standalone
 
 `Plugins/Gain` is a complete plugin. The header declares the parameters and the processor:

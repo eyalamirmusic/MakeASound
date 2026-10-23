@@ -7,6 +7,11 @@
 #include <functional>
 #include <optional>
 
+namespace eacp::Graphics
+{
+struct KeyEvent;
+}
+
 namespace MakeASound::Standalone
 {
 
@@ -27,6 +32,10 @@ public:
     // down; a key-up is never filtered.
     bool keyDown(uint16_t keyCode, bool isRepeat, bool isChord);
     bool keyUp(uint16_t keyCode);
+
+    // A window's key event, or one an editor did not consume: keyDown, with
+    // command, control or alt making it a chord, or keyUp.
+    bool key(const eacp::Graphics::KeyEvent& event);
 
     // A note-off for every held note.
     void allNotesOff();

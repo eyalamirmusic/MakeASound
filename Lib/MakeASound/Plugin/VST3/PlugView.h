@@ -46,6 +46,10 @@ public:
     bool resizeEditor(EditorSize size) override;
     bool drawsResizeHandle() const override { return true; }
 
+    // On Windows, posted to the host's window while attached; elsewhere left to
+    // the view (PlugView-<platform>.cpp).
+    bool unhandledKey(const eacp::Graphics::KeyEvent& key) override;
+
     OBJ_METHODS(PlugView, Steinberg::CPluginView)
     DEFINE_INTERFACES
     DEF_INTERFACE(Steinberg::IPlugViewContentScaleSupport)

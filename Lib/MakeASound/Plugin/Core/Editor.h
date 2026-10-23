@@ -3,7 +3,8 @@
 namespace eacp::Graphics
 {
 class View;
-}
+struct KeyEvent;
+} // namespace eacp::Graphics
 
 namespace MakeASound
 {
@@ -41,6 +42,19 @@ public:
 
     // Whether the host's window has a resize grip of its own.
     virtual bool drawsResizeHandle() const = 0;
+
+    // A key the editor's view did not consume, from Editor::forwardUnhandledKey.
+    // True when the host claimed it: the standalone plays it on the typing
+    // keyboard, and the VST3 view on Windows posts it to the host's window, which
+    // the key would not otherwise reach (eacp's fallback re-sends it to the
+    // editor's own window). False, the default, leaves the key to the view, whose
+    // own route goes on to whatever hosts it: on macOS the responder chain
+    // already reaches the DAW's window.
+    virtual bool unhandledKey(const eacp::Graphics::KeyEvent& key)
+    {
+        (void) key;
+        return false;
+    }
 };
 
 // What a plugin shows: one eacp view the standalone puts in its window and a
@@ -80,6 +94,18 @@ public:
     // Constrains the size and hands it to the host; false when there is no
     // host, the editor is not resizable or the host refused.
     bool requestResize(EditorSize size);
+
+    // Hands the host a key the editor's view did not consume, so a DAW's
+    // shortcuts (spacebar transport) and the standalone's typing keyboard work
+    // while the editor has focus. True when the host claimed it; false without a
+    // host, and the caller then sends the key on its own way. A web page's
+    // editor wires its WebView here, with Options::forwardUnhandledKeys on:
+    //
+    //     webView.onUnhandledKeyEvent = [this](const eacp::Graphics::KeyEvent& key)
+    //     { return forwardUnhandledKey(key); };
+    //
+    // Message thread.
+    bool forwardUnhandledKey(const eacp::Graphics::KeyEvent& key);
 
 private:
     EditorHost* editorHost = nullptr;

@@ -19,4 +19,10 @@ void PlugView::applyContentScale() noexcept
 {
 }
 
+// The responder chain already goes on from the embedded view into the host's.
+bool PlugView::unhandledKey(const eacp::Graphics::KeyEvent&)
+{
+    return false;
+}
+
 } // namespace MakeASound::VST3
