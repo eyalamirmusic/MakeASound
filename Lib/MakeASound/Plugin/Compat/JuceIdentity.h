@@ -85,4 +85,40 @@ JuceAUParameterInfo juceAUParameterInfo(const Parameter& param,
                                         IdScheme scheme,
                                         const JuceSettings& settings) noexcept;
 
+// AudioProcessor::getDefaultNumParameterSteps(), what JUCE's getNumSteps()
+// answers for a continuous parameter.
+constexpr int juceDefaultNumSteps = 0x7fffffff;
+
+// JUCE's getNumSteps() for the parameter: its number of values, numSteps() + 1,
+// for a stepped one (a choice's choices, a bool's 2, an int's values), and
+// juceDefaultNumSteps for a continuous one. JUCE's AudioParameterFloat ignores
+// its interval and answers juceDefaultNumSteps, so a stepped float differs here.
+int juceNumSteps(const Parameter& param) noexcept;
+
+// ParameterInfo::stepCount as JUCE's VST3 publishes it (juce_audio_plugin_client
+// _VST3.cpp, Param::updateParameterInfo): 0 for a parameter that is not discrete
+// (an int, a float), else getNumSteps() - 1, which is numSteps(). Under
+// JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE every parameter's getNumSteps() - 1,
+// 0 for a continuous one.
+int juceVST3StepCount(const Parameter& param, bool legacyAutomationType) noexcept;
+
+// The AAX parameter's steps as JUCE's AAX publishes them (juce_audio_plugin_client
+// _AAX.cpp, addAudioProcessorParameters): SetNumberOfSteps(getNumSteps(), at most
+// 2048) for every parameter, so 2048 for a continuous one, and Discrete only for
+// a discrete parameter; under JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE,
+// Discrete for one of at most 1000 steps.
+struct JuceAAXSteps
+{
+    int numberOfSteps = 0;
+    bool discrete = false;
+
+    constexpr bool operator==(const JuceAAXSteps&) const = default;
+};
+
+// getSafeNumberOfParameterSteps's limit, for old Pro Tools control surfaces.
+constexpr int juceAAXMaxSteps = 2048;
+
+JuceAAXSteps juceAAXSteps(const Parameter& param,
+                          bool legacyAutomationType) noexcept;
+
 } // namespace MakeASound::Compat

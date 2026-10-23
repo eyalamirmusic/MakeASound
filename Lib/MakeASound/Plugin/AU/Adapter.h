@@ -75,6 +75,13 @@ public:
                                       AudioUnitParameterID id,
                                       CFArrayRef* outStrings) override;
 
+    // kAudioUnitProperty_ParameterClumpName: the name of the group whose clump
+    // GetParameterInfo gave (ParameterSpace::addClump), +1 for the host.
+    OSStatus CopyClumpName(AudioUnitScope scope,
+                           UInt32 clumpId,
+                           UInt32 desiredNameLength,
+                           CFStringRef* outClumpName) override;
+
     OSStatus GetPropertyInfo(AudioUnitPropertyID id,
                              AudioUnitScope scope,
                              AudioUnitElement element,
@@ -184,6 +191,15 @@ private:
     void notifyHostIfLatencyChanged();
     void notifyHost(int index, AudioUnitEventType type) noexcept;
 
+    // The plugin's value of `slot` (or of every slot) is now what the host has.
+    void markToldHost(int slot) noexcept;
+    void markAllToldHost() noexcept;
+
+    // Into Globals() and a value event for each slot whose value the host does
+    // not have yet (toldHost) or that the render found moved; returns whether
+    // there was any.
+    bool postUntoldValues() noexcept;
+
     void reconcileParameters() noexcept;
     void bindInputs(AudioUnitRenderActionFlags& flags,
                     const AudioTimeStamp& timestamp,
@@ -222,6 +238,16 @@ private:
     // Per slot, raised by the render thread when it wrote a value the plugin
     // moved on its own into Globals(), taken by postMovedParameters().
     std::unique_ptr<std::atomic<bool>[]> movedByPlugin;
+
+    // Per slot, the plugin's value (plain) the host last had: from its own write,
+    // a restore it made, or an event we posted. A value event reads its value when
+    // it is posted and lands on the host's run loop later, so one posted for a
+    // value the host already has can arrive after the host wrote or restored
+    // another, and overwrite what the host holds with the older one.
+    std::unique_ptr<std::atomic<float>[]> toldHost;
+
+    // The slot of each parameter index, -1 for one the host does not address.
+    Vector<int> slotOfIndex;
     std::unique_ptr<ValueTimer> valueTimer;
 
     // Handed to the host by SupportedNumChannels, so it outlives the call.

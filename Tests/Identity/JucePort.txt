@@ -12,9 +12,11 @@ vst3 param 0 entry 0 id 1801646368 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1819205650 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 49525662 steps 1 default 1 flags 0x1 unit 0
 vst3 param 3 entry 3 id 1816020030 steps 15 default 0.466666669 flags 0x1 unit 0
-vst3 param 4 entry 4 id 263379417 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 4 entry 4 id 263379417 steps 0 default 0.00199999986 flags 0x1 unit 2022607796
 vst3 param 5 entry 6 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 2022607796 parent 0 programs -1 name "Envelope"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Jprt MaSo
 au list 1423004271 49525662 263379417 1801646368 1816020030 1819205650
@@ -26,7 +28,8 @@ au param entry 2 id 49525662 position 1 min 0 max 1 default 1 unit 2 flags 0xc8a
 auv3 param entry 2 address 49525662 identifier "enabled" strings 1
 au param entry 3 id 1816020030 position 4 min 1 max 16 default 8 unit 1 flags 0xc8800010 mid 8 strings 0
 auv3 param entry 3 address 1816020030 identifier "voices" strings 0
-au param entry 4 id 263379417 position 2 min 0 max 5 default 0.00999999978 unit 0 flags 0xc8800010 mid 2.5 strings 0
+au param entry 4 id 263379417 position 2 min 0 max 5 default 0.00999999978 unit 0 flags 0xc8900010 mid 2.5 strings 0
+au clump entry 4 id 1 name "Envelope"
 auv3 param entry 4 address 263379417 identifier "env/attack" strings 0
 au param entry 5 unlisted
 au param entry 6 id 1423004271 position 0 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
@@ -52,11 +55,13 @@ vst3 class 0x5653544a 0x70727470 0x6f727400 0x00000000
 vst3 param 0 entry 0 id 798419949 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 3357091 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 537889601 steps 1 default 1 flags 0x1 unit 0
-vst3 param 3 entry 3 id 1336493441 steps 15 default 0.466666669 flags 0x1 unit 0
-vst3 param 4 entry 4 id 740224584 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 3 entry 3 id 1336493441 steps 0 default 0.466666669 flags 0x1 unit 0
+vst3 param 4 entry 4 id 740224584 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 651215103 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 100589 parent 0 programs -1 name "Envelope"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Jprt MaSo
 au list 3357091 537889601 740224584 798419949 1336493441 651215103
@@ -68,7 +73,8 @@ au param entry 2 id 537889601 position 1 min 0 max 1 default 1 unit 2 flags 0xc8
 auv3 param entry 2 address 108379842206215 identifier "enabled" strings 1
 au param entry 3 id 1336493441 position 4 min 0 max 1 default 0.466666669 unit 0 flags 0xcaa00010 mid 0.466666669 strings 0
 auv3 param entry 3 address 1251851765449 identifier "voices" strings 0
-au param entry 4 id 740224584 position 2 min 0 max 1 default 0.00199999986 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 4 id 740224584 position 2 min 0 max 1 default 0.00199999986 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 4 id 1 name "Envelope"
 auv3 param entry 4 address 1031671269632 identifier "attack" strings 0
 au param entry 5 id 651215103 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcba00010 mid 0.5 strings 0
 auv3 param entry 5 address 121191664990877 identifier "quality" strings 0
@@ -95,11 +101,13 @@ vst3 class 0x5653544a 0x6c67796c 0x65676163 0x7920706f
 vst3 param 0 entry 0 id 0 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 2 steps 1 default 1 flags 0x1 unit 0
-vst3 param 3 entry 3 id 3 steps 15 default 0.466666669 flags 0x1 unit 0
-vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 3 entry 3 id 3 steps 0 default 0.466666669 flags 0x1 unit 0
+vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 5 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 6 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 100589 parent 0 programs -1 name "Envelope"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Jlgy MaSo
 au list 0 1 2 3 4 5
@@ -111,7 +119,8 @@ au param entry 2 id 2 position 2 min 0 max 1 default 1 unit 2 flags 0xc8a00010 m
 auv3 param entry 2 address 2 identifier "enabled" strings 1
 au param entry 3 id 3 position 3 min 0 max 1 default 0.466666669 unit 0 flags 0xcaa00010 mid 0.466666669 strings 0
 auv3 param entry 3 address 3 identifier "voices" strings 0
-au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 4 id 1 name "Envelope"
 auv3 param entry 4 address 4 identifier "attack" strings 0
 au param entry 5 id 5 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcba00010 mid 0.5 strings 0
 auv3 param entry 5 address 5 identifier "quality" strings 0
@@ -139,10 +148,12 @@ vst3 param 0 entry 0 id 2945903597 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 3357091 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 2685373249 steps 1 default 1 flags 0x1 unit 0
 vst3 param 3 entry 3 id 3483977089 steps 15 default 0.466666669 flags 0x1 unit 0
-vst3 param 4 entry 4 id 2887708232 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 4 entry 4 id 2887708232 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 651215103 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 100589 parent 0 programs -1 name "Envelope"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Jflp MaSo
 au list 3357091 2685373249 2887708232 2945903597 3483977089 651215103
@@ -154,7 +165,8 @@ au param entry 2 id 2685373249 position 1 min 0 max 1 default 1 unit 0 flags 0xc
 auv3 param entry 2 address 108379842206215 identifier "enabled" strings 0
 au param entry 3 id 3483977089 position 4 min 0 max 1 default 0.466666669 unit 0 flags 0xca200010 mid 0.466666669 strings 0
 auv3 param entry 3 address 1251851765449 identifier "voices" strings 0
-au param entry 4 id 2887708232 position 2 min 0 max 1 default 0.00199999986 unit 0 flags 0xca200010 mid 0.5 strings 0
+au param entry 4 id 2887708232 position 2 min 0 max 1 default 0.00199999986 unit 0 flags 0xca300010 mid 0.5 strings 0
+au clump entry 4 id 1 name "Envelope"
 auv3 param entry 4 address 1031671269632 identifier "attack" strings 0
 au param entry 5 id 651215103 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcb200010 mid 0.5 strings 0
 auv3 param entry 5 address 121191664990877 identifier "quality" strings 0
@@ -182,10 +194,12 @@ vst3 param 0 entry 0 id 0 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 2 steps 1 default 1 flags 0x1 unit 0
 vst3 param 3 entry 3 id 3 steps 15 default 0.466666669 flags 0x1 unit 0
-vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 5 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 6 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 100589 parent 0 programs -1 name "Envelope"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Jflp MaSo
 au list 0 1 2 3 4 5
@@ -197,7 +211,8 @@ au param entry 2 id 2 position 2 min 0 max 1 default 1 unit 0 flags 0xc8200010 m
 auv3 param entry 2 address 2 identifier "enabled" strings 0
 au param entry 3 id 3 position 3 min 0 max 1 default 0.466666669 unit 0 flags 0xca200010 mid 0.466666669 strings 0
 auv3 param entry 3 address 3 identifier "voices" strings 0
-au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xca200010 mid 0.5 strings 0
+au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xca300010 mid 0.5 strings 0
+au clump entry 4 id 1 name "Envelope"
 auv3 param entry 4 address 4 identifier "attack" strings 0
 au param entry 5 id 5 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcb200010 mid 0.5 strings 0
 auv3 param entry 5 address 5 identifier "quality" strings 0
@@ -225,11 +240,13 @@ vst3 class 0x5653544a 0x6c67316c 0x65676163 0x7920706f
 vst3 param 0 entry 0 id 0 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 2 steps 1 default 1 flags 0x1 unit 0
-vst3 param 3 entry 3 id 3 steps 15 default 0.466666669 flags 0x1 unit 0
-vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 0
+vst3 param 3 entry 3 id 3 steps 0 default 0.466666669 flags 0x1 unit 0
+vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 450187302 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 5 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 100589 parent 0 programs -1 name "Envelope"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Jlg1 MaSo
 au list 0 1 2 3 4 450187302
@@ -241,7 +258,8 @@ au param entry 2 id 2 position 2 min 0 max 1 default 1 unit 2 flags 0xc8a00010 m
 auv3 param entry 2 address 2 identifier "enabled" strings 1
 au param entry 3 id 3 position 3 min 0 max 1 default 0.466666669 unit 0 flags 0xcaa00010 mid 0.466666669 strings 0
 auv3 param entry 3 address 3 identifier "voices" strings 0
-au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 4 id 4 position 4 min 0 max 1 default 0.00199999986 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 4 id 1 name "Envelope"
 auv3 param entry 4 address 4 identifier "attack" strings 0
 au param entry 5 id 450187302 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcba00010 mid 0.5 strings 0
 auv3 param entry 5 address 450187302 identifier "quality" strings 0

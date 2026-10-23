@@ -122,7 +122,8 @@ public:
 
     // JUCE's isDiscrete() and isBoolean(): a choice and a bool are discrete, a
     // bool boolean, and an int or a stepped float neither, as in JUCE. Only the
-    // JUCE-mode AU range reads them (Compat::juceAUParameterInfo).
+    // JUCE-mode AU range (Compat::juceAUParameterInfo) and the JUCE-mode VST3 and
+    // AAX steps (StepRule::JuceDiscrete) read them.
     virtual bool isDiscrete() const noexcept { return false; }
     virtual bool isBoolean() const noexcept { return false; }
 

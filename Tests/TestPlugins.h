@@ -287,6 +287,56 @@ struct GroupedKeyPlugin : StatePlugin<State<GroupedKeyParams>>
     void process(ProcessContext&) noexcept override {}
 };
 
+// Modalics BitFuzzer's groups, which its JUCE build published: two filters
+// whose nested groups share the own id "EQ", legal in JUCE because each JUCE
+// group id carried its parents' ("DriveFilter-EQ", "MasterFilter-EQ") under
+// IdentityOverrides::juceKeyGroupSeparator '-'. Without the separator the two
+// "EQ" ids clash, as they would in JUCE.
+struct TwinEQParams : ParameterGroup
+{
+    TwinEQParams()
+        : ParameterGroup("EQ")
+    {
+        add(low, high);
+    }
+
+    FloatParam low {"Low", -12.f, 12.f, 0.f, {.versionHint = 1}};
+    FloatParam high {"High", -12.f, 12.f, 0.f, {.versionHint = 1}};
+};
+
+struct TwinFilterParams : ParameterGroup
+{
+    explicit TwinFilterParams(std::string_view name)
+        : ParameterGroup(name)
+    {
+        add(cutoff, reso, eq);
+    }
+
+    FloatParam cutoff {"Cutoff", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    FloatParam reso {"Reso", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    TwinEQParams eq;
+};
+
+struct TwinGroupParams : ParameterGroup
+{
+    TwinGroupParams() { add(in, drive, master, bypass); }
+
+    FloatParam in {"In", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    TwinFilterParams drive {"DriveFilter"};
+    TwinFilterParams master {"MasterFilter"};
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+};
+
+struct TwinGroupPlugin : StatePlugin<State<TwinGroupParams>>
+{
+    std::string_view name() const override { return "Twin Groups"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
 struct SynthParams : ParameterGroup
 {
     SynthParams() { add(level); }

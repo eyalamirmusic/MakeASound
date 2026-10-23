@@ -174,7 +174,8 @@ void Adapter::registerParameters()
 
         registered.add(index);
         paramIds[index] = std::string(registeredId(list.entry(index).aaxId));
-        mParameterManager.AddParameter(makeParameter(list.entry(index)));
+        mParameterManager.AddParameter(
+            makeParameter(list.entry(index), list.identity()));
     }
 
     byParamId = registered;

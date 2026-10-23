@@ -42,8 +42,10 @@ private:
 };
 
 // One AAX_CParameter<float> for the entry under its aaxId, at the parameter's
-// current value: steps and a discrete type from numSteps, automatable from the
-// entry.
-AAX_IParameter* makeParameter(const ParameterList::Entry& entry);
+// current value: its steps and type by identity's StepRule (under NumSteps a
+// stepped parameter is Discrete with numSteps() + 1 steps; under JuceDiscrete,
+// Compat::juceAAXSteps), automatable from the entry.
+AAX_IParameter* makeParameter(const ParameterList::Entry& entry,
+                              const ParameterIdentity& identity);
 
 } // namespace MakeASound::AAX

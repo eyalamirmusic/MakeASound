@@ -8,17 +8,20 @@ core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declare
 core entry 4 "Width" key "Width" hint 1 automatable 1 session 1 bypass no hostId 83574182 address 9162468412 identifier "Width" aaxId "Width" groups {}
 vst3 class 0x56535447 0x6e756c75 0x6e6c6973 0x74656420
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.833333313 flags 0x1 unit 0
-vst3 param 1 entry 1 id 2029770765 steps 0 default 0.549002707 flags 0x1 unit 0
+vst3 param 1 entry 1 id 2029770765 steps 0 default 0.549002707 flags 0x1 unit 2104342424
 vst3 param 2 entry 2 id 2403779 steps 2 default 0 flags 0x9 unit 0
 vst3 param 3 entry 3 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
 vst3 param 4 entry 4 id 83574182 steps 0 default 0.5 flags 0x1 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 2104342424 parent 0 programs -1 name "Filter"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Gnul MaSo
 au list 2211743 2403779 83574182 2029770765
 au param entry 0 id 2211743 position 0 min 0 max 1 default 0.833333313 unit 0 flags 0xcaa00010 mid 0.5 strings 0
 auv3 param entry 0 address 74151583 identifier "Gain" strings 0
-au param entry 1 id 2029770765 position 3 min 0 max 1 default 0.549002707 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 1 id 2029770765 position 3 min 0 max 1 default 0.549002707 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 1 id 1 name "Filter"
 auv3 param entry 1 address 716472458115 identifier "Cutoff" strings 0
 au param entry 2 id 2403779 position 1 min 0 max 2 default 0 unit 1 flags 0xc8a00010 mid 1 strings 1
 auv3 param entry 2 address 80475689 identifier "Mode" strings 1
@@ -41,17 +44,20 @@ core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declare
 core entry 4 "Width" key "Width" hint 1 automatable 1 session 1 bypass no hostId 83574182 address 9162468412 identifier "Width" aaxId "Width" groups {}
 vst3 class 0x56535447 0x6e6c696c 0x69737465 0x64206279
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.833333313 flags 0x1 unit 0
-vst3 param 1 entry 1 id 2029770765 steps 0 default 0.549002707 flags 0x1 unit 0
+vst3 param 1 entry 1 id 2029770765 steps 0 default 0.549002707 flags 0x1 unit 2104342424
 vst3 param 2 entry 2 id 2403779 steps 2 default 0 flags 0x9 unit 0
 vst3 param 3 entry 3 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
 vst3 param 4 entry 4 id 83574182 steps 0 default 0.5 flags 0x1 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 2104342424 parent 0 programs -1 name "Filter"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Gnli MaSo
 au list 2211743 2403779 83574182 2004703496 2029770765
 au param entry 0 id 2211743 position 0 min 0 max 1 default 0.833333313 unit 0 flags 0xcaa00010 mid 0.5 strings 0
 auv3 param entry 0 address 74151583 identifier "Gain" strings 0
-au param entry 1 id 2029770765 position 4 min 0 max 1 default 0.549002707 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 1 id 2029770765 position 4 min 0 max 1 default 0.549002707 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 1 id 1 name "Filter"
 auv3 param entry 1 address 716472458115 identifier "Cutoff" strings 0
 au param entry 2 id 2403779 position 1 min 0 max 2 default 0 unit 1 flags 0xc8a00010 mid 1 strings 1
 auv3 param entry 2 address 80475689 identifier "Mode" strings 1

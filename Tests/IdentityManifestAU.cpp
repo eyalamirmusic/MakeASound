@@ -52,8 +52,10 @@ void describeAU(const ModuleDescription& module,
             continue;
         }
 
+        // As GetParameterInfo gives it, the clump included.
         auto info = AudioUnitParameterInfo {};
         space.fillInfo(entry, info);
+        space.addClump(entry, info);
 
         if (info.cfNameString != nullptr)
             CFRelease(info.cfNameString);
@@ -74,6 +76,19 @@ void describeAU(const ModuleDescription& module,
             static_cast<unsigned>(info.flags),
             space.toHost(entry, param.toPlain(0.5f)),
             space.hasValueStrings(entry, MakeASound::AU::AUFlavour::V2) ? 1 : 0));
+
+        // Only where it has one, so an ungrouped plugin's manifest reads the same.
+        if ((info.flags & kAudioUnitParameterFlag_HasClump) != 0)
+        {
+            auto* name = space.copyClumpName(list, info.clumpID);
+            out.push_back(print("au clump entry {} id {} name \"{}\"",
+                                index,
+                                static_cast<unsigned>(info.clumpID),
+                                MakeASound::AU::toUtf8(name).c_str()));
+
+            if (name != nullptr)
+                CFRelease(name);
+        }
 
         out.push_back(print(
             "auv3 param entry {} address {} identifier \"{}\" "

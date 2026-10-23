@@ -3,22 +3,27 @@ core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core overrides indexedThroughVersion -1 declaredBypassInAU Unlisted juceKeyGroupSeparator '-'
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
 core entry 1 "Drive-Filter/Amount" key "Drive-Filter-Amount" hint 1 automatable 1 session 0 bypass no hostId 1157565738 address 7523776394769487854 identifier "Drive-Filter-Amount" aaxId "Drive-Filter-Amount" groups {[Drive-Filter|Drive-Filter]}
-core entry 2 "Drive-Filter/EQ/Low" key "Drive-Filter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1244218181 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" aaxId "Drive-Filter-EQ-Low" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|EQ]}
+core entry 2 "Drive-Filter/EQ/Low" key "Drive-Filter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1244218181 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" aaxId "Drive-Filter-EQ-Low" groups {[Drive-Filter|Drive-Filter] [Drive-Filter/EQ|Drive-Filter-EQ]}
 core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 2004703496 address 706374336526 identifier "Bypass" aaxId "MasterBypassID" groups {}
 vst3 class 0x56535447 0x72706467 0x726f7570 0x65640000
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0
-vst3 param 1 entry 1 id 1157565738 steps 0 default 0.5 flags 0x1 unit 0
-vst3 param 2 entry 2 id 1244218181 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1157565738 steps 0 default 0.5 flags 0x1 unit 678358363
+vst3 param 2 entry 2 id 1244218181 steps 0 default 0.5 flags 0x1 unit 1152909918
 vst3 param 3 entry 3 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 678358363 parent 0 programs -1 name "Drive-Filter"
+vst3 unit 2 id 1152909918 parent 678358363 programs -1 name "EQ"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Grpd MaSo
 au list 2211743 1157565738 1244218181
 au param entry 0 id 2211743 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
 auv3 param entry 0 address 74151583 identifier "Gain" strings 0
-au param entry 1 id 1157565738 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 1 id 1157565738 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 1 id 1 name "Drive-Filter"
 auv3 param entry 1 address 7523776394769487854 identifier "Drive-Filter-Amount" strings 0
-au param entry 2 id 1244218181 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 2 id 1244218181 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 2 id 2 name "Drive-Filter-EQ"
 auv3 param entry 2 address 7523776433827780627 identifier "Drive-Filter-EQ-Low" strings 0
 au param entry 3 unlisted
 aax effect "com.makeasound.tests"
@@ -35,18 +40,23 @@ core entry 2 "Drive-Filter/EQ/Low" key "Low" hint 1 automatable 1 session 0 bypa
 core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 2004703496 address 706374336526 identifier "Bypass" aaxId "MasterBypassID" groups {}
 vst3 class 0x56535447 0x72706c67 0x726f7570 0x6564206c
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0
-vst3 param 1 entry 1 id 1964981368 steps 0 default 0.5 flags 0x1 unit 0
-vst3 param 2 entry 2 id 76596 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1964981368 steps 0 default 0.5 flags 0x1 unit 678358363
+vst3 param 2 entry 2 id 76596 steps 0 default 0.5 flags 0x1 unit 2220
 vst3 param 3 entry 3 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 678358363 parent 0 programs -1 name "Drive-Filter"
+vst3 unit 2 id 2220 parent 678358363 programs -1 name "EQ"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Grpl MaSo
 au list 76596 2211743 1964981368 2004703496
 au param entry 0 id 2211743 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
 auv3 param entry 0 address 74151583 identifier "Gain" strings 0
-au param entry 1 id 1964981368 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 1 id 1964981368 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 1 id 1 name "Drive-Filter"
 auv3 param entry 1 address 694614684428 identifier "Amount" strings 0
-au param entry 2 id 76596 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+au param entry 2 id 76596 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 2 id 2 name "Drive-Filter|EQ"
 auv3 param entry 2 address 786606 identifier "Low" strings 0
 au param entry 3 id 2004703496 position 3 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
 auv3 param entry 3 address 706374336526 identifier "Bypass" strings 1
@@ -64,18 +74,23 @@ core entry 2 "Drive-Filter/EQ/Low" key "Low" hint 1 automatable 1 session 0 bypa
 core entry 3 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 877923789 address 877923789 identifier "Bypass" aaxId "34540dcd" groups {}
 vst3 class 0x4d61536f 0x4772706e 0x56535433 0x00000000
 vst3 param 0 entry 0 id 461402910 steps 0 default 0.5 flags 0x1 unit 0
-vst3 param 1 entry 1 id 664227721 steps 0 default 0.5 flags 0x1 unit 0
-vst3 param 2 entry 2 id 101390374 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 664227721 steps 0 default 0.5 flags 0x1 unit 987919176
+vst3 param 2 entry 2 id 101390374 steps 0 default 0.5 flags 0x1 unit 1260751331
 vst3 param 3 entry 3 id 877923789 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 987919176 parent 0 programs -1 name "Drive-Filter"
+vst3 unit 2 id 1260751331 parent 987919176 programs -1 name "EQ"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aufx Grpn MaSo
 au list 101390374 461402910 664227721 877923789
 au param entry 0 id 461402910 position 1 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
 auv3 param entry 0 address 461402910 identifier "Gain" strings 0
-au param entry 1 id 664227721 position 2 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+au param entry 1 id 664227721 position 2 min 0 max 1 default 0.5 unit 0 flags 0xc8900010 mid 0.5 strings 0
+au clump entry 1 id 1 name "Drive-Filter"
 auv3 param entry 1 address 664227721 identifier "Drive-Filter/Amount" strings 0
-au param entry 2 id 101390374 position 0 min -12 max 12 default 0 unit 0 flags 0xc8800010 mid 0 strings 0
+au param entry 2 id 101390374 position 0 min -12 max 12 default 0 unit 0 flags 0xc8900010 mid 0 strings 0
+au clump entry 2 id 2 name "Drive-Filter EQ"
 auv3 param entry 2 address 101390374 identifier "Drive-Filter/EQ/Low" strings 0
 au param entry 3 id 877923789 position 3 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
 auv3 param entry 3 address 877923789 identifier "Bypass" strings 1
@@ -85,3 +100,147 @@ aax param entry 0 id "1b80731e" automatable 1
 aax param entry 1 id "27974f89" automatable 1
 aax param entry 2 id "060b1826" automatable 1
 aax param entry 3 id "34540dcd" automatable 1
+plugin "Twin Groups" code Twng scheme JUCE category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core overrides indexedThroughVersion -1 declaredBypassInAU Unlisted juceKeyGroupSeparator '-'
+core entry 0 "In" key "In" hint 1 automatable 1 session 0 bypass no hostId 2373 address 7483 identifier "In" aaxId "In" groups {}
+core entry 1 "DriveFilter/Cutoff" key "DriveFilter-Cutoff" hint 1 automatable 1 session 0 bypass no hostId 386515640 address 10683264989404267756 identifier "DriveFilter-Cutoff" aaxId "DriveFilter-Cutoff" groups {[DriveFilter|DriveFilter]}
+core entry 2 "DriveFilter/Reso" key "DriveFilter-Reso" hint 1 automatable 1 session 0 bypass no hostId 930441562 address 17275995431947136198 identifier "DriveFilter-Reso" aaxId "DriveFilter-Reso" groups {[DriveFilter|DriveFilter]}
+core entry 3 "DriveFilter/EQ/Low" key "DriveFilter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 408378686 address 10683265006604786842 identifier "DriveFilter-EQ-Low" aaxId "DriveFilter-EQ-Low" groups {[DriveFilter|DriveFilter] [DriveFilter/EQ|DriveFilter-EQ]}
+core entry 4 "DriveFilter/EQ/High" key "DriveFilter-EQ-High" hint 1 automatable 1 session 0 bypass no hostId 1922195704 address 9098609391925293392 identifier "DriveFilter-EQ-High" aaxId "DriveFilter-EQ-High" groups {[DriveFilter|DriveFilter] [DriveFilter/EQ|DriveFilter-EQ]}
+core entry 5 "MasterFilter/Cutoff" key "MasterFilter-Cutoff" hint 1 automatable 1 session 0 bypass no hostId 980376736 address 14387816705515473930 identifier "MasterFilter-Cutoff" aaxId "MasterFilter-Cutoff" groups {[MasterFilter|MasterFilter]}
+core entry 6 "MasterFilter/Reso" key "MasterFilter-Reso" hint 1 automatable 1 session 0 bypass no hostId 600333634 address 2182252834992179220 identifier "MasterFilter-Reso" aaxId "MasterFilter-Reso" groups {[MasterFilter|MasterFilter]}
+core entry 7 "MasterFilter/EQ/Low" key "MasterFilter-EQ-Low" hint 1 automatable 1 session 0 bypass no hostId 1002239782 address 14387816722715993016 identifier "MasterFilter-EQ-Low" aaxId "MasterFilter-EQ-Low" groups {[MasterFilter|MasterFilter] [MasterFilter/EQ|MasterFilter-EQ]}
+core entry 8 "MasterFilter/EQ/High" key "MasterFilter-EQ-High" hint 1 automatable 1 session 0 bypass no hostId 1004536848 address 14323451244966084646 identifier "MasterFilter-EQ-High" aaxId "MasterFilter-EQ-High" groups {[MasterFilter|MasterFilter] [MasterFilter/EQ|MasterFilter-EQ]}
+core entry 9 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 2004703496 address 706374336526 identifier "Bypass" aaxId "MasterBypassID" groups {}
+vst3 class 0x56535454 0x776e6774 0x77696e20 0x67726f75
+vst3 param 0 entry 0 id 2373 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 386515640 steps 0 default 0.5 flags 0x1 unit 1670588802
+vst3 param 2 entry 2 id 930441562 steps 0 default 0.5 flags 0x1 unit 1670588802
+vst3 param 3 entry 3 id 408378686 steps 0 default 0.5 flags 0x1 unit 577503447
+vst3 param 4 entry 4 id 1922195704 steps 0 default 0.5 flags 0x1 unit 577503447
+vst3 param 5 entry 5 id 980376736 steps 0 default 0.5 flags 0x1 unit 786523290
+vst3 param 6 entry 6 id 600333634 steps 0 default 0.5 flags 0x1 unit 786523290
+vst3 param 7 entry 7 id 1002239782 steps 0 default 0.5 flags 0x1 unit 121294527
+vst3 param 8 entry 8 id 1004536848 steps 0 default 0.5 flags 0x1 unit 121294527
+vst3 param 9 entry 9 id 2004703496 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 1670588802 parent 0 programs -1 name "DriveFilter"
+vst3 unit 2 id 577503447 parent 1670588802 programs -1 name "EQ"
+vst3 unit 3 id 786523290 parent 0 programs -1 name "MasterFilter"
+vst3 unit 4 id 121294527 parent 786523290 programs -1 name "EQ"
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Twng MaSo
+au list 2373 386515640 408378686 600333634 930441562 980376736 1002239782 1004536848 1922195704
+au param entry 0 id 2373 position 0 min 0 max 1 default 0.5 unit 0 flags 0xcaa00010 mid 0.5 strings 0
+auv3 param entry 0 address 7483 identifier "In" strings 0
+au param entry 1 id 386515640 position 1 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 1 id 1 name "DriveFilter"
+auv3 param entry 1 address 10683264989404267756 identifier "DriveFilter-Cutoff" strings 0
+au param entry 2 id 930441562 position 4 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 2 id 1 name "DriveFilter"
+auv3 param entry 2 address 17275995431947136198 identifier "DriveFilter-Reso" strings 0
+au param entry 3 id 408378686 position 2 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 3 id 2 name "DriveFilter-EQ"
+auv3 param entry 3 address 10683265006604786842 identifier "DriveFilter-EQ-Low" strings 0
+au param entry 4 id 1922195704 position 8 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 4 id 2 name "DriveFilter-EQ"
+auv3 param entry 4 address 9098609391925293392 identifier "DriveFilter-EQ-High" strings 0
+au param entry 5 id 980376736 position 5 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 5 id 3 name "MasterFilter"
+auv3 param entry 5 address 14387816705515473930 identifier "MasterFilter-Cutoff" strings 0
+au param entry 6 id 600333634 position 3 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 6 id 3 name "MasterFilter"
+auv3 param entry 6 address 2182252834992179220 identifier "MasterFilter-Reso" strings 0
+au param entry 7 id 1002239782 position 6 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 7 id 4 name "MasterFilter-EQ"
+auv3 param entry 7 address 14387816722715993016 identifier "MasterFilter-EQ-Low" strings 0
+au param entry 8 id 1004536848 position 7 min 0 max 1 default 0.5 unit 0 flags 0xcab00010 mid 0.5 strings 0
+au clump entry 8 id 4 name "MasterFilter-EQ"
+auv3 param entry 8 address 14323451244966084646 identifier "MasterFilter-EQ-High" strings 0
+au param entry 9 unlisted
+aax effect "com.makeasound.tests"
+aax native 2:0x6a636363
+aax param entry 0 id "In" automatable 1
+aax param entry 1 id "DriveFilter-Cutoff" automatable 1
+aax param entry 2 id "DriveFilter-Reso" automatable 1
+aax param entry 3 id "DriveFilter-EQ-Low" automatable 1
+aax param entry 4 id "DriveFilter-EQ-High" automatable 1
+aax param entry 5 id "MasterFilter-Cutoff" automatable 1
+aax param entry 6 id "MasterFilter-Reso" automatable 1
+aax param entry 7 id "MasterFilter-EQ-Low" automatable 1
+aax param entry 8 id "MasterFilter-EQ-High" automatable 1
+aax param entry 9 id "MasterBypassID" automatable 1
+plugin "Twin Groups Native" code Twnn scheme Native category Effect
+core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
+core entry 0 "In" key "In" hint 1 automatable 1 session 0 bypass no hostId 1088997566 address 1088997566 identifier "In" aaxId "40e8c8be" groups {}
+core entry 1 "DriveFilter/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 1054430807 address 1054430807 identifier "DriveFilter/Cutoff" aaxId "3ed95657" groups {[DriveFilter|DriveFilter]}
+core entry 2 "DriveFilter/Reso" key "Reso" hint 1 automatable 1 session 0 bypass no hostId 557378441 address 557378441 identifier "DriveFilter/Reso" aaxId "2138eb89" groups {[DriveFilter|DriveFilter]}
+core entry 3 "DriveFilter/EQ/Low" key "Low" hint 1 automatable 1 session 0 bypass no hostId 1486085965 address 1486085965 identifier "DriveFilter/EQ/Low" aaxId "5893df4d" groups {[DriveFilter|DriveFilter] [DriveFilter/EQ|DriveFilter/EQ]}
+core entry 4 "DriveFilter/EQ/High" key "High" hint 1 automatable 1 session 0 bypass no hostId 374443457 address 374443457 identifier "DriveFilter/EQ/High" aaxId "16518dc1" groups {[DriveFilter|DriveFilter] [DriveFilter/EQ|DriveFilter/EQ]}
+core entry 5 "MasterFilter/Cutoff" key "Cutoff" hint 1 automatable 1 session 0 bypass no hostId 312825867 address 312825867 identifier "MasterFilter/Cutoff" aaxId "12a5580b" groups {[MasterFilter|MasterFilter]}
+core entry 6 "MasterFilter/Reso" key "Reso" hint 1 automatable 1 session 0 bypass no hostId 1474384517 address 1474384517 identifier "MasterFilter/Reso" aaxId "57e15285" groups {[MasterFilter|MasterFilter]}
+core entry 7 "MasterFilter/EQ/Low" key "Low" hint 1 automatable 1 session 0 bypass no hostId 1909657185 address 1909657185 identifier "MasterFilter/EQ/Low" aaxId "71d30e61" groups {[MasterFilter|MasterFilter] [MasterFilter/EQ|MasterFilter/EQ]}
+core entry 8 "MasterFilter/EQ/High" key "High" hint 1 automatable 1 session 0 bypass no hostId 338426461 address 338426461 identifier "MasterFilter/EQ/High" aaxId "142bfa5d" groups {[MasterFilter|MasterFilter] [MasterFilter/EQ|MasterFilter/EQ]}
+core entry 9 "Bypass" key "Bypass" hint 1 automatable 1 session 0 bypass declared hostId 877923789 address 877923789 identifier "Bypass" aaxId "34540dcd" groups {}
+vst3 class 0x4d61536f 0x54776e6e 0x56535433 0x00000000
+vst3 param 0 entry 0 id 1088997566 steps 0 default 0.5 flags 0x1 unit 0
+vst3 param 1 entry 1 id 1054430807 steps 0 default 0.5 flags 0x1 unit 53790609
+vst3 param 2 entry 2 id 557378441 steps 0 default 0.5 flags 0x1 unit 53790609
+vst3 param 3 entry 3 id 1486085965 steps 0 default 0.5 flags 0x1 unit 1585437012
+vst3 param 4 entry 4 id 374443457 steps 0 default 0.5 flags 0x1 unit 1585437012
+vst3 param 5 entry 5 id 312825867 steps 0 default 0.5 flags 0x1 unit 183153341
+vst3 param 6 entry 6 id 1474384517 steps 0 default 0.5 flags 0x1 unit 183153341
+vst3 param 7 entry 7 id 1909657185 steps 0 default 0.5 flags 0x1 unit 1965297704
+vst3 param 8 entry 8 id 338426461 steps 0 default 0.5 flags 0x1 unit 1965297704
+vst3 param 9 entry 9 id 877923789 steps 1 default 0 flags 0x10001 unit 0
+vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
+vst3 unit 1 id 53790609 parent 0 programs -1 name "DriveFilter"
+vst3 unit 2 id 1585437012 parent 53790609 programs -1 name "EQ"
+vst3 unit 3 id 183153341 parent 0 programs -1 name "MasterFilter"
+vst3 unit 4 id 1965297704 parent 183153341 programs -1 name "EQ"
+vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
+au component aufx Twnn MaSo
+au list 312825867 338426461 374443457 557378441 877923789 1054430807 1088997566 1474384517 1486085965 1909657185
+au param entry 0 id 1088997566 position 6 min 0 max 1 default 0.5 unit 0 flags 0xc8800010 mid 0.5 strings 0
+auv3 param entry 0 address 1088997566 identifier "In" strings 0
+au param entry 1 id 1054430807 position 5 min 0 max 1 default 0.5 unit 0 flags 0xc8900010 mid 0.5 strings 0
+au clump entry 1 id 1 name "DriveFilter"
+auv3 param entry 1 address 1054430807 identifier "DriveFilter/Cutoff" strings 0
+au param entry 2 id 557378441 position 3 min 0 max 1 default 0.5 unit 0 flags 0xc8900010 mid 0.5 strings 0
+au clump entry 2 id 1 name "DriveFilter"
+auv3 param entry 2 address 557378441 identifier "DriveFilter/Reso" strings 0
+au param entry 3 id 1486085965 position 8 min -12 max 12 default 0 unit 0 flags 0xc8900010 mid 0 strings 0
+au clump entry 3 id 2 name "DriveFilter EQ"
+auv3 param entry 3 address 1486085965 identifier "DriveFilter/EQ/Low" strings 0
+au param entry 4 id 374443457 position 2 min -12 max 12 default 0 unit 0 flags 0xc8900010 mid 0 strings 0
+au clump entry 4 id 2 name "DriveFilter EQ"
+auv3 param entry 4 address 374443457 identifier "DriveFilter/EQ/High" strings 0
+au param entry 5 id 312825867 position 0 min 0 max 1 default 0.5 unit 0 flags 0xc8900010 mid 0.5 strings 0
+au clump entry 5 id 3 name "MasterFilter"
+auv3 param entry 5 address 312825867 identifier "MasterFilter/Cutoff" strings 0
+au param entry 6 id 1474384517 position 7 min 0 max 1 default 0.5 unit 0 flags 0xc8900010 mid 0.5 strings 0
+au clump entry 6 id 3 name "MasterFilter"
+auv3 param entry 6 address 1474384517 identifier "MasterFilter/Reso" strings 0
+au param entry 7 id 1909657185 position 9 min -12 max 12 default 0 unit 0 flags 0xc8900010 mid 0 strings 0
+au clump entry 7 id 4 name "MasterFilter EQ"
+auv3 param entry 7 address 1909657185 identifier "MasterFilter/EQ/Low" strings 0
+au param entry 8 id 338426461 position 1 min -12 max 12 default 0 unit 0 flags 0xc8900010 mid 0 strings 0
+au clump entry 8 id 4 name "MasterFilter EQ"
+auv3 param entry 8 address 338426461 identifier "MasterFilter/EQ/High" strings 0
+au param entry 9 id 877923789 position 4 min 0 max 1 default 0 unit 2 flags 0xc8a00010 mid 1 strings 1
+auv3 param entry 9 address 877923789 identifier "Bypass" strings 1
+aax effect "com.makeasound.tests.Twnn"
+aax native 2:0x54776e70
+aax param entry 0 id "40e8c8be" automatable 1
+aax param entry 1 id "3ed95657" automatable 1
+aax param entry 2 id "2138eb89" automatable 1
+aax param entry 3 id "5893df4d" automatable 1
+aax param entry 4 id "16518dc1" automatable 1
+aax param entry 5 id "12a5580b" automatable 1
+aax param entry 6 id "57e15285" automatable 1
+aax param entry 7 id "71d30e61" automatable 1
+aax param entry 8 id "142bfa5d" automatable 1
+aax param entry 9 id "34540dcd" automatable 1

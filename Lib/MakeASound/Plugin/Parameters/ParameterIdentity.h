@@ -143,13 +143,21 @@ enum class AAXIdRule
     DecimalIndex
 };
 
-// A named group's AUv3 AUParameterGroup identifier (and later its VST3 unit).
+// A named group's ids (ParameterList::Group): its AUv3 AUParameterGroup
+// identifier, its VST3 UnitID and its AU clump name.
 enum class GroupIdRule
 {
-    // The group's id path.
+    // The identifier is the group's id path, the unit id FNV-1a of it
+    // (hostIdFor), and the clump name the groups' names joined by spaces, as a
+    // parameter's display name joins them.
     Path,
 
-    // The group's own id, as JUCE's tree names it.
+    // JUCE's group id, as JUCE's tree names it: the group's own id or, under
+    // ParameterIdentity::juceKeyGroupSeparator, its enclosing groups' own ids
+    // and its own joined by the separator ("DriveFilter-EQ"). The unit id is
+    // String::hashCode of it & 0x7fffffff, as JUCE's VST3 wrapper's; the clump
+    // name the groups' names joined by the separator, '|' (JUCE's default)
+    // without one, as JUCE's AU's.
     OwnId
 };
 
@@ -200,6 +208,21 @@ enum class AUUnits
     // bool included), Generic otherwise; readable, writable and the CF name,
     // no other flag; no value strings in AU v2 or AUv3.
     Plug
+};
+
+// Which parameters the VST3 and AAX adapters publish as stepped, and their steps.
+enum class StepRule
+{
+    // Every one with steps (Parameter::numSteps(): an int, a stepped float, a
+    // choice, a bool): VST3 stepCount numSteps(), AAX Discrete with numSteps() + 1
+    // steps. A continuous one has VST3 stepCount 0 and is AAX Continuous with the
+    // SDK's default number of steps.
+    NumSteps,
+
+    // JUCE 8.0.12's wrappers: only a discrete one (Parameter::isDiscrete(), a
+    // choice or a bool) is stepped, an int or a stepped float continuous, unless
+    // juceLegacyAutomationType (Compat::juceVST3StepCount, Compat::juceAAXSteps).
+    JuceDiscrete
 };
 
 // How the VST3 adapter lays out the hidden parameters a host maps MIDI
@@ -273,18 +296,30 @@ struct ParameterIdentity
     // root-level entry and the added bypass keep their own key. Every rule that
     // reads the hostKey (JuceKeyHash, the AUv3 identifier and hash, the AAX
     // KeyOrOverride id, JUCE's duplicate checks) sees the prefixed one. For a
-    // JUCE port whose ids carried their groups' prefix.
+    // JUCE port whose ids carried their groups' prefix. Under GroupIdRule::OwnId
+    // the groups' ids are joined the same way (JUCE's group ids).
     std::optional<char> juceKeyGroupSeparator = {};
 
     AUv3Ids auv3 = AUv3Ids::HostIdAndPath;
     AAXIdRule aaxIds = AAXIdRule::HexHostId;
     GroupIdRule groups = GroupIdRule::Path;
+
+    // Whether the VST3 adapter publishes the named groups as IUnitInfo units
+    // (a root unit plus one per group, each parameter's unitId its innermost
+    // group's) and the AU v2 adapter as clumps (kAudioUnitParameterFlag_HasClump,
+    // kAudioUnitProperty_ParameterClumpName). Off, every parameter is in the
+    // root unit and none has a clump, as Tamber Plug's formats published them.
+    // The AUv3 tree has its groups either way.
+    bool hostGroups = true;
     AUOrder auOrder = AUOrder::HintThenId;
     AUValueSpace auValues = AUValueSpace::NativeCurve;
     AUUnits auUnits = AUUnits::Native;
 
-    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE, for JuceScaled values and
-    // JUCE units.
+    // The VST3 stepCount and the AAX type and number of steps.
+    StepRule steps = StepRule::NumSteps;
+
+    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE, for JuceScaled values, JUCE
+    // units and JuceDiscrete steps.
     bool juceLegacyAutomationType = false;
 
     // Not an id, but here since this half is what reaches the plugin: whether
