@@ -24,6 +24,14 @@ struct GroupOptions
 
     // False hides every parameter below from the host, whatever its own flag.
     bool automatable = true;
+
+    // False keeps every parameter below out of saved state, whatever its own
+    // flag: no key for the group is written in any context, and a load never
+    // reads one or resets anything below, so a document holding its key moves
+    // nothing. The parameters stay registered as in any other group (ids,
+    // index, host visibility), which is what keeps retired padding holding the
+    // ids of the parameters after it.
+    bool persistent = true;
 };
 
 // A set of parameters and nested groups, registered with add() in the
@@ -33,11 +41,13 @@ class ParameterGroup
 {
 public:
     // `groups` are the named groups enclosing the parameter, outermost first.
+    // `automatable` and `persistent` are the AND of its flag and its groups'.
     using Visitor =
         std::function<void(Parameter& param,
                            std::string_view id,
                            std::string_view displayName,
                            bool automatable,
+                           bool persistent,
                            std::span<const ParameterGroup* const> groups)>;
 
     explicit ParameterGroup(std::string_view nameToUse = {},
@@ -50,15 +60,17 @@ public:
     const std::string& name() const noexcept { return groupName; }
     const std::string& id() const noexcept { return groupId; }
     bool isAutomatable() const noexcept { return automatable; }
+    bool isPersistent() const noexcept { return persistent; }
 
     // Every parameter below, depth-first, with its id path ("Osc 1/Attack", a
     // '/' inside one id doubled: see IdPath.h),
-    // display path ("Osc 1 Attack") and the AND of its flag and its groups'.
+    // display path ("Osc 1 Attack") and the AND of its flags and its groups'.
     void forEach(const Visitor& visitor) const;
 
     // Each parameter under its id, each named group as a sub-object. A load
     // assigns into the registered parameters and restores the default of one
-    // whose key is missing or holds nothing it can read.
+    // whose key is missing or holds nothing it can read. A group or parameter
+    // that is not persistent is neither written nor read.
     void reflect(Miro::Reflector& ref);
 
 protected:
@@ -73,8 +85,8 @@ protected:
     // Adds `group` under a name the parent gives it, replacing the one it gave
     // itself: how one group type is mounted more than once, an array of them
     // included ("Osc 1", "Osc 2"). `options.id` is its key and id segment, the
-    // name when empty, and `options.automatable` AND-s with the group's own.
-    // Constructor-time only, as add().
+    // name when empty, and `options.automatable` and `options.persistent` AND
+    // with the group's own. Constructor-time only, as add().
     void addChild(std::string_view nameToUse,
                   ParameterGroup& group,
                   GroupOptions options = {});
@@ -117,6 +129,7 @@ private:
               const std::string& idPrefix,
               const std::string& displayPrefix,
               bool inheritedAutomatable,
+              bool inheritedPersistent,
               Vector<const ParameterGroup*>& enclosing) const;
 
     void reflectEntries(Miro::Reflector& ref, bool session);
@@ -125,6 +138,7 @@ private:
     std::string groupName;
     std::string groupId;
     bool automatable;
+    bool persistent;
     Vector<Entry> entries;
 };
 

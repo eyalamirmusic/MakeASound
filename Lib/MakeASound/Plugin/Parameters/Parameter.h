@@ -35,6 +35,12 @@ struct ParameterOptions
     // Written and read in a DAW session only, never in a preset.
     bool sessionOnly = false;
 
+    // False keeps it out of saved state altogether: written in no context and
+    // never read, so a load leaves it where it is even when the document holds
+    // its key. Registered as any other parameter: ids, index and host
+    // visibility are unchanged. For padding that only holds later ids in place.
+    bool persistent = true;
+
     // Overrides the derived id (the path's hash, a JUCE key's hash or an
     // index), e.g. to keep the id a release that named it differently gave to
     // the host: the VST3 and AU id in every IdScheme. It moves no other entry's
@@ -104,6 +110,7 @@ public:
     bool isAutomatable() const noexcept { return automatable; }
     bool isBypass() const noexcept { return bypass; }
     bool isSessionOnly() const noexcept { return sessionOnly; }
+    bool isPersistent() const noexcept { return persistent; }
     std::optional<uint32_t> explicitHostId() const noexcept { return hostId; }
     int versionHint() const noexcept { return hint; }
 
@@ -194,6 +201,7 @@ private:
     bool automatable;
     bool bypass;
     bool sessionOnly;
+    bool persistent;
     std::optional<uint32_t> hostId;
     int hint;
     std::string paramHostKey;

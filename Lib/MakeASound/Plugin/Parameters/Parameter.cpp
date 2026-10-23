@@ -30,6 +30,7 @@ Parameter::Parameter(std::string_view nameToUse, ParameterOptions options)
     , automatable(options.automatable)
     , bypass(options.bypass)
     , sessionOnly(options.sessionOnly)
+    , persistent(options.persistent)
     , hostId(options.hostId)
     , hint(options.versionHint)
     , paramHostKey(options.hostKey.empty() ? std::string_view {paramId}
