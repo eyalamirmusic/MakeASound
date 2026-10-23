@@ -1290,7 +1290,7 @@ ModuleDescription juceIdsModule(IdScheme scheme)
     module.manufacturerCode = "Juce";
     module.plugins.add({.name = "Ids",
                         .pluginCode = "Idss",
-                        .create = createRecorded<JuceIdsPlugin>,
+                        .create = createPlugin<JuceIdsPlugin>,
                         .idScheme = scheme});
     return module;
 }

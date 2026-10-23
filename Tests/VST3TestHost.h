@@ -287,8 +287,17 @@ struct AdapterHost
 {
     explicit AdapterHost(MakeASound::ParameterIdentity identity = {},
                          bool midiControllers = false)
+        : AdapterHost(EA::makeOwned<P>(), identity, midiControllers)
+    {
+    }
+
+    // Over a plugin made elsewhere: a description's create(), as the module's
+    // factory makes one (hostFor(), below).
+    AdapterHost(MakeASound::OwningPointer<MakeASound::Plugin> plugin,
+                MakeASound::ParameterIdentity identity,
+                bool midiControllers)
         : adapter(Steinberg::owned(new MakeASound::VST3::Adapter(
-              EA::makeOwned<P>(), identity, midiControllers)))
+              std::move(plugin), identity, midiControllers)))
         , changes(4096)
         , inputEvents(maxEvents)
         , outputEvents(maxEvents)
@@ -296,6 +305,11 @@ struct AdapterHost
         adapter->initialize(nullptr);
         adapter->setComponentHandler(&handler);
         configure(48000.0, maxBlock);
+
+        // A queue per parameter the plugin can move in one block: past the
+        // capacity the SDK's list grows, which is the host allocating.
+        outputChanges.setMaxParameters(
+            std::max(64, adapter->plugin().parameters().size()));
 
         const auto& layout = adapter->wrapper().busLayout();
 
@@ -415,6 +429,20 @@ struct AdapterHost
     Vst::ProcessContext context {};
     Vst::ProcessData data {};
 };
+
+// An adapter over a new instance of `description`'s plugin, made as the module's
+// factory makes one: the identity and MIDI controllers it reads from the
+// description, created under the VST3 format.
+inline AdapterHost<MakeASound::Plugin>
+    hostFor(const MakeASound::PluginDescription& description)
+{
+    MakeASound::setCurrentPluginFormat(MakeASound::PluginFormat::VST3);
+
+    return AdapterHost<MakeASound::Plugin>(
+        description.create(),
+        MakeASound::parameterIdentityFor(description),
+        MakeASound::vst3MidiControllersFor(description));
+}
 
 // The points the plugin left for one parameter in a block's output changes, as
 // (offset, value) pairs; none when it left no queue for it.

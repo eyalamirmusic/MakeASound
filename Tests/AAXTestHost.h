@@ -838,11 +838,9 @@ inline std::string effectIdFor(FourCC code)
 constexpr auto juceBundleId = "com.juce.tests";
 
 template <typename P>
-OwningPointer<Plugin> createRecorded()
+OwningPointer<Plugin> createPlugin()
 {
-    auto plugin = OwningPointer<Plugin>(EA::makeOwned<P>());
-    TestPlugins::Module::lastCreated = plugin.get();
-    return plugin;
+    return OwningPointer<Plugin>(EA::makeOwned<P>());
 }
 
 // A module of JUCE ports under juceBundleId: the fixture plugin under JUCE's ids
@@ -858,22 +856,22 @@ inline const ModuleDescription& juceModule()
         described.manufacturerCode = "Juce";
         described.plugins.add({.name = "Fixture",
                                .pluginCode = "Fixt",
-                               .create = createRecorded<JuceFixtures::FixturePlugin>,
+                               .create = createPlugin<JuceFixtures::FixturePlugin>,
                                .idScheme = IdScheme::JUCE});
         described.plugins.add({.name = "Gain",
                                .pluginCode = "Gain",
-                               .create = createRecorded<TestPlugins::GainPlugin>,
+                               .create = createPlugin<TestPlugins::GainPlugin>,
                                .idScheme = IdScheme::JUCE,
                                .aaxEffectId = "com.juce.tests.gain"});
         described.plugins.add({.name = "Echo",
                                .category = MakeASound::Category::Instrument,
                                .pluginCode = "Echo",
-                               .create = createRecorded<TestPlugins::SynthPlugin>,
+                               .create = createPlugin<TestPlugins::SynthPlugin>,
                                .idScheme = IdScheme::JUCE,
                                .aaxEffectId = "com.juce.tests.echo"});
         described.plugins.add({.name = "Legacy",
                                .pluginCode = "Lgcy",
-                               .create = createRecorded<JuceFixtures::FixturePlugin>,
+                               .create = createPlugin<JuceFixtures::FixturePlugin>,
                                .idScheme = IdScheme::JUCELegacyIndex,
                                .aaxEffectId = "com.juce.tests.legacy"});
         return described;
@@ -936,9 +934,12 @@ struct AdapterHost
 
         controller.adapter = adapter.get();
 
-        TestPlugins::Module::lastCreated = nullptr;
         initResult = adapter->Initialize(controller.unknown());
-        pluginPtr = static_cast<P*>(TestPlugins::Module::lastCreated);
+
+        // The adapter's own, made by EffectInit inside Initialize.
+        if (auto* made = adapter->wrapper())
+            pluginPtr = static_cast<P*>(&made->plugin());
+
         nano::check(initResult == AAX_SUCCESS && pluginPtr != nullptr);
 
         adapter->ResetFieldData(

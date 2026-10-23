@@ -154,9 +154,12 @@ function(makeasound_add_plugin name)
     target_link_libraries(${name} PUBLIC MakeASoundPlugin)
     # Position independent because the VST3 module links it on Linux; a consumer's
     # own tree needs CMAKE_POSITION_INDEPENDENT_CODE on for whatever else it links.
+    # MAKEASOUND_FORMATS: the formats asked for, built here or not, which
+    # makeasound_add_allocation_tests reads (an AUv3 is measured on macOS too).
     set_target_properties(${name} PROPERTIES
             FOLDER "${ARG_FOLDER}"
-            POSITION_INDEPENDENT_CODE ON)
+            POSITION_INDEPENDENT_CODE ON
+            MAKEASOUND_FORMATS "${ARG_FORMATS}")
 
     if (MAKEASOUND_UNITY_BUILD)
         set_target_properties(${name} PROPERTIES UNITY_BUILD ON)

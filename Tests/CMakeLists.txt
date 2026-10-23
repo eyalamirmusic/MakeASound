@@ -159,9 +159,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
         # AUTestPortFactory.cpp: the factory over JucePort.h's JUCE-scheme
         # descriptions, an adapter of the module's built over a description of
-        # the tests' own.
+        # the tests' own. AUTestPluginAccess.cpp: the plugin behind a unit, asked
+        # of its adapter.
         add_library(MakeASoundAUTestModule STATIC
-                "${au_entry}" "${au_view_source}" AUTestPortFactory.cpp)
+                "${au_entry}" "${au_view_source}" AUTestPortFactory.cpp
+                AUTestPluginAccess.cpp)
         target_link_libraries(MakeASoundAUTestModule PRIVATE
                 MakeASoundAU ${au_view_libraries})
         target_compile_definitions(MakeASoundAUTestModule PRIVATE
@@ -384,6 +386,12 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     if (TARGET MakeASoundHosting AND TARGET MakeASoundAU)
         list(APPEND MAKEASOUND_TEST_SOURCES HostingAUAllocationTests.cpp)
+    endif ()
+
+    # The same drivers over the example plugins, one executable each, through
+    # the function a consumer calls (CMake/MakeASoundAllocationTests.cmake).
+    if (MAKEASOUND_BUILD_PLUGIN)
+        add_subdirectory(PluginAllocations)
     endif ()
 endif ()
 

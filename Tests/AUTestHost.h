@@ -29,12 +29,21 @@
 extern "C" void* MakeASoundAUFactory(const AudioComponentDescription* desc);
 extern "C" void* MakeASoundAUTestPortFactory(const AudioComponentDescription* desc);
 
+// The plugin behind a unit of this binary's adapter, asked of the adapter itself
+// (AUTestPluginAccess.cpp, built with the module's entry); null for any other.
+extern "C" MakeASound::Plugin* MakeASoundAUTestPluginOf(AudioUnit unit);
+
 namespace AUHost
 {
 using namespace MakeASound;
 
 constexpr auto maxBlock = TestPlugins::blockSize;
 constexpr auto sampleRate = 48000.0;
+
+inline Plugin* pluginOf(AudioUnit unit)
+{
+    return unit != nullptr ? MakeASoundAUTestPluginOf(unit) : nullptr;
+}
 
 inline AudioComponentPlugInInterface* factory(const AudioComponentDescription* desc)
 {
@@ -228,10 +237,9 @@ struct UnitHost
 
     explicit UnitHost(AudioComponent component, Start start = Start::Initialized)
     {
-        TestPlugins::Module::lastCreated = nullptr;
         status = AudioComponentInstanceNew(component, &unit);
         nano::check(status == noErr && unit != nullptr);
-        pluginPtr = static_cast<P*>(TestPlugins::Module::lastCreated);
+        pluginPtr = static_cast<P*>(pluginOf(unit));
         sent.reserve(256);
 
         if (start == Start::Initialized)

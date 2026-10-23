@@ -72,5 +72,8 @@ else ()
     add_subdirectory(Validation)
 endif ()
 
-# makeasound_add_plugin(), for this tree's Plugins/ and for a CPM consumer's own.
+# makeasound_add_plugin(), for this tree's Plugins/ and for a CPM consumer's own,
+# and makeasound_add_allocation_tests(), which runs one of them through the
+# per-format allocation suites.
 include(MakeASoundPlugin)
+include(MakeASoundAllocationTests)
