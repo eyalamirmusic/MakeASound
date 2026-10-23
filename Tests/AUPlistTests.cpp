@@ -165,6 +165,7 @@ auto tComponent = test("AUPlist/theComponentPlistNamesTheFactory") = []
     check(stringOf(gain, "factoryFunction") == "MakeASoundAUFactory");
     check(isNumber(gain, "version", 0x010000));
     check(isTrue(gain, "sandboxSafe"));
+    check(valueOf(gain, "resourceUsage") == nullptr);
     check(valueOf(gain, "tags") == nullptr);
 
     std::filesystem::remove(path);
@@ -229,6 +230,37 @@ auto tAppex = test("AUPlist/theAppExtensionPlistDeclaresItsComponents") = []
     check(stringOf(dictionaryOf(plain.dictionary(), "NSExtension"),
                    "NSExtensionPointIdentifier")
           == "com.apple.AudioUnit");
+
+    std::filesystem::remove(path);
+};
+
+// HOSTS_PLUGINS: every component trades sandboxSafe for Tamber Plug's
+// resourceUsage, so a plugin hosted inside it can reach its own files.
+auto tHostsPlugins = test("AUPlist/aPluginThatHostsPluginsDeclaresItsResources") = []
+{
+    auto path = scratchFile("MakeASoundTests-hosts-plugins.plist");
+    check(AU::writeAudioComponentsPlist(describeModule(),
+                                        "Tests",
+                                        "com.makeasound.tests.component",
+                                        "Tests",
+                                        path,
+                                        true));
+
+    auto plist = Plist(path);
+    auto* components = arrayOf(plist.dictionary(), "AudioComponents");
+    check(components != nullptr && CFArrayGetCount(components) == 2);
+
+    for (auto index: {CFIndex(0), CFIndex(1)})
+    {
+        auto* component = componentAt(components, index);
+        check(valueOf(component, "sandboxSafe") == nullptr);
+        check(stringOf(component, "factoryFunction") == "MakeASoundAUFactory");
+
+        auto* usage = dictionaryOf(component, "resourceUsage");
+        check(usage != nullptr && CFDictionaryGetCount(usage) == 2);
+        check(isTrue(usage, "network.client"));
+        check(isTrue(usage, "temporary-exception.files.all.read-write"));
+    }
 
     std::filesystem::remove(path);
 };

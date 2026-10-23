@@ -10,11 +10,19 @@ namespace MakeASound::AU
 
 // The .component's Info.plist: the bundle keys, CFBundleVersion from the module's
 // version, and one AudioComponents entry per plugin. False when it cannot write.
+//
+// Each entry declares `sandboxSafe`, unless hostsPlugins says the module loads
+// third-party plugins inside itself: then each declares `resourceUsage` instead,
+// network client plus read-write access to any file (Tamber Plug's keys). In a
+// sandboxed AU host such as Logic's AUHostingService, a plugin hosted inside
+// this one inherits its sandbox and would otherwise be denied its own content
+// and licence files.
 bool writeAudioComponentsPlist(const ModuleDescription& module,
                                std::string_view bundleName,
                                std::string_view bundleId,
                                std::string_view executable,
-                               const std::filesystem::path& output);
+                               const std::filesystem::path& output,
+                               bool hostsPlugins = false);
 
 // What an AUv3 app extension's plist names beyond describeModule().
 struct AppExtensionPlist

@@ -3,19 +3,22 @@
 #include <dlfcn.h>
 
 #include <cstdio>
+#include <string_view>
 
 namespace
 {
-using WritePlist = int (*)(const char*, const char*, const char*, const char*);
+using WritePlist = int (*)(const char*, const char*, const char*, const char*, int);
 }
 
 int main(int argc, char** argv)
 {
-    if (argc != 6)
+    auto hostsPlugins = argc == 7 && std::string_view(argv[6]) == "--hosts-plugins";
+
+    if (argc != 6 && !hostsPlugins)
     {
         std::fprintf(stderr,
                      "usage: %s <module binary> <bundle name> <bundle id> "
-                     "<executable> <output plist>\n",
+                     "<executable> <output plist> [--hosts-plugins]\n",
                      argv[0]);
         return 1;
     }
@@ -38,7 +41,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (write(argv[2], argv[3], argv[4], argv[5]) != 0)
+    if (write(argv[2], argv[3], argv[4], argv[5], hostsPlugins ? 1 : 0) != 0)
     {
         std::fprintf(stderr, "%s: cannot write %s\n", argv[1], argv[5]);
         return 1;
