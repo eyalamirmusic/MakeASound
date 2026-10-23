@@ -161,6 +161,9 @@ examples. What remains of it is under "Done when".
   the plugin sees the document. While on, `process()` runs `virtual
   Plugin::processBypassed`, whose default delays the main input by
   `latencySamples()` through `Core/BypassDelay.{h,cpp}` and passes MIDI through;
+  the delay is sized at prepare for the larger of `latencySamples()` and
+  `maxLatencySamples()`, the ceiling a plugin whose latency follows its parameters
+  declares so a rise to it moves nothing on the heap. Past that
   the delay grows in `fitBypassDelay`, from `notifyHostLatencyChanged` and from
   `PluginWrapper::takeLatencyChanged`, which every adapter's latency check now
   calls. A toggle crossfades over 10 ms. `PluginWrapper::addsBypass(plugin,
