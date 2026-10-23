@@ -62,6 +62,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
         params.auOrder = AUOrder::IndexThenHintId;
         params.auValues = AUValueSpace::Plain;
         params.auUnits = AUUnits::Plug;
+        params.hostGroups = false;
         params.foreignPlugStateIsNative = true;
         return policy;
     }

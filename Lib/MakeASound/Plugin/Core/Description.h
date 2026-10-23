@@ -150,8 +150,9 @@ struct IdentityOverrides
     std::optional<BypassPlacement> declaredBypassInAU = {};
 
     // ParameterIdentity::juceKeyGroupSeparator: every grouped parameter's
-    // hostKey prefixed with its groups' ids, each followed by this. A JUCE port
-    // whose parameter ids were "<GroupId>-<id>" sets '-'.
+    // hostKey prefixed with its groups' ids, each followed by this, and every
+    // group's JUCE id its own prefixed the same way. A JUCE port whose
+    // parameter ids were "<GroupId>-<id>" sets '-'.
     std::optional<char> juceKeyGroupSeparator = {};
 
     // The VST3 MIDI controller parameters' layout (ParameterIdentity::

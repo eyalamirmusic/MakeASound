@@ -20,7 +20,8 @@ namespace MakeASound::VST3
 // parameters when the description asks for them (vst3MidiControllersFor()); the
 // plugin's own edits leave through HostEditListener, the host's channel
 // context reaches the plugin's trackInfo() through IInfoListener, and the name
-// initialize()'s IHostApplication gives reaches its hostName().
+// initialize()'s IHostApplication gives reaches its hostName(). The parameter
+// groups are IUnitInfo units (unitsFor()), which EditControllerEx1 answers.
 class Adapter
     : public Vst::SingleComponentEffect
     , public Vst::IMidiMapping

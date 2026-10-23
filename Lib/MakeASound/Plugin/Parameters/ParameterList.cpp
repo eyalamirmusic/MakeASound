@@ -197,16 +197,64 @@ void ParameterList::add(Parameter& param,
     displayPrefixes.add(entry.displayName.substr(0, prefixLength));
 
     auto path = std::string {};
+    auto parent = -1;
 
     for (const auto* group: groups)
     {
         appendIdSegment(path, group->id());
-        entry.groups.add({path, group->name(), path, group->id()});
+
+        // Entries arrive depth-first and list their groups outermost first, so
+        // a group's first sighting comes after its parent's: preorder.
+        auto index = 0;
+
+        while (index < groupList.size() && groupList[index].id != path)
+            ++index;
+
+        if (index == groupList.size())
+            groupList.add({.id = path,
+                           .name = group->name(),
+                           .ownId = group->id(),
+                           .parent = parent});
+
+        entry.groups.add({path, group->name(), path, group->id(), index});
+        parent = index;
+    }
+}
+
+void ParameterList::assignGroupIds()
+{
+    // Parents come first, so each group extends its parent's.
+    for (auto& group: groupList)
+    {
+        const auto* parent = group.parent >= 0 ? &groupList[group.parent] : nullptr;
+
+        if (ids.groups == GroupIdRule::Path)
+        {
+            group.identifier = group.id;
+            group.unitId = hostIdFor(group.id);
+            group.clumpName = parent != nullptr
+                                  ? parent->clumpName + ' ' + group.name
+                                  : group.name;
+            continue;
+        }
+
+        auto separator = ids.juceKeyGroupSeparator;
+
+        group.identifier = separator && parent != nullptr
+                               ? parent->identifier + *separator + group.ownId
+                               : group.ownId;
+        group.unitId = Compat::juceStringHash(group.identifier) & 0x7fffffffu;
+        group.clumpName =
+            parent != nullptr
+                ? parent->clumpName + separator.value_or('|') + group.name
+                : group.name;
     }
 }
 
 void ParameterList::assignIds()
 {
+    assignGroupIds();
+
     // Under ParamIdRule::Index, the next indexed entry's index.
     auto nextIndex = 0;
 
@@ -291,7 +339,28 @@ void ParameterList::finishIds(Entry& entry) const
     entry.listedInAU = !(entry.bypass && placement == BypassPlacement::Unlisted);
 
     for (auto& group: entry.groups)
-        group.identifier = ids.groups == GroupIdRule::OwnId ? group.ownId : group.id;
+        group.identifier = groupList[group.index].identifier;
+}
+
+void ParameterList::findGroupProblems(Vector<std::string>& problems) const
+{
+    if (!ids.hostGroups)
+        return;
+
+    for (auto i = 0; i < groupList.size(); ++i)
+    {
+        const auto& group = groupList[i];
+
+        if (group.unitId == 0)
+            problems.add("group \"" + group.id
+                         + "\" has the VST3 unit id 0, the root unit's");
+
+        for (auto j = 0; j < i; ++j)
+            if (groupList[j].unitId == group.unitId)
+                problems.add("groups \"" + groupList[j].id + "\" and \"" + group.id
+                             + "\" share the VST3 unit id "
+                             + std::to_string(group.unitId));
+    }
 }
 
 uint32_t ParameterList::derivedHostId(const Entry& entry, int index) const noexcept
@@ -405,6 +474,8 @@ Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
                                 entries[byAddress[i - 1].index].id,
                                 entries[byAddress[i].index].id));
 
+    findGroupProblems(problems);
+
     if (!ids.juceChecks)
         return problems;
 
@@ -435,17 +506,11 @@ Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
                 "an AAX id once truncated to 31 characters", trimmed, entry.aaxId));
     }
 
-    // A group is listed once per entry inside it; the same path is the same
-    // group, another path with the same own id a clash.
-    auto groupPaths = std::set<std::string> {};
-
-    for (const auto& entry: entries)
-        for (const auto& group: entry.groups)
-            if (groupPaths.insert(group.id).second
-                && !groupIds.insert(group.identifier).second)
-                problems.add("groups \"" + group.id
-                             + "\" and another share the id \"" + group.identifier
-                             + "\"");
+    // One group per path; another path with the same JUCE group id a clash.
+    for (const auto& group: groupList)
+        if (!groupIds.insert(group.identifier).second)
+            problems.add("groups \"" + group.id + "\" and another share the id \""
+                         + group.identifier + "\"");
 
     return problems;
 }

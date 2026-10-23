@@ -186,7 +186,17 @@ void Adapter::registerParameters()
 
     for (auto i = 0; i < list.size(); ++i)
         if (isRegistered(i))
-            parameters.addParameter(new ProxyParameter(list.entry(i)));
+            parameters.addParameter(
+                new ProxyParameter(list.entry(i), unitIdFor(list, list.entry(i))));
+
+    // IUnitInfo, which EditControllerEx1 answers from these.
+    Vst::String128 name {};
+
+    for (const auto& unit: unitsFor(list))
+    {
+        copyTo(name, unit.name);
+        addUnit(new Vst::Unit(name, unit.id, unit.parent));
+    }
 }
 
 void Adapter::registerShadowParameters()

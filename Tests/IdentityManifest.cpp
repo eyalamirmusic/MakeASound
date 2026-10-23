@@ -303,6 +303,19 @@ Vector<Case> cases()
     grouped.plugins.add({.name = "Grouped Native",
                          .pluginCode = "Grpn",
                          .create = creator<GroupedKeyPlugin>()});
+
+    // Modalics BitFuzzer's groups, two "EQ"s under different parents, under its
+    // JUCE ids (with the separator, without which they clash) and MakeASound's.
+    grouped.plugins.add(
+        {.name = "Twin Groups",
+         .pluginCode = "Twng",
+         .create = creator<TwinGroupPlugin>(),
+         .idScheme = IdScheme::JUCE,
+         .overrides = {.declaredBypassInAU = BypassPlacement::Unlisted,
+                       .juceKeyGroupSeparator = '-'}});
+    grouped.plugins.add({.name = "Twin Groups Native",
+                         .pluginCode = "Twnn",
+                         .create = creator<TwinGroupPlugin>()});
     result.add({"GroupedKeys", grouped});
 
     return result;
@@ -537,6 +550,132 @@ auto tGroupKey = test("Identity/aGroupSeparatorPrefixesTheHashedKey") = []
         leaf.create(), PluginFormat::Unknown, parameterIdentityFor(leaf));
     const auto& leafList = leafWrapper.plugin().parameters();
     check(leafList.entry(leafList.indexOf("Drive-Filter/EQ/Low")).hostKey == "Low");
+};
+
+// Under the separator a group's JUCE id is the path of own ids, as the JUCE
+// build's ("DriveFilter-EQ"): two "EQ" groups under different parents are
+// legal, as in JUCE, and so are their AUv3 identifiers and VST3 units. Without
+// it the own id is the JUCE id, and the two clash, as they would in JUCE.
+auto tTwinGroups =
+    test("Identity/nestedGroupsWithOneOwnIdAreLegalUnderTheSeparator") = []
+{
+    using namespace MakeASound;
+
+    const auto& description = JucePort::twinGroupsDescription();
+    auto params = TestPlugins::TwinGroupParams {};
+    auto list = ParameterList(params, parameterIdentityFor(description));
+    const auto& groups = list.groups();
+
+    check(list.identityProblems().empty());
+    check(groups.size() == std::size(JucePort::twinGroupsUnits));
+
+    for (auto index = 0;
+         index < groups.size()
+         && index < static_cast<int>(std::size(JucePort::twinGroupsUnits));
+         ++index)
+    {
+        const auto& juce = JucePort::twinGroupsUnits[index];
+        check(groups[index].identifier == juce.groupId);
+        check(groups[index].unitId == static_cast<uint32_t>(juce.id));
+        check(groups[index].clumpName == juce.clumpName);
+        check(groups[index].name == juce.name);
+    }
+
+    check(groups[1].parent == 0 && groups[3].parent == 2);
+    check(groups[0].parent == -1 && groups[2].parent == -1);
+
+    for (const auto& juce: JucePort::twinGroupsParameters)
+    {
+        auto index = list.indexOf(juce.path);
+        check(index >= 0);
+
+        if (index < 0)
+            continue;
+
+        const auto& entry = list.entry(index);
+        check(entry.hostId == juce.hostId);
+        check(groups[entry.groups.back().index].unitId
+              == static_cast<uint32_t>(juce.unit));
+        check(entry.groups.back().identifier
+              == groups[entry.groups.back().index].identifier);
+    }
+
+    // The AUv3 group identifiers are the JUCE ids.
+    const auto& low = list.entry(list.indexOf("MasterFilter/EQ/Low"));
+    check(low.groups.size() == 2);
+    check(low.groups[0].identifier == "MasterFilter");
+    check(low.groups[1].identifier == "MasterFilter-EQ");
+
+    // Without the separator, the JUCE ids are the own ids: "EQ" twice.
+    auto leaf = description;
+    leaf.overrides.juceKeyGroupSeparator = {};
+    auto leafParams = TestPlugins::TwinGroupParams {};
+    auto leafList = ParameterList(leafParams, parameterIdentityFor(leaf));
+    auto problems = leafList.identityProblems();
+    check(leafList.groups()[1].identifier == "EQ");
+    check(leafList.groups()[3].identifier == "EQ");
+    check(leafList.groups()[1].clumpName == "DriveFilter|EQ");
+    check(std::any_of(
+        problems.begin(),
+        problems.end(),
+        [](const std::string& problem)
+        { return problem.find("share the id \"EQ\"") != std::string::npos; }));
+
+    // MakeASound's ids are paths, unique whatever the own ids.
+    auto nativeParams = TestPlugins::TwinGroupParams {};
+    auto native = ParameterList(nativeParams);
+    check(native.identityProblems().empty());
+    check(native.groups()[3].identifier == "MasterFilter/EQ");
+    check(native.groups()[3].unitId == hostIdFor("MasterFilter/EQ"));
+    check(native.groups()[3].clumpName == "MasterFilter EQ");
+};
+
+// A group whose unit id would be the root unit's, or another group's, is a
+// problem wherever groups are published (hostGroups), and none where not.
+auto tUnitClash = test("Identity/aGroupsUnitIdMustBeItsOwn") = []
+{
+    using namespace MakeASound;
+
+    // "Aa" and "BB" share String::hashCode, so under JUCE's ids their units
+    // do (their parameters' keys too, which is reported apart).
+    struct Clash : ParameterGroup
+    {
+        struct Named : ParameterGroup
+        {
+            explicit Named(std::string_view name)
+                : ParameterGroup(name)
+            {
+                add(level);
+            }
+
+            FloatParam level {"Level", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+        };
+
+        Clash() { add(aa, bb); }
+
+        Named aa {"Aa"};
+        Named bb {"BB"};
+    };
+
+    auto params = Clash {};
+    auto identity = policyFor(IdScheme::JUCE, {}).parameters;
+    identity.juceKeyGroupSeparator = '-';
+    auto list = ParameterList(params, identity);
+    auto problems = list.identityProblems();
+
+    check(list.groups()[0].unitId == list.groups()[1].unitId);
+    check(
+        std::any_of(problems.begin(),
+                    problems.end(),
+                    [](const std::string& problem)
+                    { return problem.find("VST3 unit id") != std::string::npos; }));
+
+    identity.hostGroups = false;
+    auto unpublishedParams = Clash {};
+    auto unpublished = ParameterList(unpublishedParams, identity);
+
+    for (const auto& problem: unpublished.identityProblems())
+        check(problem.find("VST3 unit id") == std::string::npos);
 };
 
 auto tDeclaredBypass = test("Identity/aDeclaredBypassCanBeUnlistedInAnAU") = []

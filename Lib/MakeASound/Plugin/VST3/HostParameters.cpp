@@ -81,8 +81,52 @@ std::string shadowName(const ShadowTarget& target, int numMidiInputs)
     return name;
 }
 
-ProxyParameter::ProxyParameter(const ParameterList::Entry& entryToUse)
+Vst::UnitID unitIdFor(const ParameterList& list,
+                      const ParameterList::Entry& entry) noexcept
+{
+    if (!list.identity().hostGroups || entry.groups.empty())
+        return Vst::kRootUnitId;
+
+    return static_cast<Vst::UnitID>(list.groups()[entry.groups.back().index].unitId);
+}
+
+Vector<UnitDescription> unitsFor(const ParameterList& list)
+{
+    auto units = Vector<UnitDescription> {};
+
+    if (!list.identity().hostGroups)
+        return units;
+
+    units.add({Vst::kRootUnitId, Vst::kNoParentUnitId, "Root Unit"});
+
+    const auto& groups = list.groups();
+    auto used = Vector<int> {};
+    used.resize(groups.size(), 0);
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isRegistered(i))
+            for (const auto& group: list.entry(i).groups)
+                used[group.index] = 1;
+
+    for (auto i = 0; i < groups.size(); ++i)
+    {
+        if (used[i] == 0)
+            continue;
+
+        const auto& group = groups[i];
+        auto parent = group.parent >= 0
+                          ? static_cast<Vst::UnitID>(groups[group.parent].unitId)
+                          : Vst::kRootUnitId;
+        units.add({static_cast<Vst::UnitID>(group.unitId), parent, group.name});
+    }
+
+    return units;
+}
+
+ProxyParameter::ProxyParameter(const ParameterList::Entry& entryToUse,
+                               Vst::UnitID unitToUse)
     : entry(entryToUse)
+    , unit(unitToUse)
 {
     refreshInfo();
     valueNormalized = info.defaultNormalizedValue;
@@ -98,7 +142,7 @@ void ProxyParameter::refreshInfo()
     copyTo(info.units, p.label());
     info.stepCount = p.numSteps();
     info.defaultNormalizedValue = p.toNormalized(p.defaultValue());
-    info.unitId = Vst::kRootUnitId;
+    info.unitId = unit;
     // Only a JUCE scheme registers a non-automatable entry, published without
     // kCanAutomate as JUCE's wrapper publishes one.
     info.flags = entry.automatable ? Vst::ParameterInfo::kCanAutomate : 0;

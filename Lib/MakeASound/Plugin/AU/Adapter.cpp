@@ -508,7 +508,26 @@ OSStatus Adapter::GetParameterInfo(AudioUnitScope scope,
     if (index < 0)
         return kAudioUnitErr_InvalidParameter;
 
-    space.fillInfo(plugin().parameters().entry(index), info);
+    const auto& entry = plugin().parameters().entry(index);
+    space.fillInfo(entry, info);
+    space.addClump(entry, info);
+    return noErr;
+}
+
+OSStatus Adapter::CopyClumpName(AudioUnitScope scope,
+                                UInt32 clumpId,
+                                UInt32,
+                                CFStringRef* outClumpName)
+{
+    if (scope != kAudioUnitScope_Global)
+        return kAudioUnitErr_InvalidScope;
+
+    auto* name = space.copyClumpName(plugin().parameters(), clumpId);
+
+    if (name == nullptr)
+        return kAudioUnitErr_InvalidPropertyValue;
+
+    *outClumpName = name;
     return noErr;
 }
 

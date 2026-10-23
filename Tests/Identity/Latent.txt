@@ -6,6 +6,7 @@ vst3 class 0x4d61536f 0x4c61746e 0x56535433 0x00000000
 vst3 param 0 entry 0 id 461402910 steps 0 default 0.5 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Latn MaSo
 au list 1423004271 461402910
@@ -25,6 +26,7 @@ vst3 class 0x5653544c 0x61746e6c 0x6174656e 0x74000000
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Latn MaSo
 au list 2211743
@@ -43,6 +45,7 @@ vst3 class 0x5653544c 0x61746e6c 0x6174656e 0x74000000
 vst3 param 0 entry 0 id 0 steps 0 default 0.5 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
 vst3 midimap 0/0/0 none 0/0/1 none 0/0/127 none 0/0/128 none 0/0/129 none 0/0/130 none 0/15/127 none 0/15/129 none 1/0/1 none
 au component aumf Latn MaSo
 au list 0
@@ -79,6 +82,7 @@ vst3 class 0x4d61536f 0x4c636331 0x56535433 0x00000000
 vst3 param 0 entry 0 id 461402910 steps 0 default 0.5 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1423004271 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 2096 ids 0x7fff0000..0x7fff0f82 flags 0x11/0x11
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
 vst3 midimap 0/0/0 0x7fff0000 0/0/1 0x7fff0001 0/0/127 0x7fff007f 0/0/128 0x7fff0080 0/0/129 0x7fff0081 0/0/130 0x7fff0082 0/15/127 0x7fff0f7f 0/15/129 0x7fff0f81 1/0/1 none
 au component aumf Lcc1 MaSo
 au list 1423004271 461402910
@@ -98,6 +102,7 @@ vst3 class 0x5653544c 0x6363316c 0x6174656e 0x74206363
 vst3 param 0 entry 0 id 2211743 steps 0 default 0.5 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 2080 ids 0x6d636d00..0x6d63751f flags 0x0/0x0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
 vst3 midimap 0/0/0 0x6d636d00 0/0/1 0x6d636d01 0/0/127 0x6d636d7f 0/0/128 0x6d636d80 0/0/129 0x6d636d81 0/0/130 none 0/15/127 0x6d63751d 0/15/129 0x6d63751f 1/0/1 0x6d636d01
 au component aumf Lcc1 MaSo
 au list 2211743
@@ -116,6 +121,7 @@ vst3 class 0x5653544c 0x6363316c 0x6174656e 0x74206363
 vst3 param 0 entry 0 id 0 steps 0 default 0.5 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 1 default 0 flags 0x10001 unit 0
 vst3 controllers 2080 ids 0x6d636d00..0x6d63751f flags 0x0/0x0
+vst3 unit 0 id 0 parent -1 programs -1 name "Root Unit"
 vst3 midimap 0/0/0 0x6d636d00 0/0/1 0x6d636d01 0/0/127 0x6d636d7f 0/0/128 0x6d636d80 0/0/129 0x6d636d81 0/0/130 none 0/15/127 0x6d63751d 0/15/129 0x6d63751f 1/0/1 0x6d636d01
 au component aumf Lcc1 MaSo
 au list 0

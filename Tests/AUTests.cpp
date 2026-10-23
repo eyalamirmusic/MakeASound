@@ -3023,8 +3023,8 @@ auto tPlugGoldens = test("AU/aTamberPlugPortPublishesWhatPlugsAUDid") = []
 };
 
 // What JUCE 8.0.12's own AU build of JucePort's twin published (JucePort.h):
-// the list and every parameter's info, but for the clump JUCE gives a grouped
-// parameter, which MakeASound's AU has not yet.
+// the list and every parameter's info, the clump JUCE gives a grouped
+// parameter included (its group's index + 1).
 void checkJucesAUInfo(AudioUnit unit,
                       AudioUnitParameterID id,
                       const JucePort::JucePublishedAU& juce)
@@ -3035,10 +3035,92 @@ void checkJucesAUInfo(AudioUnit unit,
     check(ours.info.maxValue == juce.maxValue);
     check(near(ours.info.defaultValue, juce.defaultValue, 1e-6));
     check(ours.info.unit == juce.unit);
-    check(ours.info.flags == (juce.flags & ~JucePort::juceAUHasClump));
+    check(ours.info.flags == juce.flags);
     check(((juce.flags & JucePort::juceAUHasClump) != 0)
           == (std::string_view {juce.key} == "attack"));
+
+    if ((juce.flags & JucePort::juceAUHasClump) != 0)
+        check(ours.info.clumpID == 1);
 }
+
+// kAudioUnitProperty_ParameterClumpName as a host asks: the name, or the
+// status of a refusal with an empty name.
+std::pair<OSStatus, std::string> clumpNameOf(AudioUnit unit, UInt32 clumpId)
+{
+    auto info =
+        AudioUnitParameterNameInfo {.inID = clumpId,
+                                    .inDesiredLength = kAudioUnitParameterName_Full,
+                                    .outName = nullptr};
+    auto size = UInt32 {sizeof(info)};
+    auto status = AudioUnitGetProperty(unit,
+                                       kAudioUnitProperty_ParameterClumpName,
+                                       kAudioUnitScope_Global,
+                                       0,
+                                       &info,
+                                       &size);
+    auto name = toUtf8(info.outName);
+
+    if (info.outName != nullptr)
+        CFRelease(info.outName);
+
+    return {status, name};
+}
+
+// JUCE's twin's one group is clump 1, named after it.
+auto tJuceClumps = test("AU/aJucePortsGroupIsAClumpAsInJuce") = []
+{
+    auto host = UnitHost<PortPlugin>(portComponentFor(IdScheme::JUCE));
+    check(clumpNameOf(host.unit, 1)
+          == std::pair<OSStatus, std::string> {noErr, "Envelope"});
+    check(clumpNameOf(host.unit, 2).first != noErr);
+};
+
+// BitFuzzer's nested groups (TwinGroupPlugin) are the clumps its JUCE AU
+// published: numbered in getSubgroups(true) order, each parameter in its
+// innermost group's, named by the path of names joined by '-', the two "EQ"
+// groups apart.
+auto tTwinClumps = test("AU/nestedGroupsAreTheClumpsJuceGaveThem") = []
+{
+    auto host = UnitHost<TwinGroupPlugin>(twinGroupsComponent());
+
+    for (const auto& juce: JucePort::twinGroupsUnits)
+        check(clumpNameOf(host.unit, juce.clumpId)
+              == std::pair<OSStatus, std::string> {noErr, juce.clumpName});
+
+    for (const auto& juce: JucePort::twinGroupsParameters)
+    {
+        auto ours = publishedInfo(host.unit, juce.hostId);
+        check(ours.status == noErr);
+        check((ours.info.flags & kAudioUnitParameterFlag_HasClump) != 0);
+
+        auto unit = std::find_if(std::begin(JucePort::twinGroupsUnits),
+                                 std::end(JucePort::twinGroupsUnits),
+                                 [&](const auto& u) { return u.id == juce.unit; });
+        check(unit != std::end(JucePort::twinGroupsUnits));
+
+        if (unit != std::end(JucePort::twinGroupsUnits))
+            check(ours.info.clumpID == unit->clumpId);
+    }
+
+    // "In" is at the root, with no clump; and an id past the groups names none.
+    auto in = publishedInfo(host.unit, Compat::juceStringHash("In") & 0x7fffffffu);
+    check(in.status == noErr);
+    check((in.info.flags & kAudioUnitParameterFlag_HasClump) == 0);
+    check(clumpNameOf(host.unit, 5).first != noErr);
+};
+
+// Tamber Plug's AU had no clumps: its ports give none.
+auto tPlugClumps = test("AU/aTamberPlugPortHasNoClumps") = []
+{
+    auto host = UnitHost<SVFPort>(plugPortComponentFor("Psvf"));
+
+    for (auto id: parameterListOf(host.unit))
+        check((publishedInfo(host.unit, id).info.flags
+               & kAudioUnitParameterFlag_HasClump)
+              == 0);
+
+    check(clumpNameOf(host.unit, 1).first != noErr);
+};
 
 auto tJuceGoldens = test("AU/aJucePortPublishesWhatJucesAUDid") = []
 {
