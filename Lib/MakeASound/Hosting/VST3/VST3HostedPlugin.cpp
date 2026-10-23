@@ -985,4 +985,37 @@ void VST3HostedPlugin::loadState(std::string_view data, StateContext)
     refreshValues();
 }
 
+// VST3Common.h, first in this TU, renames IEditController's getState and
+// setState to getEditorState and setEditorState: these are the controller's.
+std::string VST3HostedPlugin::saveControllerState()
+{
+    if (!controller)
+        return {};
+
+    auto stream = MemoryStream();
+
+    if (controller->getEditorState(&stream) != kResultOk)
+        return {};
+
+    auto size = TSize {};
+    stream.seek(0, IBStream::kIBSeekEnd, &size);
+
+    return {stream.getData(), static_cast<size_t>(size)};
+}
+
+void VST3HostedPlugin::loadControllerState(const std::string& data)
+{
+    if (!controller || data.empty())
+        return;
+
+    auto stream = MemoryStream();
+    auto written = int32 {};
+    stream.write(
+        const_cast<char*>(data.data()), static_cast<int32>(data.size()), &written);
+    stream.seek(0, IBStream::kIBSeekSet, nullptr);
+    controller->setEditorState(&stream);
+
+    refreshValues();
+}
+
 } // namespace MakeASound::Hosting

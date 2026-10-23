@@ -57,6 +57,12 @@ public:
     std::string saveState(StateContext context) override;
     void loadState(std::string_view data, StateContext context) override;
 
+    // The controller's own getState/setState, which saveState and loadState
+    // leave out. A single-component plugin answers them too, through the
+    // same object; most write nothing.
+    std::string saveControllerState() override;
+    void loadControllerState(const std::string& data) override;
+
     bool setParameterFromAudioThread(int index, float normalized) noexcept override;
     void syncEditorWithProcessor() override;
 

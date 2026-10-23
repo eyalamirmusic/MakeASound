@@ -9,6 +9,9 @@
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 #include <MakeASound/Hosting/VST3/VST3HostedPlugin.h>
 
+#include <base/source/fobject.h>
+#include <pluginterfaces/base/ibstream.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <cmath>
@@ -144,6 +147,159 @@ struct EditRecorder : HostEditListener
     int infos = 0;
     int latencies = 0;
 };
+
+// A dual-component plugin by hand, for what the fixtures cannot show (they are
+// MakeASound's single-component adapter, whose controller keeps no state and
+// hides only its MIDI shadow parameters, last): a controller with state of its
+// own and hidden parameters between visible ones. No processor, so it never
+// prepares; enough for state and parameters.
+namespace Stub
+{
+using namespace Steinberg;
+using namespace Steinberg::Vst;
+
+std::string readAll(IBStream* stream)
+{
+    auto bytes = std::string {};
+    char chunk[256];
+    auto read = int32 {};
+
+    while (stream != nullptr && stream->read(chunk, sizeof chunk, &read) == kResultOk
+           && read > 0)
+        bytes.append(chunk, static_cast<size_t>(read));
+
+    return bytes;
+}
+
+tresult writeAll(IBStream* stream, const std::string& bytes)
+{
+    if (stream == nullptr)
+        return kInvalidArgument;
+
+    auto written = int32 {};
+    return stream->write(
+        const_cast<char*>(bytes.data()), static_cast<int32>(bytes.size()), &written);
+}
+
+struct Component
+    : public FObject
+    , public IComponent
+{
+    tresult PLUGIN_API initialize(FUnknown*) override { return kResultOk; }
+    tresult PLUGIN_API terminate() override { return kResultOk; }
+    tresult PLUGIN_API getControllerClassId(TUID) override
+    {
+        return kNotImplemented;
+    }
+    tresult PLUGIN_API setIoMode(IoMode) override { return kResultOk; }
+    int32 PLUGIN_API getBusCount(MediaType, BusDirection) override { return 0; }
+
+    tresult PLUGIN_API getBusInfo(MediaType, BusDirection, int32, BusInfo&) override
+    {
+        return kInvalidArgument;
+    }
+
+    tresult PLUGIN_API getRoutingInfo(RoutingInfo&, RoutingInfo&) override
+    {
+        return kNotImplemented;
+    }
+
+    tresult PLUGIN_API activateBus(MediaType, BusDirection, int32, TBool) override
+    {
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API setActive(TBool) override { return kResultOk; }
+
+    tresult PLUGIN_API setState(IBStream* stream) override
+    {
+        state = readAll(stream);
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API getState(IBStream* stream) override
+    {
+        return writeAll(stream, state);
+    }
+
+    std::string state = "component";
+
+    // clang-format off
+    OBJ_METHODS(Component, FObject)
+    REFCOUNT_METHODS(FObject)
+    DEFINE_INTERFACES
+        DEF_INTERFACE(IComponent)
+    END_DEFINE_INTERFACES(FObject)
+    // clang-format on
+};
+
+// Controller parameters, in getParameterInfo order: ids 100..104, the first,
+// third and last hidden. Its own state is a byte string; loading one also moves
+// "Visible B" to 0.25, so a host that re-reads values sees it.
+struct Controller : EditController
+{
+    Controller()
+    {
+        auto add = [this](const char16* title, ParamID id, bool hidden)
+        {
+            parameters.addParameter(
+                title, nullptr, 0, 0.5, hidden ? ParameterInfo::kIsHidden : 0, id);
+        };
+
+        add(u"Hidden A", 100, true);
+        add(u"Visible A", 101, false);
+        add(u"Hidden B", 102, true);
+        add(u"Visible B", 103, false);
+        add(u"Hidden C", 104, true);
+    }
+
+    // IEditController's getState/setState, renamed by VST3Common.h.
+    tresult PLUGIN_API setEditorState(IBStream* stream) override
+    {
+        controllerState = readAll(stream);
+        ++loads;
+        setParamNormalized(103, 0.25);
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API getEditorState(IBStream* stream) override
+    {
+        if (controllerState.empty())
+            return kResultFalse;
+
+        return writeAll(stream, controllerState);
+    }
+
+    tresult PLUGIN_API setComponentState(IBStream* stream) override
+    {
+        componentState = readAll(stream);
+        return kResultOk;
+    }
+
+    std::string controllerState;
+    std::string componentState;
+    int loads = 0;
+};
+
+struct Loaded
+{
+    Loaded()
+        : component(owned(new Component()))
+        , controller(owned(new Controller()))
+        , plugin(MakeASound::Hosting::PluginDescription {},
+                 nullptr,
+                 nullptr,
+                 IPtr<IComponent>(component.get()),
+                 IPtr<IEditController>(controller.get()),
+                 true)
+    {
+    }
+
+    IPtr<Component> component;
+    IPtr<Controller> controller;
+    VST3HostedPlugin plugin;
+};
+} // namespace Stub
 
 auto tLoad = test("HostedVST3/aPluginLoadsByItsClassId") = []
 {
@@ -502,6 +658,56 @@ auto tMidi = test("HostedVST3/midiGoesInAndComesBackOut") = []
     check(block.context.outputs[0][0][blockSize - 1] == 0.f);
     check(block.context.midiOut[0].size() == 1);
     check(block.context.midiOut[0][0].isNoteOff());
+};
+
+auto tControllerState =
+    test("HostedVST3/theControllersOwnStateRoundTripsAfterTheComponents") = []
+{
+    auto source = Stub::Loaded();
+    source.controller->controllerState = std::string {"ctl\0state", 9};
+
+    // Apart from the component's: saveState is the component's alone.
+    check(source.plugin.saveState(StateContext::Session) == "component");
+    check(source.plugin.saveControllerState() == std::string {"ctl\0state", 9});
+
+    auto copy = Stub::Loaded();
+    auto visibleB = 1;
+    check(copy.plugin.parameters()[visibleB].name() == "Visible B");
+    check(copy.plugin.parameters()[visibleB].getValue() == 0.5f);
+
+    // JUCE's order: the component, the controller told it, then the
+    // controller's own, and the values re-read.
+    copy.plugin.loadState(source.plugin.saveState(StateContext::Session),
+                          StateContext::Session);
+    copy.plugin.loadControllerState(source.plugin.saveControllerState());
+
+    check(copy.component->state == "component");
+    check(copy.controller->componentState == "component");
+    check(copy.controller->controllerState == std::string {"ctl\0state", 9});
+    check(copy.controller->loads == 1);
+    check(copy.plugin.parameters()[visibleB].getValue() == 0.25f);
+
+    // Nothing to load is not a load.
+    copy.plugin.loadControllerState({});
+    check(copy.controller->loads == 1);
+
+    // A controller that saves nothing (kResultFalse) saves empty.
+    auto silent = Stub::Loaded();
+    check(silent.plugin.saveControllerState().empty());
+};
+
+auto tFixtureControllerState =
+    test("HostedVST3/aControllerWithoutStateSavesNothing") = []
+{
+    // MakeASound's adapter is one object with no controller state of its own.
+    const auto formats = DefaultFormats();
+    auto plugin = load(formats, "HostFixtureEffect");
+    auto cutoff = indexNamed(*plugin, "Cutoff");
+    plugin->parameters()[cutoff].setValue(0.3f);
+
+    check(plugin->saveControllerState().empty());
+    plugin->loadControllerState("anything");
+    check(near(plugin->parameters()[cutoff].getValue(), 0.3f));
 };
 } // namespace
 } // namespace HostedVST3Tests

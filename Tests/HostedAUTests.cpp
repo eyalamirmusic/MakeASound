@@ -428,6 +428,11 @@ auto tState = test("HostedAU/theStateRoundTripsThroughAFreshUnit") = []
     check(near(copy->parameters()[gain].getValue(), -3.f, 1e-3f));
     check(copy->parameters()[mode].valueToText(copy->parameters()[mode].getValue())
           == "Hot");
+
+    // The ClassInfo is all of an Audio Unit's state: no controller state.
+    check(source->saveControllerState().empty());
+    copy->loadControllerState("anything");
+    check(near(copy->parameters()[gain].getValue(), -3.f, 1e-3f));
 };
 
 auto tFixture = test("HostedAU/aFixtureComponentLoadsAndRuns") = []

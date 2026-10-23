@@ -81,6 +81,19 @@ public:
     // Unit's). A no-op where the format always tells.
     virtual void refreshParameterValue(int index);
 
+    // Message thread: the state a format keeps apart from saveState's, for a
+    // host that stores both as JUCE's did. A VST3's is its controller's
+    // (IEditController::getState), which saveState leaves out; empty when the
+    // plugin has no controller or saved nothing, and always for a format with
+    // none (an Audio Unit's one ClassInfo is all of it).
+    virtual std::string saveControllerState();
+
+    // Gives the plugin back what saveControllerState() returned, then re-reads
+    // every parameter value. Call it AFTER loadState(), as JUCE's host does
+    // (the component's state, the controller told it, then the controller's
+    // own). Empty bytes, or a format with no controller state, do nothing.
+    virtual void loadControllerState(const std::string& data);
+
     // Once each time the plugin renamed parameters, already re-read into
     // parameters() (names only; ids, order and ranges stay).
     bool takeParameterInfoChanged() noexcept;
