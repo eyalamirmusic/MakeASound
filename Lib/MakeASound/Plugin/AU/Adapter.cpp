@@ -946,9 +946,13 @@ void Adapter::pushParametersToPlugin()
 {
     const auto& list = plugin().parameters();
 
+    // A value the plugin already reports is left alone: the host-space round
+    // trip can move a plain value by an ulp, and an untouched default must stay
+    // the plugin's own, bit for bit, as under JUCE's AU, which pushes nothing.
     for (auto index: exposed)
         if (auto value = Globals()->GetParameterOrError(list.entry(index).hostId))
-            setFromHost(index, *value);
+            if (*value != hostValueOf(index))
+                setFromHost(index, *value);
 }
 
 void Adapter::mirrorParametersToHost()
@@ -1139,13 +1143,17 @@ void Adapter::bindInputs(AudioUnitRenderActionFlags&,
         auto buffers = pulled ? input->GetBufferListOrError()
                               : au::ExpectedPtr<AudioBufferList> {};
 
+        auto& table = inputTables[bus];
+
+        // Every channel absent: the wrapper hands the plugin silence of the
+        // bus's width.
         if (!pulled || !buffers || buffers.get() == nullptr)
         {
-            pluginWrapper.bindInput(bus, nullptr, 0, numSamples);
+            std::fill(table.begin(), table.end(), nullptr);
+            pluginWrapper.bindInput(bus, table.data(), table.size(), numSamples);
             continue;
         }
 
-        auto& table = inputTables[bus];
         auto channels =
             std::min(table.size(), static_cast<int>(buffers->mNumberBuffers));
 
@@ -1175,11 +1183,18 @@ void Adapter::bindOutputs(UInt32 frames) noexcept
 
         auto buffers = single ? output->GetBufferListOrError()
                               : output->PrepareBufferOrError(frames);
-
-        if (!buffers || buffers.get() == nullptr)
-            continue;
-
         auto& table = outputTables[bus];
+
+        // No buffers (an output the host told not to allocate, and is not
+        // rendering now): every channel absent, so the plugin writes scratch of
+        // the bus's width. A null mData among real ones is the wrapper's too.
+        if (!buffers || buffers.get() == nullptr)
+        {
+            std::fill(table.begin(), table.end(), nullptr);
+            pluginWrapper.bindOutput(bus, table.data(), table.size(), numSamples);
+            continue;
+        }
+
         auto channels =
             std::min(table.size(), static_cast<int>(buffers->mNumberBuffers));
 

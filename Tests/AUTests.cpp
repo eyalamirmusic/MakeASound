@@ -562,6 +562,118 @@ auto tUnconnected = test("AU/anUnconnectedInputRendersSilence") = []
             check(channel[s] == 0.f);
 };
 
+// A render callback that answers with no memory at all: every mData null.
+OSStatus pullNullBuffers(void*,
+                         AudioUnitRenderActionFlags*,
+                         const AudioTimeStamp*,
+                         UInt32,
+                         UInt32,
+                         AudioBufferList* ioData)
+{
+    for (auto ch = UInt32 {0}; ch < ioData->mNumberBuffers; ++ch)
+        ioData->mBuffers[ch].mData = nullptr;
+
+    return noErr;
+}
+
+void feedNullBuffers(AudioUnit unit, UInt32 element)
+{
+    auto callback = AURenderCallbackStruct {&pullNullBuffers, nullptr};
+    check(AudioUnitSetProperty(unit,
+                               kAudioUnitProperty_SetRenderCallback,
+                               kAudioUnitScope_Input,
+                               element,
+                               &callback,
+                               sizeof(callback))
+          == noErr);
+}
+
+auto tNullInput = test("AU/anInputPulledAsNullBuffersIsSilence") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    feedNullBuffers(host.unit, 0);
+    host.outputs[0].fill(1.f);
+
+    check(host.render(maxBlock) == noErr);
+    check(host.plugin().processed == 1);
+    check(host.plugin().boundSamples == 4 * maxBlock);
+
+    for (const auto& channel: host.outputs[0].storage)
+        for (auto s = 0; s < maxBlock; ++s)
+            check(channel[s] == 0.f);
+};
+
+// One null mData beside real memory: the plugin writes scratch for it and the
+// real channel is processed. (The SDK then refuses to copy into a null buffer, so
+// the render's status is its own.)
+auto tNullOutputChannel = test("AU/aNullOutputChannelIsScratchBesideRealOnes") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    fillRamp(host.inputs[0]);
+    host.outputs[0].fill(-1.f);
+
+    auto& list = host.outputs[0].list(maxBlock);
+    list.mBuffers[1].mData = nullptr;
+
+    auto flags = AudioUnitRenderActionFlags {};
+    auto timestamp = AudioTimeStamp {};
+    timestamp.mFlags = kAudioTimeStampSampleTimeValid;
+    std::ignore = AudioUnitRender(host.unit, &flags, &timestamp, 0, maxBlock, &list);
+
+    check(host.plugin().processed == 1);
+    check(host.plugin().boundSamples == 4 * maxBlock);
+    for (auto s = 0; s < maxBlock; ++s)
+        check(host.outputs[0].storage[0][s] == host.inputs[0].storage[0][s]);
+
+    check(std::all_of(host.outputs[0].storage[1].begin(),
+                      host.outputs[0].storage[1].end(),
+                      [](auto s) { return s == -1.f; }));
+};
+
+// MINDst-Drums' shape: an aux output the host does not allocate (and so has no
+// buffers while bus 0 renders) and a sidechain pulled as null buffers. The
+// plugin sees every bus at its declared width, the main and the active aux are
+// right.
+auto tAbsentBuses = test("AU/inactiveBusesReachThePluginAsSilentScratch") = []
+{
+    auto host =
+        UnitHost<AbsentChannelsPlugin>(absentChannelsComponent(), Start::Open);
+    auto noAllocation = UInt32 {0};
+    check(AudioUnitSetProperty(host.unit,
+                               kAudioUnitProperty_ShouldAllocateBuffer,
+                               kAudioUnitScope_Output,
+                               1,
+                               &noAllocation,
+                               sizeof(noAllocation))
+          == noErr);
+    check(host.initialize() == noErr);
+    check(host.outputs.size() == 3);
+    feedNullBuffers(host.unit, 1);
+
+    fillRamp(host.inputs[0]);
+
+    for (auto& bus: host.outputs)
+        bus.fill(-1.f);
+
+    check(host.render(maxBlock, true, 0) == noErr);
+    host.sampleTime -= maxBlock;
+    check(host.render(maxBlock, true, 2) == noErr);
+
+    auto& plugin = host.plugin();
+    check(plugin.processed == 1);
+    check(plugin.nullChannels == 0);
+    check(plugin.narrowBuses == 0);
+    check(plugin.loudSidechainSamples == 0);
+
+    for (auto ch = 0; ch < 2; ++ch)
+        for (auto s = 0; s < maxBlock; ++s)
+            check(host.outputs[0].storage[ch][s] == host.inputs[0].storage[ch][s]);
+
+    for (const auto& channel: host.outputs[2].storage)
+        for (auto s = 0; s < maxBlock; ++s)
+            check(channel[s] == 3.f);
+};
+
 auto tRenderLimits = test("AU/aRenderOutsideTheContractIsRefused") = []
 {
     auto host = UnitHost<GainPlugin>("Gain", Start::Open);
@@ -1330,6 +1442,58 @@ auto tStateHostWrite = test("AU/aHostWriteBeforeAnyRenderIsSaved") = []
     auto target = UnitHost<GainPlugin>("Gain");
     check(restoreClassInfo(target, info.value) == noErr);
     check(near(target.plugin().params.gain.getValue(), -7.f));
+};
+
+// JUCE's AU writes nothing back on Initialize, and a port's default state must be
+// its JUCE build's bytes: the host-space round trip of a value the host never
+// wrote (normalized and back, or times the maximum and back) can move it by an
+// ulp, so Initialize leaves a value the host holds as the plugin's alone.
+auto tInitializeKeepsDefaults =
+    test("AU/initializeWithNoHostWriteKeepsEveryValueBitForBit") = []
+{
+    auto components =
+        std::vector<std::pair<AudioComponent, const PluginDescription*>> {
+            {componentFor("Gain"), &pluginFor("Gain")},
+            {componentFor("Echo"), &pluginFor("Echo")},
+            {portComponentFor(IdScheme::JUCE),
+             &JucePort::description(IdScheme::JUCE)},
+            {portComponentFor(IdScheme::JUCELegacyIndex),
+             &JucePort::description(IdScheme::JUCELegacyIndex)},
+            {twinGroupsComponent(), &JucePort::twinGroupsDescription()},
+            {absentChannelsComponent(), &JucePort::absentChannelsDescription()}};
+
+    auto roundTripsThatMove = 0;
+
+    for (const auto& [component, description]: components)
+    {
+        auto host = UnitHost<Plugin>(component, Start::Open);
+        const auto& list = host.plugin().parameters();
+        auto space = AU::ParameterSpace(*description);
+        auto before = std::vector<float> {};
+
+        for (auto i = 0; i < list.size(); ++i)
+        {
+            auto plain = list[i].getValue();
+            before.push_back(plain);
+
+            if (space.fromHost(list.entry(i), space.toHost(list.entry(i), plain))
+                != plain)
+                ++roundTripsThatMove;
+        }
+
+        check(host.initialize() == noErr);
+        check(host.render(maxBlock) == noErr);
+
+        for (auto i = 0; i < list.size(); ++i)
+        {
+            auto value = std::bit_cast<uint32_t>(list[i].getValue());
+            check(value == std::bit_cast<uint32_t>(before[i]));
+            check(value == std::bit_cast<uint32_t>(list[i].defaultValue()));
+        }
+    }
+
+    // Otherwise the case proves nothing.
+    check(roundTripsThatMove > 0);
 };
 
 auto tStateInserted = test("AU/aParameterInsertedMidListKeepsTheOthers") = []

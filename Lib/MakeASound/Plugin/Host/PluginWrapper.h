@@ -133,6 +133,13 @@ public:
     const Vector<MIDI::Buffer>& midiOut() const noexcept { return context.midiOut; }
 
     // Host input may be const memory; the plugin reads it through a const Buffer.
+    //
+    // A null channel pointer (or a null table) is an absent channel, not an
+    // error: JUCE hosts pass one for every channel of an inactive VST3 bus, and
+    // an AU host may for a disabled bus. The plugin sees silent scratch there,
+    // sized in prepare(), and nothing it writes reaches the host. A bus wider
+    // than its prepared layout, or a block longer than prepare()'s, with a
+    // null channel is bound with no channels instead.
     void bindInput(int bus,
                    const float* const* channels,
                    int numChannels,
@@ -142,6 +149,8 @@ public:
     // matching input channel gets a copy of it, or nothing when the host aliased
     // the two, and a channel past the input's width is zeroed. Per channel, not
     // per bus: zeroing an output that aliases an input would wipe that input.
+    // A null output channel gets scratch as bindInput's does, and a null
+    // matching input channel counts as silence.
     void bindOutput(int bus,
                     float* const* channels,
                     int numChannels,
@@ -172,7 +181,26 @@ private:
         int startSample = 0;
     };
 
+    // What a bus binds in place of the host's channels when some are null: a
+    // table of the host's pointers with scratch in the null ones' place.
+    struct Substitute
+    {
+        Buffer scratch;
+        Vector<float*> table;
+    };
+
     static int addBypassAndCount(Plugin& plugin, ParameterIdentity identity);
+
+    void prepareSubstitutes(int maxBlockSize);
+
+    // The table to bind: `channels` itself when every channel is there, the
+    // substitute's otherwise, or null with numChannels set to 0 when the
+    // substitute cannot cover the bus.
+    static float* const* withoutNullChannels(Vector<Substitute>& substitutes,
+                                             int bus,
+                                             float* const* channels,
+                                             int& numChannels,
+                                             int numSamples) noexcept;
 
     Parameter* parameterAt(int index) const noexcept;
     Parameter* writableParameterAt(int index) const noexcept;
@@ -206,6 +234,10 @@ private:
     Vector<Buffer> fadeOutputs;
     Vector<Binding> hostInputs;
     Vector<Binding> hostOutputs;
+
+    // Per bus, what stands in for null host channels, sized in prepare().
+    Vector<Substitute> inputSubstitutes;
+    Vector<Substitute> outputSubstitutes;
 
     // How loadState's deferred half reaches the plugin. Declared last so it
     // expires before the plugin goes, and a queued load drops.
