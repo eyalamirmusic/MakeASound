@@ -32,13 +32,19 @@ if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundStandaloneCore PROPERTIES UNITY_BUILD ON)
 endif ()
 
+# Apps/PluginHost keeps its picks through Settings.cpp alone. Out of the unity
+# batch, so linking it pulls in no StandaloneHost, whose default constructor
+# needs a describeModule() the host does not define.
+set_source_files_properties(Settings.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+
 set_makeasound_target_settings(MakeASoundStandaloneCore)
 
 # MakeASoundStandalone: the default app, the core's host with its editor and the
 # settings panel, over eacp's window tier: on macOS and Windows a window each and
 # the menu bar, on iOS one screen. The shell is one TU per platform. Nothing
-# shared links it; only a <Name>-Standalone executable does, which
-# makeasound_add_plugin builds from the main file recorded on the target.
+# shared links it; a <Name>-Standalone executable does, which
+# makeasound_add_plugin builds from the main file recorded on the target, and
+# Apps/PluginHost does for SettingsPanel alone.
 if (NOT TARGET MakeASoundPluginUI OR NOT TARGET eacp-graphics
         OR NOT (APPLE OR WIN32))
     message(STATUS "MakeASoundStandalone skipped (needs eacp graphics on Apple or Windows)")
@@ -67,5 +73,9 @@ set_target_properties(MakeASoundStandalone PROPERTIES
 if (MAKEASOUND_UNITY_BUILD)
     set_target_properties(MakeASoundStandalone PROPERTIES UNITY_BUILD ON)
 endif ()
+
+# Out of the unity batch for the same reason as Settings.cpp: the host links
+# the panel without StandaloneApp.
+set_source_files_properties(SettingsPanel.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 
 set_makeasound_target_settings(MakeASoundStandalone)

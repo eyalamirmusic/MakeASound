@@ -1,7 +1,9 @@
 // PluginHost: the example plugin host. One window lists what is installed (a
 // filter box, the list, Scan and Rescan All), double-clicking a row loads it and
-// plays it on the default audio device, and Show Editor opens the plugin's own
-// editor in a window of its own. Everything but the windows is PluginHost.h.
+// plays it on the picked audio devices, Show Editor opens the plugin's own editor
+// in a window of its own, and Audio / MIDI opens the standalone's settings panel
+// to pick the devices, rate, block size and MIDI inputs, kept across launches.
+// Everything but the windows is PluginHost.h.
 //
 // The scan runs in this process and loads each plugin in a copy of this app
 // relaunched with --makeasound-scan, so main() answers that first.
@@ -9,6 +11,7 @@
 #include "PluginHost.h"
 
 #include <MakeASound/Hosting/HostedEditor.h>
+#include <MakeASound/Plugin/Standalone/SettingsPanel.h>
 
 #include <eacp/Core/Core.h>
 #include <eacp/Graphics/Graphics.h>
@@ -88,13 +91,18 @@ public:
         scan.onClick = [this] { host.scan(); };
         rescan.onClick = [this] { host.scan(true); };
         showEditor.onClick = [this] { openEditor(); };
+        showSettings.onClick = [this] { openSettings(); };
 
-        // An open editor closes before the plugin under it is replaced.
+        // An open editor closes before the plugin under it is replaced. The
+        // default devices depend on the plugin, so the panel shows them again.
         rows.onLoad = [this](int row)
         {
             closeEditor();
             host.load(row);
+            settings.setConfig(host.config());
         };
+
+        connectSettings();
 
         list.setModel(&rows);
         list.setRowHeight(24.f);
@@ -103,6 +111,7 @@ public:
         addAndMakeVisible(scan);
         addAndMakeVisible(rescan);
         addAndMakeVisible(showEditor);
+        addAndMakeVisible(showSettings);
         addAndMakeVisible(list);
         addAndMakeVisible(status);
 
@@ -120,6 +129,8 @@ public:
         auto area = getLocalBounds().inset(12.f);
         auto top = area.removeFromTop(28.f);
 
+        showSettings.setBounds(top.removeFromRight(110.f));
+        top.removeFromRight(8.f);
         showEditor.setBounds(top.removeFromRight(110.f));
         top.removeFromRight(8.f);
         rescan.setBounds(top.removeFromRight(100.f));
@@ -156,6 +167,51 @@ public:
         editor->onAttached();
     }
 
+    // The settings panel in a window of its own, hidden rather than closed, as
+    // the standalone shows it.
+    void openSettings()
+    {
+        if (settingsWindow == nullptr)
+        {
+            auto options = Graphics::WindowOptions();
+            options.title = "Audio / MIDI Settings";
+            options.width = settings.preferredWidth();
+            options.height = settings.preferredHeight();
+            options.isPrimary = false;
+            options.hidesOnClose = true;
+
+            settingsWindow = EA::makeOwned<Graphics::Window>(options);
+            settingsWindow->setContentView(settings);
+        }
+
+        settings.setConfig(host.config());
+        settingsWindow->setVisible(true);
+        settingsWindow->toFront();
+    }
+
+    // The panel edits a copy; the host applies it and the panel shows what the
+    // engine settled on, as the standalone connects its own.
+    void connectSettings()
+    {
+        settings.onConfigChanged = [this](const StreamConfig& config)
+        {
+            host.applyConfig(config);
+            settings.setConfig(host.config());
+        };
+
+        settings.onMidiInputToggled = [this](int id, bool open)
+        { host.setMidiInputOpen(id, open); };
+
+        settings.addAction("Reset Audio / MIDI Settings",
+                           [this]
+                           {
+                               host.resetAudioAndMidi();
+                               settings.setConfig(host.config());
+                           });
+
+        settings.setConfig(host.config());
+    }
+
     // Before the plugin is replaced: the view goes while the plugin lives.
     void closeEditor()
     {
@@ -178,12 +234,21 @@ private:
     Widgets::Button scan {"Scan"};
     Widgets::Button rescan {"Rescan All"};
     Widgets::Button showEditor {"Show Editor"};
+    Widgets::Button showSettings {"Audio / MIDI"};
     Widgets::ListBox list;
     Widgets::Label status;
 
     OwningPointer<Editor> editor;
     OwningPointer<Graphics::Window> editorWindow;
     EditorWindowHost editorHost;
+
+    // Every row: what the host may load changes, and an input is the user's
+    // pick. The window goes before the panel it shows.
+    Standalone::SettingsPanel settings {
+        host.deviceManager(),
+        host.midiManager(),
+        {.showInput = true, .showMidiInputs = true, .showMidiOutput = false}};
+    OwningPointer<Graphics::Window> settingsWindow;
 };
 
 struct App
@@ -192,6 +257,10 @@ struct App
     {
         root.setRootComponent(panel);
         window.setContentView(root);
+
+        // The picked inputs (every one on a first launch) stay open across
+        // loads; the panel ticks what is open each time it is shown.
+        host.openMidiInputs();
 
         // The database this app already has; a first launch scans.
         if (host.plugins().empty())
@@ -210,6 +279,7 @@ struct App
     {
         auto options = HostOptions();
         options.editors = Hosting::hostedEditors();
+        options.settingsFile = defaultSettingsPath();
         return options;
     }
 

@@ -9,7 +9,45 @@ std::string pathOrDefault(const std::string& path)
 {
     return path.empty() ? Hosting::defaultPluginCachePath() : path;
 }
+
+std::string portName(int id, const Vector<MidiPortInfo>& ports)
+{
+    for (const auto& port: ports)
+        if (port.id == id)
+            return port.name;
+
+    return {};
+}
 } // namespace
+
+std::string defaultSettingsPath()
+{
+    return Standalone::settingsPath("MakeASound", "PluginHost");
+}
+
+StreamConfig chooseConfig(const std::optional<StreamConfig>& picked,
+                          const Vector<DeviceInfo>& devices,
+                          const StreamConfig& fallback)
+{
+    if (!picked)
+        return fallback;
+
+    return Standalone::resolveConfig(*picked, devices, fallback);
+}
+
+Vector<int> chooseMidiInputs(const std::optional<Vector<std::string>>& picked,
+                             const Vector<MidiPortInfo>& ports)
+{
+    if (picked)
+        return Standalone::resolvePortIds(*picked, ports);
+
+    auto ids = Vector<int> {};
+
+    for (const auto& port: ports)
+        ids.add(port.id);
+
+    return ids;
+}
 
 Host::Host(HostOptions optionsToUse)
     : options(std::move(optionsToUse))
@@ -20,6 +58,19 @@ Host::Host(HostOptions optionsToUse)
     // A database shared with other formats stamps each entry by its own rule.
     Hosting::useFormatStamps(cache, formats);
     reloadList();
+
+    // A file at all pins the MIDI inputs, none included; a config with neither
+    // side is no audio pick.
+    if (options.settingsFile.empty())
+        return;
+
+    if (auto saved = Standalone::loadSettings(options.settingsFile))
+    {
+        if (saved->audio.input || saved->audio.output)
+            pickedConfig = saved->audio;
+
+        pickedMidiInputs = saved->midiInputPorts;
+    }
 }
 
 Host::~Host()
@@ -138,18 +189,7 @@ Error Host::startAudio()
     if (loaded == nullptr)
         return Error::NoError;
 
-    // Duplex only for a plugin with an input: a capture side costs a
-    // microphone permission.
-    auto wantsInput = !loaded->getBusLayout().inputs.empty();
-    auto config = wantsInput ? devices.getDefaultDuplexConfig()
-                             : devices.getDefaultOutputConfig();
-
-    // Every MIDI input, for a plugin that takes MIDI.
-    if (!loaded->getBusLayout().midiInputs.empty())
-        for (const auto& port: midi.getInputPorts())
-            midi.openInput(port.id);
-
-    auto error = engine.start(config, *loaded);
+    auto error = engine.start(config(), *loaded);
 
     if (error != Error::NoError)
         setStatus("Audio: " + getErrorMessage(error));
@@ -160,12 +200,116 @@ Error Host::startAudio()
 void Host::stopAudio()
 {
     engine.stop();
-    midi.closeAllInputs();
 }
 
 bool Host::isAudioRunning() const
 {
     return engine.isRunning();
+}
+
+StreamConfig Host::fallbackConfig() const
+{
+    // Duplex only for a plugin with an input: a capture side costs a
+    // microphone permission.
+    auto wantsInput = loaded != nullptr && !loaded->getBusLayout().inputs.empty();
+
+    return wantsInput ? devices.getDefaultDuplexConfig()
+                      : devices.getDefaultOutputConfig();
+}
+
+StreamConfig Host::config() const
+{
+    if (engine.isRunning())
+        return engine.getConfig();
+
+    return chooseConfig(pickedConfig, devices.getDevices(), fallbackConfig());
+}
+
+Error Host::applyConfig(const StreamConfig& configToUse)
+{
+    pickedConfig = configToUse;
+    auto error = Error::NoError;
+
+    if (engine.isRunning())
+    {
+        stopAudio();
+        error = startAudio();
+
+        // What the engine settled on is the pick.
+        if (engine.isRunning())
+            pickedConfig = engine.getConfig();
+    }
+
+    saveSettings();
+    return error;
+}
+
+void Host::openMidiInputs()
+{
+    for (auto id: chooseMidiInputs(pickedMidiInputs, midi.getInputPorts()))
+        if (!midi.isInputOpen(id))
+            midi.openInput(id);
+}
+
+Error Host::setMidiInputOpen(int portId, bool open)
+{
+    auto error = Error::NoError;
+
+    if (open)
+        error = midi.openInput(portId);
+    else
+        midi.closeInput(portId);
+
+    if (error != Error::NoError)
+        setStatus("MIDI: " + getErrorMessage(error));
+
+    // The open ports are the pick from here on, as the standalone saves them.
+    auto ports = midi.getInputPorts();
+    auto names = Vector<std::string> {};
+
+    for (auto id: midi.getOpenInputPorts())
+        if (auto name = portName(id, ports); !name.empty())
+            names.add(name);
+
+    pickedMidiInputs = std::move(names);
+    saveSettings();
+    return error;
+}
+
+void Host::resetAudioAndMidi()
+{
+    midi.closeAllInputs();
+    pickedMidiInputs = Vector<std::string> {};
+    pickedConfig.reset();
+
+    if (engine.isRunning())
+    {
+        stopAudio();
+        startAudio();
+    }
+
+    saveSettings();
+}
+
+void Host::saveSettings()
+{
+    if (options.settingsFile.empty())
+        return;
+
+    auto settings = Standalone::Settings {};
+
+    if (pickedConfig)
+        settings.audio = *pickedConfig;
+
+    // Before any MIDI pick, the default: every input.
+    if (pickedMidiInputs)
+        settings.midiInputPorts = *pickedMidiInputs;
+    else
+        for (const auto& port: midi.getInputPorts())
+            settings.midiInputPorts.add(port.name);
+
+    if (!Standalone::saveSettings(options.settingsFile, settings))
+        setStatus("Could not save " + options.settingsFile);
 }
 
 void Host::setStatus(std::string text)
