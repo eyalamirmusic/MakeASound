@@ -11,12 +11,14 @@ extern "C" __attribute__((visibility("default"))) void*
     MakeASoundAUFactory(const AudioComponentDescription* desc);
 
 // What MakeASoundAUPlistGen calls after the link, so the plist comes from this
-// module's own describeModule(). 0 when written.
+// module's own describeModule(). hostsPlugins is nonzero for a module that loads
+// third-party plugins (makeasound_add_plugin's HOSTS_PLUGINS). 0 when written.
 extern "C" __attribute__((visibility("default"))) int
     MakeASoundAUWritePlist(const char* bundleName,
                            const char* bundleId,
                            const char* executable,
-                           const char* outputPath);
+                           const char* outputPath,
+                           int hostsPlugins);
 
 extern "C" void* MakeASoundAUFactory(const AudioComponentDescription* desc)
 {
@@ -34,7 +36,8 @@ extern "C" void* MakeASoundAUFactory(const AudioComponentDescription* desc)
 extern "C" int MakeASoundAUWritePlist(const char* bundleName,
                                       const char* bundleId,
                                       const char* executable,
-                                      const char* outputPath)
+                                      const char* outputPath,
+                                      int hostsPlugins)
 {
     if (bundleName == nullptr || bundleId == nullptr || executable == nullptr
         || outputPath == nullptr)
@@ -44,8 +47,12 @@ extern "C" int MakeASoundAUWritePlist(const char* bundleName,
     {
         using namespace MakeASound;
 
-        auto written = AU::writeAudioComponentsPlist(
-            describeModule(), bundleName, bundleId, executable, outputPath);
+        auto written = AU::writeAudioComponentsPlist(describeModule(),
+                                                     bundleName,
+                                                     bundleId,
+                                                     executable,
+                                                     outputPath,
+                                                     hostsPlugins != 0);
 
         return written ? 0 : 1;
     }

@@ -12,6 +12,7 @@
 #         [BUNDLE_DIRECTORY <dir>]
 #         [NO_AUDIO_INPUT]
 #         [NO_INSTALL]
+#         [HOSTS_PLUGINS]
 #         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
@@ -57,6 +58,13 @@
 # time, so the flag is the caller's to keep true. On iOS the plist also gains
 # UIBackgroundModes audio, so the plugin keeps playing behind another app.
 #
+# HOSTS_PLUGINS marks a plugin that loads third-party plugins inside itself. Its
+# AU components declare `resourceUsage` (network client and read-write access to
+# any file) instead of `sandboxSafe`: in a sandboxed AU host such as Logic's
+# AUHostingService, a plugin hosted inside it inherits its sandbox and would
+# otherwise be denied its own content and licence files. The keys are Tamber
+# Plug's, so a port keeps them. Only the AU v2 component reads it.
+#
 # STANDALONE_SOURCES replaces the default app's main with the plugin's own: the
 # sources define main() and the app class, composing StandaloneHost and any of
 # the pieces in <MakeASound/Plugin/Standalone/MakeASoundStandalone.h>, and
@@ -90,7 +98,8 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
 function(makeasound_add_plugin name)
     set(one_value OUTPUT_NAME BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID
             AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL" "${one_value}"
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL;HOSTS_PLUGINS"
+            "${one_value}"
             "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
 
     if (NOT ARG_SOURCES)
@@ -484,12 +493,19 @@ function(_makeasound_add_au name)
 
     add_dependencies(${target} MakeASoundAUPlistGen)
 
+    set(plist_options)
+
+    if (ARG_HOSTS_PLUGINS)
+        set(plist_options --hosts-plugins)
+    endif ()
+
     # The plist, then PkgInfo, then the signature over both. One identifier per
     # format: the macOS Installer resolves a package's components by bundle id.
     add_custom_command(TARGET ${target} POST_BUILD
             COMMAND $<TARGET_FILE:MakeASoundAUPlistGen> "$<TARGET_FILE:${target}>"
                     "${ARG_OUTPUT_NAME}" "${ARG_AU_BUNDLE_ID}"
                     "${ARG_OUTPUT_NAME}" "${bundle}/Contents/Info.plist"
+                    ${plist_options}
             COMMAND ${CMAKE_COMMAND} -E copy "${au_pkginfo}" "${bundle}/Contents/PkgInfo"
             COMMAND codesign --force --sign - "${bundle}"
             VERBATIM)
