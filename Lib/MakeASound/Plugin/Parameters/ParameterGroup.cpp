@@ -103,6 +103,7 @@ ParameterGroup::ParameterGroup(std::string_view nameToUse, GroupOptions options)
     : groupName(nameToUse)
     , groupId(options.id.empty() ? nameToUse : options.id)
     , automatable(options.automatable)
+    , persistent(options.persistent)
 {
 }
 
@@ -127,6 +128,7 @@ void ParameterGroup::addChild(std::string_view nameToUse,
     group.groupName = nameToUse;
     group.groupId = options.id.empty() ? nameToUse : options.id;
     group.automatable = group.automatable && options.automatable;
+    group.persistent = group.persistent && options.persistent;
     addGroup(group);
 }
 
@@ -152,16 +154,18 @@ bool ParameterGroup::hasKey(std::string_view key) const
 void ParameterGroup::forEach(const Visitor& visitor) const
 {
     auto enclosing = Vector<const ParameterGroup*> {};
-    walk(visitor, {}, {}, true, enclosing);
+    walk(visitor, {}, {}, true, true, enclosing);
 }
 
 void ParameterGroup::walk(const Visitor& visitor,
                           const std::string& idPrefix,
                           const std::string& displayPrefix,
                           bool inheritedAutomatable,
+                          bool inheritedPersistent,
                           Vector<const ParameterGroup*>& enclosing) const
 {
     auto groupAutomatable = inheritedAutomatable && automatable;
+    auto groupPersistent = inheritedPersistent && persistent;
 
     for (const auto& entry: entries)
     {
@@ -172,6 +176,7 @@ void ParameterGroup::walk(const Visitor& visitor,
                     joinId(idPrefix, param.id()),
                     join(displayPrefix, param.name(), ' '),
                     groupAutomatable && param.isAutomatable(),
+                    groupPersistent && param.isPersistent(),
                     std::span<const ParameterGroup* const>(enclosing.data(),
                                                            enclosing.size()));
             continue;
@@ -188,6 +193,7 @@ void ParameterGroup::walk(const Visitor& visitor,
                    joinId(idPrefix, group.id()),
                    join(displayPrefix, group.name(), ' '),
                    groupAutomatable,
+                   groupPersistent,
                    enclosing);
 
         if (named)
@@ -198,7 +204,7 @@ void ParameterGroup::walk(const Visitor& visitor,
 void ParameterGroup::reflect(Miro::Reflector& ref)
 {
     // A load handed no object says nothing, so it moves nothing.
-    if (ref.isLoading() && ref.kind() != Miro::ValueKind::Object)
+    if (!persistent || (ref.isLoading() && ref.kind() != Miro::ValueKind::Object))
         return;
 
     reflectEntries(ref, isSession(ref));
@@ -212,7 +218,7 @@ void ParameterGroup::reflectEntries(Miro::Reflector& ref, bool session)
         {
             auto& param = *entry.param;
 
-            if (param.isSessionOnly() && !session)
+            if (!param.isPersistent() || (param.isSessionOnly() && !session))
                 continue;
 
             auto& slot =
@@ -227,6 +233,9 @@ void ParameterGroup::reflectEntries(Miro::Reflector& ref, bool session)
         }
 
         auto& group = *entry.group;
+
+        if (!group.persistent)
+            continue;
 
         if (group.id().empty())
         {
@@ -248,9 +257,15 @@ void ParameterGroup::resetToDefaults(bool session) noexcept
     for (const auto& entry: entries)
     {
         if (entry.group != nullptr)
-            entry.group->resetToDefaults(session);
-        else if (session || !entry.param->isSessionOnly())
+        {
+            if (entry.group->persistent)
+                entry.group->resetToDefaults(session);
+        }
+        else if (entry.param->isPersistent()
+                 && (session || !entry.param->isSessionOnly()))
+        {
             entry.param->resetToDefault();
+        }
     }
 }
 

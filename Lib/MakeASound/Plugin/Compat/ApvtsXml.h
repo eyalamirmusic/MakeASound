@@ -46,7 +46,9 @@ struct ApvtsOptions
 // parameter's JUCE id sets its plain value (its `value` read as JUCE's var
 // reads it; a PARAM with no `value` gives the default, as setNewState does),
 // the last PARAM of an id winning; a parameter with none follows `missing`.
-// False, and nothing touched, when the root's type is not `rootType`.
+// A parameter that is not persistent (its own flag or a group's) is skipped,
+// as a native load skips it. False, and nothing touched, when the root's type
+// is not `rootType`.
 bool loadApvtsTree(const JuceTree& root,
                    ParameterGroup& params,
                    const ApvtsOptions& options = {});

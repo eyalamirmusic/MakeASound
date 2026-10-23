@@ -243,6 +243,135 @@ auto tSessionOnlyParams =
     check(loaded.params.hand.getIndex() == 2);
 };
 
+struct RetiredParams : ParameterGroup
+{
+    RetiredParams() { add(comp, drive); }
+
+    BoolParam comp {"Comp", false};
+    BoolParam drive {"Drive", false};
+};
+
+// Retired padding as a port keeps it: registered so every later index stays
+// where it was, saved nowhere.
+struct PaddedParams : ParameterGroup
+{
+    PaddedParams()
+    {
+        add(gain);
+        addChild("Retired", retired, {.persistent = false});
+        add(level, padding);
+        addChild(
+            "Retired", retiredSends, {.id = "RetiredSends", .persistent = false});
+    }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f};
+    RetiredParams retired;
+    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+    FloatParam padding {"Padding", 0.f, 1.f, 0.f, {.persistent = false}};
+    RetiredParams retiredSends;
+};
+
+void moveEveryUnpersisted(PaddedParams& params)
+{
+    params.retired.comp.setOn(true);
+    params.retired.drive.setOn(true);
+    params.padding.setValue(0.6f);
+    params.retiredSends.comp.setOn(true);
+}
+
+bool holdsEveryUnpersisted(const PaddedParams& params)
+{
+    return params.retired.comp.isOn() && params.retired.drive.isOn()
+           && near(params.padding.get(), 0.6f) && params.retiredSends.comp.isOn()
+           && !params.retiredSends.drive.isOn();
+}
+
+auto tUnpersistedList =
+    test("State/anUnpersistedGroupRegistersItsParametersAsAnyOther") = []
+{
+    auto params = PaddedParams {};
+    auto list = ParameterList {params};
+
+    check(list.size() == 7);
+    check(list.indexOf("Retired/Comp") == 1);
+    check(list.indexOf("Retired/Drive") == 2);
+    check(list.indexOf("Level") == 3);
+    check(list.indexOf("Padding") == 4);
+    check(list.indexOf("RetiredSends/Drive") == 6);
+    check(list.entry(1).displayName == "Retired Comp");
+    check(list.entry(5).displayName == "Retired Comp");
+
+    for (const auto& entry: list)
+        check(entry.automatable);
+
+    check(list.entry(0).persistent && list.entry(3).persistent);
+    check(!list.entry(1).persistent && !list.entry(2).persistent);
+    check(!list.entry(4).persistent && !list.entry(6).persistent);
+    check(list.isHostExposed(1) && list.isHostExposed(4));
+    check(list.identityProblems().empty());
+
+    // An index scheme counts them as it counts every leaf.
+    auto plug = MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {});
+    auto indexed = ParameterList {params, plug.parameters};
+
+    for (auto index = 0; index < indexed.size(); ++index)
+        check(indexed.entry(index).hostId == static_cast<uint32_t>(index));
+};
+
+auto tUnpersistedSave = test("State/anUnpersistedGroupIsInNoDocument") = []
+{
+    auto state = State<PaddedParams> {};
+    moveEveryUnpersisted(state.params);
+    state.params.level.setValue(0.25f);
+    state.publish();
+
+    for (auto context: {StateContext::Preset, StateContext::Session})
+    {
+        auto json = state.serialize(context);
+
+        check(contains(json, R"("Level":0.25)"));
+        check(!contains(json, "Retired"));
+        check(!contains(json, "Comp"));
+        check(!contains(json, "Padding"));
+
+        auto snapshot = state.snapshotDocument(context);
+        check(!contains(snapshot, "Retired") && !contains(snapshot, "Padding"));
+    }
+};
+
+auto tUnpersistedLoad = test("State/aLoadNeverMovesAnUnpersistedGroup") = []
+{
+    auto state = State<PaddedParams> {};
+    moveEveryUnpersisted(state.params);
+
+    auto stated = std::string {
+        R"({"params":{"Gain":0.25,"Retired":{"Comp":false,"Drive":false},)"
+        R"("Padding":0.1,"RetiredSends":{"Comp":false,"Drive":true}}})"};
+
+    for (auto context: {StateContext::Preset, StateContext::Session})
+    {
+        state.deserialize(stated, context);
+        check(near(state.params.gain.get(), 0.25f));
+        check(holdsEveryUnpersisted(state.params));
+
+        state.loadParams(stated, context);
+        check(holdsEveryUnpersisted(state.params));
+
+        // A document that omits them restores the defaults of the rest only.
+        state.deserialize(R"({"params":{"Gain":0.3}})", context);
+        check(near(state.params.level.get(), 0.8f));
+        check(holdsEveryUnpersisted(state.params));
+
+        state.deserialize(R"({"params":{"Retired":3,"RetiredSends":[1]}})", context);
+        check(holdsEveryUnpersisted(state.params));
+    }
+
+    auto other = State<PaddedParams> {};
+    other.deserialize(state.serialize());
+    check(!other.params.retired.comp.isOn()
+          && near(other.params.padding.get(), 0.f));
+};
+
 auto tInsertedParameter =
     test("State/aParameterInsertedMidListKeepsOlderOnesWhole") = []
 {
