@@ -128,6 +128,13 @@ public:
     // At the prepared sample rate; hosts ask after prepare().
     virtual int latencySamples() const noexcept { return 0; }
 
+    // The most latencySamples() can report at the prepared sample rate, for a
+    // plugin whose latency follows its parameters. Asked right after prepare(),
+    // so the added bypass's delay is sized for it there and a later rise moves
+    // nothing on the heap; a figure past it still widens the delay, off the
+    // audio thread, at the next latency check. The default is the latency now.
+    virtual int maxLatencySamples() const noexcept { return latencySamples(); }
+
     // How long the output rings after the input goes silent; 0 for none.
     virtual int tailSamples() const noexcept { return 0; }
 

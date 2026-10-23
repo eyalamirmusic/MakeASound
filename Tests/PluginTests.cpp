@@ -1429,6 +1429,38 @@ auto tBypassChecked = test("Plugin/theLatencyCheckWidensTheAddedBypassDelay") = 
         check(heard[k] == (k < 150 ? 0.f : 1.f + static_cast<float>(k - 150)));
 };
 
+// A latency that follows the parameters, with its ceiling declared.
+struct CappedLatentEffect : LatentEffect
+{
+    int maxLatencySamples() const noexcept override { return 180; }
+};
+
+// The delay is sized for the declared ceiling at prepare: a rise to it is heard
+// whole with no latency check to widen the delay, so nothing is reallocated.
+auto tBypassCeiling = test("Plugin/theAddedBypassDelayIsSizedForTheMaxLatency") = []
+{
+    auto wrapper = makeWrapper<CappedLatentEffect>();
+    auto& plugin = pluginOf<CappedLatentEffect>(wrapper);
+    plugin.latency = 2;
+    setBypass(wrapper, true);
+    wrapper.prepare(48000, blockSize);
+
+    plugin.latency = 180;
+
+    auto host = LatentHost {};
+    auto heard = std::vector<float>();
+
+    for (auto b = 0; b < 5; ++b)
+    {
+        host.in[0] = ramp(1.f + static_cast<float>(b * blockSize));
+        host.block(wrapper);
+        heard.insert(heard.end(), host.out[0].begin(), host.out[0].end());
+    }
+
+    for (auto k = 0; k < static_cast<int>(heard.size()); ++k)
+        check(heard[k] == (k < 180 ? 0.f : 1.f + static_cast<float>(k - 180)));
+};
+
 // A port of a JUCE effect: its APVTS was "Legacy" with `cutoff` and `mode`, and
 // it kept a `preset` property on the root.
 struct LegacyParams : ParameterGroup

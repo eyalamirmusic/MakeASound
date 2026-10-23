@@ -169,8 +169,9 @@ void PluginWrapper::prepareBypass(double sampleRate, int maxBlockSize)
 
     auto block = std::max(1, maxBlockSize);
     auto mainInputs = layout.inputs.empty() ? 0 : layout.inputs[0].numChannels;
-    pluginPtr->bypassDelay.prepare(
-        mainInputs, block, std::max(0, pluginPtr->latencySamples()));
+    auto delay =
+        std::max({0, pluginPtr->latencySamples(), pluginPtr->maxLatencySamples()});
+    pluginPtr->bypassDelay.prepare(mainInputs, block, delay);
 
     fadeInputs.clear();
     fadeOutputs.clear();
