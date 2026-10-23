@@ -2169,6 +2169,103 @@ auto tBulkPosted = test("AU/manyValuesChangedPostsAnEventPerParameter") = []
     AUListenerDispose(listener);
 };
 
+template <typename P>
+std::vector<AudioUnitParameterID> listedIds(UnitHost<P>& host)
+{
+    const auto& list = host.plugin().parameters();
+    auto ids = std::vector<AudioUnitParameterID> {};
+
+    for (auto i = 0; i < list.size(); ++i)
+        if (list.isHostExposed(i))
+            ids.push_back(list.entry(i).hostId);
+
+    return ids;
+}
+
+// The last value the log holds for `id`, as a host caching event values has it.
+std::optional<float> lastValueOf(const GestureLog& log, AudioUnitParameterID id)
+{
+    auto value = std::optional<float> {};
+
+    for (auto i = 0; i < log.ids.size(); ++i)
+        if (log.ids[i] == id && log.types[i] == kAudioUnitEvent_ParameterValueChange)
+            value = log.values[i];
+
+    return value;
+}
+
+// JUCE's AU hosting (pluginval's) restores ClassInfo from its own thread, reads
+// the values back, and keeps whatever value events land later: those must carry
+// the restored values, posted for each parameter the restore changed.
+auto tRestorePosted =
+    test("AU/aRestoreOffTheMessageThreadPostsTheRestoredValues") = []
+{
+    auto source = UnitHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+
+    auto target = UnitHost<GainPlugin>("Gain");
+    const auto& params = target.plugin().params;
+    auto gainId = target.hostIdOf(params.gain);
+    auto modeId = target.hostIdOf(params.mode);
+    auto ids = listedIds(target);
+    auto log = GestureLog {};
+    auto listener = listenForValues(target, log, ids);
+
+    check(target.hostWrites(gainId, -7.f) == noErr);
+
+    auto status = OSStatus {-1};
+    std::thread([&] { status = restoreClassInfo(target, info.value); }).join();
+    check(status == noErr);
+    check(near(target.hostValue(gainId), -12.f));
+
+    check(pumpUntil(
+        [&] { return lastValueOf(log, gainId) && lastValueOf(log, modeId); }));
+    pumpFor(150);
+
+    check(near(*lastValueOf(log, gainId), -12.f));
+    check(near(*lastValueOf(log, modeId), 2.f));
+
+    for (auto id: ids)
+        if (auto value = lastValueOf(log, id))
+            check(near(*value, target.hostValue(id)));
+
+    AUListenerDispose(listener);
+};
+
+// A plugin reports a load the host made off the message thread once the rest of
+// it has run there, by when the host may have written a newer value and restored
+// again: an event for the value the host wrote, posted then and landing after the
+// host read the restored one back, would undo the restore in the host's view.
+auto tNoStaleValues =
+    test("AU/aValuesChangedReportPostsNoValueTheHostAlreadyHas") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto& params = host.plugin().params;
+    auto gainId = host.hostIdOf(params.gain);
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, listedIds(host));
+
+    check(host.hostWrites(gainId, -7.f) == noErr);
+    host.plugin().notifyHostParameterValuesChanged();
+
+    check(restoreClassInfo(host, info.value) == noErr);
+    check(near(host.hostValue(gainId), 0.f));
+
+    pumpFor(150);
+    check(lastValueOf(log, gainId).has_value());
+    check(near(*lastValueOf(log, gainId), 0.f));
+
+    // Nothing the plugin moved, so nothing is posted.
+    log = GestureLog {};
+    host.plugin().notifyHostParameterValuesChanged();
+    pumpFor(150);
+    check(log.types.empty());
+
+    AUListenerDispose(listener);
+};
+
 auto tClassInfoPosted = test("AU/markChangedPostsClassInfo") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");

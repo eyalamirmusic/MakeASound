@@ -240,6 +240,13 @@ Adapter::Adapter(AudioComponentInstance instance,
     lastPluginValue.resize(exposed.size());
     movedByPlugin =
         std::make_unique<std::atomic<bool>[]>(static_cast<size_t>(exposed.size()));
+    toldHost =
+        std::make_unique<std::atomic<float>[]>(static_cast<size_t>(exposed.size()));
+    for (auto i = 0; i < list.size(); ++i)
+        slotOfIndex.add(-1);
+
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+        slotOfIndex[exposed[slot]] = slot;
 
     if (!exposed.empty())
         valueTimer = std::make_unique<ValueTimer>(*this);
@@ -360,6 +367,7 @@ void Adapter::PostConstructor()
 
     // Every id now, so no SetParameterRT ever inserts on the render thread.
     mirrorParametersToHost();
+    markAllToldHost();
 }
 
 double Adapter::outputSampleRate()
@@ -417,6 +425,7 @@ OSStatus Adapter::Initialize()
     // The host's values stay as it set them: a choice snaps in the plugin, and
     // Globals() keeps the value the host wrote.
     pushParametersToPlugin();
+    markAllToldHost();
 
     const auto& list = plugin().parameters();
 
@@ -597,6 +606,7 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
     if (result == noErr)
     {
         setFromHost(index, value);
+        markToldHost(slotOfIndex[index]);
 
         if (isMessageThread())
         {
@@ -645,6 +655,7 @@ OSStatus Adapter::setBypass(bool on) noexcept
         return result;
 
     pluginWrapper.setParameter(index, plain);
+    markToldHost(slotOfIndex[index]);
     notifyHost(index, kAudioUnitEvent_ParameterValueChange);
     return noErr;
 }
@@ -984,6 +995,7 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
     auto document = std::optional<std::string> {};
     auto foreignBytes = std::optional<std::string> {};
     auto foreignOrigin = ForeignOrigin::JuceAU;
+    auto wasBypassed = isBypassed();
 
     try
     {
@@ -1040,6 +1052,17 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
             pushParametersToPlugin();
         }
 
+        // Now, from the restoring thread, as JUCE's AU posts its values from
+        // setStateInformation: each event reads the restored value. Off the
+        // message thread the rest of the load runs later, and whatever it
+        // reports the host has by then is not posted again, since that event
+        // could land after a newer host write and undo it in the host's view.
+        postUntoldValues();
+
+        if (isBypassed() != wasBypassed)
+            PropertyChanged(
+                kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
+
         notifyHostIfLatencyChanged();
     }
     catch (...)
@@ -1069,6 +1092,7 @@ void Adapter::reconcileParameters() noexcept
             setFromHost(index, *host);
             lastHostValue[slot] = *host;
             lastPluginValue[slot] = pluginWrapper.getParameter(index);
+            markToldHost(slot);
             continue;
         }
 
@@ -1370,6 +1394,43 @@ void Adapter::notifyHost(int index, AudioUnitEventType type) noexcept
     AUEventListenerNotify(nullptr, nullptr, &event);
 }
 
+void Adapter::markToldHost(int slot) noexcept
+{
+    if (slot >= 0 && slot < exposed.size())
+        toldHost[slot].store(pluginWrapper.getParameter(exposed[slot]),
+                             std::memory_order_relaxed);
+}
+
+void Adapter::markAllToldHost() noexcept
+{
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+        markToldHost(slot);
+}
+
+bool Adapter::postUntoldValues() noexcept
+{
+    const auto& list = plugin().parameters();
+    auto any = false;
+
+    for (auto slot = 0; slot < exposed.size(); ++slot)
+    {
+        auto index = exposed[slot];
+        auto value = pluginWrapper.getParameter(index);
+        auto moved = movedByPlugin[slot].exchange(false, std::memory_order_relaxed);
+
+        if (!moved && value == toldHost[slot].load(std::memory_order_relaxed))
+            continue;
+
+        any = true;
+        std::ignore = Globals()->SetParameterOrError(
+            list.entry(index).hostId, space.toHost(list.entry(index), value), true);
+        toldHost[slot].store(value, std::memory_order_relaxed);
+        notifyHost(index, kAudioUnitEvent_ParameterValueChange);
+    }
+
+    return any;
+}
+
 void Adapter::beginParameterEdit(int index) noexcept
 {
     pluginWrapper.holdParameter(index);
@@ -1386,6 +1447,7 @@ void Adapter::performParameterEdit(int index, float) noexcept
     {
         std::ignore = Globals()->SetParameterOrError(
             list.entry(index).hostId, hostValueOf(index), true);
+        markToldHost(slotOfIndex[index]);
         notifyHost(index, kAudioUnitEvent_ParameterValueChange);
     }
 
@@ -1425,6 +1487,7 @@ void Adapter::postMovedParameters() noexcept
             continue;
 
         any = true;
+        markToldHost(slot);
         notifyHost(exposed[slot], kAudioUnitEvent_ParameterValueChange);
 
         if (exposed[slot] == bypass)
@@ -1436,17 +1499,14 @@ void Adapter::postMovedParameters() noexcept
         notifyHostIfLatencyChanged();
 }
 
-// Every value into Globals() and an event for each, since the host cannot tell
-// which moved; the next render takes Globals() as a host write of the same values.
+// Only the values the host does not have: a plugin reports a load the host made
+// off the message thread once the rest of it has run here, by when the host has
+// read the values and may have written newer ones (pluginval writes, restores and
+// reads back, parameter by parameter). The next render takes Globals() as a host
+// write of the same values.
 void Adapter::parameterValuesChanged() noexcept
 {
-    mirrorParametersToHost();
-
-    for (auto slot = 0; slot < exposed.size(); ++slot)
-    {
-        movedByPlugin[slot].store(false, std::memory_order_relaxed);
-        notifyHost(exposed[slot], kAudioUnitEvent_ParameterValueChange);
-    }
+    postUntoldValues();
 
     if (plugin().parameters().bypassIndex() >= 0)
         PropertyChanged(kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0);
