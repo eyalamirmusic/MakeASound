@@ -210,6 +210,21 @@ enum class AUUnits
     Plug
 };
 
+// Which parameters the VST3 and AAX adapters publish as stepped, and their steps.
+enum class StepRule
+{
+    // Every one with steps (Parameter::numSteps(): an int, a stepped float, a
+    // choice, a bool): VST3 stepCount numSteps(), AAX Discrete with numSteps() + 1
+    // steps. A continuous one has VST3 stepCount 0 and is AAX Continuous with the
+    // SDK's default number of steps.
+    NumSteps,
+
+    // JUCE 8.0.12's wrappers: only a discrete one (Parameter::isDiscrete(), a
+    // choice or a bool) is stepped, an int or a stepped float continuous, unless
+    // juceLegacyAutomationType (Compat::juceVST3StepCount, Compat::juceAAXSteps).
+    JuceDiscrete
+};
+
 // How the VST3 adapter lays out the hidden parameters a host maps MIDI
 // controllers onto (IMidiMapping), when the plugin has them
 // (vst3MidiControllersFor()).
@@ -300,8 +315,11 @@ struct ParameterIdentity
     AUValueSpace auValues = AUValueSpace::NativeCurve;
     AUUnits auUnits = AUUnits::Native;
 
-    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE, for JuceScaled values and
-    // JUCE units.
+    // The VST3 stepCount and the AAX type and number of steps.
+    StepRule steps = StepRule::NumSteps;
+
+    // JUCE_FORCE_LEGACY_PARAMETER_AUTOMATION_TYPE, for JuceScaled values, JUCE
+    // units and JuceDiscrete steps.
     bool juceLegacyAutomationType = false;
 
     // Not an id, but here since this half is what reaches the plugin: whether

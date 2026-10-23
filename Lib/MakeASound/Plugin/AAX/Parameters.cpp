@@ -1,4 +1,5 @@
 #include "Parameters.h"
+#include "../Compat/JuceIdentity.h"
 
 #include <AAX_CLinearTaperDelegate.h>
 #include <AAX_CParameter.h>
@@ -70,7 +71,8 @@ bool DisplayDelegate::StringToValue(const AAX_CString& text, float* normalized) 
     return true;
 }
 
-AAX_IParameter* makeParameter(const ParameterList::Entry& entry)
+AAX_IParameter* makeParameter(const ParameterList::Entry& entry,
+                              const ParameterIdentity& identity)
 {
     const auto& param = *entry.param;
     auto id = std::string(registeredId(entry.aaxId));
@@ -87,7 +89,14 @@ AAX_IParameter* makeParameter(const ParameterList::Entry& entry)
     if (!param.shortName().empty())
         result->AddShortenedName(AAX_CString(param.shortName().c_str()));
 
-    if (auto steps = param.numSteps(); steps > 0)
+    if (identity.steps == StepRule::JuceDiscrete)
+    {
+        auto juce = Compat::juceAAXSteps(param, identity.juceLegacyAutomationType);
+        result->SetNumberOfSteps(static_cast<uint32_t>(juce.numberOfSteps));
+        result->SetType(juce.discrete ? AAX_eParameterType_Discrete
+                                      : AAX_eParameterType_Continuous);
+    }
+    else if (auto steps = param.numSteps(); steps > 0)
     {
         result->SetNumberOfSteps(static_cast<uint32_t>(steps) + 1);
         result->SetType(AAX_eParameterType_Discrete);

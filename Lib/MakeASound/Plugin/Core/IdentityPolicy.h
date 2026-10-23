@@ -85,6 +85,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     params.auOrder = legacy ? AUOrder::SdkIndexed : AUOrder::HintThenId;
     params.auValues = AUValueSpace::JuceScaled;
     params.auUnits = AUUnits::Juce;
+    params.steps = StepRule::JuceDiscrete;
     params.juceLegacyAutomationType = juce.forceLegacyParameterAutomationType;
     params.vst3Controllers.layout = Vst3ControllerLayout::JuceContiguous;
     params.vst3Controllers.base = juceMidiControllerBase;

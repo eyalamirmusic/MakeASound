@@ -55,7 +55,7 @@ vst3 class 0x5653544a 0x70727470 0x6f727400 0x00000000
 vst3 param 0 entry 0 id 798419949 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 3357091 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 537889601 steps 1 default 1 flags 0x1 unit 0
-vst3 param 3 entry 3 id 1336493441 steps 15 default 0.466666669 flags 0x1 unit 0
+vst3 param 3 entry 3 id 1336493441 steps 0 default 0.466666669 flags 0x1 unit 0
 vst3 param 4 entry 4 id 740224584 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 651215103 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 1652125811 steps 1 default 0 flags 0x10001 unit 0
@@ -101,7 +101,7 @@ vst3 class 0x5653544a 0x6c67796c 0x65676163 0x7920706f
 vst3 param 0 entry 0 id 0 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 2 steps 1 default 1 flags 0x1 unit 0
-vst3 param 3 entry 3 id 3 steps 15 default 0.466666669 flags 0x1 unit 0
+vst3 param 3 entry 3 id 3 steps 0 default 0.466666669 flags 0x1 unit 0
 vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 5 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 6 steps 1 default 0 flags 0x10001 unit 0
@@ -240,7 +240,7 @@ vst3 class 0x5653544a 0x6c67316c 0x65676163 0x7920706f
 vst3 param 0 entry 0 id 0 steps 0 default 0.404752135 flags 0x1 unit 0
 vst3 param 1 entry 1 id 1 steps 2 default 0.5 flags 0x9 unit 0
 vst3 param 2 entry 2 id 2 steps 1 default 1 flags 0x1 unit 0
-vst3 param 3 entry 3 id 3 steps 15 default 0.466666669 flags 0x1 unit 0
+vst3 param 3 entry 3 id 3 steps 0 default 0.466666669 flags 0x1 unit 0
 vst3 param 4 entry 4 id 4 steps 0 default 0.00199999986 flags 0x1 unit 100589
 vst3 param 5 entry 5 id 450187302 steps 0 default 0.5 flags 0x0 unit 0
 vst3 param 6 entry 6 id 5 steps 1 default 0 flags 0x10001 unit 0
