@@ -91,6 +91,73 @@ void PluginWrapper::prepare(double sampleRate, int maxBlockSize)
 {
     pluginPtr->prepare({sampleRate, maxBlockSize, layout});
     prepareBypass(sampleRate, maxBlockSize);
+    prepareSubstitutes(maxBlockSize);
+}
+
+void PluginWrapper::prepareSubstitutes(int maxBlockSize)
+{
+    auto block = std::max(1, maxBlockSize);
+
+    auto build = [block](Vector<Substitute>& substitutes, const Vector<Bus>& buses)
+    {
+        substitutes.clear();
+
+        for (const auto& bus: buses)
+        {
+            auto channels = std::max(0, bus.numChannels);
+            auto& substitute = substitutes.add(Substitute {});
+            substitute.scratch.setSize(channels, block);
+            substitute.table.resize(channels);
+        }
+    };
+
+    build(inputSubstitutes, layout.inputs);
+    build(outputSubstitutes, layout.outputs);
+}
+
+float* const* PluginWrapper::withoutNullChannels(Vector<Substitute>& substitutes,
+                                                 int bus,
+                                                 float* const* channels,
+                                                 int& numChannels,
+                                                 int numSamples) noexcept
+{
+    if (numChannels <= 0)
+        return channels;
+
+    auto hasNull = channels == nullptr;
+
+    for (auto ch = 0; !hasNull && ch < numChannels; ++ch)
+        hasNull = channels[ch] == nullptr;
+
+    if (!hasNull)
+        return channels;
+
+    auto fits = bus < substitutes.size()
+                && numChannels <= substitutes[bus].table.size()
+                && numSamples <= substitutes[bus].scratch.getNumSamples();
+
+    if (!fits)
+    {
+        numChannels = 0;
+        return nullptr;
+    }
+
+    auto& substitute = substitutes[bus];
+
+    for (auto ch = 0; ch < numChannels; ++ch)
+    {
+        auto* host = channels != nullptr ? channels[ch] : nullptr;
+
+        if (host == nullptr)
+        {
+            host = substitute.scratch.getChannelPointer(ch);
+            std::fill_n(host, std::max(0, numSamples), 0.f);
+        }
+
+        substitute.table[ch] = host;
+    }
+
+    return substitute.table.data();
 }
 
 void PluginWrapper::prepareBypass(double sampleRate, int maxBlockSize)
@@ -461,8 +528,12 @@ void PluginWrapper::bindInput(int bus,
 
     // Where the host's const promise ends: inputs is a mutable vector, and the
     // plugin is trusted not to write through it.
-    context.inputs[bus].referTo(
-        const_cast<float* const*>(channels), numChannels, numSamples);
+    auto* table = withoutNullChannels(inputSubstitutes,
+                                      bus,
+                                      const_cast<float* const*>(channels),
+                                      numChannels,
+                                      numSamples);
+    context.inputs[bus].referTo(table, numChannels, numSamples);
 }
 
 void PluginWrapper::bindOutput(int bus,
@@ -475,18 +546,21 @@ void PluginWrapper::bindOutput(int bus,
     if (bus < 0 || bus >= context.outputs.size())
         return;
 
-    context.outputs[bus].referTo(channels, numChannels, numSamples);
+    auto* table = withoutNullChannels(
+        outputSubstitutes, bus, channels, numChannels, numSamples);
+    context.outputs[bus].referTo(table, numChannels, numSamples);
 
     auto inputChannels = matchingInput != nullptr ? matchingInputChannels : 0;
 
     for (auto ch = 0; ch < numChannels; ++ch)
     {
-        auto* out = channels[ch];
+        auto* out = table[ch];
+        const auto* in = ch < inputChannels ? matchingInput[ch] : nullptr;
 
-        if (ch >= inputChannels)
+        if (in == nullptr)
             std::fill_n(out, numSamples, 0.f);
-        else if (matchingInput[ch] != out)
-            std::copy_n(matchingInput[ch], numSamples, out);
+        else if (in != out)
+            std::copy_n(in, numSamples, out);
     }
 }
 
