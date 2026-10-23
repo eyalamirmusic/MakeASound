@@ -87,6 +87,16 @@ bool TypingKeyboard::keyUp(uint16_t keyCode)
     return true;
 }
 
+bool TypingKeyboard::key(const eacp::Graphics::KeyEvent& event)
+{
+    if (event.type == eacp::Graphics::KeyEventType::Up)
+        return keyUp(event.keyCode);
+
+    auto& mods = event.modifiers;
+    return keyDown(
+        event.keyCode, event.isRepeat, mods.command || mods.control || mods.alt);
+}
+
 void TypingKeyboard::allNotesOff()
 {
     for (auto key: noteKeys)

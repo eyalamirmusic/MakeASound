@@ -137,7 +137,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_SOURCES VST3Tests.cpp IdentityManifestVST3.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundVST3 vst3sdk-hosting)
 
-        # A ViewRect is pixels on Windows, and an unscaled view follows the DPI.
+        # A ViewRect is pixels on Windows, an unscaled view follows the DPI, and
+        # an unhandled key is posted to the host's window.
         if (WIN32 AND TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
             list(APPEND MAKEASOUND_TEST_SOURCES VST3ViewTests-Windows.cpp)
 

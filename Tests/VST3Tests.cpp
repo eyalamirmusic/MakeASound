@@ -20,6 +20,7 @@
 #include <MakeASound/Plugin/UI/GenericEditor.h>
 #include <MakeASound/Plugin/VST3/PlugView.h>
 #include "TestEditor.h"
+#include <eacp/Graphics/Graphics/Keyboard.h>
 #endif
 
 #include <NanoTest/NanoTest.h>
@@ -2392,6 +2393,21 @@ auto tHost = test("VST3/theViewIsTheEditorsHostForItsLifetime") = []
     Module::editorFactory = nullptr;
     view.view = nullptr;
     check(cleared);
+};
+
+// Not attached, there is no host window to hand a key to on any platform, so
+// the editor's own route keeps it. Windows' attached case: VST3ViewTests-Windows.
+auto tKeyUnattached = test("VST3/anUnattachedViewClaimsNoUnhandledKey") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto scoped = ScopedTestEditor {bounded()};
+    auto view = EditorView(host);
+
+    auto key = eacp::Graphics::KeyEvent {};
+    key.keyCode = eacp::Graphics::KeyCode::Space;
+
+    check(scoped.editor->host() != nullptr);
+    check(!scoped.editor->forwardUnhandledKey(key));
 };
 #endif
 
