@@ -11,6 +11,7 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <array>
 #include <filesystem>
 #include <string>
 
@@ -104,6 +105,40 @@ auto tInstrument = test("Allocations/aHostedInstrumentsMidiTouchesNothing") = []
 
     check(count == 0);
     check(context.midiOut[0].size() == 3);
+};
+
+auto tSysEx = test("Allocations/aHostedVST3sSysExTouchesNothing") = []
+{
+    const auto formats = DefaultFormats();
+    auto plugin = loadFixture(formats, "HostFixtureInstrument");
+    check(plugin != nullptr);
+
+    if (plugin == nullptr)
+        return;
+
+    auto context = contextFor(*plugin, blockSize);
+    warmUp(*plugin, context);
+
+    auto bytes = std::array<uint8_t, MIDI::SysEx::maxBytes> {};
+    bytes.front() = 0xf0;
+    bytes.back() = 0xf7;
+
+    auto longest = static_cast<int>(bytes.size());
+
+    auto count = allocationsOverBlocks(
+        *plugin,
+        context,
+        [&](int block)
+        {
+            bytes[1] = static_cast<uint8_t>(block & 0x7f);
+            context.clearMidi();
+            context.midiIn[0].add(MIDI::Event::sysEx(bytes.data(), 6, 2));
+            context.midiIn[0].add(MIDI::Event::sysEx(bytes.data(), longest, 4));
+        });
+
+    // Both ways, the longest a MIDI::Event holds included.
+    check(count == 0);
+    check(context.midiOut[0].size() == 2);
 };
 } // namespace
 } // namespace HostingAllocationTests

@@ -14,6 +14,8 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <string>
@@ -658,6 +660,50 @@ auto tMidi = test("HostedVST3/midiGoesInAndComesBackOut") = []
     check(block.context.outputs[0][0][blockSize - 1] == 0.f);
     check(block.context.midiOut[0].size() == 1);
     check(block.context.midiOut[0][0].isNoteOff());
+};
+
+auto tSysEx = test("HostedVST3/sysExGoesInAndComesBackOut") = []
+{
+    const auto formats = DefaultFormats();
+    auto plugin = load(formats, "HostFixtureInstrument");
+    auto block = Block(*plugin);
+
+    const auto shortOne =
+        std::array<uint8_t, 6> {0xf0, 0x41, 0x10, 0x42, 0x12, 0xf7};
+    auto longest = std::array<uint8_t, MIDI::SysEx::maxBytes> {};
+    longest.front() = 0xf0;
+
+    for (auto i = size_t {1}; i + 1 < longest.size(); ++i)
+        longest[i] = static_cast<uint8_t>(i);
+
+    longest.back() = 0xf7;
+
+    block.context.midiIn[0].add(
+        MIDI::Event::sysEx(shortOne.data(), static_cast<int>(shortOne.size()), 5));
+    block.context.midiIn[0].add(MIDI::Event::noteOn(0, 64, 0.5f, 6));
+    block.context.midiIn[0].add(
+        MIDI::Event::sysEx(longest.data(), static_cast<int>(longest.size()), 9));
+    block.run();
+    block.context.midiIn[0].clear();
+
+    // In order, bytes and offsets intact, F0 to F7.
+    const auto& out = block.context.midiOut[0];
+    check(out.size() == 3);
+
+    if (out.size() != 3)
+        return;
+
+    const auto* first = out[0].asSysEx();
+    check(first != nullptr && out[0].sampleOffset == 5);
+    check(first != nullptr && first->size == 6
+          && std::equal(shortOne.begin(), shortOne.end(), first->data.begin()));
+
+    check(out[1].isNoteOn());
+
+    const auto* last = out[2].asSysEx();
+    check(last != nullptr && out[2].sampleOffset == 9);
+    check(last != nullptr && last->size == MIDI::SysEx::maxBytes
+          && last->data == longest);
 };
 
 auto tControllerState =

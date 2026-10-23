@@ -679,6 +679,19 @@ void VST3HostedPlugin::pushMidi(ProcessContext& context) noexcept
                 out.polyPressure.noteId = -1;
                 inputEvents.addEvent(out);
             }
+            else if (const auto* sysEx = event.asSysEx())
+            {
+                // F0 to F7, as JUCE's host sends it. The bytes are the input
+                // event's own, which outlives the block, so nothing is copied.
+                if (sysEx->size <= 0)
+                    continue;
+
+                out.type = Event::kDataEvent;
+                out.data.type = DataEvent::kMidiSysEx;
+                out.data.size = static_cast<uint32>(sysEx->size);
+                out.data.bytes = sysEx->data.data();
+                inputEvents.addEvent(out);
+            }
             else
             {
                 // Controllers, bend, channel pressure and program change reach a
@@ -784,6 +797,21 @@ void VST3HostedPlugin::readOutputEvents(ProcessContext& context) noexcept
             case Event::kLegacyMIDICCOutEvent:
                 addLegacyController(event.midiCCOut, event.sampleOffset, target);
                 break;
+
+            case Event::kDataEvent:
+            {
+                // Copied into the event, so the plugin's bytes may go with its
+                // list. Past MIDI::SysEx::maxBytes it is dropped, as the Audio
+                // Unit host drops it.
+                auto size = static_cast<int>(event.data.size);
+
+                if (event.data.type == DataEvent::kMidiSysEx
+                    && event.data.bytes != nullptr && size > 0
+                    && size <= MIDI::SysEx::maxBytes)
+                    target.add(MIDI::Event::sysEx(
+                        event.data.bytes, size, event.sampleOffset));
+                break;
+            }
 
             default:
                 break;
