@@ -10,6 +10,7 @@
 #include "TestPlugins.h"
 
 #include <MakeASound/Plugin/AU/ComponentType.h>
+#include <MakeASound/Plugin/AUv3/Adapter.h>
 #include <MakeASound/Plugin/AUv3/AudioUnitFactory.h>
 
 #include <NanoTest/NanoTest.h>
@@ -161,12 +162,13 @@ struct UnitHost
     template <typename Create>
     UnitHost(Creating, Create create, Start start)
     {
-        TestPlugins::Module::lastCreated = nullptr;
-
         auto* error = static_cast<NSError*>(nil);
         unit = create(&error);
         nano::check(unit != nil && error == nil);
-        pluginPtr = static_cast<P*>(TestPlugins::Module::lastCreated);
+
+        // Asked of the unit's adapter, which is this module's class's only.
+        if (auto* adapter = AUv3::adapterOf(unit))
+            pluginPtr = static_cast<P*>(&adapter->plugin());
         sent.reserve(256);
 
         auto* host = this;
@@ -395,7 +397,8 @@ struct UnitHost
 // handed to the internal block as the base class would.
 struct EventList
 {
-    static constexpr int capacity = 64;
+    // Room for an event per parameter of a consumer's plugin, plus its MIDI.
+    static constexpr int capacity = 256;
 
     void clear() noexcept { count = 0; }
 

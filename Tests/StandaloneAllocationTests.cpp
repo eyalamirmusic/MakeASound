@@ -2,14 +2,11 @@
 // block on Engine, driven by hand and by the default output device's live
 // callback.
 
-#include "AllocationProbe.h"
+#include "StandaloneAllocationDriver.h"
 #include "TestPlugins.h"
-
-#include <MakeASound/Plugin/Standalone/StandaloneProcessor.h>
 
 #include <NanoTest/NanoTest.h>
 
-#include <array>
 #include <chrono>
 #include <thread>
 #include <type_traits>
@@ -22,60 +19,21 @@ using Probe::allocationsIn;
 
 namespace
 {
-// The callback a device would hand Engine: two inputs, two outputs, clean.
-struct StandaloneStream
-{
-    Block inLeft = {};
-    Block inRight = {};
-    Block outLeft = {};
-    Block outRight = {};
-
-    std::array<float*, 2> inputs {inLeft.data(), inRight.data()};
-    std::array<float*, 2> outputs {outLeft.data(), outRight.data()};
-
-    AudioCallbackInfo info(bool dirty)
-    {
-        auto result = AudioCallbackInfo {};
-        result.numInputs = 2;
-        result.numOutputs = 2;
-        result.inputChannels = inputs.data();
-        result.outputChannels = outputs.data();
-        result.numSamples = blockSize;
-        result.sampleRate = 48000;
-        result.maxBlockSize = blockSize;
-        result.dirty = dirty;
-        return result;
-    }
-};
-
+// The driver's block (StandaloneAllocationDriver.h), and what the fixture saw.
 template <typename PluginT>
 int standaloneAllocationsPerBlock(bool inject, int& processed)
 {
-    auto devices = DeviceManager {};
-    auto midi = MidiManager {};
-    auto engine = Engine {devices, midi};
-    auto sender = Standalone::MidiSender {midi};
-    auto wrapper = PluginWrapper(EA::makeOwned<PluginT>(), PluginFormat::Standalone);
-    auto processor = Standalone::StandaloneProcessor {wrapper, sender};
-    auto stream = StandaloneStream {};
-
-    engine.prepare(processor, 48000, blockSize);
-
-    auto first = stream.info(true);
-    engine.process(first);
-
-    if (inject)
-        processor.injectMidi(MIDI::Event::noteOn(0, 60, 1.f));
-
-    auto block = stream.info(false);
-    auto count = allocationsIn([&] { engine.process(block); });
-
-    if constexpr (std::is_same_v<PluginT, SynthPlugin>)
-        processed = static_cast<SynthPlugin&>(wrapper.plugin()).numEvents;
-    else
-        processed = static_cast<GainPlugin&>(wrapper.plugin()).processed;
-
-    return count;
+    return StandaloneAllocation::blockAllocations(
+        EA::makeOwned<PluginT>(),
+        {},
+        inject,
+        [&](PluginWrapper& wrapper)
+        {
+            if constexpr (std::is_same_v<PluginT, SynthPlugin>)
+                processed = static_cast<SynthPlugin&>(wrapper.plugin()).numEvents;
+            else
+                processed = static_cast<GainPlugin&>(wrapper.plugin()).processed;
+        });
 }
 
 auto tStandaloneEffect = test("Allocations/standaloneEffectBlockIsOffTheHeap") = []

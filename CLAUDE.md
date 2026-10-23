@@ -101,4 +101,6 @@ NanoTest, one executable (`MakeASoundTests`), plus `MakeASoundCoreTests`, which 
 - `Tests/*TestHost.h`, one per format
 - `Tests/HostingFixtures.h` (a plugin database written by Tamber Plug's scanner), `Tests/HostingTestFormats.h` (stub formats), `Tests/FakeScanWorker.cpp` (a worker that misbehaves on request) and `Tests/HostFixtures/` (VST3 fixture plugins, never installed, built into `<build>/HostFixtures`). Hosting tests use these and Apple's built-in AUs only, never a third-party plugin.
 
+The per-format allocation suites' format-generic half lives in `Tests/*AllocationDriver.h` (VST3, AU, AUv3, AAX, Standalone, Hosting): the fixture suites call it, and so does `makeasound_add_allocation_tests(<plugin> [TEST_PREFIX <p>])` (`CMake/MakeASoundAllocationTests.cmake`, defined with `MakeASoundPlugin`, so a CPM consumer has it too), which builds `<plugin>-MakeASoundAllocationTests` from `Tests/PluginAllocations/` over every class of that plugin's `describeModule()`; `Tests/PluginAllocations/CMakeLists.txt` runs it over Gain and SynthPlugin. The AU, AUv3 and AAX test hosts get the plugin from the adapter, never from `TestPlugins::Module::lastCreated`.
+
 `PluginTests.cpp` defines the tests' `describeModule()`. Cases that write files use their own temp folder, because ctest runs cases in parallel processes.
