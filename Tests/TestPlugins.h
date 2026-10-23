@@ -241,6 +241,94 @@ struct LatentEffect : StatePlugin<State<LatentParams>>
     int bypassed = 0;
 };
 
+// The shape of a multi-out instrument with most buses off: a main stereo pair
+// each way, a mono sidechain and two stereo aux outputs a host leaves inactive,
+// which JUCE hosts pass as null channel pointers. Its main output is the main
+// input plus the sidechain, every aux channel 3, and it notes whatever the host
+// would have broken: a null channel, a bus narrower than declared, or an input
+// sample that was not silence on the sidechain.
+struct AbsentChannelsPlugin : StatePlugin<State<LatentParams>>
+{
+    std::string_view name() const override { return "AbsentChannels"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+        layout.inputs.add({.name = "Sidechain",
+                           .numChannels = 1,
+                           .isMain = false,
+                           .activeByDefault = false});
+
+        for (auto* name: {"Aux 1", "Aux 2"})
+            layout.outputs.add({.name = name,
+                                .numChannels = 2,
+                                .isMain = false,
+                                .activeByDefault = false});
+
+        return layout;
+    }
+
+    bool acceptsLayout(const BusLayout&) const override { return true; }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        ++processed;
+
+        auto checkBus = [this](const Buffer& buffer, int declared)
+        {
+            if (buffer.getNumChannels() != declared)
+                ++narrowBuses;
+
+            for (auto ch = 0; ch < buffer.getNumChannels(); ++ch)
+                if (buffer.getChannelPointers()[ch] == nullptr)
+                    ++nullChannels;
+        };
+
+        // getBusLayout()'s widths, without its allocations.
+        constexpr int inputWidths[] = {2, 1};
+        constexpr int outputWidths[] = {2, 2, 2};
+
+        if (context.inputs.size() != 2 || context.outputs.size() != 3)
+        {
+            ++narrowBuses;
+            return;
+        }
+
+        for (auto bus = 0; bus < 2; ++bus)
+            checkBus(context.inputs[bus], inputWidths[bus]);
+
+        for (auto bus = 0; bus < 3; ++bus)
+            checkBus(context.outputs[bus], outputWidths[bus]);
+
+        if (nullChannels > 0 || narrowBuses > 0)
+            return;
+
+        const auto& sidechain = context.inputs[1];
+        auto& main = context.outputs[0];
+
+        for (auto i = 0; i < sidechain.getNumSamples(); ++i)
+        {
+            auto sample = sidechain.getChannelPointer(0)[i];
+
+            if (sample != 0.f)
+                ++loudSidechainSamples;
+
+            for (auto ch = 0; ch < main.getNumChannels(); ++ch)
+                main.getChannelPointer(ch)[i] += sample;
+        }
+
+        for (auto bus = 1; bus < context.outputs.size(); ++bus)
+            context.outputs[bus].fill(3.f);
+    }
+
+    int processed = 0;
+    int nullChannels = 0;
+    int narrowBuses = 0;
+    int loudSidechainSamples = 0;
+};
+
 // A JUCE port's nested groups, whose ids its JUCE build prefixed with every
 // enclosing group's id: "Low" in "EQ" in "Drive-Filter" was "Drive-Filter-EQ-Low"
 // (IdentityOverrides::juceKeyGroupSeparator). Its bypass is declared, as a JUCE

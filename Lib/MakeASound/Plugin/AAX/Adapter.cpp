@@ -469,7 +469,8 @@ void Adapter::render(AlgorithmContext& context) noexcept
     if (!pluginWrapper)
     {
         for (auto channel = 0; channel < outputChannels; ++channel)
-            std::fill_n(context.outputs[channel], frames, 0.f);
+            if (auto* output = context.outputs[channel])
+                std::fill_n(output, frames, 0.f);
 
         return;
     }
@@ -529,14 +530,19 @@ void Adapter::renderSlice(AlgorithmContext& context,
 
     if (hasInputs)
     {
+        // A null channel stays null, for the wrapper's silent scratch.
         for (auto channel = 0; channel < inputChannels; ++channel)
-            inputTable[channel] = context.inputs[channel] + start;
+            inputTable[channel] = context.inputs[channel] != nullptr
+                                      ? context.inputs[channel] + start
+                                      : nullptr;
 
         wrapper.bindInput(0, inputTable.data(), inputChannels, numSamples);
     }
 
     for (auto channel = 0; channel < outputChannels; ++channel)
-        outputTable[channel] = context.outputs[channel] + start;
+        outputTable[channel] = context.outputs[channel] != nullptr
+                                   ? context.outputs[channel] + start
+                                   : nullptr;
 
     wrapper.bindOutput(0,
                        outputTable.data(),

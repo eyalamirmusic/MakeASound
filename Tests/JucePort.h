@@ -216,6 +216,24 @@ inline const PluginDescription& twinGroupsDescription()
     return twin;
 }
 
+// TestPlugins::AbsentChannelsPlugin, the bus shape of Modalics MINDst-Drums
+// (a JUCE port with most of its outputs off), for the AU null-buffer cases.
+inline const PluginDescription& absentChannelsDescription()
+{
+    static const auto absent = PluginDescription {
+        .name = "Absent Channels",
+        .pluginCode = "Absc",
+        .create =
+            []
+        {
+            return TestPlugins::Module::create<TestPlugins::AbsentChannelsPlugin>(
+                PluginCreateFn {});
+        },
+        .idScheme = IdScheme::JUCE};
+
+    return absent;
+}
+
 // What Modalics BitFuzzer's JUCE build published for the same groups
 // (Toolbox/Tests/Golden/BitFuzzer/identity-{VST3,AU}.json, captured from it):
 // its VST3 units, String::hashCode of each JUCE group id & 0x7fffffff, under
@@ -262,6 +280,9 @@ inline const PluginDescription* descriptionFor(uint32_t subtype)
 {
     if (twinGroupsDescription().pluginCode.toUint32() == subtype)
         return &twinGroupsDescription();
+
+    if (absentChannelsDescription().pluginCode.toUint32() == subtype)
+        return &absentChannelsDescription();
 
     for (auto scheme: {IdScheme::JUCE, IdScheme::JUCELegacyIndex})
         if (description(scheme).pluginCode.toUint32() == subtype)
