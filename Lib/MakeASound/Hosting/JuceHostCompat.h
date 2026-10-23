@@ -32,4 +32,15 @@ int32_t juceHostedUniqueId(const Hosting::PluginDescription& description);
 // differs between them exactly as JUCE's did. AU: the uniqueId.
 int32_t juceHostedDeprecatedUid(const Hosting::PluginDescription& description);
 
+// The order JUCE's host lists a plugin's parameters in (getParameters(), the
+// flattened AudioProcessorParameterGroup tree), as positions into the plugin's
+// own list. Each listed parameter comes with its group path, outermost first
+// (empty: the root): a VST3 parameter's unit and that unit's parents, an AU
+// parameter's clump. A group is created where its first parameter (or its
+// first sub-group's) is listed and keeps that place among its parent's
+// children, so a group's parameters come together there; the rest keep their
+// order. With no groups, or groups whose members are contiguous (every JUCE-
+// and MakeASound-built plugin), it is the identity.
+Vector<int> juceParameterTreeOrder(const Vector<Vector<int64_t>>& groupPaths);
+
 } // namespace MakeASound::Compat

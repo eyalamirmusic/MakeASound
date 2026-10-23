@@ -1,4 +1,5 @@
 #include "HostedAudioUnit.h"
+#include "../JuceHostCompat.h"
 
 #include <mach/mach_time.h>
 
@@ -436,6 +437,10 @@ void HostedAudioUnit::buildParameters()
         AudioUnitUninitialize(instance);
     }
 
+    // Per parameter JUCE's host listed: its storage index or -1, and its clump.
+    auto listed = Vector<int>();
+    auto clumps = Vector<Vector<int64_t>>();
+
     for (auto id: ids)
     {
         auto info = AudioUnitParameterInfo();
@@ -445,6 +450,11 @@ void HostedAudioUnit::buildParameters()
 
         auto addressable = isAddressable(info);
         auto strings = takeStrings(instance, id, info);
+
+        listed.add(addressable ? storage.size() : -1);
+        clumps.add((info.flags & kAudioUnitParameterFlag_HasClump) != 0
+                       ? Vector<int64_t> {static_cast<int64_t>(info.clumpID)}
+                       : Vector<int64_t>());
 
         if (!addressable)
             continue;
@@ -457,6 +467,9 @@ void HostedAudioUnit::buildParameters()
                                                     std::move(strings.units),
                                                     std::move(strings.values)));
     }
+
+    for (auto position: Compat::juceParameterTreeOrder(clumps))
+        juceIndices.add(listed[position]);
 
     group.addAll(storage);
 
@@ -912,6 +925,14 @@ void HostedAudioUnit::syncEditorWithProcessor()
             instance, param->parameterId(), kAudioUnitScope_Global, 0};
         AUParameterListenerNotify(eventListener, nullptr, &target);
     }
+}
+
+int HostedAudioUnit::indexForControllerIndex(int32_t controllerIndex) const noexcept
+{
+    if (controllerIndex < 0 || controllerIndex >= juceIndices.size())
+        return -1;
+
+    return juceIndices[static_cast<int>(controllerIndex)];
 }
 
 void HostedAudioUnit::refreshParameterValue(int index)

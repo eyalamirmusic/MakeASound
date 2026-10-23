@@ -1,13 +1,16 @@
 #include "../../Plugin/VST3/VST3Common.h"
 #include "VST3HostedPlugin.h"
+#include "../JuceHostCompat.h"
 
 #include <base/source/fobject.h>
 #include <public.sdk/source/common/memorystream.h>
 #include <public.sdk/source/vst/utility/stringconvert.h>
+#include <pluginterfaces/vst/ivstunits.h>
 #include <pluginterfaces/vst/vstspeaker.h>
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace MakeASound::Hosting
 {
@@ -295,23 +298,91 @@ void VST3HostedPlugin::readBusLayout()
     collectMidi(kOutput, layout.midiOutputs);
 }
 
+namespace
+{
+// Each unit's parent, as JUCE's host reads them (initialiseParameterList): the
+// IUnitInfo of the component, else of the controller, from unit index 1, the
+// root (index 0) being its own.
+std::map<UnitID, UnitID> unitParents(IComponent* component,
+                                     IEditController* controller)
+{
+    auto parents = std::map<UnitID, UnitID>();
+    auto units = FUnknownPtr<IUnitInfo>(component);
+
+    if (!units)
+        units = FUnknownPtr<IUnitInfo>(controller);
+
+    if (!units)
+        return parents;
+
+    for (auto i = int32 {1}; i < units->getUnitCount(); ++i)
+    {
+        auto unit = UnitInfo();
+        units->getUnitInfo(i, unit);
+        parents[unit.id] = unit.parentUnitId;
+    }
+
+    return parents;
+}
+
+// A unit's group path, outermost first. An unknown unit (or parent) is the
+// root, as JUCE files it.
+Vector<int64_t> unitPath(UnitID unit, const std::map<UnitID, UnitID>& parents)
+{
+    constexpr auto maxDepth = 64;
+    auto path = Vector<int64_t>();
+
+    while (unit != kRootUnitId && path.size() < maxDepth)
+    {
+        auto found = parents.find(unit);
+
+        if (found == parents.end())
+            break;
+
+        path.insert(0, static_cast<int64_t>(unit));
+        unit = found->second;
+    }
+
+    return path;
+}
+} // namespace
+
 void VST3HostedPlugin::buildParameters()
 {
+    // Per controller parameter: its storage index or -1, and its unit path.
+    auto listed = Vector<int>();
+    auto paths = Vector<Vector<int64_t>>();
+
     if (controller)
     {
+        auto parents = unitParents(component, controller);
+
         for (auto i = int32 {0}; i < controller->getParameterCount(); ++i)
         {
             auto info = ParameterInfo();
+            auto valid = controller->getParameterInfo(i, info) == kResultOk;
+
+            paths.add(valid ? unitPath(info.unitId, parents) : Vector<int64_t>());
 
             // A hidden parameter is the plugin's own plumbing, most often the
             // thousands its IMidiMapping maps controllers onto: never shown, and
             // reached through MIDI rather than by index.
-            if (controller->getParameterInfo(i, info) == kResultOk
-                && (info.flags & ParameterInfo::kIsHidden) == 0)
+            if (valid && (info.flags & ParameterInfo::kIsHidden) == 0)
+            {
+                listed.add(storage.size());
                 storage.add(EA::makeOwned<VST3HostedParameter>(
                     *controller, info, static_cast<VST3ParameterSink&>(*this)));
+            }
+            else
+            {
+                listed.add(-1);
+            }
         }
     }
+
+    // JUCE counted every parameter, in its unit tree's order.
+    for (auto position: Compat::juceParameterTreeOrder(paths))
+        controllerIndices.add(listed[position]);
 
     group.addAll(storage);
 
@@ -341,6 +412,14 @@ VST3HostedParameter* VST3HostedPlugin::findParameter(ParamID id) const noexcept
 int VST3HostedPlugin::indexOfParamId(ParamID id) const noexcept
 {
     return parameters().indexOf(findParameter(id));
+}
+
+int VST3HostedPlugin::indexForControllerIndex(int32_t controllerIndex) const noexcept
+{
+    if (controllerIndex < 0 || controllerIndex >= controllerIndices.size())
+        return -1;
+
+    return controllerIndices[static_cast<int>(controllerIndex)];
 }
 
 bool VST3HostedPlugin::applyArrangement(const BusLayout& proposed) const

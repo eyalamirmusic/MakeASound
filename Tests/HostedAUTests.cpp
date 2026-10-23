@@ -241,6 +241,14 @@ auto tParameters = test("HostedAU/parametersCarryTheUnitsIds") = []
     // The unit's own plain range.
     check(near(list[gain].minValue(), -60.f));
     check(near(list[gain].maxValue(), 12.f));
+
+    // Every parameter readable or writable and no clumps out of order: JUCE's
+    // host listed them in the same order, so a JUCE index is the index here.
+    for (auto i = 0; i < list.size(); ++i)
+        check(unit->indexForControllerIndex(i) == i);
+
+    check(unit->indexForControllerIndex(list.size()) == -1);
+    check(unit->indexForControllerIndex(-1) == -1);
 };
 
 auto tHostEdit = test("HostedAU/aHostEditReachesTheUnit") = []
@@ -509,6 +517,10 @@ auto tAppleDelay = test("HostedAU/applesDelayLoadsThroughTheFormats") = []
     check(indexNamed(*loaded.plugin, "Dry/Wet Mix") >= 0
           || indexNamed(*loaded.plugin, "dry/wet mix") >= 0
           || loaded.plugin->parameters().size() >= 3);
+
+    // Apple's delay lists plain parameters: JUCE's indices are these.
+    for (auto i = 0; i < loaded.plugin->parameters().size(); ++i)
+        check(loaded.plugin->indexForControllerIndex(i) == i);
 
     auto block = Block(*loaded.plugin);
     block.fillInput(0.25f);

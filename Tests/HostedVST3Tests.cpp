@@ -235,17 +235,35 @@ struct Component
     // clang-format on
 };
 
-// Controller parameters, in getParameterInfo order: ids 100..104, the first,
-// third and last hidden. Its own state is a byte string; loading one also moves
-// "Visible B" to 0.25, so a host that re-reads values sees it.
-struct Controller : EditController
+// Controller parameters, in getParameterInfo order (ids 100..108):
+//
+//   0 Hidden A    hidden          5 Grouped X   unit 1
+//   1 Visible A                   6 Root Late
+//   2 Hidden B    hidden          7 Grouped Y   unit 1
+//   3 Visible B                   8 Nested Z    unit 2, inside unit 1
+//   4 Hidden C    hidden
+//
+// so JUCE's host, which grouped by unit, listed them 0-5, 7, 8, 6. Its own state
+// is a byte string; loading one also moves "Visible B" to 0.25, so a host that
+// re-reads values sees it.
+struct Controller : EditControllerEx1
 {
     Controller()
     {
-        auto add = [this](const char16* title, ParamID id, bool hidden)
+        addUnit(new Unit(u"Root", kRootUnitId, kNoParentUnitId));
+        addUnit(new Unit(u"One", 1, kRootUnitId));
+        addUnit(new Unit(u"Two", 2, 1));
+
+        auto add =
+            [this](const char16* title, ParamID id, bool hidden, UnitID unit = 0)
         {
-            parameters.addParameter(
-                title, nullptr, 0, 0.5, hidden ? ParameterInfo::kIsHidden : 0, id);
+            parameters.addParameter(title,
+                                    nullptr,
+                                    0,
+                                    0.5,
+                                    hidden ? ParameterInfo::kIsHidden : 0,
+                                    id,
+                                    unit);
         };
 
         add(u"Hidden A", 100, true);
@@ -253,6 +271,10 @@ struct Controller : EditController
         add(u"Hidden B", 102, true);
         add(u"Visible B", 103, false);
         add(u"Hidden C", 104, true);
+        add(u"Grouped X", 105, false, 1);
+        add(u"Root Late", 106, false);
+        add(u"Grouped Y", 107, false, 1);
+        add(u"Nested Z", 108, false, 2);
     }
 
     // IEditController's getState/setState, renamed by VST3Common.h.
@@ -740,6 +762,54 @@ auto tControllerState =
     // A controller that saves nothing (kResultFalse) saves empty.
     auto silent = Stub::Loaded();
     check(silent.plugin.saveControllerState().empty());
+};
+
+auto tLegacyIndices = test("HostedVST3/aJuceIndexFindsTheSameParameter") = []
+{
+    auto loaded = Stub::Loaded();
+    const auto& list = loaded.plugin.parameters();
+
+    // The hidden ones are left out here, and the rest keep getParameterInfo's
+    // order.
+    check(list.size() == 6);
+
+    auto nameAt = [&](int32_t juceIndex)
+    {
+        auto index = loaded.plugin.indexForControllerIndex(juceIndex);
+        return index >= 0 ? std::string {list[index].name()} : std::string {"-"};
+    };
+
+    check(nameAt(0) == "-");
+    check(nameAt(1) == "Visible A");
+    check(nameAt(2) == "-");
+    check(nameAt(3) == "Visible B");
+    check(nameAt(4) == "-");
+    check(nameAt(5) == "Grouped X");
+    check(nameAt(6) == "Grouped Y");
+    check(nameAt(7) == "Nested Z");
+    check(nameAt(8) == "Root Late");
+    check(nameAt(9) == "-");
+    check(nameAt(-1) == "-");
+};
+
+auto tFixtureIndices = test("HostedVST3/aFixturesJuceIndicesAreItsOwn") = []
+{
+    // MakeASound's adapter lists its own parameters first, in one unit tree
+    // order, and hides only its MIDI shadow parameters, after them.
+    const auto formats = DefaultFormats();
+
+    for (auto name: {"HostFixtureEffect", "HostFixtureInstrument"})
+    {
+        auto plugin = load(formats, name);
+        auto count = plugin->parameters().size();
+        check(count > 0);
+
+        for (auto i = 0; i < count; ++i)
+            check(plugin->indexForControllerIndex(i) == i);
+
+        for (auto i = count; i < count + 16; ++i)
+            check(plugin->indexForControllerIndex(i) == -1);
+    }
 };
 
 auto tFixtureControllerState =

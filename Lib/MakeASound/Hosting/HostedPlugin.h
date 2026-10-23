@@ -94,6 +94,16 @@ public:
     // own). Empty bytes, or a format with no controller state, do nothing.
     virtual void loadControllerState(const std::string& data);
 
+    // The parameters() index of the plugin's parameter `controllerIndex`, counted
+    // as JUCE's host listed them (AudioProcessor::getParameters()), so an index
+    // a JUCE host stored (a macro target, a mapping) finds the same parameter
+    // here; -1 for one this host does not list or past the end. A VST3: every
+    // controller parameter in getParameterInfo order, hidden ones included,
+    // which parameters() leaves out. An Audio Unit: its parameter list with a
+    // clump's parameters gathered where the clump first appears, the ones
+    // neither readable nor writable included. By default the index itself.
+    virtual int indexForControllerIndex(int32_t controllerIndex) const noexcept;
+
     // Once each time the plugin renamed parameters, already re-read into
     // parameters() (names only; ids, order and ranges stay).
     bool takeParameterInfoChanged() noexcept;

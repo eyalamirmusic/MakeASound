@@ -80,5 +80,30 @@ auto tAU = test("HostingJuceCompat/anAudioUnitIdIsTheCodesXored") = []
     check(juceHostedUniqueId(row(PluginFormat::AU, "aumu:BTSC")) == 0);
     check(juceHostedUniqueId(row(PluginFormat::AAX, "aumu:BTSC:ModX")) == 0);
 };
+
+auto tTreeOrder = test("HostingJuceCompat/aGroupGathersWhereItFirstAppears") = []
+{
+    using Paths = Vector<Vector<int64_t>>;
+
+    // No groups, and contiguous groups: the plugin's own order.
+    check(juceParameterTreeOrder(Paths {}).empty());
+    check(juceParameterTreeOrder(Paths {{}, {}, {}}) == Vector<int> {0, 1, 2});
+    check(juceParameterTreeOrder(Paths {{}, {1}, {1}, {2}, {}})
+          == Vector<int> {0, 1, 2, 3, 4});
+
+    // Interleaved: group 1 sits where its first parameter was and takes its
+    // later ones; 2 likewise.
+    check(juceParameterTreeOrder(Paths {{1}, {}, {2}, {1}, {}, {2}})
+          == Vector<int> {0, 3, 1, 2, 5, 4});
+
+    // Nested: 2 inside 1 is created inside 1 when its first parameter comes, so
+    // after the 1-parameters listed before it; a root parameter in between
+    // stays after the whole of 1.
+    check(juceParameterTreeOrder(Paths {{1}, {}, {1, 2}, {1}, {1, 2}})
+          == Vector<int> {0, 2, 4, 3, 1});
+
+    // Group ids are only names: 0 is a group like any other.
+    check(juceParameterTreeOrder(Paths {{0}, {}, {0}}) == Vector<int> {0, 2, 1});
+};
 } // namespace
 } // namespace HostingJuceCompatTests

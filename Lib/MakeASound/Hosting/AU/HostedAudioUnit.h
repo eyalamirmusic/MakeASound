@@ -110,6 +110,12 @@ public:
     void syncEditorWithProcessor() override;
     void refreshParameterValue(int index) override;
 
+    // JUCE's AU host listed every parameter whose info reads, the ones neither
+    // readable nor writable included (parameters() leaves those out), with a
+    // clump's gathered where the clump first appears. -1 for one left out here,
+    // or past the end.
+    int indexForControllerIndex(int32_t controllerIndex) const noexcept override;
+
     // At most this many audio-thread values per block; past it, false.
     static constexpr int scheduledCapacity = 256;
 
@@ -207,6 +213,9 @@ private:
     Vector<OwningPointer<HostedAudioUnitParameter>> storage;
     HostedGroup group;
     Vector<HostedAudioUnitParameter*> byId;
+
+    // Per parameter in JUCE's order, its storage index or -1.
+    Vector<int> juceIndices;
 
     AUEventListenerRef eventListener = nullptr;
     bool listening = false;

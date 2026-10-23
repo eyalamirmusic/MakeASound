@@ -65,6 +65,43 @@ int32_t audioUnitId(std::string_view classId) noexcept
     return static_cast<int32_t>(*type ^ *subtype ^ *manufacturer);
 }
 
+// One group of the tree: its children in creation order, each a listed
+// position or a sub-group.
+struct GroupNode
+{
+    struct Child
+    {
+        int position = -1;
+        int64_t groupId = 0;
+        OwningPointer<GroupNode> group;
+    };
+
+    GroupNode& subGroup(int64_t id)
+    {
+        for (auto& child: children)
+            if (child.group != nullptr && child.groupId == id)
+                return *child.group;
+
+        auto& child = children.create();
+        child.groupId = id;
+        child.group = EA::makeOwned<GroupNode>();
+        return *child.group;
+    }
+
+    void flatten(Vector<int>& out) const
+    {
+        for (const auto& child: children)
+        {
+            if (child.group != nullptr)
+                child.group->flatten(out);
+            else
+                out.add(child.position);
+        }
+    }
+
+    Vector<Child> children;
+};
+
 // getHashForRange.
 template <typename Range>
 int32_t hashOf(const Range& range) noexcept
@@ -129,6 +166,25 @@ int32_t juceHostedDeprecatedUid(const Hosting::PluginDescription& description)
         default:
             return 0;
     }
+}
+
+Vector<int> juceParameterTreeOrder(const Vector<Vector<int64_t>>& groupPaths)
+{
+    auto root = GroupNode();
+
+    for (auto position = 0; position < groupPaths.size(); ++position)
+    {
+        auto* node = &root;
+
+        for (auto id: groupPaths[position])
+            node = &node->subGroup(id);
+
+        node->children.create().position = position;
+    }
+
+    auto order = Vector<int>();
+    root.flatten(order);
+    return order;
 }
 
 } // namespace MakeASound::Compat

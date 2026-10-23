@@ -83,6 +83,14 @@ public:
     // The parameter carrying `id`, or -1.
     int indexOfParamId(Steinberg::Vst::ParamID id) const noexcept;
 
+    // A JUCE host's parameter index as a parameters() index: JUCE counted every
+    // controller parameter, hidden ones included, in getParameterInfo order
+    // regrouped by unit (Compat::juceParameterTreeOrder), which is plain
+    // getParameterInfo order unless a unit's parameters are interleaved with
+    // others. -1 for a hidden one, one whose info the plugin refused, or past
+    // the end.
+    int indexForControllerIndex(int32_t controllerIndex) const noexcept override;
+
 private:
     struct ComponentHandler;
     friend struct ComponentHandler;
@@ -143,6 +151,9 @@ private:
 
     // By ParamID, so the audio thread resolves an id with a binary search.
     Vector<VST3HostedParameter*> byId;
+
+    // Per controller parameter, its storage index or -1.
+    Vector<int> controllerIndices;
 
     Steinberg::Vst::ParameterChanges inputChanges;
     Steinberg::Vst::ParameterChanges outputChanges;
