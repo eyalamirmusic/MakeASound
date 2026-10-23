@@ -11,8 +11,8 @@ namespace MakeASound::Compat
 
 // What JUCE keeps a plugin's state in, read back with nothing of JUCE: a
 // ValueTree, or the XmlElement it prints as. A node is a type (the element's
-// tag), properties in document order and children; an XML text node is skipped,
-// since ValueTree::fromXml drops it too. A property is the text JUCE's var would
+// tag), properties in document order and children; an XML text node is kept
+// only in `text`, since ValueTree::fromXml drops it. A property is the text JUCE's var would
 // print: an int in decimal, a double in its shortest round-trip form, a bool as
 // "1" or "0", a string as itself and binary data as its raw bytes.
 struct JuceTree
@@ -20,6 +20,11 @@ struct JuceTree
     std::string type;
     std::vector<std::pair<std::string, std::string>> properties;
     std::vector<JuceTree> children;
+
+    // An XML element's own text and CDATA, concatenated with entities decoded,
+    // as XmlElement::getAllSubText reads it minus the children's; always empty
+    // for a ValueTree read from its stream.
+    std::string text;
 
     // The last property of that name, as JUCE's NamedValueSet keeps one; null
     // when absent.

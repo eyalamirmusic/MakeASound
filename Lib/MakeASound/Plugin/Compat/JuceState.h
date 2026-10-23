@@ -106,6 +106,39 @@ ForeignState juceVST3State(std::string_view state,
 // negative count.
 std::optional<std::string> fromJuceBase64(std::string_view text);
 
+// MemoryBlock::toBase64Encoding, the inverse: the byte count in decimal, a '.'
+// and ceil(bits / 6) characters of that alphabet, the bits taken from the least
+// significant end of each byte, the last character's missing bits zero.
+std::string toJuceBase64(std::string_view bytes);
+
+// The state JUCE's VST3 HOST saved for a plugin it hosted
+// (juce_audio_processors_headless/format_types/juce_VST3PluginFormatImpl.h,
+// getStateInformation / setStateInformation): copyXmlToBinary of
+// `<VST3PluginState>` with an `<IComponent>` child holding the component's
+// getState and an `<IEditController>` child holding the controller's, each in
+// JUCE base64 and each present only when that getState answered kResultTrue.
+// JUCE loads it as component->setState(component), then, with a controller,
+// controller->setComponentState(component) and controller->setState(controller).
+struct JuceVST3HostState
+{
+    std::string component;
+    std::optional<std::string> controller;
+};
+
+// Nullopt unless the bytes are a JUCE XML blob whose root element is
+// VST3PluginState (a plugin's own "VC2!" chunk, JSON or another XML root, is not
+// this). A child missing or undecodable reads as empty (the component) or
+// nullopt (the controller), as JUCE skips it.
+std::optional<JuceVST3HostState> juceVST3HostState(std::string_view bytes);
+
+// The bytes JUCE's host writes for that state, exactly: "VC2!", a little-endian
+// u32 of the text's length, the single-line text
+//   <?xml version="1.0" encoding="UTF-8"?> <VST3PluginState><IComponent>N.…
+//   </IComponent><IEditController>N.…</IEditController></VST3PluginState>
+// and a NUL. An empty or absent controller is left out, as JUCE leaves out one
+// whose getState wrote nothing.
+std::string toJuceVST3HostState(const JuceVST3HostState& state);
+
 // The value of one entry of a JUCE PropertiesFile in its XML form, `<PROPERTIES>`
 // of `<VALUE name= val=>` (juce_data_structures/app_properties); nullopt when the
 // file is not one or has no such entry.

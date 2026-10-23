@@ -22,6 +22,7 @@ find_package(eacp REQUIRED)
 add_library(MakeASoundHosting STATIC
         FormatManager.cpp
         HostedPlugin.cpp
+        JuceHostCompat.cpp
         PluginCache.cpp
         Scan/ExecutablePath.cpp
         Scan/ScanArgs.cpp

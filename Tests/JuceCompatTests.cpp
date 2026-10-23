@@ -409,5 +409,131 @@ auto tApvtsXmlEdges = test("JuceCompat/apvtsReadsAsSetNewStateDoes") = []
     check(near(params.tone.get(), 0.5f));
     check(params.enabled.isOn());
 };
+
+// A JUCE host's <VST3PluginState>, by hand: a component of 15 bytes (binary,
+// NULs and high bytes included) and a controller of 5, framed as
+// copyXmlToBinary frames it.
+constexpr auto hostStateText = std::string_view {
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?> <VST3PluginState>"
+    "<IComponent>15..Df.+6ePBA3dhDlH5DSe</IComponent>"
+    "<IEditController>5.iQGa.7O</IEditController></VST3PluginState>"};
+
+constexpr auto hostComponentText = std::string_view {
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?> <VST3PluginState>"
+    "<IComponent>15..Df.+6ePBA3dhDlH5DSe</IComponent></VST3PluginState>"};
+
+std::string hostComponent()
+{
+    return std::string {"\x00\x01\x02\xff\xfe\x41\x42\x80", 8} + "{\"a\":1}";
+}
+
+std::string hostController()
+{
+    return std::string {"ctl\x00\xff", 5};
+}
+
+std::string framed(std::string_view text, char lengthLow)
+{
+    auto blob = std::string {"VC2!"};
+    blob += lengthLow;
+    blob += std::string(3, '\0');
+    blob += text;
+    blob += '\0';
+    return blob;
+}
+
+auto tToBase64 = test("JuceCompat/juceBase64EncodesAsMemoryBlockDoes") = []
+{
+    check(toJuceBase64("") == "0.");
+    check(toJuceBase64(hostComponent()) == "15..Df.+6ePBA3dhDlH5DSe");
+    check(toJuceBase64(hostController()) == "5.iQGa.7O");
+
+    // The fixture's blob, which JUCE wrote, comes back character for character.
+    check(toJuceBase64(blob()) == apvtsBase64);
+
+    // Every length round trips, whichever bits the last character carries.
+    auto bytes = std::string {};
+
+    for (auto i = 0; i < 40; ++i)
+    {
+        check(fromJuceBase64(toJuceBase64(bytes)) == std::optional {bytes});
+        bytes += static_cast<char>(i * 37 + 200);
+    }
+};
+
+auto tHostStateFraming = test("JuceCompat/aJuceHostStateIsFramedByteForByte") = []
+{
+    // 0xa6 = 166 and 0x7a = 122: the texts' lengths, 175 and 131 bytes in all.
+    check(hostStateText.size() == 0xa6);
+    check(hostComponentText.size() == 0x7a);
+
+    auto both = framed(hostStateText, '\xa6');
+    auto componentOnly = framed(hostComponentText, '\x7a');
+
+    check(toJuceVST3HostState({hostComponent(), hostController()}) == both);
+    check(toJuceVST3HostState({hostComponent(), std::nullopt}) == componentOnly);
+
+    // A controller that saved nothing is left out, as JUCE leaves it out.
+    check(toJuceVST3HostState({hostComponent(), std::string {}}) == componentOnly);
+
+    // The length is the size less the header and the NUL.
+    check(both.size() == 175);
+    check(isJuceXmlBlob(both));
+};
+
+auto tHostStateReads = test("JuceCompat/aJuceHostStateReadsBack") = []
+{
+    auto both = juceVST3HostState(framed(hostStateText, '\xa6'));
+    check(both.has_value());
+    check(both->component == hostComponent());
+    check(both->controller == std::optional {hostController()});
+
+    auto componentOnly = juceVST3HostState(framed(hostComponentText, '\x7a'));
+    check(componentOnly.has_value());
+    check(componentOnly->component == hostComponent());
+    check(!componentOnly->controller.has_value());
+
+    // Round trips, an empty component included.
+    for (const auto& state: {JuceVST3HostState {hostComponent(), hostController()},
+                             JuceVST3HostState {"", std::nullopt},
+                             JuceVST3HostState {std::string(5000, '\x7f'), "x"}})
+    {
+        auto read = juceVST3HostState(toJuceVST3HostState(state));
+        check(read.has_value());
+        check(read->component == state.component);
+        check(read->controller == state.controller);
+    }
+
+    // An indented document, as another writer might print it, reads the same.
+    auto indented = std::string_view {
+        "<?xml version=\"1.0\"?>\n<VST3PluginState>\n  <IComponent>15..Df.+6ePB"
+        "A3dhDlH5DSe</IComponent>\n</VST3PluginState>\n"};
+    auto blob = std::string {"VC2!"};
+    blob += static_cast<char>(indented.size());
+    blob += std::string(3, '\0');
+    blob += indented;
+    blob += '\0';
+    check(juceVST3HostState(blob).has_value());
+    check(juceVST3HostState(blob)->component == hostComponent());
+};
+
+auto tHostStateRefuses = test("JuceCompat/onlyAVST3PluginStateIsAJuceHostState") = []
+{
+    // A plugin's own chunk is no host state: a JUCE plugin's "VC2!" JSON (a
+    // JSON payload in the XML frame, as Modalics' plugins write theirs), another
+    // XML root, raw JSON and nothing at all.
+    auto json = std::string_view {"{\"gestureRoutes\":[],\"version\":1}"};
+    auto jsonBlob = std::string {"VC2!"};
+    jsonBlob += static_cast<char>(json.size());
+    jsonBlob += std::string(3, '\0');
+    jsonBlob += json;
+    jsonBlob += '\0';
+
+    check(!juceVST3HostState(jsonBlob).has_value());
+    check(!juceVST3HostState(bytesOf(apvtsBlob)).has_value());
+    check(!juceVST3HostState(json).has_value());
+    check(!juceVST3HostState("").has_value());
+    check(!juceVST3HostState(hostStateText).has_value());
+};
 } // namespace
 } // namespace JuceCompatTests
