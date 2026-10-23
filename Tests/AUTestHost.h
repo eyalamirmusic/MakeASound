@@ -186,6 +186,26 @@ inline AudioComponent twinGroupsComponent()
     return component;
 }
 
+// JucePort::absentChannelsDescription(), MINDst-Drums' bus shape, once.
+inline AudioComponent absentChannelsComponent()
+{
+    static auto* component = []
+    {
+        auto info = AU::componentInfoFor(portModule(),
+                                         JucePort::absentChannelsDescription());
+        auto desc =
+            AudioComponentDescription {.componentType = info.type,
+                                       .componentSubType = info.subtype,
+                                       .componentManufacturer = info.manufacturer};
+        return AudioComponentRegister(&desc,
+                                      CFSTR("MakeASound Tests: Absent Channels"),
+                                      0x10000,
+                                      &portFactory);
+    }();
+
+    return component;
+}
+
 using HostBuffers::HostBus;
 using HostBuffers::SentMidi;
 

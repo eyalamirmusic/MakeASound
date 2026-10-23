@@ -585,11 +585,10 @@ void Adapter::bindBuses(Vst::ProcessData& data) noexcept
 {
     const auto& layout = pluginWrapper.busLayout();
 
+    // A null table, as null channel pointers (a JUCE host's inactive bus), is the
+    // wrapper's to fill with silent scratch of the bus's width.
     auto channelsOf = [](const Vst::AudioBusBuffers& bus)
-    {
-        return bus.channelBuffers32 == nullptr ? 0
-                                               : static_cast<int>(bus.numChannels);
-    };
+    { return std::max(0, static_cast<int>(bus.numChannels)); };
 
     auto numInputs =
         std::min(layout.inputs.size(), static_cast<int>(data.numInputs));

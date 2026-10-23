@@ -150,6 +150,29 @@ auto tInstrumentProcess = test("Allocations/vst3InstrumentProcessIsOffTheHeap") 
     check(host.outputEvents.getEventCount() > 0);
 };
 
+// Inactive buses as JUCE hosts pass them: every channel pointer null, which the
+// wrapper replaces with scratch prepared at activation.
+auto tNullChannels = test("Allocations/vst3NullChannelPointersAreOffTheHeap") = []
+{
+    auto host = AdapterHost<AbsentChannelsPlugin> {};
+    auto nulls = std::vector<float*>(2, nullptr);
+    auto count = 0;
+
+    for (auto size: {64, 17, 1, 63, 0})
+    {
+        fillBusyBlock(host, size, false, size);
+        host.inputBuses[1].channelBuffers32 = nulls.data();
+        host.outputBuses[1].channelBuffers32 = nulls.data();
+        count += allocationsIn([&] { host.run(); });
+    }
+
+    // The empty block processes nothing.
+    check(count == 0);
+    check(host.plugin().processed == 4);
+    check(host.plugin().nullChannels == 0);
+    check(host.plugin().narrowBuses == 0);
+};
+
 auto tSetParamNormalized =
     test("Allocations/vst3SetParamNormalizedIsOffTheHeap") = []
 {

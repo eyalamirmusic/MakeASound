@@ -427,6 +427,80 @@ auto tUnity = test("VST3/aBlockAtUnityPassesTheInput") = []
     }
 };
 
+// A JUCE host (pluginval among them) hands an inactive bus its channel count with
+// every channel pointer null (juce_VST3PluginFormat_test.cpp). The plugin sees
+// silent scratch there, the active buses are untouched, and nothing is written
+// to the host through a null pointer.
+auto tNullChannels =
+    test("VST3/nullChannelPointersOfAnInactiveBusAreSilentScratch") = []
+{
+    auto host = AdapterHost<AbsentChannelsPlugin> {};
+    auto& plugin = host.plugin();
+    auto nulls = std::vector<float*>(2, nullptr);
+
+    for (auto ch = 0; ch < 2; ++ch)
+        for (auto s = 0; s < blockSize; ++s)
+            host.inputs[0].storage[ch][s] = 0.01f * static_cast<float>(s + ch);
+
+    auto expected = host.inputs[0].storage;
+
+    // Sidechain and Aux 1 inactive; Aux 2 active.
+    host.fillBlock(blockSize);
+    host.inputBuses[1].channelBuffers32 = nulls.data();
+    host.outputBuses[1].channelBuffers32 = nulls.data();
+    check(host.run() == Steinberg::kResultOk);
+
+    check(plugin.processed == 1);
+    check(plugin.nullChannels == 0);
+    check(plugin.narrowBuses == 0);
+    check(plugin.loudSidechainSamples == 0);
+    check(host.outputs[0].storage == expected);
+
+    for (const auto& channel: host.outputs[2].storage)
+        check(std::all_of(
+            channel.begin(), channel.end(), [](auto s) { return s == 3.f; }));
+
+    check(nulls[0] == nullptr && nulls[1] == nullptr);
+
+    // One null channel among real ones, on a shorter block: the real one is
+    // written, and only for the block's length.
+    for (auto& channel: host.outputs[2].storage)
+        std::fill(channel.begin(), channel.end(), 0.f);
+
+    auto mixed = std::vector<float*> {host.outputs[2].pointers[0], nullptr};
+    host.fillBlock(blockSize / 2);
+    host.inputBuses[1].channelBuffers32 = nulls.data();
+    host.outputBuses[1].channelBuffers32 = nulls.data();
+    host.outputBuses[2].channelBuffers32 = mixed.data();
+    check(host.run() == Steinberg::kResultOk);
+
+    check(plugin.processed == 2);
+    check(plugin.nullChannels == 0);
+    check(plugin.narrowBuses == 0);
+    check(plugin.loudSidechainSamples == 0);
+
+    const auto& aux = host.outputs[2].storage;
+    check(std::all_of(aux[0].begin(),
+                      aux[0].begin() + blockSize / 2,
+                      [](auto s) { return s == 3.f; }));
+    check(std::all_of(aux[0].begin() + blockSize / 2,
+                      aux[0].end(),
+                      [](auto s) { return s == 0.f; }));
+    check(
+        std::all_of(aux[1].begin(), aux[1].end(), [](auto s) { return s == 0.f; }));
+
+    // No table at all for the inactive buses: the same as null pointers.
+    host.fillBlock(blockSize);
+    host.inputBuses[1].channelBuffers32 = nullptr;
+    host.outputBuses[1].channelBuffers32 = nullptr;
+    check(host.run() == Steinberg::kResultOk);
+
+    check(plugin.processed == 3);
+    check(plugin.nullChannels == 0);
+    check(plugin.narrowBuses == 0);
+    check(host.outputs[0].storage == expected);
+};
+
 auto tPlayhead = test("VST3/thePlayheadArrivesConverted") = []
 {
     auto host = AdapterHost<GainPlugin> {};
