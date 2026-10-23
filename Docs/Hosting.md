@@ -24,14 +24,19 @@ the hosting itself, with no UI:
 - a `ScanSession` whose workers are the app relaunched;
 - the database listed and filtered (`filterPlugins`);
 - a load through `FormatManager::load`, with `hostedEditors()` as the editors;
-- the plugin run by `Engine` on the default devices, duplex only when it has an
-  input;
+- the plugin run by `Engine` on the devices and MIDI inputs the user picked,
+  kept as the standalone keeps its own (`Standalone::Settings`, re-pointed at
+  today's devices by name through `resolveConfig` and `resolvePortIds`); with
+  nothing picked, the default output, duplex only when the plugin has an input,
+  and every MIDI input;
 - `syncEditorWithProcessor()` from a UI timer.
 
 [`Main.cpp`](../Apps/PluginHost/Main.cpp) answers `--makeasound-scan` before
 anything else, then puts one window on it (filter, Scan, Rescan All, the list,
-Show Editor, a status line) and the plugin's editor in a second window that
-resizes when the plugin asks. The tests drive the `Host` class headless over the
+Show Editor, Audio / MIDI, a status line), the plugin's editor in a second window
+that resizes when the plugin asks, and the standalone's `SettingsPanel` in a
+third, picking the output and input devices and channels, the sample rate, the
+block size and the MIDI inputs. The tests drive the `Host` class headless over the
 fixture plugins, and run the app binary as its own scan worker.
 
 ## Loading and running a plugin
@@ -254,5 +259,4 @@ The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 
 - **Windows hosted-editor tests** (pixels and points against a DPI): the code is
   in, built and tested on macOS only so far.
-- A typing keyboard and device and MIDI pickers in `Apps/PluginHost`, which plays
-  on the default devices and every MIDI input.
+- A typing keyboard in `Apps/PluginHost`.
