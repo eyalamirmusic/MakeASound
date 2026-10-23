@@ -149,11 +149,21 @@ public:
 
     bool isRunning() const;
 
+    // The targets being scanned right now, in the order they started, for a
+    // progress display ("Scanning: A.vst3, B.component"). A target is in it
+    // from just before its onTargetStarted until just before its
+    // onTargetFinished.
+    Vector<std::string> inFlightTargets() const;
+
     void setAutoPoll(bool shouldAutoPoll);
     void setPollIntervalMs(int intervalToUse);
 
     // Callbacks, all on the calling thread.
     std::function<void(const ScanSessionPlan&)> onStarted;
+
+    // One per target, as its worker starts; the plan's toScan in all, unless
+    // the sweep is cancelled first.
+    std::function<void(const std::string& target)> onTargetStarted;
 
     // One per target scanned, in the order they landed. `index` is 1-based and
     // `total` is the plan's toScan.

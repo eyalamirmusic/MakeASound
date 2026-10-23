@@ -119,6 +119,10 @@ struct ScanCoordinator::Impl
 
         launchUpToLimit();
 
+        // onTargetStarted runs the caller's code too.
+        if (!running)
+            return;
+
         if (jobs.empty() && nextPending >= pending.size())
             finish();
     }
@@ -171,17 +175,24 @@ struct ScanCoordinator::Impl
 
     void launchUpToLimit()
     {
-        while (jobs.size() < maxConcurrent && nextPending < pending.size())
+        while (running && jobs.size() < maxConcurrent
+               && nextPending < pending.size())
         {
+            auto target = pending[nextPending++];
             auto& job = jobs.create();
 
-            job.target = pending[nextPending++];
+            job.target = target;
             job.startedAtMs = nowMs();
 
             if (mode == ScanMode::InProcess)
                 startInProcess(job);
             else
                 startSubprocess(job);
+
+            // Last: the caller may cancel or restart from inside, which `job`
+            // would not survive.
+            if (owner.onTargetStarted)
+                owner.onTargetStarted(target);
         }
     }
 
@@ -396,6 +407,16 @@ int ScanCoordinator::completed() const
 int ScanCoordinator::total() const
 {
     return impl->totalCount;
+}
+
+Vector<std::string> ScanCoordinator::inFlightTargets() const
+{
+    auto targets = Vector<std::string>();
+
+    for (const auto& job: impl->jobs)
+        targets.add(job.target);
+
+    return targets;
 }
 
 } // namespace MakeASound::Hosting

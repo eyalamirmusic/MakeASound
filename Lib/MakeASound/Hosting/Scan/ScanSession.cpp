@@ -32,6 +32,12 @@ struct ScanSession::Impl
         // forever.
         useFormatStamps(cache, formats);
 
+        coordinator.onTargetStarted = [this](const std::string& target)
+        {
+            if (owner.onTargetStarted)
+                owner.onTargetStarted(target);
+        };
+
         coordinator.onModuleScanned = [this](const ModuleScan& scan)
         { deliver(scan); };
 
@@ -277,6 +283,11 @@ void ScanSession::cancel()
 bool ScanSession::isRunning() const
 {
     return impl->running;
+}
+
+Vector<std::string> ScanSession::inFlightTargets() const
+{
+    return impl->coordinator.inFlightTargets();
 }
 
 void ScanSession::setAutoPoll(bool shouldAutoPoll)
