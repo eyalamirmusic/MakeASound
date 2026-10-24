@@ -1845,6 +1845,91 @@ auto tInfoChanged = test("VST3/parameterInfoChangedRestartsTitles") = []
     check(host.handler.restartsWith(Vst::kParamTitlesChanged) == 1);
 };
 
+// Renames its parameters at run time, with one the host never sees between the
+// two it does.
+struct RetitlingPlugin : Plugin
+{
+    struct Param : FloatParam
+    {
+        using FloatParam::FloatParam;
+        using FloatParam::setDisplayInfo;
+    };
+
+    struct Params : ParameterGroup
+    {
+        Params() { add(first, internal, second); }
+
+        Param first {"Gain", 0.f, 1.f, 0.5f, {.shortName = "Gn"}};
+        Param internal {"Internal", 0.f, 1.f, 0.f, {.automatable = false}};
+        Param second {"Pan", 0.f, 1.f, 0.5f};
+    };
+
+    RetitlingPlugin() { setParameters(ParameterList {params}); }
+
+    std::string_view name() const override { return "Retitling"; }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    void retitle()
+    {
+        params.first.setDisplayInfo("Volume", {}, {});
+        params.second.setDisplayInfo("Balance", {}, {});
+        refreshParameterNames();
+    }
+
+    Params params;
+};
+
+// The host's view, by position in the controller's list rather than by id.
+Vst::ParameterInfo infoAt(Adapter& adapter, int32 index)
+{
+    auto info = Vst::ParameterInfo {};
+    check(adapter.getParameterInfo(index, info) == Steinberg::kResultOk);
+    return info;
+}
+
+auto tRetitle = test("VST3/aRenameRewritesTheTitlesButNoId") = []
+{
+    using MakeASound::VST3::toUtf8;
+
+    auto host = AdapterHost<RetitlingPlugin> {};
+    auto& adapter = *host.adapter;
+    auto firstId = host.hostIdOf(host.plugin().params.first);
+    auto secondId = host.hostIdOf(host.plugin().params.second);
+
+    check(toUtf8(infoAt(adapter, 0).title) == "Gain");
+    check(toUtf8(infoAt(adapter, 0).shortTitle) == "Gn");
+    check(infoAt(adapter, 1).id == secondId);
+
+    host.handler.restarts.clear();
+    host.plugin().retitle();
+
+    check(host.handler.restarts.size() == 1);
+    check(host.handler.restartsWith(Vst::kParamTitlesChanged) == 1);
+
+    check(toUtf8(infoAt(adapter, 0).title) == "Volume");
+    check(toUtf8(infoAt(adapter, 0).shortTitle).empty());
+    check(infoAt(adapter, 0).id == firstId);
+    check(toUtf8(infoAt(adapter, 1).title) == "Balance");
+    check(infoAt(adapter, 1).id == secondId);
+
+    // The state keys stay the ones it was built with.
+    check(adapter.plugin().parameters().entry(0).id == "Gain");
+};
+
+auto tRetitleUnhandled =
+    test("VST3/aRenameWithoutAHandlerIsReadBackWithoutARestart") = []
+{
+    auto host = AdapterHost<RetitlingPlugin> {};
+    host.adapter->setComponentHandler(nullptr);
+    host.handler.restarts.clear();
+
+    host.plugin().retitle();
+
+    check(host.handler.restarts.empty());
+    check(MakeASound::VST3::toUtf8(infoAt(*host.adapter, 0).title) == "Volume");
+};
+
 // The channel context a host hands IInfoListener: strings and integers by key.
 // Stack-owned, so its reference count is a no-op.
 struct TestChannelContext final : Vst::IAttributeList
@@ -2139,6 +2224,192 @@ auto tSetStateRestarts = test("VST3/setStateRestartsParamValues") = []
 
     check(pumpUntil(
         [&] { return target.handler.restartsWith(Vst::kParamValuesChanged) == 2; }));
+};
+
+// A project another release of the plugin saved. NewerGainPlugin is GainPlugin
+// with `drive` added, so each one's session is the other's across an upgrade or
+// a downgrade. The host hands the blob back through setState and replays the
+// lanes by the ids the saving release published, some of which this one never
+// had.
+
+// The newer release's session, every parameter moved, as its getState wrote it.
+std::string newerSession()
+{
+    auto source = AdapterHost<NewerGainPlugin> {};
+    auto& params = source.plugin().params;
+    params.gain.setValue(-12.f);
+    params.drive.setValue(0.9f);
+    params.filter.cutoff.setValue(440.f);
+    params.mode.setValue(2.f);
+    params.width.setValue(0.9f);
+
+    auto stream = Steinberg::MemoryStream {};
+    source.adapter->getState(&stream);
+    return streamText(stream);
+}
+
+// The newer release's drive, which GainPlugin does not have.
+Vst::ParamID removedDriveId()
+{
+    auto newer = AdapterHost<NewerGainPlugin> {};
+    return newer.hostIdOf(newer.plugin().params.drive);
+}
+
+// An id no release of the plugin ever published.
+constexpr auto neverPublishedId = Vst::ParamID {12345};
+
+tresult loadSession(Adapter& adapter, const std::string& bytes)
+{
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream, bytes);
+    return adapter.setState(&stream);
+}
+
+std::vector<float> valuesOf(const MakeASound::ParameterList& list)
+{
+    auto values = std::vector<float> {};
+
+    for (auto i = 0; i < list.size(); ++i)
+        values.push_back(list[i].getValue());
+
+    return values;
+}
+
+auto tNewerSession = test("VST3/aNewerReleasesSessionLoadsWhatThisOneHas") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    check(loadSession(*host.adapter, newerSession()) == Steinberg::kResultOk);
+
+    const auto& params = host.plugin().params;
+    check(near(params.gain.getValue(), -12.f));
+    check(near(params.filter.cutoff.getValue(), 440.f, 1e-2));
+    check(params.mode.getIndex() == 2);
+    check(near(params.width.getValue(), 0.9f));
+    check(host.plugin().parameters().indexOfHostId(removedDriveId()) < 0);
+
+    // What the host repopulates its panels and lanes from.
+    check(near(host.adapter->getParamNormalized(host.hostIdOf(params.gain)),
+               params.gain.toNormalized(-12.f)));
+    check(host.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+};
+
+auto tOlderSession =
+    test("VST3/anOlderReleasesSessionRestoresAddedParametersDefaults") = []
+{
+    auto source = AdapterHost<GainPlugin> {};
+    moveEveryParameter(source.plugin().params);
+
+    auto stream = Steinberg::MemoryStream {};
+    source.adapter->getState(&stream);
+
+    auto host = AdapterHost<NewerGainPlugin> {};
+    auto& params = host.plugin().params;
+    params.drive.setValue(0.6f);
+    check(loadSession(*host.adapter, streamText(stream)) == Steinberg::kResultOk);
+
+    check(near(params.gain.getValue(), -12.f));
+    check(near(params.filter.cutoff.getValue(), 440.f, 1e-2));
+    check(params.mode.getIndex() == 2);
+    check(params.bypass.isOn());
+    check(near(params.width.getValue(), 0.9f));
+
+    // The session never heard of drive, so it is back at its default, and the
+    // host reads that.
+    check(near(params.drive.getValue(), 0.25f));
+    check(near(host.adapter->getParamNormalized(host.hostIdOf(params.drive)),
+               params.drive.toNormalized(0.25f)));
+};
+
+auto tRemovedLanes = test("VST3/aLaneForARemovedParameterIsRefused") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto& adapter = *host.adapter;
+    const auto& list = adapter.plugin().parameters();
+    auto removed = removedDriveId();
+    check(list.indexOfHostId(neverPublishedId) < 0);
+
+    auto before = valuesOf(list);
+
+    check(adapter.setParamNormalized(removed, 0.9) == Steinberg::kResultFalse);
+    check(adapter.setParamNormalized(neverPublishedId, 0.9)
+          == Steinberg::kResultFalse);
+    check(valuesOf(list) == before);
+
+    // Nothing moved, so the next block reports nothing back.
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    auto& gain = host.plugin().params.gain;
+    check(adapter.setParamNormalized(host.hostIdOf(gain), 1.0)
+          == Steinberg::kResultTrue);
+    check(near(gain.getNormalized(), 1.0));
+};
+
+auto tRemovedAutomation =
+    test("VST3/automationForARemovedParameterIsIgnoredInProcess") = []
+{
+    using MakeASound::VST3::shadowIdFor;
+
+    auto host = AdapterHost<GainPlugin> {};
+    const auto& list = host.adapter->plugin().parameters();
+    auto& gain = host.plugin().params.gain;
+    auto gainIndex = list.indexOf(&gain);
+    auto removed = removedDriveId();
+
+    auto expected = valuesOf(list);
+    expected[static_cast<size_t>(gainIndex)] = gain.toPlain(1.f);
+
+    host.clearQueues();
+    host.addPoint(host.hostIdOf(gain), 0, 1.0);
+    host.addPoint(removed, 0, 0.9);
+    host.addPoint(neverPublishedId, 0, 0.9);
+    // A MIDI controller lane from a release that mapped them: this one maps none.
+    host.addPoint(shadowIdFor(3, 0, 7), 0, 0.5);
+    host.fillBlock(blockSize);
+
+    check(host.run() == Steinberg::kResultOk);
+    check(host.plugin().processed == 1);
+    check(near(gain.getNormalized(), 1.0));
+    check(valuesOf(list) == expected);
+
+    // One for a MIDI bus this instrument does not have carries no event.
+    auto synth = AdapterHost<SynthPlugin> {{}, withMidiControllers};
+    synth.addPoint(shadowIdFor(3, 0, 7), 0, 0.5);
+    synth.fillBlock(blockSize);
+
+    check(synth.run() == Steinberg::kResultOk);
+    check(synth.plugin().numEvents == 0);
+};
+
+auto tNewerProject =
+    test("VST3/aNewerProjectsStateLanesAndAutomationRestoreTogether") = []
+{
+    auto host = AdapterHost<GainPlugin> {};
+    auto& adapter = *host.adapter;
+    auto& params = host.plugin().params;
+    auto gainId = host.hostIdOf(params.gain);
+    auto cutoffId = host.hostIdOf(params.filter.cutoff);
+    auto removed = removedDriveId();
+
+    // The host recalls the state...
+    check(loadSession(adapter, newerSession()) == Steinberg::kResultOk);
+
+    // ...replays the lane values it recorded, by the newer release's ids...
+    adapter.setParamNormalized(gainId, params.gain.toNormalized(-12.f));
+    adapter.setParamNormalized(cutoffId, params.filter.cutoff.toNormalized(440.f));
+    check(adapter.setParamNormalized(removed, 0.7) == Steinberg::kResultFalse);
+
+    // ...and plays the recorded automation.
+    host.clearQueues();
+    host.addPoint(gainId, 0, 0.25);
+    host.addPoint(removed, 0, 0.9);
+    host.fillBlock(blockSize);
+    check(host.run() == Steinberg::kResultOk);
+
+    check(near(params.gain.getNormalized(), 0.25));
+    check(near(params.filter.cutoff.getValue(), 440.f, 1e-2));
+    check(params.mode.getIndex() == 2);
+    check(near(params.width.getValue(), 0.9f));
 };
 
 auto tDirty = test("VST3/markChangedSetsTheHostDirty") = []
