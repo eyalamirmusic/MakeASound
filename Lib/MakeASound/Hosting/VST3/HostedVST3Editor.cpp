@@ -71,7 +71,9 @@ struct HostedVST3Editor::Impl
             auto size = EditorSize {toPoints(newSize->getWidth(), owner->scale),
                                     toPoints(newSize->getHeight(), owner->scale)};
 
-            return owner->editor.requestResize(size) ? kResultOk : kResultFalse;
+            // The plugin's own resize, honoured whether or not canResize() lets
+            // the user drag: a fixed-size view still changes its own size.
+            return owner->editor.requestOwnResize(size) ? kResultOk : kResultFalse;
         }
 
         void detach() noexcept { owner = nullptr; }
@@ -234,7 +236,7 @@ void HostedVST3Editor::onAttached()
         auto current = sizeOf(container);
 
         if (reported->width != current.width || reported->height != current.height)
-            requestResize(*reported);
+            requestOwnResize(*reported);
     }
 
     auto rect = rectFor(sizeOf(container), impl->scale);

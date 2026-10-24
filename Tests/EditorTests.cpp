@@ -1,5 +1,6 @@
 // The editor's size policy: EditorConstraints::constrain, the one rule every
-// format applies, and Editor::requestResize's way to its host. Plugin core only.
+// format applies, and Editor::requestResize's and requestOwnResize's way to its
+// host. Plugin core only.
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
@@ -225,6 +226,41 @@ auto tReaches = test("Editor/requestResizeHandsTheHostTheConstrainedSize") = []
     editor.setHost(nullptr);
     check(!editor.requestResize({300, 300}));
     check(host.requests.size() == 2);
+};
+
+auto tOwnFixed = test("Editor/aFixedEditorsOwnResizeReachesTheHost") = []
+{
+    auto host = RecordingHost {};
+    auto editor = PolicyEditor {};
+    editor.limits = {.minimum = {200, 100}, .maximum = {800, 600}};
+
+    check(!editor.requestOwnResize({500, 400}));
+
+    editor.setHost(&host);
+
+    // The user may not drag it, but the editor resizes itself.
+    check(!editor.canRequestResize());
+    check(editor.requestOwnResize({1000, 50}));
+    check(host.requests.size() == 1);
+    check(same(host.requests.back(), {800, 100}));
+
+    host.accepts = false;
+    check(!editor.requestOwnResize({300, 300}));
+    check(host.requests.size() == 2);
+};
+
+auto tOwnResizable = test("Editor/aResizableEditorsOwnResizeIsARequestResize") = []
+{
+    auto host = RecordingHost {};
+    auto editor = PolicyEditor {};
+    editor.limits = ratioLocked({3, 2});
+    editor.setHost(&host);
+
+    check(editor.requestOwnResize({900, 500}));
+    check(editor.requestResize({900, 500}));
+    check(host.requests.size() == 2);
+    check(same(host.requests[0], host.requests[1]));
+    check(onRatio(host.requests[0], {3, 2}));
 };
 } // namespace
 } // namespace EditorTests

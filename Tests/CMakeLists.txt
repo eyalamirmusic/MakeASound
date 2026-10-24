@@ -125,6 +125,9 @@ if (MAKEASOUND_BUILD_PLUGIN)
     if (TARGET MakeASoundStandaloneCore)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandaloneCore)
+
+        # An app that defines no describeModule() links the core.
+        add_subdirectory(StandaloneLink)
     endif ()
 
     if (TARGET MakeASoundStandalone)

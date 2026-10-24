@@ -1,6 +1,9 @@
 // HostFixtureInstrument: MIDI in and out, a stereo output and no audio input. It
 // echoes every MIDI event it gets to its MIDI output and plays a constant level
-// while any note is held, so a host sees both directions.
+// while any note is held, so a host sees both directions. Its editor is fixed-size
+// and resizes itself once it is shown (InstrumentEditor.h).
+
+#include "InstrumentEditor.h"
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
@@ -24,6 +27,11 @@ struct InstrumentPlugin : StatePlugin<State<InstrumentParams>>
         auto layout = BusLayout::instrument();
         layout.midiOutputs.add({"MIDI Out"});
         return layout;
+    }
+
+    OwningPointer<Editor> createEditor() override
+    {
+        return HostFixtures::createInstrumentEditor();
     }
 
     void prepare(const ProcessSpec&) override { held = 0; }

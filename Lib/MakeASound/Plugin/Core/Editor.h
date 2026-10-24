@@ -92,8 +92,17 @@ public:
     bool canRequestResize() const;
 
     // Constrains the size and hands it to the host; false when there is no
-    // host, the editor is not resizable or the host refused.
+    // host, the editor is not resizable or the host refused. What a drag
+    // through ResizeGrip sends: a resize on the user's behalf.
     bool requestResize(EditorSize size);
+
+    // A size the editor settles on itself (its own zoom menu, a tab that needs
+    // more room), whether or not it is resizable: `resizable` says only whether
+    // the user may drag-resize it. Constrained like any size and handed to the
+    // host; false when there is no host or the host refused. A hosted plugin's
+    // own resize request (IPlugFrame::resizeView, an AU view's frame change)
+    // arrives here.
+    bool requestOwnResize(EditorSize size);
 
     // Hands the host a key the editor's view did not consume, so a DAW's
     // shortcuts (spacebar transport) and the standalone's typing keyboard work

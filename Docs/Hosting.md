@@ -168,11 +168,18 @@ a host that passes none gets no editors. `createEditor()` answers a
   plugin's `ViewRect`s are pixels, converted against the child window's DPI, and
   the plugin is told the scale through `setContentScaleFactor`, the only way it
   learns it there. On macOS it is told 1 before attaching. A plugin's
-  `resizeView` becomes `Editor::requestResize`.
+  `resizeView` becomes `Editor::requestOwnResize`.
 - **Audio Units** (`HostedAudioUnitEditor`, macOS): the unit's `CocoaUI` view (an
   AUv3 answers it too through the v2 API), else Apple's `AUGenericView`, which is
   the only resizable kind; a view that changes its own frame asks the host to
-  follow.
+  follow, through `Editor::requestOwnResize`.
+
+`constraints().resizable` is whether the host's user may drag the plugin's window
+(`canResize()` on VST3; only the generic view on AU). A resize the plugin asks for
+itself, from its own zoom menu or a tab change, is honoured either way, as Tamber
+Plug's host did: the hosted editor hands it to its `EditorHost::resizeEditor`
+whether or not the view is resizable, and the plugin hears that it took (VST3
+`kResultOk`).
 
 The platform parts are per-platform TUs (`HostedEditors-<os>.cpp`,
 `VST3/VST3EditorPlatform-<os>.cpp`, `AU/` on macOS). The editor library defines no

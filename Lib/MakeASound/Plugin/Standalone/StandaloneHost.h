@@ -31,7 +31,8 @@ namespace MakeASound::Standalone
 // opens the saved MIDI ports and the stream. Every change made through the host
 // (a config, a MIDI port, a reset) is saved at once, and the destructor saves
 // once more. The settings file holds the stream config, the open MIDI ports by
-// name and the plugin's Session document.
+// name (a virtual output by the name it was opened under) and the plugin's
+// Session document.
 //
 // With no settings file to read, a port under a JUCE id scheme imports what a
 // JUCE build of the plugin's standalone saved, from that build's settings file
@@ -46,7 +47,9 @@ class StandaloneHost
 {
 public:
     // The module's first plugin, its settings at settingsPath(vendor, name), a
-    // JUCE build's at juceImportPath() of its description.
+    // JUCE build's at juceImportPath() of its description. The only member that
+    // needs describeModule(), and in a TU of its own: an app that never calls it
+    // defines no module.
     StandaloneHost();
     explicit StandaloneHost(const ModuleDescription& module);
 
@@ -95,9 +98,18 @@ public:
     Vector<int> openMidiInputs() const { return midiManager.getOpenInputPorts(); }
 
     // Nullopt closes the output. MidiManager cannot say which one is open, so the
-    // host remembers.
+    // host remembers. Replaces a virtual output.
     Error setMidiOutput(std::optional<int> portId);
     std::optional<int> midiOutput() const noexcept { return openOutput; }
+
+    // Opens a virtual MIDI output named `name`, a port every other app on the
+    // machine can subscribe to, and sends the plugin's MIDI out through it, in
+    // place of the port setMidiOutput picked (midiOutput() is then nullopt). An
+    // empty name closes it. Saved by name, so start() opens it again. An error
+    // where the platform has no virtual ports (Windows), and the host then has
+    // no output open.
+    Error setVirtualMidiOutput(const std::string& name);
+    const std::string& virtualMidiOutput() const noexcept { return virtualOutput; }
 
     // Lands at offset 0 of the next block, after that block's hardware MIDI.
     // Message thread (any single non-audio thread); false when the queue is full.
@@ -107,7 +119,8 @@ public:
     // session-only parameters stay where they are.
     void resetPlugin();
 
-    // Closes every MIDI port and restarts the stream on fallbackConfig().
+    // Closes every MIDI port, a virtual output included, and restarts the stream
+    // on fallbackConfig().
     void resetAudioAndMidi();
 
     // Writes the settings file now; a failure is printed, never thrown.
@@ -140,6 +153,8 @@ private:
     void restoreMidi(const Settings& settings);
     Error startEngine(const StreamConfig& config);
     Error openMidiOutput(std::optional<int> portId);
+    Error openVirtualMidiOutput(const std::string& name);
+    void closeMidiOutput();
     void saveSettingsUnchecked();
 
     // The stream and the ports as they are now, with no plugin state. Before
@@ -158,6 +173,7 @@ private:
     std::string defaultState;
     StreamConfig fallback;
     std::optional<int> openOutput;
+    std::string virtualOutput;
 
     // What the constructor read, for start(); empty afterwards.
     std::optional<Settings> saved;

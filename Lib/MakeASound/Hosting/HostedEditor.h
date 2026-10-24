@@ -13,8 +13,9 @@ namespace MakeASound::Hosting
 // The plugin's view parented into an eacp view (macOS NSView, Windows child
 // HWND). Sizes are points on every platform; a format that speaks pixels is
 // converted inside. A resize the plugin asks for goes to the editor's host
-// (Editor::requestResize), and a size the host proposes is offered to the plugin
-// first through constrainSize().
+// (Editor::requestOwnResize) even when constraints() says not resizable, which
+// only keeps the user from dragging it; a size the host proposes is offered to
+// the plugin first through constrainSize().
 class HostedEditor : public Editor
 {
 public:

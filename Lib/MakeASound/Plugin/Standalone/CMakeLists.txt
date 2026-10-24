@@ -24,7 +24,8 @@ add_library(MakeASoundStandaloneCore STATIC
         MidiSender.cpp
         Settings.cpp
         ${juceSettingsPath}
-        StandaloneHost.cpp)
+        StandaloneHost.cpp
+        StandaloneHostDefault.cpp)
 
 target_link_libraries(MakeASoundStandaloneCore PUBLIC MakeASoundPlugin MakeASound eacp-core)
 
@@ -36,6 +37,13 @@ endif ()
 # batch, so linking it pulls in no StandaloneHost, whose default constructor
 # needs a describeModule() the host does not define.
 set_source_files_properties(Settings.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+
+# StandaloneHost's default constructor, which runs describeModule()'s first
+# plugin, in a TU of its own and out of the batch for the same reason: an app
+# that builds its plugin itself and hands it to the (plugin, file) constructor
+# needs no describeModule(). Tests/StandaloneLink links one.
+set_source_files_properties(StandaloneHostDefault.cpp PROPERTIES
+        SKIP_UNITY_BUILD_INCLUSION ON)
 
 set_makeasound_target_settings(MakeASoundStandaloneCore)
 

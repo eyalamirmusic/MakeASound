@@ -59,11 +59,6 @@ OwningPointer<Plugin>
     return module.plugins[0].create();
 }
 
-StandaloneHost::StandaloneHost()
-    : StandaloneHost(describeModule())
-{
-}
-
 StandaloneHost::StandaloneHost(const ModuleDescription& module)
     : pluginWrapper(createFirstPlugin(module),
                     PluginFormat::Standalone,
@@ -165,7 +160,10 @@ void StandaloneHost::restoreMidi(const Settings& settings)
     if (!hasMidiOutput())
         return;
 
-    if (auto id = findPort(settings.midiOutputPort, midiManager.getOutputPorts()))
+    if (!settings.midiVirtualOutput.empty())
+        openVirtualMidiOutput(settings.midiVirtualOutput);
+    else if (auto id =
+                 findPort(settings.midiOutputPort, midiManager.getOutputPorts()))
         openMidiOutput(id);
 }
 
@@ -201,11 +199,41 @@ Error StandaloneHost::setMidiOutput(std::optional<int> portId)
     return error;
 }
 
-Error StandaloneHost::openMidiOutput(std::optional<int> portId)
+Error StandaloneHost::setVirtualMidiOutput(const std::string& name)
+{
+    auto error = openVirtualMidiOutput(name);
+    saveSettings();
+    return error;
+}
+
+void StandaloneHost::closeMidiOutput()
 {
     sender.stop();
     midiManager.closeOutput();
     openOutput.reset();
+    virtualOutput.clear();
+}
+
+Error StandaloneHost::openVirtualMidiOutput(const std::string& name)
+{
+    closeMidiOutput();
+
+    if (name.empty())
+        return Error::NoError;
+
+    auto error = reportIfFailed(midiManager.openVirtualOutput(name));
+
+    if (error != Error::NoError)
+        return error;
+
+    virtualOutput = name;
+    sender.start();
+    return error;
+}
+
+Error StandaloneHost::openMidiOutput(std::optional<int> portId)
+{
+    closeMidiOutput();
 
     if (!portId)
         return Error::NoError;
@@ -283,6 +311,7 @@ Settings StandaloneHost::currentSettings() const
         settings.midiOutputPort =
             portName(*openOutput, midiManager.getOutputPorts());
 
+    settings.midiVirtualOutput = virtualOutput;
     return settings;
 }
 
