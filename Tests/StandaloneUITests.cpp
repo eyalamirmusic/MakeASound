@@ -122,6 +122,35 @@ auto tKeyIgnored = test("Standalone/typingKeyboardIgnoresRepeatsAndChords") = []
     check(typist.events.size() == 1);
 };
 
+// The event form, which the window and the editor's unhandled keys both take.
+auto tKeyEvent = test("Standalone/typingKeyboardPlaysAKeyEvent") = []
+{
+    auto typist = Typist {};
+
+    auto event = eacp::Graphics::KeyEvent {};
+    event.keyCode = Key::A;
+    event.type = eacp::Graphics::KeyEventType::Down;
+    event.modifiers.command = true;
+
+    // A chord plays nothing.
+    check(!typist.keyboard.key(event));
+    check(typist.events.empty());
+
+    event.modifiers.command = false;
+    check(typist.keyboard.key(event));
+    check(typist.events.size() == 1);
+    check(isNoteOn(typist.events[0], 60));
+
+    event.isRepeat = true;
+    check(!typist.keyboard.key(event));
+
+    event.type = eacp::Graphics::KeyEventType::Up;
+    event.isRepeat = false;
+    check(typist.keyboard.key(event));
+    check(typist.events.size() == 2);
+    check(isNoteOff(typist.events[1], 60));
+};
+
 auto tKeyShift = test("Standalone/typingKeyboardReleasesTheNoteItPlayed") = []
 {
     auto typist = Typist {};

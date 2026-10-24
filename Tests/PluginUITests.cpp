@@ -10,6 +10,7 @@
 #include <NanoTest/NanoTest.h>
 
 #include <eacp/Graphics/View/View.h>
+#include <eacp/Graphics/Graphics/Keyboard.h>
 
 #include <cmath>
 #include <vector>
@@ -222,5 +223,65 @@ auto tDrag = test("PluginUI/aGripDragAsksForTheStartSizePlusTheTravel") = []
 
 auto tDragRefused = test("PluginUI/aGripDragIgnoresWhatTheHostDid") = []
 { dragFollowsThePointer(false); };
+
+// Records the keys an editor hands on, and claims them when it is told to.
+struct KeyHost final : EditorHost
+{
+    bool resizeEditor(EditorSize) override { return false; }
+    bool drawsResizeHandle() const override { return true; }
+
+    bool unhandledKey(const Graphics::KeyEvent& key) override
+    {
+        keys.push_back(key);
+        return claims;
+    }
+
+    bool claims = true;
+    std::vector<Graphics::KeyEvent> keys;
+};
+
+Graphics::KeyEvent spaceDown()
+{
+    auto key = Graphics::KeyEvent {};
+    key.keyCode = Graphics::KeyCode::Space;
+    key.type = Graphics::KeyEventType::Down;
+    return key;
+}
+
+auto tKeyHost = test("PluginUI/anUnhandledKeyReachesTheEditorsHost") = []
+{
+    auto plugin = GainPlugin {};
+    auto editor = GenericEditor(plugin);
+
+    // No host, nobody to claim it: the caller sends it on its own way.
+    check(!editor.forwardUnhandledKey(spaceDown()));
+
+    auto host = KeyHost {};
+    editor.setHost(&host);
+    check(editor.forwardUnhandledKey(spaceDown()));
+    check(host.keys.size() == 1);
+    check(host.keys[0].keyCode == Graphics::KeyCode::Space);
+    check(host.keys[0].type == Graphics::KeyEventType::Down);
+
+    host.claims = false;
+    check(!editor.forwardUnhandledKey(spaceDown()));
+    check(host.keys.size() == 2);
+
+    editor.setHost(nullptr);
+    check(!editor.forwardUnhandledKey(spaceDown()));
+    check(host.keys.size() == 2);
+};
+
+// The default is to leave the key to the view's own route.
+auto tKeyDefault = test("PluginUI/aHostLeavesUnhandledKeysAloneByDefault") = []
+{
+    auto plugin = GainPlugin {};
+    auto editor = GenericEditor(plugin);
+    auto host = RecordingHost(editor, true);
+
+    editor.setHost(&host);
+    check(!editor.forwardUnhandledKey(spaceDown()));
+    editor.setHost(nullptr);
+};
 } // namespace
 } // namespace PluginUITests

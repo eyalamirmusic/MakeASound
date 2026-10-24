@@ -535,5 +535,51 @@ auto tHostStateRefuses = test("JuceCompat/onlyAVST3PluginStateIsAJuceHostState")
     check(!juceVST3HostState("").has_value());
     check(!juceVST3HostState(hostStateText).has_value());
 };
+
+struct RetiredParams : ParameterGroup
+{
+    RetiredParams() { add(comp); }
+
+    BoolParam comp {"comp", false};
+};
+
+struct PaddedParams : ParameterGroup
+{
+    PaddedParams()
+    {
+        add(gain);
+        addChild("Retired", retired, {.persistent = false});
+        add(padding);
+    }
+
+    FloatParam gain {"gain", 0.f, 1.f, 0.5f};
+    RetiredParams retired;
+    FloatParam padding {"padding", 0.f, 1.f, 0.f, {.persistent = false}};
+};
+
+auto tApvtsUnpersisted =
+    test("JuceCompat/apvtsLeavesUnpersistedParametersAlone") = []
+{
+    auto params = PaddedParams {};
+    params.retired.comp.setOn(true);
+    params.padding.setValue(0.6f);
+
+    auto xml = std::string_view {
+        "<S><PARAM id=\"gain\" value=\"0.25\"/><PARAM id=\"comp\" value=\"0\"/>"
+        "<PARAM id=\"padding\" value=\"0.1\"/></S>"};
+
+    check(loadApvtsXml(xml, params).has_value());
+    check(near(params.gain.get(), 0.25f));
+    check(params.retired.comp.isOn());
+    check(near(params.padding.get(), 0.6f));
+
+    // Nor does a missing PARAM reset one under MissingPolicy::Default.
+    auto none = std::string_view {"<S/>"};
+    check(
+        loadApvtsXml(none, params, {.missing = MissingPolicy::Default}).has_value());
+    check(near(params.gain.get(), 0.5f));
+    check(params.retired.comp.isOn());
+    check(near(params.padding.get(), 0.6f));
+};
 } // namespace
 } // namespace JuceCompatTests

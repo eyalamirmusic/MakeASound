@@ -99,6 +99,10 @@ public:
         bool automatable = true;
         bool sessionOnly = false;
 
+        // False when it or an enclosing group is not persistent: no saved
+        // state holds it.
+        bool persistent = true;
+
         // True on the one entry bypassIndex() names.
         bool bypass = false;
 
@@ -224,6 +228,7 @@ private:
              std::string_view id,
              std::string_view displayName,
              bool automatable,
+             bool persistent,
              std::span<const ParameterGroup* const> groups);
     void assignIds();
     void assignGroupIds();

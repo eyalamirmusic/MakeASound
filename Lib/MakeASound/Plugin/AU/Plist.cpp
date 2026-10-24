@@ -69,10 +69,30 @@ void writeFooter(std::ofstream& out)
         << "</plist>\n";
 }
 
+// sandboxSafe, or for a module that hosts plugins the resources they need.
+void writeSandboxKeys(std::ofstream& out, bool hostsPlugins, int depth)
+{
+    if (!hostsPlugins)
+    {
+        out << indent(depth) << "<key>sandboxSafe</key><true/>\n";
+        return;
+    }
+
+    auto inner = depth + 1;
+
+    out << indent(depth) << "<key>resourceUsage</key>\n"
+        << indent(depth) << "<dict>\n"
+        << indent(inner) << "<key>network.client</key><true/>\n"
+        << indent(inner)
+        << "<key>temporary-exception.files.all.read-write</key><true/>\n"
+        << indent(depth) << "</dict>\n";
+}
+
 void writeComponent(std::ofstream& out,
                     const ModuleDescription& module,
                     const PluginDescription& plugin,
                     Form form,
+                    bool hostsPlugins,
                     int depth)
 {
     auto info = componentInfoFor(module, plugin);
@@ -92,7 +112,7 @@ void writeComponent(std::ofstream& out,
     if (form == Form::Component)
         writeKey(out, "factoryFunction", "MakeASoundAUFactory", inner);
 
-    out << indent(inner) << "<key>sandboxSafe</key><true/>\n";
+    writeSandboxKeys(out, hostsPlugins, inner);
 
     if (form == Form::AppExtension)
         out << indent(inner) << "<key>tags</key><array><string>"
@@ -104,13 +124,14 @@ void writeComponent(std::ofstream& out,
 void writeComponents(std::ofstream& out,
                      const ModuleDescription& module,
                      Form form,
+                     bool hostsPlugins,
                      int depth)
 {
     out << indent(depth) << "<key>AudioComponents</key>\n"
         << indent(depth) << "<array>\n";
 
     for (const auto& plugin: module.plugins)
-        writeComponent(out, module, plugin, form, depth + 1);
+        writeComponent(out, module, plugin, form, hostsPlugins, depth + 1);
 
     out << indent(depth) << "</array>\n";
 }
@@ -120,7 +141,8 @@ bool writeAudioComponentsPlist(const ModuleDescription& module,
                                std::string_view bundleName,
                                std::string_view bundleId,
                                std::string_view executable,
-                               const std::filesystem::path& output)
+                               const std::filesystem::path& output,
+                               bool hostsPlugins)
 {
     auto out = std::ofstream(output);
 
@@ -140,7 +162,7 @@ bool writeAudioComponentsPlist(const ModuleDescription& module,
     writeKey(out, "CFBundleVersion", module.version);
     writeKey(out, "CFBundleShortVersionString", module.version);
 
-    writeComponents(out, module, Form::Component, 1);
+    writeComponents(out, module, Form::Component, hostsPlugins, 1);
     writeFooter(out);
 
     return out.good();
@@ -171,7 +193,8 @@ bool writeAppExtensionPlist(const ModuleDescription& module,
         << "        <key>NSExtensionAttributes</key>\n"
         << "        <dict>\n";
 
-    writeComponents(out, module, Form::AppExtension, 3);
+    // An app extension's sandbox is its entitlements' to widen, not resourceUsage.
+    writeComponents(out, module, Form::AppExtension, false, 3);
 
     out << "        </dict>\n";
 

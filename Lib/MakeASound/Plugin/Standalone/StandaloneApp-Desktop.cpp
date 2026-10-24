@@ -41,8 +41,15 @@ struct StandaloneApp::Shell
         bool resizeEditor(EditorSize size) override;
         bool drawsResizeHandle() const override { return true; }
 
+        // Played on the typing keyboard, and claimed whether it played or not:
+        // sent on, it would reach this app's own window, which has no use for it.
+        bool unhandledKey(const Graphics::KeyEvent& key) override;
+
         Shell& shell;
     };
+
+    // A key event for the typing keyboard, from a window or the editor.
+    void typeKey(const Graphics::KeyEvent& event);
 
     void createEditorWindow();
     void createSettingsWindow();
@@ -68,18 +75,15 @@ struct StandaloneApp::Shell
     EditorWindowHost editorHost {*this};
 };
 
+void StandaloneApp::Shell::typeKey(const Graphics::KeyEvent& event)
+{
+    if (typingEnabled)
+        typing.key(event);
+}
+
 void StandaloneApp::Shell::KeyRouter::windowKeyEvent(const Graphics::KeyEvent& event)
 {
-    if (!shell.typingEnabled)
-        return;
-
-    auto& mods = event.modifiers;
-
-    if (event.type == Graphics::KeyEventType::Down)
-        shell.typing.keyDown(
-            event.keyCode, event.isRepeat, mods.command || mods.control || mods.alt);
-    else
-        shell.typing.keyUp(event.keyCode);
+    shell.typeKey(event);
 }
 
 void StandaloneApp::Shell::KeyRouter::windowActivationChanged(bool isKey)
@@ -97,6 +101,13 @@ bool StandaloneApp::Shell::EditorWindowHost::resizeEditor(EditorSize size)
     auto actual = window.getSize();
     return std::lround(actual.x) == size.width
            && std::lround(actual.y) == size.height;
+}
+
+bool StandaloneApp::Shell::EditorWindowHost::unhandledKey(
+    const Graphics::KeyEvent& key)
+{
+    shell.typeKey(key);
+    return true;
 }
 
 StandaloneApp::StandaloneApp()

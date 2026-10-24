@@ -33,8 +33,12 @@ void applyParams(const JuceTree& root,
             std::string_view idPath,
             std::string_view,
             bool,
+            bool persistent,
             std::span<const ParameterGroup* const>)
         {
+            if (!persistent)
+                return;
+
             auto juceId = options.mapId ? options.mapId(param, idPath) : param.id();
 
             if (auto found = byId.find(juceId); found != byId.end())

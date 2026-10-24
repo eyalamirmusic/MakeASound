@@ -84,8 +84,9 @@ ParameterList::ParameterList(ParameterGroup& group, ParameterIdentity identity)
                          std::string_view id,
                          std::string_view displayName,
                          bool automatable,
+                         bool persistent,
                          std::span<const ParameterGroup* const> groups)
-                  { add(param, id, displayName, automatable, groups); });
+                  { add(param, id, displayName, automatable, persistent, groups); });
 
     findBypass();
     assignIds();
@@ -97,7 +98,7 @@ void ParameterList::addHostBypass(Parameter& param)
     if (bypass >= 0)
         return;
 
-    add(param, param.id(), param.name(), true, {});
+    add(param, param.id(), param.name(), true, param.isPersistent(), {});
 
     bypass = entries.size() - 1;
     entries[bypass].bypass = true;
@@ -177,6 +178,7 @@ void ParameterList::add(Parameter& param,
                         std::string_view id,
                         std::string_view displayName,
                         bool automatable,
+                        bool persistent,
                         std::span<const ParameterGroup* const> groups)
 {
     auto& entry = entries.add(Entry {});
@@ -185,6 +187,7 @@ void ParameterList::add(Parameter& param,
     entry.displayName = std::string {displayName};
     entry.automatable = automatable;
     entry.sessionOnly = param.isSessionOnly();
+    entry.persistent = persistent;
     entry.hostKey = param.hostKey();
 
     // The groups' part of the display name, which a rename keeps.
