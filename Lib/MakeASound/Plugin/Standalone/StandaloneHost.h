@@ -46,7 +46,9 @@ class StandaloneHost
 {
 public:
     // The module's first plugin, its settings at settingsPath(vendor, name), a
-    // JUCE build's at juceImportPath() of its description.
+    // JUCE build's at juceImportPath() of its description. The only member that
+    // needs describeModule(), and in a TU of its own: an app that never calls it
+    // defines no module.
     StandaloneHost();
     explicit StandaloneHost(const ModuleDescription& module);
 

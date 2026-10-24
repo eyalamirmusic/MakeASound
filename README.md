@@ -568,6 +568,8 @@ makeasound_add_plugin(GainApp
 
 The app includes `<MakeASound/Plugin/Standalone/MakeASoundStandalone.h>`, holds a `StandaloneHost` as its first member and its UI after it, calls `host.start()` in its constructor, and defines `main()` as `return eacp::Apps::run<MyApp>();`. `SettingsPanel`, `GenericEditor` and `editorWindowOptions` are there to reuse. `Plugins/GainApp` is the example: one window with a toolbar of its own above the generic editor.
 
+An app that builds its plugin itself, rather than from a module, links `MakeASoundStandaloneCore` (and `SettingsPanel`, if it wants it, from `MakeASoundStandalone`, whose own default app does need a module) and constructs `StandaloneHost(plugin, settingsFile, juceSettingsFile, identity)`; it defines no `describeModule()`. Only the default constructor, which runs the module's first plugin, names the module, and it sits in a TU of its own, out of the unity batch, so nothing else pulls it in (`Tests/StandaloneLink` links such an app).
+
 A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, shown through the generic editor. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
 
 ## VST3

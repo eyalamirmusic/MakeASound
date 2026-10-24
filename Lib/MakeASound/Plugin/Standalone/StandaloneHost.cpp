@@ -59,11 +59,6 @@ OwningPointer<Plugin>
     return module.plugins[0].create();
 }
 
-StandaloneHost::StandaloneHost()
-    : StandaloneHost(describeModule())
-{
-}
-
 StandaloneHost::StandaloneHost(const ModuleDescription& module)
     : pluginWrapper(createFirstPlugin(module),
                     PluginFormat::Standalone,
