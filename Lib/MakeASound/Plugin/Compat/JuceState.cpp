@@ -453,6 +453,86 @@ std::optional<std::string> fromJuceBase64(std::string_view text)
     }
 }
 
+std::string toJuceBase64(std::string_view bytes)
+{
+    constexpr auto alphabet = std::string_view {
+        ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+"};
+
+    auto numChars = (bytes.size() * 8 + 5) / 6;
+    auto result = std::to_string(bytes.size());
+    result.reserve(result.size() + 1 + numChars);
+    result += '.';
+
+    for (auto i = size_t {0}; i < numChars; ++i)
+    {
+        auto sixBits = 0;
+
+        for (auto b = 0; b < 6; ++b)
+        {
+            auto bit = i * 6 + static_cast<size_t>(b);
+
+            if (bit / 8 < bytes.size()
+                && ((static_cast<uint8_t>(bytes[bit / 8]) >> (bit % 8)) & 1) != 0)
+                sixBits |= 1 << b;
+        }
+
+        result += alphabet[static_cast<size_t>(sixBits)];
+    }
+
+    return result;
+}
+
+std::optional<JuceVST3HostState> juceVST3HostState(std::string_view bytes)
+{
+    auto text = juceXmlText(bytes);
+    auto document = text ? parseJuceXml(*text) : std::nullopt;
+
+    if (!document || document->type != "VST3PluginState")
+        return std::nullopt;
+
+    auto decoded = [&](std::string_view name) -> std::optional<std::string>
+    {
+        const auto* child = document->child(name);
+        return child != nullptr ? fromJuceBase64(child->text) : std::nullopt;
+    };
+
+    auto state = JuceVST3HostState {};
+    state.component = decoded("IComponent").value_or(std::string {});
+    state.controller = decoded("IEditController");
+    return state;
+}
+
+std::string toJuceVST3HostState(const JuceVST3HostState& state)
+{
+    // XmlElement::writeTo with TextFormat().singleLine(): the declaration, one
+    // space, the element; base64 text needs no escaping.
+    auto text = std::string {"<?xml version=\"1.0\" encoding=\"UTF-8\"?> "
+                             "<VST3PluginState><IComponent>"};
+    text += toJuceBase64(state.component);
+    text += "</IComponent>";
+
+    if (state.controller && !state.controller->empty())
+    {
+        text += "<IEditController>";
+        text += toJuceBase64(*state.controller);
+        text += "</IEditController>";
+    }
+
+    text += "</VST3PluginState>";
+
+    // copyXmlToBinary: the magic, the length (the whole size less the 8-byte
+    // header and the NUL), the text, the NUL.
+    auto length = static_cast<uint32_t>(text.size());
+    auto result = std::string {"VC2!"};
+
+    for (auto i = 0; i < 4; ++i)
+        result += static_cast<char>((length >> (8 * i)) & 0xff);
+
+    result += text;
+    result += '\0';
+    return result;
+}
+
 std::optional<std::string> juceSettingsValue(std::string_view propertiesXml,
                                              std::string_view name)
 {

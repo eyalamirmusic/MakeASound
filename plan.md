@@ -770,8 +770,9 @@ further.
   (`packetFor` refuses it; an `AAX_CMidiPacket` holds 4 bytes, so output would
   need splitting into packets regardless of the cap).
 - The hosting side: `Hosting/AU/HostedAudioUnit.cpp` (`MusicDeviceSysEx` out,
-  packet SysEx back in, capped). `VST3HostedPlugin` carries no SysEx either way
-  today, which matters to PluginBuddy as much as the cap does.
+  packet SysEx back in, capped). `VST3HostedPlugin` carries SysEx both ways
+  since 2026-10-23 (H1 below), within the cap: in, the `kDataEvent` points at
+  the input event's own bytes; out, a longer one is dropped.
 - The device side is already uncapped where it matters: ports assemble into
   `MidiBackend::maxSysExBytes` (64 KiB) and hand long dumps to callback mode.
   Only queue mode carries `MIDI::Event`s, so only dumps that fit the cap reach
@@ -1229,3 +1230,17 @@ solves. Either way, AAX output needs its own packet splitting first.
   and its stepCount under the legacy automation type. Golden `JucePort` moved:
   `voices` (an `IntParam`) has VST3 steps 0 under JUCE and JUCELegacyIndex, as
   `JucePort::juceVST3` recorded JUCE publishing; no other golden moved.
+- 2026-10-23 (Modalics port, Phase 4 hosting additions H1-H5, see
+  `Docs/Hosting.md`): H1 `VST3HostedPlugin` carries SysEx both ways within
+  `SysEx::maxBytes` (no arena: the input `kDataEvent` points at the block's own
+  event, the output is copied into a `MIDI::Event`). H2
+  `HostedPlugin::saveControllerState`/`loadControllerState` (a VST3 controller's
+  `getState`/`setState`, empty for an AU). H3 `Compat::juceVST3HostState`,
+  `toJuceVST3HostState`, `toJuceBase64` (`JuceTree` now keeps element text) and,
+  in the hosting library, `Compat::juceHostedUniqueId`/`juceHostedDeprecatedUid`
+  (`Hosting/JuceHostCompat.h`). H4 `ScanSession`/`ScanCoordinator::
+  onTargetStarted` and `inFlightTargets()`. H5
+  `HostedPlugin::indexForControllerIndex` over `Compat::juceParameterTreeOrder`:
+  JUCE's hosts list the flattened parameter tree (VST3 units, AU clumps), every
+  VST3 parameter hidden or not and every AU one with readable info, so both
+  formats map, not only VST3; identity for contiguous groups.

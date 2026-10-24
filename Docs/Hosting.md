@@ -85,6 +85,24 @@ What only a host needs is on `HostedPlugin`:
 | `takeLatencyChanged()` | any | `latencySamples()` moved |
 | `takeIoChanged()` | any | the buses changed: renegotiate and prepare again |
 | `setFallbackPlayhead(p)` | message, not processing | the transport for a context with none; stopped at 120 BPM by default |
+| `saveControllerState()` / `loadControllerState(s)` | message | a VST3 controller's own `getState`/`setState`, which `saveState` leaves out; load it after `loadState`; empty for an AU |
+| `indexForControllerIndex(i)` | any | the `parameters()` index of the parameter a JUCE host listed at `i`, or -1 |
+
+**Sessions a JUCE host saved.** JUCE's VST3 host stored a hosted plugin as
+`copyXmlToBinary` of `<VST3PluginState>` with the component's and the
+controller's state in JUCE base64. `Compat::juceVST3HostState` reads that blob
+and `Compat::toJuceVST3HostState` writes it byte for byte (`Plugin/Compat/
+JuceState.h`); restore it with `loadState(component)` then
+`loadControllerState(controller)`, JUCE's order. An AU's JUCE state is the same
+ClassInfo `saveState` writes. `Compat::juceHostedUniqueId` and
+`juceHostedDeprecatedUid` (`JuceHostCompat.h`, no SDK header) compute the ids
+JUCE's host gave a plugin from its cache row, so a saved description resolves
+without a scan. JUCE listed every parameter, a VST3's hidden ones and an AU's
+unaddressable ones included, its parameter tree flattened (a unit's or a clump's
+parameters gathered where the group first appears,
+`Compat::juceParameterTreeOrder`); `indexForControllerIndex` maps such an index
+here. For a plugin whose groups are contiguous and that hides nothing ahead of a
+visible parameter it is the identity.
 
 The plugin's own GUI reaches the host through the `HostEditListener` slot every
 `Plugin` has: begin, perform and end of each edit by parameter index, plus
@@ -99,6 +117,12 @@ A VST3 load enters the bundle's folder for the span of the load, as JUCE's host
 does, connects a separate controller to its component and hands it the component's
 state before anything asks for a view (some plugins read that state in
 `attached()`).
+
+MIDI reaches a VST3 as note, poly-pressure and SysEx events (`kDataEvent`,
+`kMidiSysEx`, F0 to F7, pointing at the block's own event), and controllers, bend,
+channel pressure and program change through `IMidiMapping`; what the plugin sends
+comes back into `midiOut`, SysEx up to `MIDI::SysEx::maxBytes` (a longer one is
+dropped, as the Audio Unit host drops it).
 
 `prepare()` hands the loaded plugin the `ProcessSpec`'s rate as it is, a `double`
 that need not be whole (VST3's `ProcessSetup::sampleRate` and `ProcessContext`, an

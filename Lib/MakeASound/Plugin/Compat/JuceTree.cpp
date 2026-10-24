@@ -156,8 +156,12 @@ private:
             }
             else if (startsWith("<![CDATA["))
             {
+                auto start = position + 9;
+
                 if (!skipPast("]]>"))
                     return std::nullopt;
+
+                tree.text += text.substr(start, position - 3 - start);
             }
             else if (startsWith("<?"))
             {
@@ -175,9 +179,15 @@ private:
             }
             else
             {
-                // Text, which a ValueTree has no place for.
+                // Text, which a ValueTree has no place for but an XmlElement's
+                // getAllSubText reads.
                 while (!atEnd() && text[position] != '<')
-                    ++position;
+                {
+                    if (text[position] == '&')
+                        entity(tree.text);
+                    else
+                        tree.text += text[position++];
+                }
             }
         }
     }

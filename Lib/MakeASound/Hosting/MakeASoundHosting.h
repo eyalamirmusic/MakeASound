@@ -9,6 +9,7 @@
 #include "HostedPlugin.h"
 #include "HostFormat.h"
 #include "FormatManager.h"
+#include "JuceHostCompat.h"
 #include "Scan/ExecutablePath.h"
 #include "Scan/Scanner.h"
 #include "Scan/ScanWorker.h"

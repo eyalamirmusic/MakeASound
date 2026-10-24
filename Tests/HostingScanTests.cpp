@@ -478,6 +478,83 @@ auto tLimit = test("HostingScan/thePoolNeverRunsMoreWorkersThanTheLimit") = []
     fs::remove_all(folder);
 };
 
+auto tInFlight =
+    test("HostingScan/theTargetsInFlightAreThoseStartedNotFinished") = []
+{
+    const auto folder = freshFolder("inFlight");
+    const auto formats = StubFormats();
+
+    auto targets = Vector<std::string>();
+
+    for (auto name: {"A.vst3", "B.vst3", "C.vst3"})
+        targets.add(makeBundle(folder / name));
+
+    auto coordinator = ScanCoordinator(formats);
+    auto recorder = Recorder();
+    recorder.listenTo(coordinator);
+
+    auto started = Vector<std::string>();
+    auto mostAtOnce = 0;
+    auto consistent = true;
+
+    coordinator.onTargetStarted = [&](const std::string& target)
+    {
+        started.add(target);
+
+        auto inFlight = coordinator.inFlightTargets();
+        mostAtOnce = std::max(mostAtOnce, inFlight.size());
+        consistent = consistent && inFlight.contains(target);
+    };
+
+    coordinator.onModuleScanned = [&](const ModuleScan& scan)
+    {
+        recorder.scans.add(scan);
+        consistent =
+            consistent && !coordinator.inFlightTargets().contains(scan.path);
+    };
+
+    coordinator.setWorkerCommand(fakeWorker("ok", "100"));
+    coordinator.setMaxConcurrent(2);
+    check(coordinator.inFlightTargets().empty());
+
+    // The first two start from inside start(), the third once one finishes.
+    coordinator.start(targets);
+    check(started.size() == 2);
+    check(coordinator.inFlightTargets().size() == 2);
+    check(coordinator.inFlightTargets()[0] == targets[0]);
+
+    check(pumpUntilFinished(coordinator));
+    check(started.size() == 3);
+    check(started == targets);
+    check(mostAtOnce == 2);
+    check(consistent);
+    check(recorder.scans.size() == 3);
+    check(coordinator.inFlightTargets().empty());
+
+    fs::remove_all(folder);
+};
+
+auto tCancelFromStart = test("HostingScan/aCancelFromTargetStartedFinishesOnce") = []
+{
+    const auto folder = freshFolder("cancelFromStart");
+    const auto formats = StubFormats();
+
+    auto coordinator = ScanCoordinator(formats);
+    auto recorder = Recorder();
+    recorder.listenTo(coordinator);
+
+    coordinator.onTargetStarted = [&](const std::string&) { coordinator.cancel(); };
+    coordinator.setWorkerCommand(fakeWorker("hang"));
+    coordinator.start(
+        {makeBundle(folder / "A.vst3"), makeBundle(folder / "B.vst3")});
+
+    check(!coordinator.isRunning());
+    check(recorder.finished == 1);
+    check(coordinator.inFlightTargets().empty());
+
+    fs::remove_all(folder);
+};
+
 auto tCancel = test("HostingScan/cancelStopsTheOutstandingWorkers") = []
 {
     const auto folder = freshFolder("cancel");
@@ -800,6 +877,61 @@ auto tSessionCancel = test("HostingScan/aCancelledSweepSavesWhatItHas") = []
     check(recorder.summary.cancelled);
     check(recorder.summary.saved);
     check(recorder.summary.scanned == 0);
+
+    fs::remove_all(folder);
+};
+
+auto tSessionInFlight = test("HostingScan/aSweepReportsEachTargetAsItStarts") = []
+{
+    const auto folder = freshFolder("sessionInFlight");
+    makeBundle(folder / "Plugins" / "A.vst3");
+    makeBundle(folder / "Plugins" / "B.vst3");
+    makeBundle(folder / "Plugins" / "C.vst3");
+
+    const auto formats = StubFormats();
+
+    auto options = sessionOptions(folder);
+    options.mode = ScanMode::Subprocess;
+    options.worker = fakeWorker("worker");
+    options.jobs = 2;
+
+    auto session = ScanSession(formats, options);
+    auto recorder = SessionRecorder();
+    recorder.listenTo(session);
+
+    auto started = Vector<std::string>();
+    auto consistent = true;
+
+    session.onTargetStarted = [&](const std::string& target)
+    {
+        started.add(target);
+        consistent = consistent && session.inFlightTargets().contains(target)
+                     && session.inFlightTargets().size() <= 2;
+    };
+
+    session.onTargetFinished = [&](int, int, const ModuleScan& scan)
+    {
+        recorder.scans.add(scan);
+        consistent = consistent && !session.inFlightTargets().contains(scan.path);
+    };
+
+    check(session.inFlightTargets().empty());
+    session.start();
+    check(session.inFlightTargets().size() == 2);
+
+    check(pumpUntilFinished(session));
+    check(recorder.finished == 1);
+    check(started.size() == recorder.plan.toScan);
+    check(started.size() == 3);
+    check(consistent);
+    check(recorder.scans.size() == 3);
+    check(session.inFlightTargets().empty());
+
+    // A sweep the cache answers starts nothing.
+    started = Vector<std::string>();
+    session.start();
+    check(pumpUntilFinished(session));
+    check(started.empty());
 
     fs::remove_all(folder);
 };

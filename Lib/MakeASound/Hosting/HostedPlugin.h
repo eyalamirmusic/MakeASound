@@ -81,6 +81,29 @@ public:
     // Unit's). A no-op where the format always tells.
     virtual void refreshParameterValue(int index);
 
+    // Message thread: the state a format keeps apart from saveState's, for a
+    // host that stores both as JUCE's did. A VST3's is its controller's
+    // (IEditController::getState), which saveState leaves out; empty when the
+    // plugin has no controller or saved nothing, and always for a format with
+    // none (an Audio Unit's one ClassInfo is all of it).
+    virtual std::string saveControllerState();
+
+    // Gives the plugin back what saveControllerState() returned, then re-reads
+    // every parameter value. Call it AFTER loadState(), as JUCE's host does
+    // (the component's state, the controller told it, then the controller's
+    // own). Empty bytes, or a format with no controller state, do nothing.
+    virtual void loadControllerState(const std::string& data);
+
+    // The parameters() index of the plugin's parameter `controllerIndex`, counted
+    // as JUCE's host listed them (AudioProcessor::getParameters()), so an index
+    // a JUCE host stored (a macro target, a mapping) finds the same parameter
+    // here; -1 for one this host does not list or past the end. A VST3: every
+    // controller parameter in getParameterInfo order, hidden ones included,
+    // which parameters() leaves out. An Audio Unit: its parameter list with a
+    // clump's parameters gathered where the clump first appears, the ones
+    // neither readable nor writable included. By default the index itself.
+    virtual int indexForControllerIndex(int32_t controllerIndex) const noexcept;
+
     // Once each time the plugin renamed parameters, already re-read into
     // parameters() (names only; ids, order and ranges stay).
     bool takeParameterInfoChanged() noexcept;

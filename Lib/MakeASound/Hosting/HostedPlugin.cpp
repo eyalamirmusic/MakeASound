@@ -12,6 +12,22 @@ void HostedPlugin::refreshParameterValue(int)
 {
 }
 
+std::string HostedPlugin::saveControllerState()
+{
+    return {};
+}
+
+void HostedPlugin::loadControllerState(const std::string&)
+{
+}
+
+int HostedPlugin::indexForControllerIndex(int32_t controllerIndex) const noexcept
+{
+    return controllerIndex >= 0 && controllerIndex < parameters().size()
+               ? static_cast<int>(controllerIndex)
+               : -1;
+}
+
 OwningPointer<Editor> HostedPlugin::createEditor()
 {
     return editors ? editors(*this) : OwningPointer<Editor>();

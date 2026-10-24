@@ -89,7 +89,14 @@ public:
     int completed() const;
     int total() const;
 
+    // The targets being scanned right now, in the order they started: each from
+    // just before its onTargetStarted until just before its onModuleScanned.
+    // Empty when nothing runs.
+    Vector<std::string> inFlightTargets() const;
+
     // Callbacks, all delivered from poll() (or start()/cancel()).
+    // A worker (or thread) was just started for `target`.
+    std::function<void(const std::string& target)> onTargetStarted;
     std::function<void(const ModuleScan&)> onModuleScanned;
     std::function<void(int done, int total)> onProgress;
     std::function<void()> onFinished;

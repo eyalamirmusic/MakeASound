@@ -31,11 +31,17 @@ auto options = MakeASound::Hosting::ScanSessionOptions();
 options.cachePath = MakeASound::Hosting::defaultPluginCachePath("My Host");
 
 auto session = MakeASound::Hosting::ScanSession(formats, options);
+session.onTargetStarted = [](const std::string& target) { ... };
 session.onTargetFinished = [](int done, int total, const ModuleScan& scan) { ... };
 session.onFinished = [](const ScanSessionSummary& summary) { ... };
 session.setAutoPoll(true);
 session.start();
 ```
+
+`onTargetStarted` fires as each worker starts, and `inFlightTargets()` lists the
+targets being scanned at any moment, in the order they started, for a "Scanning:
+…" line; a target leaves it just before its `onTargetFinished`. `ScanCoordinator`
+has the same pair.
 
 `ScanMode::InProcess` runs the same scans on a background thread of the host, with
 no isolation at all. It exists for tests and for stepping through a format in a

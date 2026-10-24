@@ -1,13 +1,16 @@
 #include "../../Plugin/VST3/VST3Common.h"
 #include "VST3HostedPlugin.h"
+#include "../JuceHostCompat.h"
 
 #include <base/source/fobject.h>
 #include <public.sdk/source/common/memorystream.h>
 #include <public.sdk/source/vst/utility/stringconvert.h>
+#include <pluginterfaces/vst/ivstunits.h>
 #include <pluginterfaces/vst/vstspeaker.h>
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace MakeASound::Hosting
 {
@@ -295,23 +298,91 @@ void VST3HostedPlugin::readBusLayout()
     collectMidi(kOutput, layout.midiOutputs);
 }
 
+namespace
+{
+// Each unit's parent, as JUCE's host reads them (initialiseParameterList): the
+// IUnitInfo of the component, else of the controller, from unit index 1, the
+// root (index 0) being its own.
+std::map<UnitID, UnitID> unitParents(IComponent* component,
+                                     IEditController* controller)
+{
+    auto parents = std::map<UnitID, UnitID>();
+    auto units = FUnknownPtr<IUnitInfo>(component);
+
+    if (!units)
+        units = FUnknownPtr<IUnitInfo>(controller);
+
+    if (!units)
+        return parents;
+
+    for (auto i = int32 {1}; i < units->getUnitCount(); ++i)
+    {
+        auto unit = UnitInfo();
+        units->getUnitInfo(i, unit);
+        parents[unit.id] = unit.parentUnitId;
+    }
+
+    return parents;
+}
+
+// A unit's group path, outermost first. An unknown unit (or parent) is the
+// root, as JUCE files it.
+Vector<int64_t> unitPath(UnitID unit, const std::map<UnitID, UnitID>& parents)
+{
+    constexpr auto maxDepth = 64;
+    auto path = Vector<int64_t>();
+
+    while (unit != kRootUnitId && path.size() < maxDepth)
+    {
+        auto found = parents.find(unit);
+
+        if (found == parents.end())
+            break;
+
+        path.insert(0, static_cast<int64_t>(unit));
+        unit = found->second;
+    }
+
+    return path;
+}
+} // namespace
+
 void VST3HostedPlugin::buildParameters()
 {
+    // Per controller parameter: its storage index or -1, and its unit path.
+    auto listed = Vector<int>();
+    auto paths = Vector<Vector<int64_t>>();
+
     if (controller)
     {
+        auto parents = unitParents(component, controller);
+
         for (auto i = int32 {0}; i < controller->getParameterCount(); ++i)
         {
             auto info = ParameterInfo();
+            auto valid = controller->getParameterInfo(i, info) == kResultOk;
+
+            paths.add(valid ? unitPath(info.unitId, parents) : Vector<int64_t>());
 
             // A hidden parameter is the plugin's own plumbing, most often the
             // thousands its IMidiMapping maps controllers onto: never shown, and
             // reached through MIDI rather than by index.
-            if (controller->getParameterInfo(i, info) == kResultOk
-                && (info.flags & ParameterInfo::kIsHidden) == 0)
+            if (valid && (info.flags & ParameterInfo::kIsHidden) == 0)
+            {
+                listed.add(storage.size());
                 storage.add(EA::makeOwned<VST3HostedParameter>(
                     *controller, info, static_cast<VST3ParameterSink&>(*this)));
+            }
+            else
+            {
+                listed.add(-1);
+            }
         }
     }
+
+    // JUCE counted every parameter, in its unit tree's order.
+    for (auto position: Compat::juceParameterTreeOrder(paths))
+        controllerIndices.add(listed[position]);
 
     group.addAll(storage);
 
@@ -341,6 +412,14 @@ VST3HostedParameter* VST3HostedPlugin::findParameter(ParamID id) const noexcept
 int VST3HostedPlugin::indexOfParamId(ParamID id) const noexcept
 {
     return parameters().indexOf(findParameter(id));
+}
+
+int VST3HostedPlugin::indexForControllerIndex(int32_t controllerIndex) const noexcept
+{
+    if (controllerIndex < 0 || controllerIndex >= controllerIndices.size())
+        return -1;
+
+    return controllerIndices[static_cast<int>(controllerIndex)];
 }
 
 bool VST3HostedPlugin::applyArrangement(const BusLayout& proposed) const
@@ -679,6 +758,19 @@ void VST3HostedPlugin::pushMidi(ProcessContext& context) noexcept
                 out.polyPressure.noteId = -1;
                 inputEvents.addEvent(out);
             }
+            else if (const auto* sysEx = event.asSysEx())
+            {
+                // F0 to F7, as JUCE's host sends it. The bytes are the input
+                // event's own, which outlives the block, so nothing is copied.
+                if (sysEx->size <= 0)
+                    continue;
+
+                out.type = Event::kDataEvent;
+                out.data.type = DataEvent::kMidiSysEx;
+                out.data.size = static_cast<uint32>(sysEx->size);
+                out.data.bytes = sysEx->data.data();
+                inputEvents.addEvent(out);
+            }
             else
             {
                 // Controllers, bend, channel pressure and program change reach a
@@ -784,6 +876,21 @@ void VST3HostedPlugin::readOutputEvents(ProcessContext& context) noexcept
             case Event::kLegacyMIDICCOutEvent:
                 addLegacyController(event.midiCCOut, event.sampleOffset, target);
                 break;
+
+            case Event::kDataEvent:
+            {
+                // Copied into the event, so the plugin's bytes may go with its
+                // list. Past MIDI::SysEx::maxBytes it is dropped, as the Audio
+                // Unit host drops it.
+                auto size = static_cast<int>(event.data.size);
+
+                if (event.data.type == DataEvent::kMidiSysEx
+                    && event.data.bytes != nullptr && size > 0
+                    && size <= MIDI::SysEx::maxBytes)
+                    target.add(MIDI::Event::sysEx(
+                        event.data.bytes, size, event.sampleOffset));
+                break;
+            }
 
             default:
                 break;
@@ -982,6 +1089,39 @@ void VST3HostedPlugin::loadState(std::string_view data, StateContext)
     }
 
     // The controller now holds values the cache has never seen.
+    refreshValues();
+}
+
+// VST3Common.h, first in this TU, renames IEditController's getState and
+// setState to getEditorState and setEditorState: these are the controller's.
+std::string VST3HostedPlugin::saveControllerState()
+{
+    if (!controller)
+        return {};
+
+    auto stream = MemoryStream();
+
+    if (controller->getEditorState(&stream) != kResultOk)
+        return {};
+
+    auto size = TSize {};
+    stream.seek(0, IBStream::kIBSeekEnd, &size);
+
+    return {stream.getData(), static_cast<size_t>(size)};
+}
+
+void VST3HostedPlugin::loadControllerState(const std::string& data)
+{
+    if (!controller || data.empty())
+        return;
+
+    auto stream = MemoryStream();
+    auto written = int32 {};
+    stream.write(
+        const_cast<char*>(data.data()), static_cast<int32>(data.size()), &written);
+    stream.seek(0, IBStream::kIBSeekSet, nullptr);
+    controller->setEditorState(&stream);
+
     refreshValues();
 }
 
