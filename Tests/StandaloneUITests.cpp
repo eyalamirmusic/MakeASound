@@ -1,16 +1,19 @@
 // The default app's pieces that need eacp's window tier but no window: the
-// typing keyboard's mapping and the editor window's options.
+// typing keyboard's mapping, the editor window's options and the settings
+// panel's look.
 
 #include "TestEditor.h"
 
 #include <MakeASound/Plugin/Standalone/TypingKeyboard.h>
 #include <MakeASound/Plugin/Standalone/EditorWindow.h>
+#include <MakeASound/Plugin/Standalone/SettingsPanel.h>
 
 #include <NanoTest/NanoTest.h>
 
 #include <eacp/Graphics/Graphics/Keyboard.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -310,6 +313,89 @@ auto tRatioEditor = test("Standalone/aRatioLockedEditorKeepsItsShape") = []
 
     auto dragged = options.effectiveSize({900.f, 300.f});
     check(dragged.x == 2.f * dragged.y);
+};
+
+// The settings panel's look: eacp's default theme and the platform's face
+// unless the app gives its own.
+
+bool sameColour(const eacp::UI::Color& a, const eacp::UI::Color& b)
+{
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+// A rendered pixel, eight bits a channel.
+bool pixelIs(const eacp::Graphics::Image& image,
+             int x,
+             int y,
+             const eacp::UI::Color& expected)
+{
+    auto actual = image.at(x, y);
+    auto near = [](float a, float b) { return std::abs(a - b) <= 2.f / 255.f; };
+
+    return near(actual.r, expected.r) && near(actual.g, expected.g)
+           && near(actual.b, expected.b);
+}
+
+eacp::UI::Theme navyTheme()
+{
+    auto theme = eacp::UI::Theme {};
+    theme.background = {40.f / 255.f, 40.f / 255.f, 88.f / 255.f, 1.f};
+    theme.panel = theme.background;
+    theme.dimText = {1.f, 1.f, 1.f, 1.f};
+
+    return theme;
+}
+
+auto tPanelDefaultLook = test("Standalone/settingsPanelDrawsInEacpsDefaultLook") = []
+{
+    auto devices = MakeASound::DeviceManager {};
+    auto midi = MakeASound::MidiManager {};
+
+    auto desktop = SettingsPanel {devices, midi, {}};
+    const auto& theme = eacp::UI::defaultTheme();
+
+    check(sameColour(desktop.getTheme().background, theme.background));
+    check(sameColour(desktop.getTheme().panel, theme.panel));
+    check(desktop.getFont().family == eacp::UI::defaultUIFontFamily());
+    check(desktop.getFont().pointSize == 13.f);
+
+    auto touch = SettingsPanel {devices, midi, {.touch = true}};
+    check(touch.getFont().pointSize == 17.f);
+};
+
+auto tPanelGivenLook =
+    test("Standalone/settingsPanelWearsTheThemeAndFontItIsGiven") = []
+{
+    auto devices = MakeASound::DeviceManager {};
+    auto midi = MakeASound::MidiManager {};
+
+    auto options = SettingsPanelOptions {};
+    options.theme = navyTheme();
+    options.font = eacp::UI::Font {.family = eacp::UI::defaultUIFontFamily(),
+                                   .pointSize = 11.5f,
+                                   .style = eacp::UI::FontStyle::Bold};
+
+    auto panel = SettingsPanel {devices, midi, options};
+
+    check(sameColour(panel.getTheme().background, options.theme->background));
+    check(sameColour(panel.getTheme().panel, options.theme->panel));
+    check(panel.getFont().pointSize == 11.5f);
+    check(panel.getFont().style == eacp::UI::FontStyle::Bold);
+
+    // Drawn in it: the panel's foot, below its last row, is the theme's
+    // background rather than eacp's.
+    auto width = panel.preferredWidth();
+    auto height = panel.preferredHeight();
+    // Off screen nothing sizes the host's tree, so it is laid out here, as
+    // eacp's own host tests do.
+    panel.setBounds({0.f, 0.f, (float) width, (float) height});
+    panel.resized();
+
+    auto image = panel.renderToImage(1.f);
+
+    check(image.width() == width && image.height() == height);
+    check(pixelIs(image, width / 2, height - 3, options.theme->background));
+    check(pixelIs(image, 3, height / 2, options.theme->background));
 };
 } // namespace
 } // namespace StandaloneUITests

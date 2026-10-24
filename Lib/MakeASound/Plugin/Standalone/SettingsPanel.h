@@ -6,6 +6,7 @@
 #include "../../MIDI/MidiManager.h"
 
 #include <eacp/UI/Host/ComponentHost.h>
+#include <eacp/UI/Widgets/Theme.h>
 
 #include <functional>
 #include <optional>
@@ -22,6 +23,16 @@ struct SettingsPanelOptions
 
     // Rows tall enough for a finger and a larger font: the iOS app's.
     bool touch = false;
+
+    // The panel's look, for an app that dresses its settings like the rest of
+    // its product. The theme colours the background, the captions (dimText) and
+    // every stock widget in the panel; unset, eacp's defaultTheme().
+    std::optional<eacp::UI::Theme> theme;
+
+    // The face and size every row draws in, an embedded font registered by the
+    // app included. Unset, the platform's UI face at the rows' own size (13
+    // points, 17 with touch).
+    std::optional<eacp::UI::Font> font;
 
     static SettingsPanelOptions forLayout(const BusLayout& layout);
 };
