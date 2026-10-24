@@ -32,8 +32,12 @@ BusLayout StandaloneProcessor::getBusLayout() const
 
 void StandaloneProcessor::prepare(const ProcessSpec& spec)
 {
-    inputTable.resize(totalChannels(spec.layout.inputs));
+    auto inputChannels = totalChannels(spec.layout.inputs);
+
+    inputTable.resize(inputChannels);
     outputTable.resize(totalChannels(spec.layout.outputs));
+    silence.setSize(inputChannels, std::max(1, spec.maxBlockSize));
+    silence.clear();
 
     // Typed while no stream was running would otherwise all land in the first block.
     auto stale = MIDI::Event {};
@@ -53,6 +57,16 @@ void StandaloneProcessor::reset() noexcept
 bool StandaloneProcessor::injectMidi(const MIDI::Event& event) noexcept
 {
     return injected.push(event);
+}
+
+void StandaloneProcessor::setInputMuted(bool muted) noexcept
+{
+    inputMuted.store(muted, std::memory_order_relaxed);
+}
+
+bool StandaloneProcessor::isInputMuted() const noexcept
+{
+    return inputMuted.load(std::memory_order_relaxed);
 }
 
 void StandaloneProcessor::process(ProcessContext& context) noexcept
@@ -93,6 +107,12 @@ void StandaloneProcessor::bindBuses(ProcessContext& context) noexcept
     auto runLength = [](const Buffer& buffer, int start, int tableSize)
     { return std::clamp(buffer.getNumChannels(), 0, tableSize - start); };
 
+    // Engine prepares for any block longer than the last, so a muted block
+    // fits the silence. One driven by hand that does not is bound as absent
+    // channels, which the wrapper silences in its own way: muted is never the
+    // device's input.
+    auto muted = isInputMuted();
+
     auto inputStart = 0;
 
     for (auto bus = 0; bus < context.inputs.size(); ++bus)
@@ -100,9 +120,25 @@ void StandaloneProcessor::bindBuses(ProcessContext& context) noexcept
         const auto& buffer = context.inputs[bus];
         auto channels = runLength(buffer, inputStart, inputTable.size());
         auto* run = inputTable.data() + inputStart;
+        auto fits = buffer.getNumSamples() <= silence.getNumSamples();
 
         for (auto ch = 0; ch < channels; ++ch)
-            run[ch] = buffer.getChannelPointer(ch);
+        {
+            if (!muted)
+            {
+                run[ch] = buffer.getChannelPointer(ch);
+            }
+            else if (fits)
+            {
+                auto* zeros = silence.getChannelPointer(inputStart + ch);
+                std::fill_n(zeros, buffer.getNumSamples(), 0.f);
+                run[ch] = zeros;
+            }
+            else
+            {
+                run[ch] = nullptr;
+            }
+        }
 
         wrapper.bindInput(bus, run, channels, buffer.getNumSamples());
         inputStart += channels;
