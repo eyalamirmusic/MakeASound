@@ -130,6 +130,30 @@ auto tChoiceByIndex = test("State/loadsAChoiceSavedAsItsIndex") = []
     check(state.params.mode.getIndex() == 2);
 };
 
+// Saved as a JSON bool; a hand-written document may name a label instead.
+auto tBoolLabels = test("State/aBoolLoadsFromItsLabels") = []
+{
+    struct SwitchParams : ParameterGroup
+    {
+        SwitchParams() { add(retrigger); }
+
+        BoolParam retrigger {"Retrigger", false, "Free", "Retrig"};
+    };
+
+    for (const auto* document: {R"({"params":{"Retrigger":"Retrig"}})",
+                                R"({"params":{"Retrigger":" retrig "}})"})
+    {
+        auto state = State<SwitchParams> {};
+        state.deserialize(document);
+        check(state.params.retrigger.isOn(), document);
+    }
+
+    auto state = State<SwitchParams> {};
+    state.params.retrigger.setOn(true);
+    state.deserialize(R"({"params":{"Retrigger":"Free"}})");
+    check(!state.params.retrigger.isOn());
+};
+
 auto tUnknownChoice = test("State/anUnknownChoiceNameRestoresTheDefault") = []
 {
     auto state = State<ToneParams> {};
@@ -199,6 +223,63 @@ auto tNested = test("State/nestedGroupsNestInsideParams") = []
     check(near(loaded.params.osc1.level.get(), 0.3f));
 };
 
+// A composite built out of other units' groups, the way a channel strip is
+// built out of a compressor and an EQ.
+struct StripParams : ParameterGroup
+{
+    StripParams()
+    {
+        add(level);
+        addChild("Tone", tone);
+        add(osc1);
+    }
+
+    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+    ToneParams tone;
+    OscParams osc1 {"Osc 1"};
+};
+
+void moveTone(ToneParams& params)
+{
+    params.gain.setValue(0.73f);
+    params.mode.setValue(2.f);
+    params.bright.setOn(true);
+    params.mix.setValue(0.25f);
+}
+
+// What lets a unit's preset drop into a composite's slot: the document around
+// them is each plugin's own, the tree inside is the unit's.
+auto tEmbeddedUnit = test("State/anEmbeddedGroupWritesTheStandaloneGroupsTree") = []
+{
+    auto standalone = State<ToneParams> {};
+    moveTone(standalone.params);
+
+    auto strip = State<StripParams> {};
+    moveTone(strip.params.tone);
+
+    auto aloneDocument = Miro::Json::getParsedValue(standalone.serialize());
+    auto stripDocument = Miro::Json::getParsedValue(strip.serialize());
+    const auto* aloneTree = Miro::Json::find(aloneDocument.asObject(), "params");
+    const auto* stripTree = Miro::Json::find(stripDocument.asObject(), "params");
+    check(aloneTree != nullptr && stripTree != nullptr);
+
+    if (aloneTree == nullptr || stripTree == nullptr)
+        return;
+
+    const auto* embedded = Miro::Json::find(stripTree->asObject(), "Tone");
+    check(embedded != nullptr);
+
+    if (embedded != nullptr)
+        check(Miro::Json::print(*embedded) == Miro::Json::print(*aloneTree));
+
+    auto loaded = State<StripParams> {};
+    loaded.deserialize(strip.serialize());
+    check(near(loaded.params.tone.gain.get(), 0.73f));
+    check(loaded.params.tone.mode.getIndex() == 2);
+    check(loaded.params.tone.bright.isOn());
+    check(near(loaded.params.tone.mix.get(), 0.25f));
+};
+
 auto tSessionOnly = test("State/aSessionOnlyParameterMovesOnlyInASession") = []
 {
     auto saved = State<SynthParams> {};
@@ -241,6 +322,63 @@ auto tSessionOnlyParams =
 
     loaded.loadParams(session, StateContext::Session);
     check(loaded.params.hand.getIndex() == 2);
+};
+
+// Writes a key only into a session (a file path, say), the way a plugin keeps
+// session-only data that is not a parameter, and records what each half of a
+// round trip was told.
+struct SessionKeyState : State<ToneParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        State::reflect(ref);
+
+        if (ref.isSaving())
+            savedAsSession = MakeASound::isSession(ref);
+        else
+            loadedAsSession = MakeASound::isSession(ref);
+
+        if (MakeASound::isSession(ref))
+            ref["sample"](sample);
+    }
+
+    bool savedAsSession = false;
+    bool loadedAsSession = false;
+    std::string sample = "Kick.wav";
+};
+
+auto tSessionTag = test("State/aStatesOwnReflectSeesTheSessionOnBothHalves") = []
+{
+    auto saved = SessionKeyState {};
+    auto session = saved.serialize(StateContext::Session);
+
+    check(saved.savedAsSession);
+    check(contains(session, R"("sample":"Kick.wav")"));
+
+    auto loaded = SessionKeyState {};
+    loaded.sample.clear();
+    loaded.deserialize(session, StateContext::Session);
+
+    check(loaded.loadedAsSession);
+    check(loaded.sample == "Kick.wav");
+};
+
+auto tPresetSessionKey = test("State/aPresetNeitherCarriesNorMovesASessionKey") = []
+{
+    auto saved = SessionKeyState {};
+    saved.savedAsSession = true;
+    auto preset = saved.serialize(StateContext::Preset);
+
+    check(!saved.savedAsSession);
+    check(!contains(preset, "sample"));
+
+    auto loaded = SessionKeyState {};
+    loaded.loadedAsSession = true;
+    loaded.sample = "Snare.wav";
+    loaded.deserialize(saved.serialize(StateContext::Session), StateContext::Preset);
+
+    check(!loaded.loadedAsSession);
+    check(loaded.sample == "Snare.wav");
 };
 
 struct RetiredParams : ParameterGroup
@@ -400,6 +538,26 @@ auto tInsertedParameter =
         check(index >= 0);
         check(newerList.entry(index).hostId == entry.hostId);
     }
+};
+
+// The other way: a document from the later release, restored by this one.
+auto tNewerDocument = test("State/aNewerReleasesDocumentLoadsWhatThisOneHas") = []
+{
+    auto newer = State<NewerToneParams> {};
+    newer.params.gain.setValue(0.7f);
+    newer.params.drive.setValue(0.9f);
+    newer.params.mode.setValue(0.f);
+    newer.params.bright.setOn(true);
+    newer.params.mix.setValue(0.3f);
+
+    auto older = State<ToneParams> {};
+    older.deserialize(newer.serialize());
+
+    check(near(older.params.gain.get(), 0.7f));
+    check(older.params.mode.getIndex() == 1);
+    check(older.params.bright.isOn());
+    check(near(older.params.mix.get(), 0.3f));
+    check(!contains(older.serialize(), "Drive"));
 };
 
 auto tLoadParams = test("State/loadParamsMovesParametersAndNothingElse") = []
