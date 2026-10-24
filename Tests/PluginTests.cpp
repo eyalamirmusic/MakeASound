@@ -407,6 +407,63 @@ auto tStateRoundTrip = test("Plugin/stateRoundTripsThroughTheWrapper") = []
     check(pluginOf<GainPlugin>(fromPreset).state.preset == "Loud");
 };
 
+// Keeps a key that is not a parameter to a session, through isSession().
+struct SessionKeyState : GainStateOf<GainParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        GainStateOf::reflect(ref);
+
+        if (ref.isLoading())
+            loadedAsSession = isSession(ref);
+
+        if (isSession(ref))
+            ref["sample"](sample);
+    }
+
+    bool loadedAsSession = false;
+    std::string sample = "Kick.wav";
+};
+
+struct SessionKeyPlugin : StatePlugin<SessionKeyState>
+{
+    std::string_view name() const override { return "Session Key"; }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+// Every save and load StatePlugin routes, the off-thread snapshot included,
+// hands the state the context it was given.
+auto tStatePluginContext = test("Plugin/aStatePluginHandsItsStateTheContext") = []
+{
+    auto source = SessionKeyPlugin {};
+    source.state.sample = "Snare.wav";
+    source.state.markChanged();
+
+    auto session = source.saveState(StateContext::Session);
+    check(contains(session, R"("sample":"Snare.wav")"));
+    check(!contains(source.saveState(StateContext::Preset), "sample"));
+
+    check(contains(source.saveStateWithoutMessageThread(StateContext::Session),
+                   R"("sample":"Snare.wav")"));
+    check(!contains(source.saveStateWithoutMessageThread(StateContext::Preset),
+                    "sample"));
+
+    auto target = SessionKeyPlugin {};
+    target.loadState(session, StateContext::Session);
+    check(target.state.loadedAsSession);
+    check(target.state.sample == "Snare.wav");
+
+    target.state.sample = "Hat.wav";
+    target.loadStateExceptParameters(session, StateContext::Preset);
+    check(!target.state.loadedAsSession);
+    check(target.state.sample == "Hat.wav");
+
+    target.loadStateExceptParameters(session, StateContext::Session);
+    check(target.state.loadedAsSession);
+    check(target.state.sample == "Snare.wav");
+};
+
 auto tInsertedParameter =
     test("Plugin/aParameterInsertedMidListKeepsOlderIdsAndValues") = []
 {
