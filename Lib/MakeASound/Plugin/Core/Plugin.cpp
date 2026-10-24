@@ -178,7 +178,7 @@ void Plugin::notifyHostParameterValuesChanged() noexcept
 
 void Plugin::notifyHostStateChanged() noexcept
 {
-    if (editListener != nullptr)
+    if (editListener != nullptr && !stateChangesAreQuiet())
         editListener->stateChanged();
 }
 

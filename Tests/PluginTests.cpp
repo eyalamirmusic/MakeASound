@@ -1840,5 +1840,189 @@ auto tRenameNotifies = test("Plugin/aRenameTellsTheHostOnlyWhenANameChanged") = 
 
     plugin.setHostEditListener(nullptr);
 };
+
+// A plugin that re-stages after a load and captures before a save, each a
+// markChanged() of its own, as one hosting another plugin does.
+struct RestagingState : GainStateOf<GainParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        GainStateOf::reflect(ref);
+        ref["staged"](staged);
+        ref["captured"](captured);
+    }
+
+    std::string staged;
+    std::string captured;
+};
+
+struct RestagingPlugin : StatePlugin<RestagingState>
+{
+    std::string_view name() const override { return "Restaging"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+
+    void loadState(std::string_view data, StateContext context) override
+    {
+        StatePlugin::loadState(data, context);
+        restage();
+    }
+
+    // Every load, the host's included, through the one loadState above.
+    void loadStateExceptParameters(std::string_view data,
+                                   StateContext context) override
+    {
+        loadState(data, context);
+    }
+
+    std::string saveState(StateContext context) override
+    {
+        state.captured = "Capture " + std::to_string(++captures);
+        state.markChanged();
+        return StatePlugin::saveState(context);
+    }
+
+    void restage()
+    {
+        state.staged = "Staged " + state.preset;
+        state.markChanged();
+        state.staged += " twice";
+        state.markChanged();
+    }
+
+    template <typename Fn>
+    void quietly(Fn&& fn)
+    {
+        auto quiet = quietStateChanges();
+        fn();
+    }
+
+    int captures = 0;
+};
+
+bool documentsHold(const RestagingPlugin& plugin, const std::string& part)
+{
+    for (auto context: {StateContext::Preset, StateContext::Session})
+        if (!contains(plugin.state.publishedDocument(context), part))
+            return false;
+
+    return true;
+}
+
+std::string restagingDocument(const std::string& preset)
+{
+    auto source = RestagingPlugin {};
+    source.state.preset = preset;
+    return source.state.serialize(StateContext::Session);
+}
+
+auto tQuietLoad = test("Plugin/aLoadAndItsRestagingNeverDirtyTheHost") = []
+{
+    auto wrapper = makeWrapper<RestagingPlugin>();
+    auto& plugin = pluginOf<RestagingPlugin>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    wrapper.loadState(restagingDocument("Pad"), StateContext::Session);
+
+    check(listener.states == 0);
+    check(plugin.isStateSnapshotCurrent());
+    check(documentsHold(plugin, R"("staged":"Staged Pad twice")"));
+
+    // A load from the host's own thread, whose rest runs here later.
+    auto document = restagingDocument("Lead");
+    auto host =
+        std::thread([&] { wrapper.loadState(document, StateContext::Session); });
+    host.join();
+
+    check(pumpUntil([&] { return plugin.state.preset == "Lead"; }));
+    check(listener.states == 0);
+    check(plugin.isStateSnapshotCurrent());
+    check(documentsHold(plugin, R"("staged":"Staged Lead twice")"));
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tQuietSave = test("Plugin/aSaveThatCapturesStateNeverDirtiesTheHost") = []
+{
+    auto wrapper = makeWrapper<RestagingPlugin>();
+    auto& plugin = pluginOf<RestagingPlugin>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto session = wrapper.saveState(StateContext::Session);
+    check(contains(session, R"("captured":"Capture 1")"));
+
+    auto preset = wrapper.saveState(StateContext::Preset);
+    check(contains(preset, R"("captured":"Capture 2")"));
+
+    check(listener.states == 0);
+    check(plugin.isStateSnapshotCurrent());
+    check(documentsHold(plugin, R"("captured":"Capture 2")"));
+
+    // Off the message thread the host reads the snapshot, which holds it too.
+    auto offThread = std::string();
+    auto host =
+        std::thread([&] { offThread = wrapper.saveState(StateContext::Session); });
+    host.join();
+    check(contains(offThread, R"("captured":"Capture 2")"));
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tGenuineEdit = test("Plugin/anEditOutsideALoadOrSaveDirtiesTheHostOnce") = []
+{
+    auto wrapper = makeWrapper<RestagingPlugin>();
+    auto& plugin = pluginOf<RestagingPlugin>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    wrapper.loadState(restagingDocument("Pad"), StateContext::Session);
+    wrapper.saveState(StateContext::Session);
+    check(listener.states == 0);
+
+    plugin.state.preset = "Edited";
+    plugin.state.markChanged();
+
+    check(listener.states == 1);
+    check(plugin.isStateSnapshotCurrent());
+    check(documentsHold(plugin, R"("preset":"Edited")"));
+
+    plugin.setHostEditListener(nullptr);
+};
+
+// Under the scope the snapshot waits for the outermost one to close, then
+// publishes once with everything marked inside it.
+auto tQuietScope = test("Plugin/quietStateChangesPublishOnceWhenTheyClose") = []
+{
+    auto plugin = RestagingPlugin {};
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    plugin.quietly(
+        [&]
+        {
+            plugin.quietly(
+                [&]
+                {
+                    plugin.state.preset = "Inner";
+                    plugin.restage();
+                });
+
+            check(!plugin.isStateSnapshotCurrent());
+
+            plugin.state.preset = "Outer";
+            plugin.state.markChanged();
+            plugin.notifyHostStateChanged();
+        });
+
+    check(listener.states == 0);
+    check(plugin.isStateSnapshotCurrent());
+    check(documentsHold(plugin, R"("preset":"Outer")"));
+    check(documentsHold(plugin, R"("staged":"Staged Inner twice")"));
+
+    plugin.setHostEditListener(nullptr);
+};
 } // namespace
 } // namespace PluginTests
