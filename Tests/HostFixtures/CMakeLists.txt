@@ -5,7 +5,8 @@
 #
 #   HostFixtureEffect      stereo in and out plus a mono sidechain, a skewed
 #                          parameter
-#   HostFixtureInstrument  MIDI in and out, stereo out
+#   HostFixtureInstrument  MIDI in and out, stereo out, a fixed-size editor that
+#                          resizes itself (none without eacp graphics)
 #   HostFixtureScanCrash   abort()s when the factory creates it
 #   HostFixtureScanHang    sleeps past any scan timeout when created
 #
@@ -33,6 +34,13 @@ foreach (fixture Effect Instrument ScanCrash ScanHang)
             FOLDER Tests/HostFixtures
             SOURCES ${fixture}.cpp)
 endforeach ()
+
+if (TARGET eacp-graphics)
+    target_sources(HostFixtureInstrument PRIVATE InstrumentEditor.cpp)
+    target_link_libraries(HostFixtureInstrument PRIVATE eacp-graphics)
+else ()
+    target_sources(HostFixtureInstrument PRIVATE NoInstrumentEditor.cpp)
+endif ()
 
 set(MAKEASOUND_HOST_FIXTURE_VST3_DIR "${host_fixture_dir}/VST3" PARENT_SCOPE)
 set(MAKEASOUND_HOST_FIXTURE_AU_DIR "${host_fixture_dir}/AU" PARENT_SCOPE)

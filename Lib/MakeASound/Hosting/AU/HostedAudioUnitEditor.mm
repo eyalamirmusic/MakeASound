@@ -132,7 +132,7 @@ struct HostedAudioUnitEditor::Impl
 
         if (static_cast<int>(bounds.w) != size.width
             || static_cast<int>(bounds.h) != size.height)
-            editor->requestResize(size);
+            editor->requestOwnResize(size);
     }
 
     AudioUnit unit = nullptr;
@@ -236,10 +236,10 @@ void HostedAudioUnitEditor::onAttached()
     auto differs = static_cast<int>(frame.size.width) != width
                    || static_cast<int>(frame.size.height) != height;
 
-    // The view's own size wins when the host can follow it; otherwise the view
-    // takes the container's.
+    // The view's own size wins when the host can follow it, custom view or not;
+    // otherwise the view takes the container's.
     if (differs && isUsable(frame.size)
-        && requestResize({static_cast<int>(frame.size.width),
+        && requestOwnResize({static_cast<int>(frame.size.width),
                           static_cast<int>(frame.size.height)}))
         return;
 

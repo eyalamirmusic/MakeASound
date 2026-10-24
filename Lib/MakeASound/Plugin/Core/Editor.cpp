@@ -50,6 +50,14 @@ bool Editor::requestResize(EditorSize size)
     return editorHost->resizeEditor(constraints().constrain(size));
 }
 
+bool Editor::requestOwnResize(EditorSize size)
+{
+    if (editorHost == nullptr)
+        return false;
+
+    return editorHost->resizeEditor(constraints().constrain(size));
+}
+
 bool Editor::forwardUnhandledKey(const eacp::Graphics::KeyEvent& key)
 {
     return editorHost != nullptr && editorHost->unhandledKey(key);

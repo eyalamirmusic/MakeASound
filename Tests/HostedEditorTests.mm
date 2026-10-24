@@ -1,9 +1,11 @@
 // Hosted editors on macOS: a VST3 fixture's view and Audio Units' views (the
 // test module's own, registered here, and Apple's AUDelay) parented into an eacp
 // view embedded in a plain NSView, resized through it, asking to be resized, and
-// removed; and no editor at all for a host that links no editor factory.
+// removed; a fixed-size view resizing itself through either format; and no
+// editor at all for a host that links no editor factory.
 
 #include "AUTestHost.h"
+#include "HostFixtures/InstrumentEditor.h"
 
 #include <MakeASound/Plugin/VST3/VST3Common.h>
 #include <MakeASound/Hosting/MakeASoundHosting.h>
@@ -15,10 +17,13 @@
 #include <eacp/Graphics/Window/EmbeddedView.h>
 #include <eacp/Graphics/Window/NativeChildSurface.h>
 
+#include <eacp/Core/Threads/EventLoop.h>
+
 #include <NanoTest/NanoTest.h>
 
 #import <Cocoa/Cocoa.h>
 
+#include <dlfcn.h>
 #include <filesystem>
 
 using namespace nano;
@@ -219,6 +224,134 @@ auto tAppleView = test("HostedEditor/applesDelayShowsItsOwnView") = []
 
         auto embedding = Embedding(*hosted);
         check(embedding.pluginViews().count == 1);
+    }
+};
+
+// A fixed-size plugin GUI that resizes itself. HostFixtureInstrument's editor
+// is not resizable and asks for HostFixtures::resizedSize once shown; a host
+// that refused it for not being user-resizable would leave the plugin drawing
+// into the wrong size.
+
+bool sameSize(EditorSize a, EditorSize b)
+{
+    return a.width == b.width && a.height == b.height;
+}
+
+// Pumps the loop until the host got the fixture's own resize.
+bool receivedOwnResize(RecordingHost& host)
+{
+    return eacp::Threads::runEventLoopUntil(
+        [&]
+        {
+            for (auto& size: host.requests)
+                if (sameSize(size, HostFixtures::resizedSize))
+                    return true;
+
+            return false;
+        },
+        eacp::Time::MS {3000});
+}
+
+std::string instrumentFixture()
+{
+    return (std::filesystem::path(MAKEASOUND_HOST_FIXTURE_VST3_DIR)
+            / "HostFixtureInstrument.vst3")
+        .string();
+}
+
+// The fixture's own component, registered in this process out of its bundle.
+AudioComponent registerInstrumentUnit()
+{
+    using Factory = void* (*)(const AudioComponentDescription*);
+    static auto registered = AudioComponent {nullptr};
+
+    if (registered != nullptr)
+        return registered;
+
+    auto binary = std::filesystem::path(MAKEASOUND_HOST_FIXTURE_AU_DIR)
+                  / "HostFixtureInstrument.component" / "Contents" / "MacOS"
+                  / "HostFixtureInstrument";
+    auto* module = dlopen(binary.c_str(), RTLD_NOW | RTLD_LOCAL);
+    auto* symbol = module != nullptr ? dlsym(module, "MakeASoundAUFactory") : nullptr;
+
+    if (symbol == nullptr)
+        return nullptr;
+
+    auto description = AudioComponentDescription {
+        .componentType = kAudioUnitType_MusicDevice,
+        .componentSubType = FourCC("HfIn").toUint32(),
+        .componentManufacturer = FourCC("MkTs").toUint32()};
+
+    registered = AudioComponentRegister(
+        &description,
+        CFSTR("MakeASound Tests: Host Fixture"),
+        0x10000,
+        reinterpret_cast<AudioComponentFactoryFunction>(
+            reinterpret_cast<Factory>(symbol)));
+    return registered;
+}
+
+auto tVST3OwnResize = test("HostedEditor/aFixedSizeVST3ViewResizesItself") = []
+{
+    @autoreleasepool
+    {
+        const auto formats = DefaultFormats();
+        auto description = formats.scanTarget(instrumentFixture()).scan.classes[0];
+        auto loaded = formats.load(description, {.editors = hostedEditors()});
+        check(loaded.plugin != nullptr);
+
+        if (loaded.plugin == nullptr)
+            return;
+
+        auto editor = loaded.plugin->createEditor();
+        auto* hosted = dynamic_cast<HostedVST3Editor*>(editor.get());
+        check(hosted != nullptr);
+
+        if (hosted == nullptr)
+            return;
+
+        check(!hosted->constraints().resizable);
+        check(sameSize(hosted->initialSize(), HostFixtures::initialSize));
+
+        auto embedding = Embedding(*hosted);
+        check(receivedOwnResize(embedding.host));
+
+        // resizeView returned kResultOk, so the plugin took the size.
+        check(sameSize(hosted->initialSize(), HostFixtures::resizedSize));
+    }
+};
+
+auto tAudioUnitOwnResize =
+    test("HostedEditor/aFixedSizeAudioUnitViewResizesItself") = []
+{
+    @autoreleasepool
+    {
+        auto component = registerInstrumentUnit();
+        check(component != nullptr);
+
+        if (component == nullptr)
+            return;
+
+        auto loaded = loadAudioUnit(component, {}, {.editors = hostedEditors()});
+        check(loaded.plugin != nullptr);
+
+        if (loaded.plugin == nullptr)
+            return;
+
+        auto editor = loaded.plugin->createEditor();
+        auto* hosted = dynamic_cast<HostedAudioUnitEditor*>(editor.get());
+        check(hosted != nullptr);
+
+        if (hosted == nullptr)
+            return;
+
+        check(hosted->hasCustomView());
+        check(!hosted->constraints().resizable);
+        check(sameSize(hosted->initialSize(), HostFixtures::initialSize));
+
+        auto embedding = Embedding(*hosted);
+        check(receivedOwnResize(embedding.host));
+        check(sameSize(hosted->initialSize(), HostFixtures::resizedSize));
     }
 };
 } // namespace

@@ -411,7 +411,7 @@ MS::OwningPointer<MS::Editor> MyPlugin::createEditor()
 }
 ```
 
-Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it. Where the host's window has no grip of its own (an AU view in Logic), the generic editor draws a `ResizeGrip` in its corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
+Every format opens the editor at its initial size put through `constraints().constrain`, and puts every size the user drags to through the same rule, so a 3:2 editor stays 3:2 in the standalone window, a VST3 host and an AU view. An editor can also ask for a size itself: `requestResize({800, 533})` constrains it and hands it to the host, returning whether the host took it, and refuses outright when the editor is not `resizable`, since that is what a drag through the grip sends. `resizable` says only whether the *user* may drag-resize the editor; a size the editor settles on itself (its own zoom menu, a tab that needs more room) goes through `requestOwnResize`, which is constrained the same way but reaches the host whether or not the editor is resizable, so a fixed-size editor can still change its size. Where the host's window has no grip of its own (an AU view in Logic), the generic editor draws a `ResizeGrip` in its corner; a custom editor adds one the same way when `ResizeGrip::isWantedBy(*this)`.
 
 ### Web editors
 
