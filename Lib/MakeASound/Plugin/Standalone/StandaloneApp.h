@@ -32,6 +32,10 @@ private:
     static void connectSettings(SettingsPanel& panel, StandaloneHost& host);
     static void resetAudioAndMidi(SettingsPanel& panel, StandaloneHost& host);
 
+    // The shell's timer: host.poll(), the panel shown what it reopened.
+    static void pollHost(SettingsPanel& panel, StandaloneHost& host);
+    static constexpr auto pollHz = 1;
+
     StandaloneHost host;
     OwningPointer<Shell> shell;
 };
