@@ -13,6 +13,8 @@ set(virtual_midi_cases
         "^Standalone/theEchoedMidiOutLeavesThroughTheSender$"
         "^Standalone/hostSendsThePluginsMidiOutThroughAVirtualOutput$"
         "^Standalone/hostReopensTheVirtualOutputItSaved$"
+        "^Standalone/pollReopensAPickedInputPluggedBackIn$"
+        "^Standalone/pollReopensAPickedOutputPluggedBackIn$"
         "^Allocations/theMidiInputThreadStaysOffTheHeap$"
         "^Allocations/aLongSysExOnTheMidiThreadStaysOffTheHeap$"
         "^Allocations/theOversizeSysExDropTouchesNothing$"

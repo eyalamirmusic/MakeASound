@@ -3,6 +3,7 @@
 #include "../../Devices/DeviceInfo.h"
 #include "../../MIDI/MidiInfo.h"
 
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -10,12 +11,27 @@
 namespace MakeASound::Standalone
 {
 
+// Where an app's main window was: its top-left corner in eacp screen points,
+// the space of eacp's WindowOptions::initialPosition and Window::getPosition.
+struct WindowPosition
+{
+    bool operator==(const WindowPosition&) const = default;
+
+    float x = 0.f;
+    float y = 0.f;
+
+    MIRO_REFLECT(x, y)
+};
+
+// Every field has a default, and a key missing from the file loads as that
+// default: a file from before a field was added reads as it always did.
 struct Settings
 {
     int version = 1;
     StreamConfig audio;
 
-    // Names, not ids: ids are handed out per launch.
+    // Names, not ids: ids are handed out per launch. The ports the user picked,
+    // whether or not they are plugged in now (StandaloneHost::poll()).
     Vector<std::string> midiInputPorts;
     std::string midiOutputPort;
 
@@ -27,12 +43,34 @@ struct Settings
     // The plugin's Session document.
     std::string pluginState;
 
+    // Whether the plugin hears silence in place of the input device
+    // (StandaloneHost::setInputMuted), against a feedback loop from the
+    // speakers into the microphone.
+    bool inputMuted = false;
+
+    // The app's main window (StandaloneHost::setWindowPosition); none until an
+    // app saves one.
+    std::optional<WindowPosition> window;
+
+    // Keys an app keeps for itself (StandaloneHost::setAppSetting). The host
+    // only stores them.
+    std::map<std::string, std::string> app;
+
+    // True only while StandaloneHost::start() opens the saved stream: a file
+    // that still says so is from a launch that never got past the open (a
+    // driver that hung), and the next launch starts on the fallback instead.
+    bool audioOpenPending = false;
+
     MIRO_REFLECT(version,
                  audio,
                  midiInputPorts,
                  midiOutputPort,
                  midiVirtualOutput,
-                 pluginState)
+                 pluginState,
+                 inputMuted,
+                 window,
+                 app,
+                 audioOpenPending)
 };
 
 // <app support>/<vendor>/<plugin>/settings.json

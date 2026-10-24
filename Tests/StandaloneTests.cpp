@@ -12,10 +12,13 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <optional>
 #include <random>
 #include <string>
 #include <thread>
@@ -169,6 +172,46 @@ auto tMonoMic = test("Standalone/aMonoMicReachesBothSidesOfTheBus") = []
 
     check(stream.outputs[0][5] == inputAt(0, 5));
     check(stream.outputs[1][5] == inputAt(0, 5));
+};
+
+bool allZero(const std::array<Block, 2>& channels)
+{
+    return std::ranges::all_of(
+        channels,
+        [](const Block& block)
+        { return std::ranges::all_of(block, [](float s) { return s == 0.f; }); });
+}
+
+auto tMutedInput = test("Standalone/aMutedInputReachesThePluginAsSilence") = []
+{
+    auto rig = Rig<GainPlugin> {};
+    auto stream = FakeStream {2, 2};
+    auto& plugin = rig.plugin();
+
+    check(!rig.processor.isInputMuted());
+    rig.processor.setInputMuted(true);
+    check(rig.processor.isInputMuted());
+
+    rig.engine.prepare(rig.processor, sampleRate, blockSize);
+    stream.run(rig.engine, true);
+
+    // Neither the plugin's input nor the dry copy in its output heard the
+    // device, and the device's own buffers are as they were.
+    check(plugin.processed == 1);
+    check(allZero(plugin.seenInput));
+    check(allZero(plugin.seenOutput));
+    check(stream.outputs[0][5] == 0.f);
+    check(stream.outputs[1][blockSize - 1] == 0.f);
+    check(stream.inputs[0][5] == inputAt(0, 5));
+
+    stream.run(rig.engine);
+    check(allZero(plugin.seenInput));
+
+    rig.processor.setInputMuted(false);
+    stream.run(rig.engine);
+
+    check(plugin.seenInput[0][5] == inputAt(0, 5));
+    check(stream.outputs[1][5] == inputAt(1, 5));
 };
 
 auto tInjected = test("Standalone/anInjectedEventLandsAtOffsetZero") = []
@@ -430,6 +473,57 @@ auto tSettingsNoVirtual =
     check(loaded.has_value());
     check(loaded->midiOutputPort == "Synth");
     check(loaded->midiVirtualOutput.empty());
+};
+
+auto tSettingsShellFields =
+    test("Standalone/settingsRoundTripTheMuteWindowAppKeysAndGuard") = []
+{
+    auto file = TempFile {};
+
+    auto settings = Settings {};
+    settings.inputMuted = true;
+    settings.window = WindowPosition {120.5f, -40.f};
+    settings.app = {{"lastStateFile", "/Users/me/State.preset"}, {"empty", ""}};
+    settings.audioOpenPending = true;
+
+    check(saveSettings(file.path, settings));
+
+    auto loaded = loadSettings(file.path);
+
+    check(loaded.has_value());
+    check(loaded->inputMuted);
+    check(loaded->window == settings.window);
+    check(loaded->app == settings.app);
+    check(loaded->audioOpenPending);
+
+    // No window saved is no window loaded, not one at the origin.
+    settings.window.reset();
+    check(saveSettings(file.path, settings));
+    loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(!loaded->window.has_value());
+};
+
+auto tSettingsNoShellFields =
+    test("Standalone/settingsFromBeforeTheShellFieldsLoadAsDefaults") = []
+{
+    auto file = TempFile {};
+    std::filesystem::create_directories(
+        std::filesystem::path(file.path).parent_path());
+    std::ofstream(file.path)
+        << R"({"version":1,"midiInputPorts":["Keys"],"midiOutputPort":"Synth",)"
+        << R"("midiVirtualOutput":"","pluginState":"state"})";
+
+    auto loaded = loadSettings(file.path);
+
+    check(loaded.has_value());
+    check(loaded->version == 1);
+    check(loaded->midiInputPorts == Vector<std::string> {"Keys"});
+    check(loaded->pluginState == "state");
+    check(!loaded->inputMuted);
+    check(!loaded->window.has_value());
+    check(loaded->app.empty());
+    check(!loaded->audioOpenPending);
 };
 
 auto tSettingsMissing = test("Standalone/settingsMissingOrGarbageAreNullopt") = []
@@ -967,6 +1061,395 @@ auto tJuceRefused =
     auto host = StandaloneHost {EA::makeOwned<FixturePlugin>(), {}, truncated};
     check(fixtureOf(host).legacyLoads == 1);
     check(JuceFixtures::holdsDefaults(fixtureOf(host).params));
+};
+
+// What an app's shell keeps through the host: the input mute, the window, its
+// own keys, the picked MIDI ports and the open guard.
+
+Settings savedIn(const TempFile& file)
+{
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    return loaded.value_or(Settings {});
+}
+
+auto tHostShellFields = test("Standalone/hostKeepsTheMuteWindowAndAppKeys") = []
+{
+    auto file = TempFile {};
+    auto position = WindowPosition {10.f, 20.5f};
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        check(!host.inputMuted());
+        check(!host.windowPosition().has_value());
+        check(!host.appSetting("lastStateFile").has_value());
+
+        // Each one saved at once.
+        host.setInputMuted(true);
+        check(host.inputMuted());
+        check(savedIn(file).inputMuted);
+
+        host.setWindowPosition(position);
+        check(host.windowPosition() == position);
+        check(savedIn(file).window == position);
+
+        host.setAppSetting("lastStateFile", "/Users/me/State.preset");
+        host.setAppSetting("gone", "soon");
+        host.setAppSetting("gone", std::nullopt);
+        check(!host.appSetting("gone").has_value());
+
+        auto expected = std::map<std::string, std::string> {
+            {"lastStateFile", "/Users/me/State.preset"}};
+        check(host.appSettings() == expected);
+        check(savedIn(file).app == expected);
+    }
+
+    auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+    check(host.inputMuted());
+    check(host.windowPosition() == position);
+    check(host.appSetting("lastStateFile") == "/Users/me/State.preset");
+
+    // A reset of the devices leaves what is not a device alone.
+    host.start();
+    host.resetAudioAndMidi();
+    check(host.inputMuted());
+    check(host.windowPosition() == position);
+    check(host.appSetting("lastStateFile").has_value());
+
+    host.setInputMuted(false);
+    host.setWindowPosition(std::nullopt);
+    check(!savedIn(file).inputMuted);
+    check(!savedIn(file).window.has_value());
+};
+
+auto tHostShellFieldsUnstarted =
+    test("Standalone/hostSavesItsOwnFieldsBeforeStartingWithTheFilesStream") = []
+{
+    auto file = TempFile {};
+
+    auto settings = Settings {};
+    settings.audio.output =
+        StreamParameters(deviceNamed("Speakers", 3, 2, 0), false, 2, 0);
+    settings.midiInputPorts = {"Keys"};
+    check(saveSettings(file.path, settings));
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        host.setInputMuted(true);
+        host.setWindowPosition(WindowPosition {1.f, 2.f});
+        host.setAppSetting("key", "value");
+    }
+
+    auto loaded = savedIn(file);
+    check(loaded.audio.output.has_value());
+    check(loaded.audio.output && loaded.audio.output->device.name == "Speakers");
+    check(loaded.midiInputPorts == settings.midiInputPorts);
+    check(loaded.inputMuted);
+    check(loaded.window == WindowPosition {1.f, 2.f});
+    check(loaded.app.at("key") == "value");
+};
+
+// A plugin that reads the settings file when the stream prepares it, which is
+// inside Engine::start(): what the file said while the open ran.
+struct OpenWatcher : GainPlugin
+{
+    void prepare(const ProcessSpec& spec) override
+    {
+        GainPlugin::prepare(spec);
+
+        auto loaded = loadSettings(path);
+        auto expected = -1;
+        firstPending.compare_exchange_strong(
+            expected, loaded && loaded->audioOpenPending ? 1 : 0);
+    }
+
+    std::string path;
+    std::atomic<int> firstPending {-1};
+};
+
+OpenWatcher& watcherOf(StandaloneHost& host)
+{
+    return static_cast<OpenWatcher&>(host.plugin());
+}
+
+OwningPointer<Plugin> watching(const TempFile& file)
+{
+    auto plugin = EA::makeOwned<OpenWatcher>();
+    plugin->path = file.path;
+    return plugin;
+}
+
+auto tHostGuard = test("Standalone/startMarksTheFileWhileItOpensTheSavedStream") = []
+{
+    auto file = TempFile {};
+
+    auto settings = Settings {};
+    settings.audio.output =
+        StreamParameters(deviceNamed("Speakers", 3, 2, 0), false, 2, 0);
+    check(saveSettings(file.path, settings));
+
+    auto host = StandaloneHost {watching(file), file.path};
+    check(!host.droppedAHungConfig());
+    check(!savedIn(file).audioOpenPending);
+
+    host.start();
+
+    check(watcherOf(host).firstPending == 1);
+    check(!savedIn(file).audioOpenPending);
+};
+
+auto tHostNoGuard = test("Standalone/startOnTheFallbackLeavesTheFileUnmarked") = []
+{
+    // A file with no stream in it: start() opens the fallback, unguarded.
+    auto file = TempFile {};
+    check(saveSettings(file.path, Settings {}));
+
+    auto host = StandaloneHost {watching(file), file.path};
+    host.start();
+
+    check(watcherOf(host).firstPending == 0);
+    check(!savedIn(file).audioOpenPending);
+};
+
+auto tHostHung = test("Standalone/aLaunchThatHungOpeningStartsOnTheFallback") = []
+{
+    auto file = TempFile {};
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        gainOf(host).params.gain.setValue(-6.f);
+    }
+
+    // What a launch that never came back from its open left behind.
+    auto settings = savedIn(file);
+    settings.audio.output =
+        StreamParameters(deviceNamed("Speakers", 3, 2, 0), false, 2, 0);
+    settings.audio.maxBlockSize = 128;
+    settings.midiInputPorts = {"Keys"};
+    settings.inputMuted = true;
+    settings.audioOpenPending = true;
+    check(saveSettings(file.path, settings));
+
+    auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+
+    // Only the stream is dropped.
+    check(host.droppedAHungConfig());
+    check(gainOf(host).params.gain.getValue() == -6.f);
+    check(host.inputMuted());
+
+    host.saveSettings();
+
+    auto loaded = savedIn(file);
+    check(!loaded.audio.output.has_value());
+    check(!loaded.audio.input.has_value());
+    check(!loaded.audioOpenPending);
+    check(loaded.midiInputPorts == settings.midiInputPorts);
+
+    host.start();
+
+    const auto& fallback = host.fallbackConfig();
+    check(host.config().output.has_value() == fallback.output.has_value());
+    check(!host.config().output
+          || host.config().output->device.name == fallback.output->device.name);
+    check(!host.config().input.has_value());
+};
+
+auto tHostPicksKept = test("Standalone/hostKeepsPicksThatAreNotPluggedIn") = []
+{
+    auto file = TempFile {};
+
+    auto settings = Settings {};
+    settings.midiInputPorts = {"No Such Keys", "No Such Keys"};
+    settings.midiOutputPort = "No Such Synth";
+    check(saveSettings(file.path, settings));
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), file.path};
+
+        // Nothing to do before start().
+        check(!host.poll());
+
+        host.start();
+
+        check(host.openMidiInputs().empty());
+        check(!host.midiOutput());
+        check(host.wantedMidiInputs() == settings.midiInputPorts);
+        check(host.wantedMidiOutput() == "No Such Synth");
+        check(!host.poll());
+    }
+
+    // Saved again by the destructor, picks and all.
+    auto loaded = savedIn(file);
+    check(loaded.midiInputPorts == settings.midiInputPorts);
+    check(loaded.midiOutputPort == "No Such Synth");
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), file.path};
+        host.start();
+        host.resetAudioAndMidi();
+        check(host.wantedMidiInputs().empty());
+        check(host.wantedMidiOutput().empty());
+    }
+
+    loaded = savedIn(file);
+    check(loaded.midiInputPorts.empty());
+    check(loaded.midiOutputPort.empty());
+};
+
+std::optional<MidiPortInfo> portNamed(const Vector<MidiPortInfo>& ports,
+                                      const std::string& name)
+{
+    for (const auto& port: ports)
+        if (port.name.find(name) != std::string::npos)
+            return port;
+
+    return std::nullopt;
+}
+
+// Up to two seconds for another client's port to come or go.
+template <typename Done>
+bool eventually(Done&& done)
+{
+    for (auto attempt = 0; attempt < 200; ++attempt)
+    {
+        if (done())
+            return true;
+
+        std::this_thread::sleep_for(10ms);
+    }
+
+    return false;
+}
+
+auto tHostReplugInput = test("Standalone/pollReopensAPickedInputPluggedBackIn") = []
+{
+    auto file = TempFile {};
+    auto name = loopbackName + " Replugged Keys";
+
+    // The controller: a port of another client's, plugged in by opening it.
+    auto keyboard = MidiManager {};
+
+    if (!keyboard.isAvailable()
+        || keyboard.openVirtualOutput(name) != Error::NoError)
+        return;
+
+    auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), file.path};
+    host.start();
+
+    auto port = std::optional<MidiPortInfo> {};
+    auto inputs = [&] { return host.midi().getInputPorts(); };
+
+    if (!eventually([&] { return (port = portNamed(inputs(), name)).has_value(); }))
+        return;
+
+    check(host.setMidiInputOpen(port->id, true) == Error::NoError);
+    check(host.wantedMidiInputs() == Vector<std::string> {port->name});
+    check(!host.poll());
+
+    // Unplugged: the open port goes, the pick stays and is saved.
+    keyboard.closeOutput();
+    check(eventually([&] { return !portNamed(inputs(), name).has_value(); }));
+
+    check(host.poll());
+    check(host.openMidiInputs().empty());
+    check(host.wantedMidiInputs() == Vector<std::string> {port->name});
+
+    host.saveSettings();
+    check(savedIn(file).midiInputPorts == Vector<std::string> {port->name});
+
+    // Plugged back in: the next poll opens it by name.
+    check(keyboard.openVirtualOutput(name) == Error::NoError);
+    check(eventually(
+        [&]
+        {
+            host.poll();
+            return !host.openMidiInputs().empty();
+        }));
+
+    auto reopened = portNamed(inputs(), name);
+    check(reopened.has_value());
+    check(reopened && host.midi().isInputOpen(reopened->id));
+    check(!host.poll());
+
+    // Closing it unpicks it.
+    if (reopened)
+        check(host.setMidiInputOpen(reopened->id, false) == Error::NoError);
+
+    check(host.wantedMidiInputs().empty());
+    check(savedIn(file).midiInputPorts.empty());
+
+    keyboard.closeOutput();
+};
+
+auto tHostReplugOutput =
+    test("Standalone/pollReopensAPickedOutputPluggedBackIn") = []
+{
+    auto name = loopbackName + " Replugged Synth";
+    auto noteOns = std::atomic<int> {0};
+
+    auto countNoteOns = [&](const MidiMessage& message)
+    {
+        if (!message.bytes.empty() && (message.bytes[0] & 0xF0) == 0x90)
+            ++noteOns;
+    };
+
+    // The other app's input, which the host sends to.
+    auto synth = MidiManager {};
+
+    if (!synth.isAvailable() || !synth.openVirtualInput(name, countNoteOns))
+        return;
+
+    auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), {}};
+    host.start();
+
+    auto port = std::optional<MidiPortInfo> {};
+    auto outputs = [&] { return host.midi().getOutputPorts(); };
+
+    if (!eventually([&] { return (port = portNamed(outputs(), name)).has_value(); }))
+        return;
+
+    check(host.setMidiOutput(port->id) == Error::NoError);
+    check(host.wantedMidiOutput() == port->name);
+    check(!host.poll());
+
+    synth.closeAllInputs();
+    check(eventually([&] { return !portNamed(outputs(), name).has_value(); }));
+
+    check(host.poll());
+    check(!host.midiOutput());
+    check(host.wantedMidiOutput() == port->name);
+
+    check(synth.openVirtualInput(name, countNoteOns).has_value());
+    check(eventually(
+        [&]
+        {
+            host.poll();
+            return host.midiOutput().has_value();
+        }));
+
+    // The plugin's MIDI out reaches the port plugged back in: on the device's
+    // stream, or on blocks driven here where there is none.
+    auto stream = FakeStream {0, 2};
+
+    if (!host.engine().isRunning())
+        stream.run(host.engine(), true);
+
+    host.injectMidi(MIDI::Event::noteOn(0, 67, 1.f));
+
+    for (auto wait = 0; wait < 400 && noteOns == 0; ++wait)
+    {
+        if (!host.engine().isRunning())
+            stream.run(host.engine());
+
+        std::this_thread::sleep_for(5ms);
+    }
+
+    check(noteOns == 1);
+
+    check(host.setMidiOutput(std::nullopt) == Error::NoError);
+    check(host.wantedMidiOutput().empty());
+
+    synth.closeAllInputs();
 };
 } // namespace
 } // namespace StandaloneTests
