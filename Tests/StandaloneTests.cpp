@@ -396,6 +396,7 @@ auto tSettingsRoundTrip = test("Standalone/settingsRoundTripThroughAFile") = []
     settings.audio.maxBlockSize = 128;
     settings.midiInputPorts = {"Keys", "Pads"};
     settings.midiOutputPort = "Synth";
+    settings.midiVirtualOutput = "My App";
     settings.pluginState = R"({"version":1,"params":{"Gain":-6}})";
 
     check(saveSettings(file.path, settings));
@@ -412,7 +413,23 @@ auto tSettingsRoundTrip = test("Standalone/settingsRoundTripThroughAFile") = []
     check(loaded->audio.maxBlockSize == 128);
     check(loaded->midiInputPorts == settings.midiInputPorts);
     check(loaded->midiOutputPort == "Synth");
+    check(loaded->midiVirtualOutput == "My App");
     check(loaded->pluginState == settings.pluginState);
+};
+
+auto tSettingsNoVirtual =
+    test("Standalone/settingsFromBeforeVirtualOutputsLoad") = []
+{
+    auto file = TempFile {};
+    std::filesystem::create_directories(
+        std::filesystem::path(file.path).parent_path());
+    std::ofstream(file.path) << R"({"version":1,"midiOutputPort":"Synth"})";
+
+    auto loaded = loadSettings(file.path);
+
+    check(loaded.has_value());
+    check(loaded->midiOutputPort == "Synth");
+    check(loaded->midiVirtualOutput.empty());
 };
 
 auto tSettingsMissing = test("Standalone/settingsMissingOrGarbageAreNullopt") = []
@@ -699,6 +716,119 @@ auto tHostStart = test("Standalone/hostStartsOnAGoneDeviceWithoutCrashing") = []
     check(loaded->midiOutputPort.empty());
     check(!loaded->audio.output
           || loaded->audio.output->device.name != "No Such Device");
+};
+
+// A host's virtual output, as another app on the machine subscribes to it: the
+// input port of that name, in a MidiManager of its own.
+bool subscribeTo(MidiManager& receiver,
+                 const std::string& name,
+                 std::atomic<int>& noteOns)
+{
+    for (auto attempt = 0; attempt < 50; ++attempt)
+    {
+        for (const auto& port: receiver.getInputPorts())
+            if (port.name.find(name) != std::string::npos)
+                return receiver.openInput(port.id,
+                                          [&](const MidiMessage& message)
+                                          {
+                                              if (!message.bytes.empty()
+                                                  && (message.bytes[0] & 0xF0)
+                                                         == 0x90)
+                                                  ++noteOns;
+                                          })
+                       == Error::NoError;
+
+        std::this_thread::sleep_for(10ms);
+    }
+
+    return false;
+}
+
+auto tHostVirtualOut =
+    test("Standalone/hostSendsThePluginsMidiOutThroughAVirtualOutput") = []
+{
+    auto name = loopbackName + " Virtual Out";
+    auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), {}};
+
+    // No virtual ports on this platform (Windows): the host has no output.
+    if (host.setVirtualMidiOutput(name) != Error::NoError)
+    {
+        check(host.virtualMidiOutput().empty());
+        check(!host.midi().isOutputOpen());
+        return;
+    }
+
+    check(host.virtualMidiOutput() == name);
+    check(!host.midiOutput());
+    check(host.midi().isOutputOpen());
+
+    auto receiver = MidiManager {};
+    auto noteOns = std::atomic<int> {0};
+
+    if (!subscribeTo(receiver, name, noteOns))
+        return;
+
+    // The stream: the device's own when there is one, else blocks driven here.
+    host.start();
+    check(host.virtualMidiOutput() == name);
+
+    auto stream = FakeStream {0, 2};
+
+    if (!host.engine().isRunning())
+        stream.run(host.engine(), true);
+
+    host.injectMidi(MIDI::Event::noteOn(0, 67, 1.f));
+
+    for (auto wait = 0; wait < 400 && noteOns == 0; ++wait)
+    {
+        if (!host.engine().isRunning())
+            stream.run(host.engine());
+
+        std::this_thread::sleep_for(5ms);
+    }
+
+    check(noteOns == 1);
+
+    // A picked port replaces it.
+    check(host.setMidiOutput(std::nullopt) == Error::NoError);
+    check(host.virtualMidiOutput().empty());
+    check(!host.midi().isOutputOpen());
+
+    receiver.closeAllInputs();
+};
+
+auto tHostVirtualSaved = test("Standalone/hostReopensTheVirtualOutputItSaved") = []
+{
+    auto file = TempFile {};
+    auto name = loopbackName + " Saved Virtual Out";
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), file.path};
+        host.start();
+
+        if (host.setVirtualMidiOutput(name) != Error::NoError)
+            return;
+    }
+
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(loaded->midiVirtualOutput == name);
+    check(loaded->midiOutputPort.empty());
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), file.path};
+        host.start();
+        check(host.virtualMidiOutput() == name);
+        check(host.midi().isOutputOpen());
+
+        host.resetAudioAndMidi();
+        check(host.virtualMidiOutput().empty());
+        check(!host.midi().isOutputOpen());
+    }
+
+    loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(loaded->midiVirtualOutput.empty());
 };
 
 // What a JUCE build of the plugin's standalone saved.

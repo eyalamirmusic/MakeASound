@@ -11,6 +11,8 @@ set(virtual_midi_cases
         "^Engine/loopbackMidiLandsInsideTheBlock$"
         "^Standalone/hardwareAndInjectedMidiReachThePluginInOrder$"
         "^Standalone/theEchoedMidiOutLeavesThroughTheSender$"
+        "^Standalone/hostSendsThePluginsMidiOutThroughAVirtualOutput$"
+        "^Standalone/hostReopensTheVirtualOutputItSaved$"
         "^Allocations/theMidiInputThreadStaysOffTheHeap$"
         "^Allocations/aLongSysExOnTheMidiThreadStaysOffTheHeap$"
         "^Allocations/theOversizeSysExDropTouchesNothing$"

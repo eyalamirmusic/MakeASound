@@ -19,10 +19,20 @@ struct Settings
     Vector<std::string> midiInputPorts;
     std::string midiOutputPort;
 
+    // A virtual output the host opened under this name, in place of
+    // midiOutputPort (StandaloneHost::setVirtualMidiOutput). A file from before
+    // it has no key, and loads as none.
+    std::string midiVirtualOutput;
+
     // The plugin's Session document.
     std::string pluginState;
 
-    MIRO_REFLECT(version, audio, midiInputPorts, midiOutputPort, pluginState)
+    MIRO_REFLECT(version,
+                 audio,
+                 midiInputPorts,
+                 midiOutputPort,
+                 midiVirtualOutput,
+                 pluginState)
 };
 
 // <app support>/<vendor>/<plugin>/settings.json
