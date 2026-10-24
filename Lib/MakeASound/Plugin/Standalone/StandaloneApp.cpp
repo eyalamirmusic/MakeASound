@@ -42,4 +42,13 @@ void StandaloneApp::resetAudioAndMidi(SettingsPanel& panel, StandaloneHost& host
     panel.refresh();
 }
 
+void StandaloneApp::pollHost(SettingsPanel& panel, StandaloneHost& host)
+{
+    if (!host.poll())
+        return;
+
+    panel.setMidiOutput(host.midiOutput());
+    panel.refresh();
+}
+
 } // namespace MakeASound::Standalone

@@ -19,5 +19,12 @@ auto tBlock = test("Standalone/blockIsOffTheHeap") = []
         [](const auto& plugin, std::string_view what)
         { check(StandaloneAllocation::blockAllocations(plugin) == 0, what); });
 };
+
+auto tMutedBlock = test("Standalone/mutedInputBlockIsOffTheHeap") = []
+{
+    forEachClass(
+        [](const auto& plugin, std::string_view what)
+        { check(StandaloneAllocation::blockAllocations(plugin, true) == 0, what); });
+};
 } // namespace
 } // namespace PluginAllocationsStandalone

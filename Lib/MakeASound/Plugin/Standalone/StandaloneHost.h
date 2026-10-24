@@ -30,9 +30,17 @@ namespace MakeASound::Standalone
 // Construction loads the plugin's session from the settings file; start() then
 // opens the saved MIDI ports and the stream. Every change made through the host
 // (a config, a MIDI port, a reset) is saved at once, and the destructor saves
-// once more. The settings file holds the stream config, the open MIDI ports by
-// name (a virtual output by the name it was opened under) and the plugin's
-// Session document.
+// once more. The settings file holds the stream config, the MIDI ports the user
+// picked by name (a virtual output by the name it was opened under), the
+// plugin's Session document, the input mute, the app's window position and the
+// app's own keys.
+//
+// A picked MIDI port stays picked while it is unplugged: it stays in the file,
+// and poll(), which an app calls on a timer of its own, opens it again once it
+// is back. A start() that opens a saved stream marks the file first
+// (Settings::audioOpenPending) and clears the mark once the open returned; a
+// host constructed over a file still marked drops its saved stream, so a
+// driver that hung the last launch cannot hang this one.
 //
 // With no settings file to read, a port under a JUCE id scheme imports what a
 // JUCE build of the plugin's standalone saved, from that build's settings file
@@ -82,8 +90,22 @@ public:
     // Opens the saved MIDI ports by name and starts the stream on the saved
     // config re-pointed at today's devices (resolveConfig), or on the fallback.
     // A failure is printed to stderr and the host keeps what it has. Call it
-    // before anything below.
+    // before anything below. Opening a saved config is guarded: the file says
+    // audioOpenPending while the open runs, and is saved again once it
+    // returned.
     void start();
+
+    // Whether the constructor found the last launch's open of the saved stream
+    // unfinished (audioOpenPending) and dropped that stream, so start() opens
+    // fallbackConfig(). An app may tell the user.
+    bool droppedAHungConfig() const noexcept { return droppedHungConfig; }
+
+    // Message thread, on a timer the app keeps (a second or so): closes the
+    // open MIDI inputs and output that are no longer plugged in, and opens
+    // every picked port that is plugged in and not open, by name. True when it
+    // opened or closed anything, so a UI showing the ports refreshes. Does
+    // nothing before start().
+    bool poll();
 
     // Restarts the stream on config. The engine may settle on something else
     // (a rate the device lacks), so a UI shows config() afterwards.
@@ -94,13 +116,29 @@ public:
     // default speakers is a feedback loop, so an input is only what a user picks.
     const StreamConfig& fallbackConfig() const noexcept { return fallback; }
 
+    // Opening a port picks its name and closing it unpicks it; the picks are
+    // what the file keeps (wantedMidiInputs()), plugged in or not.
     Error setMidiInputOpen(int portId, bool open);
     Vector<int> openMidiInputs() const { return midiManager.getOpenInputPorts(); }
 
+    // The names of the inputs the user picked, in the order picked, one entry
+    // per port (two controllers of one model are two entries), including any
+    // that are unplugged now.
+    const Vector<std::string>& wantedMidiInputs() const noexcept
+    {
+        return wantedInputs;
+    }
+
     // Nullopt closes the output. MidiManager cannot say which one is open, so the
-    // host remembers. Replaces a virtual output.
+    // host remembers. Replaces a virtual output. The port's name is kept as
+    // the pick (wantedMidiOutput()), and nullopt clears it; a port that fails
+    // to open is no pick.
     Error setMidiOutput(std::optional<int> portId);
     std::optional<int> midiOutput() const noexcept { return openOutput; }
+
+    // The name of the output the user picked, plugged in or not; empty for
+    // none and while a virtual output is open.
+    const std::string& wantedMidiOutput() const noexcept { return wantedOutput; }
 
     // Opens a virtual MIDI output named `name`, a port every other app on the
     // machine can subscribe to, and sends the plugin's MIDI out through it, in
@@ -115,12 +153,39 @@ public:
     // Message thread (any single non-audio thread); false when the queue is full.
     bool injectMidi(const MIDI::Event& event) noexcept;
 
+    // While muted, the plugin hears silence in place of the input device, from
+    // the next block on, so an effect playing through the speakers cannot feed
+    // back through the microphone. The stream keeps its input side open. Saved
+    // at once; off for a new file.
+    void setInputMuted(bool muted);
+    bool inputMuted() const noexcept { return processor.isInputMuted(); }
+
+    // Where the app's main window is, for the app to put it back next launch.
+    // The host only keeps it: nullopt until the app sets one. Saved at once
+    // when it changed.
+    void setWindowPosition(std::optional<WindowPosition> position);
+    const std::optional<WindowPosition>& windowPosition() const noexcept
+    {
+        return window;
+    }
+
+    // Keys the app keeps in the settings file for itself (Settings::app, say
+    // the last state file it saved). Nullopt for a key never set; setting
+    // nullopt removes it. Saved at once when it changed.
+    std::optional<std::string> appSetting(const std::string& key) const;
+    void setAppSetting(const std::string& key, std::optional<std::string> value);
+    const std::map<std::string, std::string>& appSettings() const noexcept
+    {
+        return appValues;
+    }
+
     // The plugin's own state captured at construction, loaded as a Preset so
     // session-only parameters stay where they are.
     void resetPlugin();
 
-    // Closes every MIDI port, a virtual output included, and restarts the stream
-    // on fallbackConfig().
+    // Closes every MIDI port, a virtual output included, forgets the picks and
+    // restarts the stream on fallbackConfig(). The input mute, the window and
+    // the app's keys stay.
     void resetAudioAndMidi();
 
     // Writes the settings file now; a failure is printed, never thrown.
@@ -152,13 +217,15 @@ private:
     void importJuceSettings();
     void restoreMidi(const Settings& settings);
     Error startEngine(const StreamConfig& config);
-    Error openMidiOutput(std::optional<int> portId);
+    Error openMidiOutput(std::optional<int> portId, bool report = true);
     Error openVirtualMidiOutput(const std::string& name);
     void closeMidiOutput();
+    bool openWantedMidiInputs(bool report);
+    bool openWantedMidiOutput(bool report);
     void saveSettingsUnchecked();
 
-    // The stream and the ports as they are now, with no plugin state. Before
-    // start() a save keeps the file's own instead.
+    // The stream as it is now and the picked ports, with no plugin state.
+    // Before start() a save keeps the file's own instead.
     Settings currentSettings() const;
 
     DeviceManager deviceManager;
@@ -174,6 +241,14 @@ private:
     StreamConfig fallback;
     std::optional<int> openOutput;
     std::string virtualOutput;
+    Vector<std::string> wantedInputs;
+    std::string wantedOutput;
+
+    std::optional<WindowPosition> window;
+    std::map<std::string, std::string> appValues;
+    bool openPending = false;
+    bool droppedHungConfig = false;
+    bool started = false;
 
     // What the constructor read, for start(); empty afterwards.
     std::optional<Settings> saved;

@@ -2,6 +2,7 @@
 
 #include <eacp/Graphics/Window/Window.h>
 #include <eacp/UI/UI.h>
+#include <eacp/Core/Threads/Timer.h>
 
 #include <algorithm>
 #include <cmath>
@@ -171,6 +172,9 @@ struct StandaloneApp::Shell
     OwningPointer<Graphics::Window> window;
 
     ScreenHost editorHost;
+
+    // Reopens a picked MIDI port plugged back in. Last, so it stops first.
+    eacp::Threads::Timer pollTimer {[this] { pollHost(panel, host); }, pollHz};
 };
 
 StandaloneApp::StandaloneApp()

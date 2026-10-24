@@ -21,7 +21,7 @@ namespace
 {
 // The driver's block (StandaloneAllocationDriver.h), and what the fixture saw.
 template <typename PluginT>
-int standaloneAllocationsPerBlock(bool inject, int& processed)
+int standaloneAllocationsPerBlock(bool inject, int& processed, bool muted = false)
 {
     return StandaloneAllocation::blockAllocations(
         EA::makeOwned<PluginT>(),
@@ -33,7 +33,8 @@ int standaloneAllocationsPerBlock(bool inject, int& processed)
                 processed = static_cast<SynthPlugin&>(wrapper.plugin()).numEvents;
             else
                 processed = static_cast<GainPlugin&>(wrapper.plugin()).processed;
-        });
+        },
+        muted);
 }
 
 auto tStandaloneEffect = test("Allocations/standaloneEffectBlockIsOffTheHeap") = []
@@ -41,6 +42,16 @@ auto tStandaloneEffect = test("Allocations/standaloneEffectBlockIsOffTheHeap") =
     auto processed = 0;
 
     check(standaloneAllocationsPerBlock<GainPlugin>(false, processed) == 0);
+    check(processed == 2);
+};
+
+auto tStandaloneMuted =
+    test("Allocations/standaloneMutedInputBlockIsOffTheHeap") = []
+{
+    auto processed = 0;
+
+    // The silence is sized in prepare() and cleared in place each block.
+    check(standaloneAllocationsPerBlock<GainPlugin>(false, processed, true) == 0);
     check(processed == 2);
 };
 
