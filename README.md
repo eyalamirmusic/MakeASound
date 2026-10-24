@@ -550,7 +550,7 @@ The app hosts the module's first plugin, run by `Engine`:
 - **The editor window** shows the plugin's own `Editor` when `createEditor()` returns one, and otherwise a generic page: a slider, a dropdown or a checkbox per parameter, with its value text, kept in step with the parameters while it is open. The window opens at the editor's constrained size and keeps every resize within its constraints, with no full screen for an editor locked to a ratio.
 - **Audio / MIDI Settings…** (Cmd+,) picks the output and input devices and channels, the sample rate, the block size, the MIDI inputs and, for a plugin with a MIDI output bus, the port it sends to. Rows a layout cannot use are hidden, and the lists follow devices and ports as they come and go. An instrument opens no capture side, so it asks for no microphone.
 - **The computer MIDI keyboard** (Cmd+K, on by default for a plugin with a MIDI input): `A W S E D F T G Y H U J K O L P ;` play an octave and a half from middle C, `Z` and `X` shift it an octave. Notes held when the window loses focus are released.
-- **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
+- **Settings and state survive a relaunch.** Devices, ports and the plugin's session state are saved to `settings.json` under the platform's app-support directory, in `<vendor>/<plugin name>/`, on every change and on quit. Devices and ports are stored by name and found again on launch, and a device that is gone falls back to the default. A picked MIDI port that is unplugged stays picked, and the app opens it again within a second of it coming back. A launch that hung opening the saved audio device (a driver that never returned) makes the next one start on the default output instead. `Reset Plugin to Defaults` and `Reset Audio / MIDI Settings` are in the app menu.
 
 On iOS the same target is one screen: the editor, fitted to the safe area, under a bar whose `Settings` button swaps it for the device and MIDI settings, with rows sized for a finger and the two resets at the bottom. The app keeps playing in the background (`UIBackgroundModes` `audio`). There is no typing keyboard there yet. Pass `NO_AUDIO_INPUT` for a plugin with no input bus, as the Synth does, and the app's plist carries no microphone string.
 
@@ -570,7 +570,36 @@ The app includes `<MakeASound/Plugin/Standalone/MakeASoundStandalone.h>`, holds 
 
 An app that builds its plugin itself, rather than from a module, links `MakeASoundStandaloneCore` (and `SettingsPanel`, if it wants it, from `MakeASoundStandalone`, whose own default app does need a module) and constructs `StandaloneHost(plugin, settingsFile, juceSettingsFile, identity)`; it defines no `describeModule()`. Only the default constructor, which runs the module's first plugin, names the module, and it sits in a TU of its own, out of the unity batch, so nothing else pulls it in (`Tests/StandaloneLink` links such an app).
 
-A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. An app of your own can publish it instead as a virtual port every other app on the machine subscribes to: after `host.start()`, `host.setVirtualMidiOutput("My App")` opens one in place of the picked port (macOS and Linux; it returns an error on Windows, which has no virtual ports), and the plugin's MIDI out goes there through the same sender. Like the picks, it is saved by name in the settings file (`midiVirtualOutput`) and reopened by the next `start()`; `setMidiOutput` or `resetAudioAndMidi()` closes it. `Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, shown through the generic editor. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
+A plugin's MIDI output goes to the chosen port from a sender thread of its own, since sending is not safe on the audio thread. An app of your own can publish it instead as a virtual port every other app on the machine subscribes to: after `host.start()`, `host.setVirtualMidiOutput("My App")` opens one in place of the picked port (macOS and Linux; it returns an error on Windows, which has no virtual ports), and the plugin's MIDI out goes there through the same sender. Like the picks, it is saved by name in the settings file (`midiVirtualOutput`) and reopened by the next `start()`; `setMidiOutput` or `resetAudioAndMidi()` closes it.
+
+The host keeps what an app's own shell needs across launches, each saved at once like every other change through it:
+
+```cpp
+// Against a feedback loop from the speakers into the microphone: the plugin
+// hears silence in place of the input device from the next block on, and the
+// stream keeps its input open. Off for a new settings file.
+host.setInputMuted(true);
+bool muted = host.inputMuted();
+
+// The main window's top-left in eacp screen points, for WindowOptions::
+// initialPosition next launch; nullopt until the app sets one.
+host.setWindowPosition(Standalone::WindowPosition {x, y});
+std::optional<Standalone::WindowPosition> at = host.windowPosition();
+
+// Keys of the app's own; the host only stores them. Nullopt removes one.
+host.setAppSetting("lastStateFile", path);
+std::optional<std::string> last = host.appSetting("lastStateFile");
+
+// On a timer of the app's (the default app's runs at 1 Hz): closes MIDI ports
+// that were unplugged and opens picked ones that are back. True when it changed
+// anything, so a settings panel refreshes.
+if (host.poll())
+    panel.setMidiOutput(host.midiOutput());
+```
+
+The MIDI picks are names (`wantedMidiInputs()`, `wantedMidiOutput()`): opening a port through the host picks it and closing it unpicks it, and an unplugged pick stays in the settings file until the user closes it or resets. A virtual output replaces the picked output, so it has none. `start()` also guards the open of a saved stream: it saves `audioOpenPending` true first and false once the open returned, and a host constructed over a file that still says true drops the saved stream, so `start()` opens `fallbackConfig()`; `droppedAHungConfig()` tells the app it happened. The new keys (`inputMuted`, `window`, `app`, `audioOpenPending`) load as their defaults from a file written before them.
+
+`Plugins/Synth` is `TestSynth` from `MakeASoundDSP` with its settings on parameters: a monophonic instrument that plays from a hardware port and the typing keyboard, shown through the generic editor. `Plugins/Gain` has a bypass parameter, which VST3 and AU hosts show as their bypass and AAX names as the plug-in's master bypass.
 
 ## VST3
 
