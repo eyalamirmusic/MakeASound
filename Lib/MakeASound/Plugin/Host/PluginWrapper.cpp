@@ -274,6 +274,9 @@ std::string PluginWrapper::savePluginState(StateContext stateContext)
     if (isMessageThread())
     {
         assert(pluginPtr->isStateSnapshotCurrent());
+
+        // A save may capture state first: the host is reading, not editing.
+        auto quiet = pluginPtr->quietStateChanges();
         return pluginPtr->saveState(stateContext);
     }
 
@@ -290,6 +293,7 @@ std::string PluginWrapper::savePluginState(StateContext stateContext)
         {
             try
             {
+                auto quiet = pluginPtr->quietStateChanges();
                 promise->set_value(pluginPtr->saveState(stateContext));
             }
             catch (...)
@@ -309,8 +313,11 @@ void PluginWrapper::loadState(std::string_view document, StateContext stateConte
     auto stamp = live->latestLoad.fetch_add(1, std::memory_order_acq_rel) + 1;
     pluginPtr->loadParameters(data, stateContext);
 
+    // The plugin's whole load, whatever it re-stages after the document, is the
+    // host's: nothing in it marks the host's document modified.
     if (isMessageThread())
     {
+        auto quiet = pluginPtr->quietStateChanges();
         pluginPtr->loadStateExceptParameters(data, stateContext);
         return;
     }
@@ -324,7 +331,10 @@ void PluginWrapper::loadState(std::string_view document, StateContext stateConte
             auto alive = weak.lock();
 
             if (alive && alive->latestLoad.load(std::memory_order_acquire) == stamp)
+            {
+                auto quiet = alive->plugin->quietStateChanges();
                 alive->plugin->loadStateExceptParameters(document, stateContext);
+            }
         });
 }
 
@@ -383,6 +393,8 @@ bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
 {
     try
     {
+        auto quiet = plugin.quietStateChanges();
+
         if (!plugin.loadForeignState(state))
         {
             // A Tamber Plug port's AU session: Plug's document is ours.

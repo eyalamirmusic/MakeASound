@@ -214,10 +214,53 @@ public:
     void notifyHostParameterValuesChanged() noexcept;
 
     // Message thread. State besides the parameters changed; StatePlugin raises
-    // it on every markChanged() that is not a load.
+    // it on every markChanged() made outside a QuietStateChanges. Does nothing
+    // while one is open.
     void notifyHostStateChanged() noexcept;
 
 protected:
+    // While one is open, a change to the state is not news to the host: it
+    // asked for it (a load, and whatever the plugin re-stages after one), or it
+    // is reading the state (a save, which may capture state first), so
+    // notifyHostStateChanged() does nothing and the host's document stays
+    // clean. The wrapper opens one around every load and every message-thread
+    // save it makes, so the plugin's own loadState and saveState overrides are
+    // inside it whole; open one yourself for anything else that must not dirty
+    // the session. Nests. Message thread.
+    class QuietStateChanges
+    {
+    public:
+        explicit QuietStateChanges(Plugin& pluginToUse) noexcept
+            : plugin(pluginToUse)
+        {
+            ++plugin.quietStateDepth;
+        }
+
+        // The outermost one to close calls quietStateChangesEnded().
+        ~QuietStateChanges()
+        {
+            if (--plugin.quietStateDepth == 0)
+                plugin.quietStateChangesEnded();
+        }
+
+        QuietStateChanges(const QuietStateChanges&) = delete;
+        QuietStateChanges& operator=(const QuietStateChanges&) = delete;
+
+    private:
+        Plugin& plugin;
+    };
+
+    [[nodiscard]] QuietStateChanges quietStateChanges() noexcept
+    {
+        return QuietStateChanges {*this};
+    }
+
+    bool stateChangesAreQuiet() const noexcept { return quietStateDepth > 0; }
+
+    // The outermost QuietStateChanges closed. StatePlugin publishes its
+    // snapshot here, once, for every markChanged() made under the scope.
+    virtual void quietStateChangesEnded() {}
+
     // Before the wrapper is built: it sizes itself to the list. A list set again
     // later gets the wrapper's bypass back unless it brings a bypass of its own.
     void setParameters(ParameterList list);
@@ -257,6 +300,7 @@ private:
     BypassDelay bypassDelay;
     PluginFormat pluginFormat = PluginFormat::Unknown;
     HostEditListener* editListener = nullptr;
+    int quietStateDepth = 0;
 };
 
 } // namespace MakeASound

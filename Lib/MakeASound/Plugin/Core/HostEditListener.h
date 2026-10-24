@@ -32,7 +32,8 @@ public:
     virtual void parameterValuesChanged() noexcept {}
 
     // Something saved besides the parameters changed: the host should mark its
-    // document as modified. Never raised for a load the host asked for.
+    // document as modified. Never raised for a load the host asked for, during
+    // a save, or under the plugin's QuietStateChanges.
     virtual void stateChanged() noexcept {}
 };
 

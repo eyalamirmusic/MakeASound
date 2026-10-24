@@ -5,6 +5,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace MakeASound
 {
@@ -13,6 +14,12 @@ namespace MakeASound
 // order and routes every save and load through the state, so a plugin gets
 // persistence without overriding any of it. StateT is State<ParamsT> or a
 // subclass reflecting more members beside `params`.
+//
+// Every state.markChanged() republishes the snapshot and tells the host its
+// document is modified, unless a QuietStateChanges is open (Plugin.h): then the
+// host is not told, and the snapshot is published once, when the outermost
+// scope closes. Loads open one here, and the wrapper opens one around each
+// load and message-thread save, overrides included.
 template <class StateT>
 class StatePlugin : public Plugin
 {
@@ -35,14 +42,14 @@ public:
 
     void loadState(std::string_view data, StateContext context) override
     {
-        auto scope = LoadScope {loading};
+        auto quiet = quietStateChanges();
         state.deserialize(data, context);
     }
 
     void loadStateExceptParameters(std::string_view data,
                                    StateContext context) override
     {
-        auto scope = LoadScope {loading};
+        auto quiet = quietStateChanges();
         state.deserializeExceptParams(data, context);
     }
 
@@ -65,7 +72,7 @@ public:
     // for, so the host is not told the document changed, as for a native load.
     bool loadForeignState(const ForeignState& foreign) override
     {
-        auto scope = LoadScope {loading};
+        auto quiet = quietStateChanges();
 
         if (!loadLegacy(foreign))
             return false;
@@ -83,35 +90,27 @@ protected:
     // true when it took them. Message thread. The default takes nothing.
     virtual bool loadLegacy(const ForeignState&) { return false; }
 
-private:
-    // A load the host asked for marks nothing modified: the host knows.
-    struct LoadScope
+    // An override calls this first.
+    void quietStateChangesEnded() override
     {
-        explicit LoadScope(bool& flagToUse)
-            : flag(flagToUse)
-            , previous(flagToUse)
-        {
-            flag = true;
-        }
-
-        ~LoadScope() { flag = previous; }
-
-        LoadScope(const LoadScope&) = delete;
-        LoadScope& operator=(const LoadScope&) = delete;
-
-        bool& flag;
-        bool previous;
-    };
-
-    void stateMarkedChanged()
-    {
-        state.publish();
-
-        if (!loading)
-            this->notifyHostStateChanged();
+        if (std::exchange(publishPending, false))
+            state.publish();
     }
 
-    bool loading = false;
+private:
+    void stateMarkedChanged()
+    {
+        if (stateChangesAreQuiet())
+        {
+            publishPending = true;
+            return;
+        }
+
+        state.publish();
+        this->notifyHostStateChanged();
+    }
+
+    bool publishPending = false;
 
     // Last, so it binds to a constructed state and lets go before it.
     EA::Listener republish {state.stateChanged(),
