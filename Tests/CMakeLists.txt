@@ -62,6 +62,7 @@ endif ()
 set(MAKEASOUND_TEST_SOURCES
         SPSCQueueTests.cpp
         BufferTests.cpp
+        ProcessContextTests.cpp
         EngineTests.cpp
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
