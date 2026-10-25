@@ -76,7 +76,7 @@ class Toolbar final : public Widgets::Component
 public:
     Toolbar()
     {
-        status.setColour(Widgets::defaultTheme().dimText);
+        status.setThemeColour(Widgets::ThemeKeys::dimText);
         status.setFontSize(12.f);
 
         addAndMakeVisible(settings);

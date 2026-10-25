@@ -316,7 +316,9 @@ auto tRatioEditor = test("Standalone/aRatioLockedEditorKeepsItsShape") = []
 };
 
 // The settings panel's look: eacp's default theme and the platform's face
-// unless the app gives its own.
+// unless the app sets a theme of its own on it, as on any host.
+
+namespace Keys = eacp::UI::ThemeKeys;
 
 bool sameColour(const eacp::UI::Color& a, const eacp::UI::Color& b)
 {
@@ -336,12 +338,19 @@ bool pixelIs(const eacp::Graphics::Image& image,
            && near(actual.b, expected.b);
 }
 
+const auto navy = eacp::UI::Color {40.f / 255.f, 40.f / 255.f, 88.f / 255.f, 1.f};
+
+// A look as an app gives one: values under eacp's keys, a face among them.
 eacp::UI::Theme navyTheme()
 {
     auto theme = eacp::UI::Theme {};
-    theme.background = {40.f / 255.f, 40.f / 255.f, 88.f / 255.f, 1.f};
-    theme.panel = theme.background;
-    theme.dimText = {1.f, 1.f, 1.f, 1.f};
+    theme.set(Keys::background, navy);
+    theme.set(Keys::panel, navy);
+    theme.set(Keys::dimText, {1.f, 1.f, 1.f, 1.f});
+    theme.set(Keys::font,
+              {.family = eacp::UI::defaultUIFontFamily(),
+               .pointSize = 11.5f,
+               .style = eacp::UI::FontStyle::Bold});
 
     return theme;
 }
@@ -354,8 +363,10 @@ auto tPanelDefaultLook = test("Standalone/settingsPanelDrawsInEacpsDefaultLook")
     auto desktop = SettingsPanel {devices, midi, {}};
     const auto& theme = eacp::UI::defaultTheme();
 
-    check(sameColour(desktop.getTheme().background, theme.background));
-    check(sameColour(desktop.getTheme().panel, theme.panel));
+    // Nothing of its own: every key reads as eacp's.
+    check(desktop.getTheme().isEmpty());
+    check(sameColour(desktop.getTheme().get(Keys::background),
+                     theme.get(Keys::background)));
     check(desktop.getFont().family == eacp::UI::defaultUIFontFamily());
     check(desktop.getFont().pointSize == 13.f);
 
@@ -363,22 +374,17 @@ auto tPanelDefaultLook = test("Standalone/settingsPanelDrawsInEacpsDefaultLook")
     check(touch.getFont().pointSize == 17.f);
 };
 
-auto tPanelGivenLook =
-    test("Standalone/settingsPanelWearsTheThemeAndFontItIsGiven") = []
+auto tPanelGivenLook = test("Standalone/settingsPanelWearsTheThemeItIsGiven") = []
 {
     auto devices = MakeASound::DeviceManager {};
     auto midi = MakeASound::MidiManager {};
 
-    auto options = SettingsPanelOptions {};
-    options.theme = navyTheme();
-    options.font = eacp::UI::Font {.family = eacp::UI::defaultUIFontFamily(),
-                                   .pointSize = 11.5f,
-                                   .style = eacp::UI::FontStyle::Bold};
+    // Set after it is built, as an app that owns the panel does.
+    auto panel = SettingsPanel {devices, midi, {}};
+    panel.setTheme(navyTheme());
 
-    auto panel = SettingsPanel {devices, midi, options};
-
-    check(sameColour(panel.getTheme().background, options.theme->background));
-    check(sameColour(panel.getTheme().panel, options.theme->panel));
+    check(sameColour(panel.getTheme().get(Keys::background), navy));
+    check(sameColour(panel.getTheme().get(Keys::panel), navy));
     check(panel.getFont().pointSize == 11.5f);
     check(panel.getFont().style == eacp::UI::FontStyle::Bold);
 
@@ -394,8 +400,8 @@ auto tPanelGivenLook =
     auto image = panel.renderToImage(1.f);
 
     check(image.width() == width && image.height() == height);
-    check(pixelIs(image, width / 2, height - 3, options.theme->background));
-    check(pixelIs(image, 3, height / 2, options.theme->background));
+    check(pixelIs(image, width / 2, height - 3, navy));
+    check(pixelIs(image, 3, height / 2, navy));
 };
 } // namespace
 } // namespace StandaloneUITests

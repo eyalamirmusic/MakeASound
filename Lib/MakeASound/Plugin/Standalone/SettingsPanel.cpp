@@ -38,11 +38,6 @@ Metrics metricsFor(const SettingsPanelOptions& options)
     return {};
 }
 
-const Widgets::Theme& themeFor(const SettingsPanelOptions& options)
-{
-    return options.theme ? *options.theme : Widgets::defaultTheme();
-}
-
 // A ComboBox over a DropdownInfo: items in order, and the ids beside them so a
 // selected index maps back to what it names.
 struct Choice
@@ -133,7 +128,7 @@ struct Form final : Widgets::Component
                            &midiInputsCaption,
                            &midiOutputCaption,
                            &noMidiInputs})
-            label->setColour(themeFor(options).dimText);
+            label->setThemeColour(Widgets::ThemeKeys::dimText);
 
         addChildren({outputCaption, output.box, outputChannelsCaption});
         addChildren({outputChannels.box, rateCaption, rate.box});
@@ -269,7 +264,7 @@ struct SettingsPanel::Content final : Widgets::Component
 
     void paint(Widgets::Graphics& g) override
     {
-        g.fillAll(getHostTheme().background);
+        g.fillAll(getHostTheme().get(Widgets::ThemeKeys::background));
     }
 
     void resized() override { scroll.setBounds(getLocalBounds()); }
@@ -564,15 +559,9 @@ SettingsPanel::SettingsPanel(DeviceManager& devicesToUse,
                              SettingsPanelOptions optionsToUse)
     : content(EA::makeOwned<Content>(*this, devicesToUse, midiToUse, optionsToUse))
 {
-    if (optionsToUse.font)
-        setFont(*optionsToUse.font);
-    else
-        setFontPointSize(content->form.metrics.fontSize);
-
-    const auto& theme = themeFor(optionsToUse);
-
-    setTheme(theme);
-    setBackgroundColour(theme.background);
+    // The backdrop is the theme's background already, and follows the theme an
+    // app sets later.
+    setFontPointSize(content->form.metrics.fontSize);
     setRootComponent(*content);
 
     content->refresh();

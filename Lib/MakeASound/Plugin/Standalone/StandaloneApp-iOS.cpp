@@ -59,7 +59,7 @@ public:
 
     void paint(Widgets::Graphics& g) override
     {
-        g.fillAll(Widgets::defaultTheme().panel);
+        g.fillAll(getHostTheme().get(Widgets::ThemeKeys::panel));
     }
 
     void resized() override
@@ -105,7 +105,8 @@ public:
 
     void paint(Graphics::Context& context) override
     {
-        context.setColor(Widgets::defaultTheme().background);
+        context.setColor(
+            Widgets::defaultTheme().get(Widgets::ThemeKeys::background));
         context.fillRect(getLocalBounds());
     }
 
