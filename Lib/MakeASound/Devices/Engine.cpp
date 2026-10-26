@@ -34,24 +34,52 @@ void Engine::prepare(Processor& processorToUse, int sampleRate, int maxBlockSize
     bin.setSize(1, maxBlockSize);
     midiSync.reset();
 
+    restartPending = false;
+    pendingSampleRate = 0;
+    pendingBlockSize = 0;
+
     processorToUse.prepare(spec);
 }
 
 Error Engine::start(const StreamConfig& configToUse, Processor& processorToUse)
 {
-    devices.stop();
-
     config = configToUse;
 
     if (config.maxBlockSize <= 0)
         config.maxBlockSize = defaultBlockSize;
+
+    return open(processorToUse, config.sampleRate, config.maxBlockSize, 0);
+}
+
+Error Engine::restart()
+{
+    if (processor == nullptr)
+        return Error::INVALID_USE;
+
+    auto rate = pendingSampleRate.load();
+    auto block = pendingBlockSize.load();
+
+    // The largest block seen is also a floor for what the device then reports:
+    // one that claims less than it delivers would otherwise ask again forever.
+    return open(*processor,
+                rate > 0 ? rate : config.sampleRate,
+                block > 0 ? block : config.maxBlockSize,
+                block);
+}
+
+Error Engine::open(Processor& processorToUse,
+                   int sampleRate,
+                   int maxBlockSize,
+                   int minBlockSize)
+{
+    devices.stop();
 
     auto streamConfig = config;
 
     if (processorToUse.getBusLayout().inputs.empty())
         streamConfig.input.reset();
 
-    prepare(processorToUse, config.sampleRate, config.maxBlockSize);
+    prepare(processorToUse, sampleRate, maxBlockSize);
 
     auto callback = [this](auto& info) { process(info); };
     auto error = devices.start(streamConfig, callback);
@@ -60,10 +88,10 @@ Error Engine::start(const StreamConfig& configToUse, Processor& processorToUse)
         return error;
 
     // The device may have settled on another rate or period than it was asked
-    // for; preparing for what it runs here keeps the re-prepare off the first
-    // callback.
+    // for; preparing for what it runs here keeps the first callback from
+    // finding a spec it does not fit.
     auto rate = devices.getStreamSampleRate();
-    auto block = devices.getStreamBlockSize();
+    auto block = std::max(devices.getStreamBlockSize(), minBlockSize);
 
     if (rate > 0 && block > 0
         && (rate != spec.sampleRate || block != spec.maxBlockSize))
@@ -79,6 +107,15 @@ Error Engine::start(const StreamConfig& configToUse, Processor& processorToUse)
 void Engine::stop()
 {
     devices.stop();
+
+    restartPending = false;
+    pendingSampleRate = 0;
+    pendingBlockSize = 0;
+}
+
+bool Engine::takeRestartRequest() noexcept
+{
+    return restartPending.exchange(false);
 }
 
 bool Engine::isRunning() const
@@ -94,19 +131,25 @@ void Engine::process(AudioCallbackInfo& info) noexcept
         return;
     }
 
-    if (info.dirty)
+    // Checked on every block, not only dirty ones: a stream re-opened in the
+    // shape of the one before it raises no dirty flag. Re-preparing here would
+    // run the processor's prepare() on the audio thread, so the block is
+    // silenced and the host thread asked to restart instead. Its MIDI is drained
+    // and dropped, so it cannot land in a burst on the first block back.
+    if (!fits(info))
     {
-        if (info.sampleRate != spec.sampleRate
-            || info.maxBlockSize != spec.maxBlockSize
-            || info.numSamples > spec.maxBlockSize)
-        {
-            prepare(*processor,
-                    info.sampleRate,
-                    std::max(info.maxBlockSize, info.numSamples));
-        }
+        requestRestart(info);
+        info.getOutput().clear();
+        midiSync.drainForBlock(midi, info.numSamples, info.sampleRate);
+        silenced = true;
+        return;
+    }
 
+    if (info.dirty || silenced)
+    {
         processor->reset();
         midiSync.reset();
+        silenced = false;
     }
 
     context.clearMidi();
@@ -124,6 +167,27 @@ void Engine::process(AudioCallbackInfo& info) noexcept
 
     bindBuses(info);
     processor->process(context);
+}
+
+// A device maximum below the spec's fits: every block it can deliver does.
+bool Engine::fits(const AudioCallbackInfo& info) const noexcept
+{
+    return info.sampleRate == spec.sampleRate
+           && info.maxBlockSize <= spec.maxBlockSize
+           && info.numSamples <= spec.maxBlockSize;
+}
+
+// The only writer while the stream runs; the host thread clears these with the
+// stream stopped.
+void Engine::requestRestart(const AudioCallbackInfo& info) noexcept
+{
+    auto block = std::max({info.maxBlockSize,
+                           info.numSamples,
+                           pendingBlockSize.load(std::memory_order_relaxed)});
+
+    pendingSampleRate.store(info.sampleRate, std::memory_order_relaxed);
+    pendingBlockSize.store(block, std::memory_order_relaxed);
+    restartPending.store(true, std::memory_order_release);
 }
 
 void Engine::bindBuses(AudioCallbackInfo& info) noexcept

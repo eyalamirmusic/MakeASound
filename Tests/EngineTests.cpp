@@ -1,16 +1,21 @@
 // Tests for MakeASound::Engine driven the way a device would drive it, but with
 // no device: a fake processor, a synthetic AudioCallbackInfo over tables the case
 // owns, and process() called directly. What is pinned is the contract in
-// Engine.h - prepare-on-dirty, how the main buses bind to whatever channels the
-// device has, what gets cleared, and that MIDI from the manager lands in the
-// block it belongs to.
+// Engine.h - reset-on-dirty, silence and a restart request (never a prepare on
+// the audio thread) for a block the spec does not fit, how the main buses bind
+// to whatever channels the device has, what gets cleared, and that MIDI from the
+// manager lands in the block it belongs to.
 
 #include <MakeASound/MakeASound.h>
 
 #include <NanoTest/NanoTest.h>
 
+#include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,6 +57,7 @@ struct FakeProcessor : Processor
     void prepare(const ProcessSpec& spec) override
     {
         specs.push_back(spec);
+        prepareThreads.push_back(std::this_thread::get_id());
         midiSeen.reserveAtLeast(ProcessContext::defaultMidiCapacity);
     }
 
@@ -89,6 +95,7 @@ struct FakeProcessor : Processor
     std::function<void(ProcessContext&)> onProcess;
 
     std::vector<ProcessSpec> specs;
+    std::vector<std::thread::id> prepareThreads;
     int resets = 0;
     int processed = 0;
     bool midiOutWasEmpty = false;
@@ -96,7 +103,8 @@ struct FakeProcessor : Processor
 };
 
 // Owning per-channel arrays plus the tables a backend would hand over. Output
-// channels start full of garbage so a cleared channel is visibly cleared.
+// channels start full of garbage so a cleared channel is visibly cleared. Wider
+// than any block a case runs, so an oversize one stays inside the arrays.
 struct FakeStream
 {
     FakeStream(int numInputsToUse, int numOutputsToUse, int capacity = 1024)
@@ -271,10 +279,11 @@ auto tCleanBlock = test("Engine/aCleanBlockNeitherPreparesNorResets") = []
     check(processor.processed == 2);
 };
 
-auto tDirtyNewRate = test("Engine/aDirtyBlockAtANewRateReprepares") = []
+auto tDirtyNewRate = test("Engine/aDirtyBlockAtANewRateIsSilencedNotReprepared") = []
 {
     auto rig = Rig {};
     auto processor = FakeProcessor {};
+    processor.writePattern = true;
     auto stream = FakeStream {2, 2};
 
     rig.engine.prepare(processor, sampleRate, blockSize);
@@ -282,16 +291,16 @@ auto tDirtyNewRate = test("Engine/aDirtyBlockAtANewRateReprepares") = []
     auto block = stream.info(blockSize, true, 44100, blockSize);
     rig.engine.process(block);
 
-    check(processor.specs.size() == 2);
-    check(processor.specs[1].sampleRate == 44100);
-    check(processor.specs[1].maxBlockSize == blockSize);
-    check(processor.specs[1].layout == processor.layout);
-    check(rig.engine.getSpec() == processor.specs[1]);
-    check(processor.resets == 1);
-    check(processor.processed == 1);
+    check(processor.specs.size() == 1);
+    check(rig.engine.getSpec().sampleRate == sampleRate);
+    check(processor.processed == 0);
+    check(stream.outputIs(0, 0.f));
+    check(stream.outputIs(1, 0.f));
+    check(rig.engine.takeRestartRequest());
+    check(!rig.engine.takeRestartRequest());
 };
 
-auto tDirtyNewBlock = test("Engine/aDirtyBlockWithALargerBlockSizeReprepares") = []
+auto tDirtyNewBlock = test("Engine/aDirtyBlockWithALargerBlockSizeIsSilenced") = []
 {
     auto rig = Rig {};
     auto processor = FakeProcessor {};
@@ -303,15 +312,15 @@ auto tDirtyNewBlock = test("Engine/aDirtyBlockWithALargerBlockSizeReprepares") =
     auto block = stream.info(512, true, sampleRate, 512);
     rig.engine.process(block);
 
-    check(processor.specs.size() == 2);
-    check(processor.specs[1].sampleRate == sampleRate);
-    check(processor.specs[1].maxBlockSize == 512);
-    check(processor.resets == 1);
-    check(stream.outputHoldsPattern(0, 0, 512));
-    check(stream.outputHoldsPattern(1, 1, 512));
+    check(processor.specs.size() == 1);
+    check(rig.engine.getSpec().maxBlockSize == blockSize);
+    check(processor.processed == 0);
+    check(stream.outputIs(0, 0.f, 512));
+    check(stream.outputIs(1, 0.f, 512));
+    check(rig.engine.takeRestartRequest());
 };
 
-auto tDirtyOversizeBlock = test("Engine/aDirtyBlockLongerThanTheSpecReprepares") = []
+auto tDirtyOversizeBlock = test("Engine/aDirtyBlockLongerThanTheSpecIsSilenced") = []
 {
     // The device still claims the old maximum, but the block itself overruns it.
     auto rig = Rig {};
@@ -323,9 +332,174 @@ auto tDirtyOversizeBlock = test("Engine/aDirtyBlockLongerThanTheSpecReprepares")
     auto block = stream.info(512, true, sampleRate, blockSize);
     rig.engine.process(block);
 
-    check(processor.specs.size() == 2);
-    check(processor.specs[1].maxBlockSize >= 512);
+    check(processor.specs.size() == 1);
+    check(processor.processed == 0);
+    check(stream.outputIs(0, 0.f, 512));
+    check(rig.engine.takeRestartRequest());
+};
+
+auto tCleanOversize = test("Engine/aCleanBlockLongerThanTheSpecIsSilencedToo") = []
+{
+    // A stream re-opened in the shape of the one before raises no dirty flag,
+    // so the check cannot wait for one.
+    auto rig = Rig {};
+    auto processor = FakeProcessor {};
+    auto stream = FakeStream {2, 2};
+
+    rig.engine.prepare(processor, sampleRate, blockSize);
+    stream.run(rig.engine, 512);
+
+    check(processor.specs.size() == 1);
+    check(processor.processed == 0);
+    check(stream.outputIs(0, 0.f, 512));
+    check(rig.engine.takeRestartRequest());
+};
+
+auto tSmallerDevice = test("Engine/aDirtyBlockFromASmallerDeviceStillFits") = []
+{
+    auto rig = Rig {};
+    auto processor = FakeProcessor {};
+    auto stream = FakeStream {2, 2};
+
+    rig.engine.prepare(processor, sampleRate, blockSize);
+
+    auto block = stream.info(128, true, sampleRate, 128);
+    rig.engine.process(block);
+
+    check(processor.specs.size() == 1);
     check(processor.resets == 1);
+    check(processor.processed == 1);
+    check(!rig.engine.takeRestartRequest());
+};
+
+auto tStaysSilent = test("Engine/aMisShapedStreamStaysSilentUntilABlockFits") = []
+{
+    auto rig = Rig {};
+    auto processor = FakeProcessor {};
+    processor.writePattern = true;
+    auto stream = FakeStream {2, 2};
+
+    rig.engine.prepare(processor, sampleRate, blockSize);
+
+    auto misShaped = stream.info(512, true, sampleRate, 512);
+    rig.engine.process(misShaped);
+
+    for (auto i = 0; i < 3; ++i)
+    {
+        stream.outputs[0].assign(stream.outputs[0].size(), garbage);
+        misShaped.dirty = false;
+        rig.engine.process(misShaped);
+        check(stream.outputIs(0, 0.f, 512));
+    }
+
+    check(processor.processed == 0);
+    check(processor.resets == 0);
+
+    // The device went back to the shape it was prepared for: the first block
+    // that fits follows a gap, so it resets before it plays.
+    stream.run(rig.engine);
+
+    check(processor.specs.size() == 1);
+    check(processor.resets == 1);
+    check(processor.processed == 1);
+    check(stream.outputHoldsPattern(0, 0));
+};
+
+auto tAudioThread = test("Engine/prepareNeverRunsOnTheAudioThread") = []
+{
+    auto rig = Rig {};
+    auto processor = FakeProcessor {};
+    auto stream = FakeStream {2, 2};
+
+    rig.engine.prepare(processor, sampleRate, blockSize);
+
+    auto audio = std::thread(
+        [&]
+        {
+            // Every way a block can miss the spec, dirty and clean.
+            auto rate = stream.info(blockSize, true, 44100, blockSize);
+            auto device = stream.info(512, true, sampleRate, 512);
+            auto block = stream.info(512, false, sampleRate, blockSize);
+
+            for (auto i = 0; i < 4; ++i)
+            {
+                rig.engine.process(rate);
+                rig.engine.process(device);
+                rig.engine.process(block);
+            }
+        });
+
+    auto audioThread = audio.get_id();
+    audio.join();
+
+    check(rig.engine.takeRestartRequest());
+
+    for (auto id: processor.prepareThreads)
+        check(id != audioThread);
+
+    check(processor.prepareThreads.size() == 1);
+    check(processor.prepareThreads[0] == std::this_thread::get_id());
+};
+
+auto tRestart = test("Engine/restartPreparesForTheShapeTheStreamTurnedUpIn") = []
+{
+    // No config was ever started, so the stream itself cannot open; what is
+    // pinned is the prepare() that comes first, on this thread.
+    auto rig = Rig {};
+    auto processor = FakeProcessor {};
+    auto stream = FakeStream {2, 2};
+
+    rig.engine.prepare(processor, sampleRate, blockSize);
+
+    auto shorter = stream.info(300, true, 44100, 300);
+    auto longer = stream.info(600, false, 44100, 300);
+
+    auto audio = std::thread(
+        [&]
+        {
+            rig.engine.process(shorter);
+            rig.engine.process(longer);
+        });
+
+    audio.join();
+
+    check(rig.engine.takeRestartRequest());
+    rig.engine.restart();
+
+    check(processor.specs.size() == 2);
+    check(processor.specs[1].sampleRate == 44100);
+    check(processor.specs[1].maxBlockSize == 600);
+    check(processor.prepareThreads[1] == std::this_thread::get_id());
+    check(!rig.engine.takeRestartRequest());
+
+    // The spec now fits what the stream delivers.
+    rig.engine.process(longer);
+    check(processor.processed == 1);
+    check(processor.resets == 1);
+};
+
+auto tRestartUnbound = test("Engine/restartWithNoProcessorIsInvalid") = []
+{
+    auto rig = Rig {};
+    check(rig.engine.restart() == Error::INVALID_USE);
+};
+
+auto tStopDrops = test("Engine/stopDropsAPendingRestartRequest") = []
+{
+    auto rig = Rig {};
+    auto processor = FakeProcessor {};
+    auto stream = FakeStream {2, 2};
+
+    rig.engine.prepare(processor, sampleRate, blockSize);
+    stream.run(rig.engine, 512, true);
+
+    rig.engine.stop();
+    check(!rig.engine.takeRestartRequest());
+
+    // So does a prepare, which already chose a spec.
+    stream.run(rig.engine, 512, true);
+    rig.engine.prepare(processor, sampleRate, 512);
+    check(!rig.engine.takeRestartRequest());
 };
 
 auto tStereoOnStereo = test("Engine/aStereoBusWritesAStereoDevice") = []
@@ -683,6 +857,96 @@ auto tMidiAlignment = test("Engine/loopbackMidiLandsInsideTheBlock") = []
     check(noteOns == 1);
     check(others == 0);
     check(inRange);
+};
+
+// What a real stream hands the processor, from the device's own thread.
+struct DeviceProbe : Processor
+{
+    BusLayout getBusLayout() const override { return BusLayout::stereoOut(); }
+
+    void prepare(const ProcessSpec&) override
+    {
+        auto lock = std::lock_guard(mutex);
+        prepareThreads.push_back(std::this_thread::get_id());
+    }
+
+    void process(ProcessContext& context) noexcept override
+    {
+        auto samples = context.mainOutput().getNumSamples();
+
+        if (samples < minSamples)
+            minSamples = samples;
+
+        if (samples > maxSamples)
+            maxSamples = samples;
+
+        ++blocks;
+    }
+
+    std::mutex mutex;
+    std::vector<std::thread::id> prepareThreads;
+    std::atomic<int> blocks {0};
+    std::atomic<int> minSamples {1 << 30};
+    std::atomic<int> maxSamples {0};
+};
+
+auto tDevice = test("Engine/aRealDeviceDeliversTheBlockSizeItReports") = []
+{
+    // Opt-in (MAKEASOUND_DEVICE_TESTS=1): opens the default output device at
+    // each block size and plays silence through it for a few seconds. What it
+    // pins needs a real backend: the block size the stream reports is the one
+    // its callback delivers, so Engine never meets a block it did not prepare
+    // for, and prepare() never leaves this thread.
+    if (std::getenv("MAKEASOUND_DEVICE_TESTS") == nullptr)
+        return;
+
+    auto rig = Rig {};
+    auto base = rig.devices.getDefaultOutputConfig();
+    check(base.output.has_value());
+
+    if (!base.output)
+        return;
+
+    for (auto request: {15, 64, 512, 4096, 8192, 16384})
+    {
+        auto probe = DeviceProbe {};
+        auto config = base;
+        config.maxBlockSize = request;
+
+        check(rig.engine.start(config, probe) == Error::NoError);
+
+        auto deadline = std::chrono::steady_clock::now() + 5s;
+
+        while (probe.blocks < 4 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(10ms);
+
+        auto reported = rig.devices.getStreamBlockSize();
+        auto rate = rig.devices.getStreamSampleRate();
+        auto restartAsked = rig.engine.takeRestartRequest();
+        rig.engine.stop();
+
+        std::printf("%s @ %d Hz, asked %5d: reports %5d, delivered %d..%d "
+                    "over %d blocks, spec %d\n",
+                    base.output->device.name.c_str(),
+                    rate,
+                    request,
+                    reported,
+                    probe.minSamples.load(),
+                    probe.maxSamples.load(),
+                    probe.blocks.load(),
+                    rig.engine.getSpec().maxBlockSize);
+
+        check(probe.blocks >= 4);
+        check(!restartAsked);
+        check(probe.minSamples == reported);
+        check(probe.maxSamples == reported);
+        check(rig.engine.getSpec().maxBlockSize == reported);
+
+        auto lock = std::lock_guard(probe.mutex);
+
+        for (auto id: probe.prepareThreads)
+            check(id == std::this_thread::get_id());
+    }
 };
 } // namespace
 } // namespace EngineTests

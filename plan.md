@@ -837,7 +837,8 @@ solves. Either way, AAX output needs its own packet splitting first.
 - 2026-10-10: `Engine::start` re-prepares on the host thread for the rate and
   period the device actually opened at; the audio-thread re-prepare is kept for
   a recovery that re-opens at a shape nobody prepared for, and is the one
-  documented allocation there.
+  documented allocation there. Superseded on 2026-10-26: no audio-thread
+  re-prepare (below).
 - 2026-10-10: `RealtimeSwap` is two atomic slots with single ownership and a
   message-thread sweep every 250 ms, not Plug's FIFO plus `use_count` reaper: no
   reference count on the audio thread, nothing freed there, and a publish that
@@ -1244,3 +1245,17 @@ solves. Either way, AAX output needs its own packet splitting first.
   JUCE's hosts list the flattened parameter tree (VST3 units, AU clumps), every
   VST3 parameter hidden or not and every AU one with readable info, so both
   formats map, not only VST3; identity for contiguous groups.
+- 2026-10-26: `Processor::prepare` is host-thread only for every consumer.
+  `Engine::process` meets a block the spec does not fit (another rate, or a
+  block or device maximum past the spec's) with silence and a restart request
+  (`takeRestartRequest()`, `restart()`), which `StandaloneHost::poll()` and the
+  example PluginHost's idle timer grant on the message thread; a host that
+  never polls stays silent, not crashed. A plugin's `prepare` may load or
+  activate hosted plugins, which the audio thread must never do. The common
+  trigger is gone too: miniaudio's fixed-size callback delivers the requested
+  period (its intermediary buffer), not the backend's internal one, so that is
+  what `getStreamBlockSize()` and `AudioCallbackInfo::maxBlockSize` report.
+  Self-scheduling the restart was rejected: posting from the audio thread to
+  eacp's queue allocates and locks, and a timer inside `StandaloneHost` would
+  tie a headless host to a running main-thread loop (a worker thread per timer
+  on Linux).

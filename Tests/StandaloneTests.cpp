@@ -1451,5 +1451,82 @@ auto tHostReplugOutput =
 
     synth.closeAllInputs();
 };
+
+// Which thread each prepare() ran on, and with what spec.
+struct PrepareWatcher : GainPlugin
+{
+    void prepare(const ProcessSpec& spec) override
+    {
+        GainPlugin::prepare(spec);
+        threads.push_back(std::this_thread::get_id());
+        specs.push_back(spec);
+    }
+
+    std::vector<std::thread::id> threads;
+    std::vector<ProcessSpec> specs;
+};
+
+auto tHostRestart =
+    test("Standalone/pollRestartsAMisShapedStreamOnTheMessageThread") = []
+{
+    auto host = StandaloneHost {EA::makeOwned<PrepareWatcher>(), {}};
+    auto& plugin = static_cast<PrepareWatcher&>(host.plugin());
+
+    // A config naming no device: the engine binds and prepares the plugin, but
+    // no stream opens, so the blocks below are the only ones. Never start()ed,
+    // as an app that only applies configs (Gestures) never is.
+    auto config = StreamConfig {};
+    config.sampleRate = sampleRate;
+    config.maxBlockSize = blockSize;
+    host.applyConfig(config);
+
+    check(plugin.specs.size() == 1);
+    check(plugin.specs[0].maxBlockSize == blockSize);
+    check(!host.poll());
+
+    // The device came back with periods twice the spec's, on its own thread.
+    constexpr auto longer = blockSize * 2;
+    auto channels = std::vector<std::vector<float>>(2, std::vector(longer, garbage));
+    float* table[] = {channels[0].data(), channels[1].data()};
+
+    auto info = AudioCallbackInfo {};
+    info.numOutputs = 2;
+    info.outputChannels = table;
+    info.numSamples = longer;
+    info.sampleRate = sampleRate;
+    info.maxBlockSize = longer;
+    info.dirty = true;
+
+    auto audio = std::thread(
+        [&]
+        {
+            for (auto i = 0; i < 3; ++i)
+            {
+                host.engine().process(info);
+                info.dirty = false;
+            }
+        });
+
+    auto audioThread = audio.get_id();
+    audio.join();
+
+    check(plugin.specs.size() == 1);
+    check(plugin.processed == 0);
+    check(std::ranges::all_of(channels[0], [](float s) { return s == 0.f; }));
+
+    // The app's timer: the restart prepares for what the device delivers.
+    check(host.poll());
+
+    check(plugin.specs.size() == 2);
+    check(plugin.specs[1].maxBlockSize == longer);
+    check(plugin.threads[1] == std::this_thread::get_id());
+    check(std::ranges::none_of(plugin.threads,
+                               [&](auto id) { return id == audioThread; }));
+    check(!host.poll());
+
+    // And the next block plays.
+    host.engine().process(info);
+    check(plugin.processed == 1);
+};
 } // namespace
 } // namespace StandaloneTests
