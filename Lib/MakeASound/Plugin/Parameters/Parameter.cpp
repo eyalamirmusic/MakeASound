@@ -31,6 +31,7 @@ Parameter::Parameter(std::string_view nameToUse, ParameterOptions options)
     , bypass(options.bypass)
     , sessionOnly(options.sessionOnly)
     , persistent(options.persistent)
+    , moveReports(options.reportsPluginMoves)
     , hostId(options.hostId)
     , hint(options.versionHint)
     , paramHostKey(options.hostKey.empty() ? std::string_view {paramId}

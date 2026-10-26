@@ -104,6 +104,7 @@ ParameterGroup::ParameterGroup(std::string_view nameToUse, GroupOptions options)
     , groupId(options.id.empty() ? nameToUse : options.id)
     , automatable(options.automatable)
     , persistent(options.persistent)
+    , moveReports(options.reportsPluginMoves)
 {
 }
 
@@ -129,6 +130,10 @@ void ParameterGroup::addChild(std::string_view nameToUse,
     group.groupId = options.id.empty() ? nameToUse : options.id;
     group.automatable = group.automatable && options.automatable;
     group.persistent = group.persistent && options.persistent;
+
+    if (options.reportsPluginMoves)
+        group.moveReports = options.reportsPluginMoves;
+
     addGroup(group);
 }
 
@@ -153,32 +158,53 @@ bool ParameterGroup::hasKey(std::string_view key) const
 
 void ParameterGroup::forEach(const Visitor& visitor) const
 {
-    auto enclosing = Vector<const ParameterGroup*> {};
-    walk(visitor, {}, {}, true, true, enclosing);
+    forEachMember(
+        [&visitor](const Member& member)
+        {
+            visitor(member.param,
+                    member.id,
+                    member.displayName,
+                    member.automatable,
+                    member.persistent,
+                    member.groups);
+        });
 }
 
-void ParameterGroup::walk(const Visitor& visitor,
+void ParameterGroup::forEachMember(const MemberVisitor& visitor) const
+{
+    auto enclosing = Vector<const ParameterGroup*> {};
+    walk(visitor, {}, {}, true, true, {}, enclosing);
+}
+
+void ParameterGroup::walk(const MemberVisitor& visitor,
                           const std::string& idPrefix,
                           const std::string& displayPrefix,
                           bool inheritedAutomatable,
                           bool inheritedPersistent,
+                          std::optional<bool> inheritedMoveReports,
                           Vector<const ParameterGroup*>& enclosing) const
 {
     auto groupAutomatable = inheritedAutomatable && automatable;
     auto groupPersistent = inheritedPersistent && persistent;
+    auto groupMoveReports = moveReports ? moveReports : inheritedMoveReports;
 
     for (const auto& entry: entries)
     {
         if (entry.param != nullptr)
         {
             auto& param = *entry.param;
-            visitor(param,
-                    joinId(idPrefix, param.id()),
-                    join(displayPrefix, param.name(), ' '),
-                    groupAutomatable && param.isAutomatable(),
-                    groupPersistent && param.isPersistent(),
-                    std::span<const ParameterGroup* const>(enclosing.data(),
-                                                           enclosing.size()));
+            auto id = joinId(idPrefix, param.id());
+            auto displayName = join(displayPrefix, param.name(), ' ');
+            auto ownMoveReports = param.reportsPluginMoves();
+
+            visitor({param,
+                     id,
+                     displayName,
+                     groupAutomatable && param.isAutomatable(),
+                     groupPersistent && param.isPersistent(),
+                     ownMoveReports ? ownMoveReports : groupMoveReports,
+                     std::span<const ParameterGroup* const>(enclosing.data(),
+                                                            enclosing.size())});
             continue;
         }
 
@@ -194,6 +220,7 @@ void ParameterGroup::walk(const Visitor& visitor,
                    join(displayPrefix, group.name(), ' '),
                    groupAutomatable,
                    groupPersistent,
+                   groupMoveReports,
                    enclosing);
 
         if (named)

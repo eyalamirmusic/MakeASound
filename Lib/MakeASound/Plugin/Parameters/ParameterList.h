@@ -106,6 +106,11 @@ public:
         // True on the one entry bypassIndex() names.
         bool bypass = false;
 
+        // Whether the adapters tell the host of a value the plugin moved on its
+        // own, outside a gesture: ParameterOptions::reportsPluginMoves, else
+        // its innermost group's, else the identity's pluginMoves.
+        bool reportsPluginMoves = true;
+
         // Outermost first; empty for a parameter of the root group.
         Vector<EnclosingGroup> groups;
 
@@ -229,6 +234,7 @@ private:
              std::string_view displayName,
              bool automatable,
              bool persistent,
+             std::optional<bool> reportsPluginMoves,
              std::span<const ParameterGroup* const> groups);
     void assignIds();
     void assignGroupIds();
@@ -249,6 +255,10 @@ private:
     // Each entry's display name before its parameter's name: the enclosing
     // groups' names and a space, or empty. Parallel to `entries`.
     Vector<std::string> displayPrefixes;
+
+    // Each entry's resolved reportsPluginMoves before the identity's default,
+    // unset when neither it nor a group chose. Parallel to `entries`.
+    Vector<std::optional<bool>> moveReportChoices;
 
     Vector<HostSlot> byHostId;
     Vector<AddressSlot> byAddress;

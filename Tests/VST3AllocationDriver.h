@@ -156,7 +156,8 @@ int setParamNormalizedAllocations(AdapterHost<P>& host)
 }
 
 // The plugin moves every parameter itself between blocks (a preset of its own),
-// and each block leaves a point per parameter in the output changes.
+// and each block leaves a point in the output changes per parameter that
+// reports plugin moves (ParameterList::Entry::reportsPluginMoves).
 template <typename P>
 int pluginSideChangesAllocations(AdapterHost<P>& host, std::string_view what = {})
 {
@@ -165,6 +166,10 @@ int pluginSideChangesAllocations(AdapterHost<P>& host, std::string_view what = {
     auto& wrapper = host.adapter->wrapper();
     auto count = 0;
     auto block = 0;
+    auto reported = std::ranges::count_if(
+        ids,
+        [&](auto id)
+        { return list.entry(list.indexOfHostId(id)).reportsPluginMoves; });
 
     auto moveEveryParameter = [&]
     {
@@ -186,7 +191,7 @@ int pluginSideChangesAllocations(AdapterHost<P>& host, std::string_view what = {
         host.fillBlock(std::min(size, maxBlock));
         count += allocationsIn([&] { host.run(); });
         nano::check(host.outputChanges.getParameterCount()
-                        == static_cast<Steinberg::int32>(ids.size()),
+                        == static_cast<Steinberg::int32>(reported),
                     what);
     }
 

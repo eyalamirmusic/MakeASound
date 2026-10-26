@@ -488,7 +488,8 @@ tresult PLUGIN_API Adapter::process(Vst::ProcessData& data) noexcept
 
 // One point at offset 0 per exposed parameter that moved since the host last
 // heard of it: a preset the plugin loaded itself, a randomize, a MIDI learn. A
-// held parameter is the editor's gesture, which performEdit already reports.
+// held parameter is the editor's gesture, which performEdit already reports, and
+// one that reports no plugin moves is left for the host to read when told.
 void Adapter::emitParameterChanges(Vst::IParameterChanges& changes) noexcept
 {
     const auto& list = plugin().parameters();
@@ -503,7 +504,8 @@ void Adapter::emitParameterChanges(Vst::IParameterChanges& changes) noexcept
 
         last.store(value, std::memory_order_relaxed);
 
-        if (pluginWrapper.isParameterHeld(index))
+        if (pluginWrapper.isParameterHeld(index)
+            || !list.entry(index).reportsPluginMoves)
             continue;
 
         auto queueIndex = int32 {};

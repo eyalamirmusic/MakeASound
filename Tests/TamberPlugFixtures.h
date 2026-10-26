@@ -355,17 +355,19 @@ using PlainChorusPort = PlainPlugPort<ChorusParams>;
 // AUv3 suite, under codes of their own: SVFFilter 'Psvf', Chorus 'Pchr', Sparse
 // 'Pspr', SVFFilter's next release 'Psv2' (indexedThroughVersion 1), and the
 // tests' gain 'Pgan', for its skewed (curve Other) cutoff; SVFFilter and Chorus
-// with no loadLegacy, 'Pnsv' and 'Pnch'.
+// with no loadLegacy, 'Pnsv' and 'Pnch'; and TestPlugins::MoveReportPlugin
+// 'Pmov', with its Native twin 'Nmov' beside it.
 template <typename P>
 PluginDescription plugDescription(std::string_view name,
                                   FourCC code,
-                                  std::optional<int> indexedThrough = {})
+                                  std::optional<int> indexedThrough = {},
+                                  IdScheme scheme = IdScheme::TamberPlug)
 {
     return {.name = name,
             .pluginCode = code,
             .create = []
             { return TestPlugins::Module::create<P>(PluginCreateFn {}); },
-            .idScheme = IdScheme::TamberPlug,
+            .idScheme = scheme,
             .overrides = {.indexedThroughVersion = indexedThrough}};
 }
 
@@ -381,6 +383,11 @@ inline const Vector<PluginDescription>& plugDescriptions()
         result.add(plugDescription<TestPlugins::GainPlugin>("Plug Gain", "Pgan"));
         result.add(plugDescription<PlainSVFPort>("Plain SVFFilter", "Pnsv"));
         result.add(plugDescription<PlainChorusPort>("Plain Chorus", "Pnch"));
+
+        using TestPlugins::MoveReportPlugin;
+        result.add(plugDescription<MoveReportPlugin>("Plug Move Reports", "Pmov"));
+        result.add(plugDescription<MoveReportPlugin>(
+            "Move Reports", "Nmov", {}, IdScheme::Native));
         return result;
     }();
 

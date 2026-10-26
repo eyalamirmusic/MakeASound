@@ -1108,12 +1108,14 @@ void Adapter::reconcileParameters() noexcept
             auto hostValue = space.toHost(list.entry(index), value);
 
             // Listeners hear of it from the message thread; a held parameter is
-            // the editor's gesture, which reports its own values.
+            // the editor's gesture, which reports its own values, and one that
+            // reports no plugin moves is only mirrored, for the host to read.
             if (hostValue != *host)
             {
                 std::ignore = Globals()->SetParameterOrError(id, hostValue);
 
-                if (!pluginWrapper.isParameterHeld(index))
+                if (!pluginWrapper.isParameterHeld(index)
+                    && list.entry(index).reportsPluginMoves)
                     movedByPlugin[slot].store(true, std::memory_order_relaxed);
             }
 

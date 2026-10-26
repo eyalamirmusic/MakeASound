@@ -86,12 +86,20 @@ auto tSetParamNormalized =
 };
 
 // The plugin moves every parameter itself between blocks (a preset of its own),
-// and each block leaves a point per parameter in the output changes.
+// and each block leaves a point per parameter in the output changes: under
+// IdScheme::TamberPlug none, and per parameter's choice some.
 auto tPluginSideChanges =
     test("Allocations/vst3PluginSideChangesLeaveOffTheHeap") = []
 {
     auto host = AdapterHost<GainPlugin> {};
     check(pluginSideChangesAllocations(host) == 0);
+
+    auto plug = MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {});
+    auto unreported = AdapterHost<GainPlugin> {plug.parameters};
+    check(pluginSideChangesAllocations(unreported) == 0);
+
+    auto chosen = AdapterHost<MoveReportPlugin> {plug.parameters};
+    check(pluginSideChangesAllocations(chosen) == 0);
 };
 
 // A JUCE port's ids, unmasked (2^31 and more, the 'byps' bypass) and by index:
