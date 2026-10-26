@@ -176,6 +176,12 @@ void Host::idle()
     if (loaded == nullptr)
         return;
 
+    // The stream re-opened in a shape the plugin was not prepared for: prepare
+    // it here, on the message thread, rather than leave the stream silent.
+    if (engine.takeRestartRequest())
+        if (auto error = engine.restart(); error != Error::NoError)
+            setStatus("Audio: " + getErrorMessage(error));
+
     loaded->syncEditorWithProcessor();
 
     if (loaded->takeLatencyChanged())

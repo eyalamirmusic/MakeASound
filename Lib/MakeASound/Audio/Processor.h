@@ -17,8 +17,9 @@ public:
     virtual BusLayout getBusLayout() const { return BusLayout::stereoInOut(); }
 
     // Before the first process() and again whenever the spec changes. Allocate
-    // here. Normally the host thread; Engine calls it from the audio thread when a
-    // re-opened device turns up with a shape nobody prepared for.
+    // here. Host thread only, never concurrently with process(): Engine meets a
+    // re-opened device in a shape nobody prepared for with silence and a restart
+    // request, not with a prepare() on the audio thread.
     virtual void prepare(const ProcessSpec& spec) = 0;
 
     // Audio thread. Must not allocate, lock or block.

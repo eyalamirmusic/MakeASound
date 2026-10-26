@@ -662,9 +662,20 @@ Error DeviceManager::openStreamLocked()
     deviceInitialised = true;
     framesElapsed = 0;
 
+    // What the callback is handed, which is not the backend's period: with fixed
+    // size callbacks (noFixedSizedCallback left false) miniaudio buffers the
+    // backend's periods into an intermediary of the requested period's size and
+    // calls back with exactly that many frames. The internal period is whatever
+    // the device allowed, smaller than a large request, and reporting it had
+    // every block arrive longer than the block size the stream claimed.
     config.maxBlockSize =
-        static_cast<int>(std::max(device.playback.internalPeriodSizeInFrames,
-                                  device.capture.internalPeriodSizeInFrames));
+        static_cast<int>(std::max(device.playback.intermediaryBufferCap,
+                                  device.capture.intermediaryBufferCap));
+
+    if (config.maxBlockSize == 0)
+        config.maxBlockSize =
+            static_cast<int>(std::max(device.playback.internalPeriodSizeInFrames,
+                                      device.capture.internalPeriodSizeInFrames));
 
     if (config.maxBlockSize == 0)
         config.maxBlockSize = static_cast<int>(deviceConfig.periodSizeInFrames);

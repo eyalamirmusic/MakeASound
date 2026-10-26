@@ -651,7 +651,7 @@ struct WritingProcessor : Processor
 
 auto tEngineSteadyState = test("Allocations/engineProcessStaysOffTheHeap") = []
 {
-    // The first block is dirty and may prepare; every one after it is the audio
+    // The first block is dirty and resets; every one after it is the audio
     // thread's steady state, MidiBlockSync's drain included.
     auto devices = DeviceManager {};
     auto midi = MidiManager {};
@@ -687,6 +687,45 @@ auto tEngineSteadyState = test("Allocations/engineProcessStaysOffTheHeap") = []
     check(samples[256 + 255] == 0.25f);
     check(samples[512] == 0.f);
     check(processor.midiEvents == 0);
+};
+
+auto tEngineMisShaped =
+    test("Allocations/engineSilencesAMisShapedBlockOffTheHeap") = []
+{
+    // A device that re-opened at a new rate and a larger period than the spec:
+    // the block is silenced and a restart requested, nothing prepared or grown.
+    auto devices = DeviceManager {};
+    auto midi = MidiManager {};
+    auto engine = Engine {devices, midi};
+    auto processor = WritingProcessor {};
+
+    auto samples = std::array<float, 2 * 1024> {};
+    float* table[] = {samples.data(), samples.data() + 1024};
+
+    auto info = AudioCallbackInfo {};
+    info.numOutputs = 2;
+    info.outputChannels = table;
+    info.numSamples = 1024;
+    info.sampleRate = 44100;
+    info.maxBlockSize = 1024;
+    info.dirty = true;
+
+    engine.prepare(processor, 48000, 256);
+    samples.fill(1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            engine.process(info);
+            info.dirty = false;
+            engine.process(info);
+        });
+
+    check(count == 0);
+    check(samples[0] == 0.f);
+    check(samples[1024 + 1023] == 0.f);
+    check(engine.getSpec().maxBlockSize == 256);
+    check(engine.takeRestartRequest());
 };
 
 auto tSmootherSteps = test("Allocations/smootherStepsOffTheHeap") = []

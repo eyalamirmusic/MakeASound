@@ -219,12 +219,17 @@ void StandaloneHost::restoreMidi(const Settings& settings)
 
 bool StandaloneHost::poll()
 {
+    auto restarted = audioEngine.takeRestartRequest();
+
+    if (restarted)
+        reportIfFailed(audioEngine.restart());
+
     if (!started)
-        return false;
+        return restarted;
 
     auto inputs = openWantedMidiInputs(false);
     auto output = openWantedMidiOutput(false);
-    return inputs || output;
+    return restarted || inputs || output;
 }
 
 bool StandaloneHost::openWantedMidiInputs(bool report)

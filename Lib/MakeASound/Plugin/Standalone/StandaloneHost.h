@@ -100,11 +100,20 @@ public:
     // fallbackConfig(). An app may tell the user.
     bool droppedAHungConfig() const noexcept { return droppedHungConfig; }
 
-    // Message thread, on a timer the app keeps (a second or so): closes the
+    // Message thread, on a timer the app keeps (a second or so): restarts the
+    // stream when Engine asked for it (Engine::takeRestartRequest()), closes the
     // open MIDI inputs and output that are no longer plugged in, and opens
     // every picked port that is plugged in and not open, by name. True when it
-    // opened or closed anything, so a UI showing the ports refreshes. Does
-    // nothing before start().
+    // restarted, opened or closed anything, so a UI showing the ports
+    // refreshes. The ports are left alone before start(); the restart is
+    // not, so an app that only ever calls applyConfig() polls too.
+    //
+    // The plugin's prepare() runs here and in the calls that start the stream,
+    // never on the audio thread. A device that re-opens on its own in another
+    // shape (auto-recovery onto a device with another rate or period) leaves
+    // the stream silent until this restarts it: an app that keeps the host
+    // without the default app's timer calls poll() on one of its own, or the
+    // stream stays silent until the app next applies a config.
     bool poll();
 
     // Restarts the stream on config. The engine may settle on something else

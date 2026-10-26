@@ -84,7 +84,8 @@ public:
     // Its own editor, or null; createEditor() goes through options.editors.
     OwningPointer<Editor> createEditor();
 
-    // From a UI timer: values the processor reported, to the plugin's editor.
+    // From a UI timer: values the processor reported, to the plugin's editor,
+    // and the stream restarted when Engine asked for it.
     void idle();
 
     // --- audio and MIDI (message thread) ---
