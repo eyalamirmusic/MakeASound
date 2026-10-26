@@ -72,6 +72,22 @@ struct LatencyPlugin : StatePlugin<State<LatencyParams>>
     int tail = 0;
 };
 
+struct LabelParams : ParameterGroup
+{
+    LabelParams() { add(delay); }
+
+    FloatParam delay {"Delay", 0.f, 1000.f, 250.f, {.label = "ms"}};
+};
+
+// One parameter with a label, which its value text carries.
+struct LabelPlugin : StatePlugin<State<LabelParams>>
+{
+    std::string_view name() const override { return "Label"; }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
 bool near(double a, double b, double tolerance = 1e-4)
 {
     return std::abs(a - b) < tolerance;
@@ -586,7 +602,7 @@ auto tParameterInfo = test("VST3/parameterInfoMirrorsTheList") = []
         check(adapter.getParameterInfo(i, info) == Steinberg::kResultOk);
         check(info.id == entry.hostId);
         check(MakeASound::VST3::toUtf8(info.title) == entry.displayName);
-        check(MakeASound::VST3::toUtf8(info.units) == param.label());
+        check(MakeASound::VST3::toUtf8(info.units).empty());
         check(info.stepCount == param.numSteps());
         check(near(info.defaultNormalizedValue,
                    param.toNormalized(param.defaultValue())));
@@ -660,6 +676,26 @@ auto tText = test("VST3/textAndPlainGoThroughTheParameter") = []
         adapter.normalizedParamToPlain(cutoffId, 0.5), cutoff.toPlain(0.5f), 1e-2));
     check(near(adapter.plainParamToNormalized(cutoffId, 1000.0),
                cutoff.toNormalized(1000.f)));
+};
+
+// A host appends the units to the value text, which already ends in the label:
+// publishing both would read "250 ms ms".
+auto tLabelOnce = test("VST3/aLabelIsInTheTextAndNotInTheUnits") = []
+{
+    auto host = AdapterHost<LabelPlugin> {};
+    auto& adapter = *host.adapter;
+    auto& delay = host.plugin().params.delay;
+    auto id = host.hostIdOf(delay);
+
+    auto info = Vst::ParameterInfo {};
+    check(adapter.getParameterInfo(0, info) == Steinberg::kResultOk);
+    check(info.id == id);
+    check(MakeASound::VST3::toUtf8(info.units).empty());
+
+    Vst::String128 text {};
+    check(adapter.getParamStringByValue(id, delay.toNormalized(250.f), text)
+          == Steinberg::kResultOk);
+    check(MakeASound::VST3::toUtf8(text) == "250 ms");
 };
 
 auto tQueue = test("VST3/theQueueLeavesTheLastPoint") = []
