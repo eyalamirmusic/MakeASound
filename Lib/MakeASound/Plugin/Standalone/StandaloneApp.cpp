@@ -29,6 +29,8 @@ void StandaloneApp::connectSettings(SettingsPanel& panel, StandaloneHost& host)
         panel.setMidiOutput(host.midiOutput());
     };
 
+    panel.onTestOutput = [&host] { host.playTestTone(); };
+
     panel.setConfig(host.config());
     panel.setMidiOutput(host.midiOutput());
 }

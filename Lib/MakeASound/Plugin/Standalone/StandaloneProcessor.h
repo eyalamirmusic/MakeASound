@@ -33,14 +33,29 @@ public:
     void setInputMuted(bool muted) noexcept;
     bool isInputMuted() const noexcept;
 
+    // Any thread: from the next block, one second of a 440 Hz sine at half
+    // scale, faded in over its first tenth and out over its last quarter, is
+    // added to every output channel after the plugin has written them -- what
+    // an audio settings dialog's Test button plays. Asked again while it
+    // sounds, it starts over.
+    void playTestTone() noexcept;
+
 private:
     void pushMidiIn(ProcessContext& context) noexcept;
     void bindBuses(ProcessContext& context) noexcept;
+    void addTestTone(ProcessContext& context) noexcept;
 
     PluginWrapper& wrapper;
     MidiSender& sender;
     SPSCQueue<MIDI::Event, 256> injected;
     std::atomic<bool> inputMuted {false};
+
+    // The test tone: asked for on any thread, played on the audio thread.
+    // tonePosition is the next sample to play, toneLength while silent.
+    std::atomic<bool> toneRequested {false};
+    double toneRate = 0.0;
+    int toneLength = 0;
+    int tonePosition = 0;
 
     // What a muted block binds: one zeroed channel per input channel, sized in
     // prepare() and cleared again each muted block, since the plugin's input
