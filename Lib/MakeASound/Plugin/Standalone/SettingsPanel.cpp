@@ -128,7 +128,7 @@ struct Form final : Widgets::Component
                            &midiInputsCaption,
                            &midiOutputCaption,
                            &noMidiInputs})
-            label->setColour(Widgets::defaultTheme().dimText);
+            label->setThemeColour(Widgets::ThemeKeys::dimText);
 
         addChildren({outputCaption, output.box, outputChannelsCaption});
         addChildren({outputChannels.box, rateCaption, rate.box});
@@ -264,7 +264,7 @@ struct SettingsPanel::Content final : Widgets::Component
 
     void paint(Widgets::Graphics& g) override
     {
-        g.fillAll(Widgets::defaultTheme().background);
+        g.fillAll(getHostTheme().get(Widgets::ThemeKeys::background));
     }
 
     void resized() override { scroll.setBounds(getLocalBounds()); }
@@ -559,8 +559,9 @@ SettingsPanel::SettingsPanel(DeviceManager& devicesToUse,
                              SettingsPanelOptions optionsToUse)
     : content(EA::makeOwned<Content>(*this, devicesToUse, midiToUse, optionsToUse))
 {
+    // The backdrop is the theme's background already, and follows the theme an
+    // app sets later.
     setFontPointSize(content->form.metrics.fontSize);
-    setBackgroundColour(Widgets::defaultTheme().background);
     setRootComponent(*content);
 
     content->refresh();

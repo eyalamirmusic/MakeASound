@@ -42,14 +42,14 @@ struct PluginRows final : Widgets::ListBoxModel
 
         if (selected)
         {
-            g.setColour(theme.accentDim);
+            g.setColour(theme.get(Widgets::ThemeKeys::accentDim));
             g.fillRect(bounds);
         }
 
         auto text = bounds.inset(8.f, 0.f);
-        g.setColour(theme.text);
+        g.setColour(theme.get(Widgets::ThemeKeys::text));
         g.drawText(plugin.name, text.removeFromLeft(text.w * 0.5f));
-        g.setColour(theme.dimText);
+        g.setColour(theme.get(Widgets::ThemeKeys::dimText));
         g.drawText(plugin.vendor, text.removeFromLeft(text.w * 0.7f));
         g.drawText(plugin.format == PluginFormat::AU ? "AU" : "VST3", text);
     }

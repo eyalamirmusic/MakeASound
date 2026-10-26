@@ -40,7 +40,7 @@ public:
         , name(plugin.parameters().entry(index).displayName)
     {
         value.setJustification(Widgets::Justification::Right);
-        value.setColour(Widgets::defaultTheme().dimText);
+        value.setThemeColour(Widgets::ThemeKeys::dimText);
 
         if (auto* choice = dynamic_cast<ChoiceParam*>(&param))
             makeCombo(*choice);
@@ -229,7 +229,7 @@ public:
     explicit Root(Plugin& plugin)
         : rows(plugin)
     {
-        empty.setColour(Widgets::defaultTheme().dimText);
+        empty.setThemeColour(Widgets::ThemeKeys::dimText);
         empty.setJustification(Widgets::Justification::Centred);
 
         scroll.setContent(rows);
@@ -242,7 +242,7 @@ public:
 
     void paint(Widgets::Graphics& g) override
     {
-        g.fillAll(Widgets::defaultTheme().background);
+        g.fillAll(getHostTheme().get(Widgets::ThemeKeys::background));
     }
 
     void resized() override
@@ -266,7 +266,6 @@ struct GenericEditor::Page final : Widgets::ComponentHost
         : root(plugin)
     {
         setFontPointSize(13.f);
-        setBackgroundColour(Widgets::defaultTheme().background);
         setRootComponent(root);
     }
 

@@ -29,6 +29,12 @@ struct SettingsPanelOptions
 // The standalone's audio and MIDI settings. The panel edits a copy of the
 // config and reports it; the app applies it and answers with setConfig(), so
 // what is shown is what the engine settled on. Message thread only.
+//
+// Drawn in its own theme, as any host's tree is: an app that dresses its
+// settings like the rest of its product calls setTheme with its keys and
+// values -- eacp's ThemeKeys, a face under ThemeKeys::font included -- and
+// the panel reads nothing else. The captions are ThemeKeys::dimText. Unset,
+// eacp's defaultTheme() at the rows' own size (13 points, 17 with touch).
 class SettingsPanel final : public eacp::UI::ComponentHost
 {
 public:
