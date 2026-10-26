@@ -10,6 +10,8 @@
 //   Seen Playing   written by the plugin: whether the playhead is playing
 //   Rate Fraction  written by the plugin: the fractional part of the rate it was
 //                  prepared at, so a host sees whether its rate arrived unrounded
+//
+// and a fixed, finite tail of 4800 samples for a host to read.
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
@@ -82,6 +84,9 @@ struct EffectPlugin : StatePlugin<State<EffectParams>>
     }
 
     int latencySamples() const noexcept override { return params.latency.get(); }
+
+    // 0.1 s at 48 kHz, so an AU host reads it back whole.
+    int tailSamples() const noexcept override { return 4800; }
 
     // A wrapper loads the parameters and the rest apart, the rest on the message
     // thread, where a rename belongs.

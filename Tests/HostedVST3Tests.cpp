@@ -485,6 +485,15 @@ auto tHostEdit = test("HostedVST3/aHostEditReachesTheProcessor") = []
     plugin->setHostEditListener(nullptr);
 };
 
+auto tTail = test("HostedVST3/aTailIsReadFiniteOrInfinite") = []
+{
+    const auto formats = DefaultFormats();
+
+    check(load(formats, "HostFixtureEffect")->tailSamples() == 4800);
+    check(load(formats, "HostFixtureInstrument")->tailSamples()
+          == Plugin::infiniteTail);
+};
+
 auto tGuiEdits = test("HostedVST3/thePluginsOwnEditsReachTheListener") = []
 {
     const auto formats = DefaultFormats();

@@ -472,6 +472,25 @@ auto tFixture = test("HostedAU/aFixtureComponentLoadsAndRuns") = []
           && instrument->getBusLayout().midiInputs.size() == 1);
 };
 
+auto tTail = test("HostedAU/aTailIsReadFiniteOrInfinite") = []
+{
+    auto effect = loadFixtureEffect();
+    auto instrument =
+        loadFixtureUnit("HostFixtureInstrument", kAudioUnitType_MusicDevice, "HfIn");
+
+    if (effect == nullptr || instrument == nullptr)
+        return;
+
+    // The tail time is in seconds, read back at the prepared rate.
+    auto block = Block(*effect);
+    check(effect->tailSamples() == 4800);
+
+    // An infinite tail time, before and after prepare().
+    check(instrument->tailSamples() == Plugin::infiniteTail);
+    auto instrumentBlock = Block(*instrument);
+    check(instrument->tailSamples() == Plugin::infiniteTail);
+};
+
 auto tFractionalRate = test("HostedAU/aFractionalRateArrivesUnrounded") = []
 {
     auto plugin = loadFixtureEffect();

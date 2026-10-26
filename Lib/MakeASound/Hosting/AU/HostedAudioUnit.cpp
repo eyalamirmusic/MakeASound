@@ -619,8 +619,8 @@ int HostedAudioUnit::tailSamples() const noexcept
 {
     auto samples = tail.load() * sampleRate;
 
-    if (!std::isfinite(samples) || samples >= std::numeric_limits<int>::max())
-        return std::numeric_limits<int>::max();
+    if (!std::isfinite(samples) || samples >= infiniteTail)
+        return infiniteTail;
 
     return static_cast<int>(std::lround(std::max(0.0, samples)));
 }

@@ -1872,6 +1872,16 @@ auto tLatency = test("AU/aLatencyChangeIsPostedOnceTheHostHasABaseline") = []
           == noErr);
     check(near(tail, 0.1));
 
+    plugin.tail = Plugin::infiniteTail;
+    check(AudioUnitGetProperty(host.unit,
+                               kAudioUnitProperty_TailTime,
+                               kAudioUnitScope_Global,
+                               0,
+                               &tail,
+                               &size)
+          == noErr);
+    check(std::isinf(tail) && tail > 0.0);
+
     plugin.notifyHostParameterInfoChanged();
     check(log.parameterList == 1);
 };

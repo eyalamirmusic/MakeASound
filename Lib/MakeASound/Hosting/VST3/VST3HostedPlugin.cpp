@@ -586,9 +586,9 @@ int VST3HostedPlugin::tailSamples() const noexcept
     auto tail = processor->getTailSamples();
 
     if (tail == kInfiniteTail)
-        return std::numeric_limits<int>::max();
+        return infiniteTail;
 
-    return static_cast<int>(std::min<uint32>(tail, std::numeric_limits<int>::max()));
+    return static_cast<int>(std::min<uint32>(tail, infiniteTail));
 }
 
 void VST3HostedPlugin::bindAudio(ProcessContext& context, int numSamples) noexcept
