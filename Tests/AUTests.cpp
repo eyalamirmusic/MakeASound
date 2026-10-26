@@ -186,7 +186,8 @@ struct CountingSynth : Plugin
     int numValues = 0;
 };
 
-// A host transport at a fixed timeline position.
+// A host transport at a fixed timeline position, cycling over beats 4 to 8.
+// state is the v1 callback, state2 the v2 one, which also says `recording`.
 struct Transport
 {
     static OSStatus state(void* userData,
@@ -201,14 +202,45 @@ struct Transport
         *isPlaying = true;
         *changed = false;
         *sampleInTimeline = transport.sampleInTimeline;
-        *isCycling = false;
-        *cycleStart = 0.0;
-        *cycleEnd = 0.0;
+        *isCycling = true;
+        *cycleStart = 4.0;
+        *cycleEnd = 8.0;
         return noErr;
     }
 
+    static OSStatus state2(void* userData,
+                           Boolean* isPlaying,
+                           Boolean* isRecording,
+                           Boolean* changed,
+                           Float64* sampleInTimeline,
+                           Boolean* isCycling,
+                           Float64* cycleStart,
+                           Float64* cycleEnd)
+    {
+        *isRecording = static_cast<const Transport*>(userData)->recording;
+        return state(userData,
+                     isPlaying,
+                     changed,
+                     sampleInTimeline,
+                     isCycling,
+                     cycleStart,
+                     cycleEnd);
+    }
+
     Float64 sampleInTimeline = 0.0;
+    bool recording = false;
 };
+
+void setHostCallbacks(AudioUnit unit, const HostCallbackInfo& callbacks)
+{
+    check(AudioUnitSetProperty(unit,
+                               kAudioUnitProperty_HostCallbacks,
+                               kAudioUnitScope_Global,
+                               0,
+                               &callbacks,
+                               sizeof(callbacks))
+          == noErr);
+}
 
 bool near(double a, double b, double tolerance = 1e-4)
 {
@@ -697,13 +729,7 @@ auto tPlayhead = test("AU/thePlayheadCarriesTheTimelinePosition") = []
     auto callbacks = HostCallbackInfo {};
     callbacks.hostUserData = &transport;
     callbacks.transportStateProc = &Transport::state;
-    check(AudioUnitSetProperty(host.unit,
-                               kAudioUnitProperty_HostCallbacks,
-                               kAudioUnitScope_Global,
-                               0,
-                               &callbacks,
-                               sizeof(callbacks))
-          == noErr);
+    setHostCallbacks(host.unit, callbacks);
 
     host.sampleTime = 4800.0;
     check(host.render(maxBlock) == noErr);
@@ -711,6 +737,47 @@ auto tPlayhead = test("AU/thePlayheadCarriesTheTimelinePosition") = []
     const auto& playhead = host.plugin().playhead;
     check(playhead.isValid && playhead.isPlaying);
     check(playhead.sampleTime == 96000);
+};
+
+// The v2 callback is preferred: only it says whether the host is recording.
+auto tPlayheadRecording = test("AU/aV2TransportSaysTheHostIsRecording") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto transport = Transport {.sampleInTimeline = 96000.0, .recording = true};
+
+    auto callbacks = HostCallbackInfo {};
+    callbacks.hostUserData = &transport;
+    callbacks.transportStateProc = &Transport::state;
+    callbacks.transportStateProc2 = &Transport::state2;
+    setHostCallbacks(host.unit, callbacks);
+
+    check(host.render(maxBlock) == noErr);
+
+    const auto& playhead = host.plugin().playhead;
+    check(playhead.isValid && playhead.isPlaying && playhead.isRecording);
+    check(playhead.isLooping);
+    check(playhead.sampleTime == 96000);
+    check(playhead.loopStartPpq == 4.0 && playhead.loopEndPpq == 8.0);
+};
+
+// A host with only the v1 callback can't say it records; the rest still lands.
+auto tPlayheadV1 = test("AU/aV1TransportFillsAllButRecording") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    auto transport = Transport {.sampleInTimeline = 96000.0, .recording = true};
+
+    auto callbacks = HostCallbackInfo {};
+    callbacks.hostUserData = &transport;
+    callbacks.transportStateProc = &Transport::state;
+    setHostCallbacks(host.unit, callbacks);
+
+    check(host.render(maxBlock) == noErr);
+
+    const auto& playhead = host.plugin().playhead;
+    check(playhead.isValid && playhead.isPlaying && !playhead.isRecording);
+    check(playhead.isLooping);
+    check(playhead.sampleTime == 96000);
+    check(playhead.loopStartPpq == 4.0 && playhead.loopEndPpq == 8.0);
 };
 
 auto tPlayheadFallback = test("AU/withNoTransportThePlayheadIsTheStreamClock") = []
