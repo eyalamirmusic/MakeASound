@@ -62,6 +62,61 @@ auto tHeldRender = test("Allocations/auHeldParameterRenderIsOffTheHeap") = []
     checkFixtureHeldRender<SynthPlugin>("Echo");
 };
 
+// The playhead read off the host's transport: through the v2 callback, then
+// through the v1 one alone.
+auto tTransport = test("Allocations/auHostTransportReadIsOffTheHeap") = []
+{
+    auto v1 = [](void*,
+                 Boolean* isPlaying,
+                 Boolean*,
+                 Float64* sampleInTimeline,
+                 Boolean*,
+                 Float64*,
+                 Float64*) -> OSStatus
+    {
+        *isPlaying = true;
+        *sampleInTimeline = 96000.0;
+        return noErr;
+    };
+
+    auto v2 = [](void*,
+                 Boolean* isPlaying,
+                 Boolean* isRecording,
+                 Boolean*,
+                 Float64* sampleInTimeline,
+                 Boolean*,
+                 Float64*,
+                 Float64*) -> OSStatus
+    {
+        *isPlaying = true;
+        *isRecording = true;
+        *sampleInTimeline = 96000.0;
+        return noErr;
+    };
+
+    for (auto withV2: {true, false})
+    {
+        auto host = UnitHost<GainPlugin>("Gain");
+        auto callbacks = HostCallbackInfo {};
+        callbacks.transportStateProc = v1;
+
+        if (withV2)
+            callbacks.transportStateProc2 = v2;
+
+        check(AudioUnitSetProperty(host.unit,
+                                   kAudioUnitProperty_HostCallbacks,
+                                   kAudioUnitScope_Global,
+                                   0,
+                                   &callbacks,
+                                   sizeof(callbacks))
+              == noErr);
+
+        checkRenderIsOffTheHeap(host);
+        check(host.plugin().playhead.sampleTime == 96000);
+        check(host.plugin().playhead.isRecording == withV2);
+    }
+};
+
 // The plugin moves every parameter itself between renders, so each render writes
 // Globals() and raises a moved bit per parameter for the message thread.
 auto tPluginSideMoves = test("Allocations/auPluginSideMovesAreOffTheHeap") = []

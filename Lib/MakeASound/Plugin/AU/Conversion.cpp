@@ -6,6 +6,7 @@ namespace MakeASound::AU
 {
 
 Playhead readPlayhead(const au::AUBase& unit,
+                      const HostCallbackInfo& callbacks,
                       const AudioTimeStamp& timestamp) noexcept
 {
     auto playhead = Playhead {};
@@ -40,22 +41,36 @@ Playhead readPlayhead(const au::AUBase& unit,
     }
 
     auto isPlaying = Boolean {};
+    auto isRecording = Boolean {};
     auto changed = Boolean {};
     auto sampleInTimeline = Float64 {};
     auto isCycling = Boolean {};
     auto cycleStart = Float64 {};
     auto cycleEnd = Float64 {};
 
-    if (unit.CallHostTransportState(&isPlaying,
-                                    &changed,
-                                    &sampleInTimeline,
-                                    &isCycling,
-                                    &cycleStart,
-                                    &cycleEnd)
-        == noErr)
+    // The v1 callback has no recording field; JUCE's wrapper also falls back
+    // to it only when the host has no v2.
+    auto transport = callbacks.transportStateProc2 != nullptr
+                         ? callbacks.transportStateProc2(callbacks.hostUserData,
+                                                         &isPlaying,
+                                                         &isRecording,
+                                                         &changed,
+                                                         &sampleInTimeline,
+                                                         &isCycling,
+                                                         &cycleStart,
+                                                         &cycleEnd)
+                         : unit.CallHostTransportState(&isPlaying,
+                                                       &changed,
+                                                       &sampleInTimeline,
+                                                       &isCycling,
+                                                       &cycleStart,
+                                                       &cycleEnd);
+
+    if (transport == noErr)
     {
         playhead.isValid = true;
         playhead.isPlaying = isPlaying != 0;
+        playhead.isRecording = isRecording != 0;
         playhead.isLooping = isCycling != 0;
         playhead.sampleTime = static_cast<int64_t>(sampleInTimeline);
         playhead.loopStartPpq = cycleStart;

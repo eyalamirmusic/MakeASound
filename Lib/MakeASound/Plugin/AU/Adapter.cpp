@@ -1277,7 +1277,7 @@ OSStatus Adapter::Render(AudioUnitRenderActionFlags& flags,
     takeStagedMidi();
     reconcileParameters();
     bindInputs(flags, timestamp, frames);
-    pluginWrapper.setPlayhead(readPlayhead(*this, timestamp));
+    pluginWrapper.setPlayhead(readPlayhead(*this, GetHostCallbackInfo(), timestamp));
     pluginWrapper.setOffline(offlineRender.load(std::memory_order_relaxed));
     pluginWrapper.sortMidiInByOffset();
     bindOutputs(frames);

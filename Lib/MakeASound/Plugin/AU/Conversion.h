@@ -13,8 +13,11 @@ namespace MakeASound::AU
 
 // What the host's callbacks say; the sample time is the transport's timeline
 // position, or the timestamp's stream clock when the host has no transport.
-// isValid when any callback answered.
+// isValid when any callback answered. `callbacks` is the unit's own
+// HostCallbackInfo: its transportStateProc2, which AUBase has no CallHost for,
+// is preferred, since only it says whether the host is recording.
 Playhead readPlayhead(const au::AUBase& unit,
+                      const HostCallbackInfo& callbacks,
                       const AudioTimeStamp& timestamp) noexcept;
 
 float from7Bit(UInt8 value) noexcept;
