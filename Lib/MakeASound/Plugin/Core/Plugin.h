@@ -9,6 +9,7 @@
 #include "../Parameters/ParameterList.h"
 #include "../State/StateContext.h"
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -135,7 +136,14 @@ public:
     // audio thread, at the next latency check. The default is the latency now.
     virtual int maxLatencySamples() const noexcept { return latencySamples(); }
 
-    // How long the output rings after the input goes silent; 0 for none.
+    // tailSamples() for output that may never stop after the input goes silent:
+    // a synth, a long reverb, a feedback delay. VST3 reports it as kInfiniteTail,
+    // AU and AUv3 as an infinite tail time. A hosted plugin that reports an
+    // infinite tail returns it too.
+    static constexpr int infiniteTail = std::numeric_limits<int>::max();
+
+    // How long the output rings after the input goes silent; 0 for none,
+    // infiniteTail for no end.
     virtual int tailSamples() const noexcept { return 0; }
 
     // Runs in place of process() while the bypass PluginWrapper adds is on: for

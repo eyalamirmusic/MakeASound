@@ -357,6 +357,10 @@ uint32 PLUGIN_API Adapter::getLatencySamples()
 uint32 PLUGIN_API Adapter::getTailSamples()
 {
     auto tail = plugin().tailSamples();
+
+    if (tail == Plugin::infiniteTail)
+        return Vst::kInfiniteTail;
+
     return tail <= 0 ? Vst::kNoTail : static_cast<uint32>(tail);
 }
 

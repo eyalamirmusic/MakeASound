@@ -1835,6 +1835,11 @@ auto tLatency = test("VST3/latencyRestartsOnceTheHostHasABaseline") = []
     check(adapter.getTailSamples() == Vst::kNoTail);
     host.plugin().tail = 256;
     check(adapter.getTailSamples() == 256);
+    host.plugin().tail = Plugin::infiniteTail;
+    check(adapter.getTailSamples() == Vst::kInfiniteTail);
+    host.plugin().tail = Plugin::infiniteTail - 1;
+    check(adapter.getTailSamples()
+          == static_cast<Steinberg::uint32>(Plugin::infiniteTail - 1));
 };
 
 auto tInfoChanged = test("VST3/parameterInfoChangedRestartsTitles") = []

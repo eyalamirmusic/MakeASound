@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <mutex>
 #include <utility>
 
@@ -919,8 +920,12 @@ Float64 Adapter::GetLatency() noexcept
 
 Float64 Adapter::GetTailTime() noexcept
 {
-    return static_cast<Float64>(std::max(0, plugin().tailSamples()))
-           / outputSampleRate();
+    auto tail = plugin().tailSamples();
+
+    if (tail == Plugin::infiniteTail)
+        return std::numeric_limits<Float64>::infinity();
+
+    return static_cast<Float64>(std::max(0, tail)) / outputSampleRate();
 }
 
 void Adapter::notifyHostIfLatencyChanged()

@@ -1261,6 +1261,8 @@ auto tLatency = test("AUv3/aLatencyChangeIsObservedOnceTheHostHasABaseline") = [
 
     plugin.tail = 4800;
     check(near(host.unit.tailTime, 0.1));
+    plugin.tail = Plugin::infiniteTail;
+    check(std::isinf(host.unit.tailTime) && host.unit.tailTime > 0.0);
 };
 
 auto tTreeRebuilt = test("AUv3/parameterInfoChangedRebuildsTheTree") = []

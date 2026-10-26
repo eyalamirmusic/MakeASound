@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 namespace MakeASound::AUv3
@@ -855,9 +856,12 @@ NSTimeInterval Adapter::latency()
 
 NSTimeInterval Adapter::tailTime() const
 {
-    return static_cast<NSTimeInterval>(
-               std::max(0, pluginWrapper.plugin().tailSamples()))
-           / outputSampleRate();
+    auto tail = pluginWrapper.plugin().tailSamples();
+
+    if (tail == Plugin::infiniteTail)
+        return std::numeric_limits<NSTimeInterval>::infinity();
+
+    return static_cast<NSTimeInterval>(std::max(0, tail)) / outputSampleRate();
 }
 
 void Adapter::notifyKeyChanged(NSString* key) const
