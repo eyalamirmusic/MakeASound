@@ -1,6 +1,7 @@
 #include "StandaloneProcessor.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace MakeASound::Standalone
 {
@@ -46,6 +47,12 @@ void StandaloneProcessor::prepare(const ProcessSpec& spec)
     {
     }
 
+    // A tone sounding when the stream restarts is dropped, not resumed at
+    // another rate.
+    toneRate = spec.sampleRate;
+    toneLength = static_cast<int>(spec.sampleRate);
+    tonePosition = toneLength;
+
     wrapper.prepare(spec.sampleRate, spec.maxBlockSize);
 }
 
@@ -69,12 +76,53 @@ bool StandaloneProcessor::isInputMuted() const noexcept
     return inputMuted.load(std::memory_order_relaxed);
 }
 
+void StandaloneProcessor::playTestTone() noexcept
+{
+    toneRequested.store(true, std::memory_order_relaxed);
+}
+
+void StandaloneProcessor::addTestTone(ProcessContext& context) noexcept
+{
+    if (toneRequested.exchange(false, std::memory_order_relaxed))
+        tonePosition = 0;
+
+    if (tonePosition >= toneLength || context.outputs.empty())
+        return;
+
+    constexpr auto frequency = 440.0;
+    constexpr auto amplitude = 0.5;
+    constexpr auto twoPi = 6.283185307179586;
+
+    auto fadeIn = std::max(1, toneLength / 10);
+    auto fadeOut = std::max(1, toneLength / 4);
+    auto numSamples = context.outputs[0].getNumSamples();
+    auto played = std::min(numSamples, toneLength - tonePosition);
+
+    for (auto s = 0; s < played; ++s)
+    {
+        auto position = tonePosition + s;
+        auto gain = std::min({1.0,
+                              (double) position / fadeIn,
+                              (double) (toneLength - position) / fadeOut});
+        auto sample = static_cast<float>(
+            amplitude * gain * std::sin(twoPi * frequency * position / toneRate));
+
+        for (auto& buffer: context.outputs)
+            for (auto ch = 0; ch < buffer.getNumChannels(); ++ch)
+                if (s < buffer.getNumSamples())
+                    buffer.getChannelPointer(ch)[s] += sample;
+    }
+
+    tonePosition += played;
+}
+
 void StandaloneProcessor::process(ProcessContext& context) noexcept
 {
     pushMidiIn(context);
     wrapper.setPlayhead(context.playhead);
     bindBuses(context);
     wrapper.process();
+    addTestTone(context);
 
     if (!wrapper.midiOut().empty())
         for (const auto& event: wrapper.midiOut()[0])

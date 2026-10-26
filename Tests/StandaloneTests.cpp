@@ -214,6 +214,60 @@ auto tMutedInput = test("Standalone/aMutedInputReachesThePluginAsSilence") = []
     check(stream.outputs[1][5] == inputAt(1, 5));
 };
 
+auto tTestTone = test("Standalone/aTestToneIsAddedToEveryOutputForASecond") = []
+{
+    auto rig = Rig<SynthPlugin> {};
+    auto stream = FakeStream {0, 2};
+
+    rig.engine.prepare(rig.processor, sampleRate, blockSize);
+    stream.run(rig.engine, true);
+    stream.run(rig.engine);
+
+    // What the plugin writes with no notes, block after block.
+    auto plain = stream.outputs;
+
+    auto tone = [&](int channel, int sample)
+    { return stream.outputs[channel][sample] - plain[channel][sample]; };
+
+    auto silent = [&]
+    {
+        for (auto ch = 0; ch < 2; ++ch)
+            for (auto s = 0; s < blockSize; ++s)
+                if (tone(ch, s) != 0.f)
+                    return false;
+
+        return true;
+    };
+
+    stream.run(rig.engine);
+    check(silent(), "nothing until asked");
+
+    rig.processor.playTestTone();
+    stream.run(rig.engine);
+
+    // A sine from zero, fading in, the same on both channels and never past
+    // half scale.
+    auto peak = 0.f;
+
+    for (auto s = 0; s < blockSize; ++s)
+    {
+        check(tone(0, s) == tone(1, s));
+        peak = std::max(peak, std::abs(tone(0, s)));
+    }
+
+    check(tone(0, 0) == 0.f);
+    check(peak > 0.f && peak <= 0.5f);
+
+    // Gone after a second of blocks.
+    auto blocksInASecond = (sampleRate + blockSize - 1) / blockSize;
+
+    for (auto i = 1; i < blocksInASecond; ++i)
+        stream.run(rig.engine);
+
+    stream.run(rig.engine);
+    check(silent(), "over after a second");
+};
+
 auto tInjected = test("Standalone/anInjectedEventLandsAtOffsetZero") = []
 {
     auto rig = Rig<SynthPlugin> {};

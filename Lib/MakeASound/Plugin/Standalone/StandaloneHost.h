@@ -160,6 +160,11 @@ public:
     void setInputMuted(bool muted);
     bool inputMuted() const noexcept { return processor.isInputMuted(); }
 
+    // A second of 440 Hz added to every output from the next block, for a
+    // settings panel's Test button (SettingsPanelOptions::testButtonLabel).
+    // StandaloneProcessor::playTestTone. Any thread.
+    void playTestTone() noexcept { processor.playTestTone(); }
+
     // Where the app's main window is, for the app to put it back next launch.
     // The host only keeps it: nullopt until the app sets one. Saved at once
     // when it changed.
