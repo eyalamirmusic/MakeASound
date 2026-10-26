@@ -1052,7 +1052,8 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
             foreign.context = StateContext::Session;
 
             // Off the message thread the load runs later, and its
-            // parameterValuesChanged mirrors again.
+            // parameterValuesChanged mirrors again; Plug's document, where the
+            // identity makes it native, sets the parameters now, as ours does.
             pluginWrapper.loadForeignState(foreign);
             mirrorParametersToHost();
         }

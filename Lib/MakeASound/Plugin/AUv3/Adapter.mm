@@ -950,7 +950,8 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
         }
         else if (auto plugState = readTamberPlugState(fullState, description))
         {
-            // A Tamber Plug build's v2 ClassInfo, as the JUCE one above.
+            // A Tamber Plug build's v2 ClassInfo, as the JUCE one above; where
+            // the identity makes it native its parameters land now, as ours do.
             auto foreign = ForeignState {};
             foreign.origin = ForeignOrigin::TamberPlugAU;
             foreign.bytes = *plugState;

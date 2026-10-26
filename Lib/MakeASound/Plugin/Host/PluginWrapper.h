@@ -89,7 +89,10 @@ public:
     // where there is one; a plugin with its own bypass reads it from the state.
     // A TamberPlugAU document the plugin declines loads as a native one where
     // the identity says so (ParameterIdentity::foreignPlugStateIsNative, the
-    // TamberPlug profile's): Plug's schema is this framework's.
+    // TamberPlug profile's): Plug's schema is this framework's. There its
+    // parameters land now on any thread, as loadState's do, before the plugin
+    // sees it; declined, only the rest of it loads (queued off the message
+    // thread), so a host write made in between stands.
     bool loadForeignState(const ForeignState& state);
 
     // What the host said about the track: the plugin's trackInfo() and then its
@@ -206,7 +209,9 @@ private:
     Parameter* writableParameterAt(int index) const noexcept;
 
     std::string savePluginState(StateContext context);
-    static bool applyForeignState(Plugin& plugin, const ForeignState& state);
+    static bool applyForeignState(Plugin& plugin,
+                                  const ForeignState& state,
+                                  bool parametersApplied);
     std::string withBypass(std::string document, StateContext context) const;
     std::string_view takeBypass(std::string_view document,
                                 StateContext context,

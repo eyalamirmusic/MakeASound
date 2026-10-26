@@ -343,14 +343,32 @@ bool PluginWrapper::loadForeignState(const ForeignState& state)
     // A stamp like loadState's, so a queued load of either kind gives way.
     auto stamp = live->latestLoad.fetch_add(1, std::memory_order_acq_rel) + 1;
 
+    // Plug's document where it is ours: its parameters land now, as a native
+    // load's do, so the host reads (and saves) them before the rest runs.
+    auto parametersApplied = false;
+
+    if (state.origin == ForeignOrigin::TamberPlugAU
+        && pluginPtr->parameters().identity().foreignPlugStateIsNative)
+    {
+        try
+        {
+            pluginPtr->loadParameters(state.bytes, state.context);
+            parametersApplied = true;
+        }
+        catch (...)
+        {
+        }
+    }
+
     if (isMessageThread())
-        return applyForeignState(*pluginPtr, state);
+        return applyForeignState(*pluginPtr, state, parametersApplied);
 
     callOnMessageThread(
         [weak = std::weak_ptr<Live>(live),
          bytes = std::string(state.bytes),
          foreign = state,
-         stamp]
+         stamp,
+         parametersApplied]
         {
             auto alive = weak.lock();
 
@@ -361,7 +379,7 @@ bool PluginWrapper::loadForeignState(const ForeignState& state)
             copy.bytes = bytes;
 
             // The host read its values when the load returned, before this ran.
-            if (applyForeignState(*alive->plugin, copy))
+            if (applyForeignState(*alive->plugin, copy, parametersApplied))
                 alive->plugin->notifyHostParameterValuesChanged();
         });
 
@@ -389,7 +407,9 @@ void PluginWrapper::setHostName(std::string name)
     pluginPtr->setHostName(std::move(name));
 }
 
-bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
+bool PluginWrapper::applyForeignState(Plugin& plugin,
+                                      const ForeignState& state,
+                                      bool parametersApplied)
 {
     try
     {
@@ -405,7 +425,12 @@ bool PluginWrapper::applyForeignState(Plugin& plugin, const ForeignState& state)
             if (!plugAsNative)
                 return false;
 
-            plugin.loadState(state.bytes, state.context);
+            // A host write made since loadForeignState applied the parameters
+            // stands, as after a native load.
+            if (parametersApplied)
+                plugin.loadStateExceptParameters(state.bytes, state.context);
+            else
+                plugin.loadState(state.bytes, state.context);
         }
     }
     catch (...)

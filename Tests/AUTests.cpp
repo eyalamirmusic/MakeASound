@@ -3364,6 +3364,56 @@ auto tPlugAsNative = test("AU/aTamberPlugPortReadsPlugsClassInfoWithNoReader") =
     check(TamberPlugFixtures::holdsSVFDefaults(native.plugin().params));
 };
 
+// Restored from a worker, Plug's session sets the parameters before the restore
+// returns, as ours does: the host reads and saves them at once, and a write it
+// makes before the rest of the load runs stands.
+auto tPlugAsNativeOffThread =
+    test("AU/aTamberPlugClassInfoFromAWorkerSetsTheParametersAtOnce") = []
+{
+    using TamberPlugFixtures::PlainSVFPort;
+
+    auto source = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = plugClassInfo(ours.value, TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    auto status = OSStatus {-1};
+    std::thread([&] { status = restoreClassInfo(target, info.value); }).join();
+    check(status == noErr);
+    check(TamberPlugFixtures::holdsSVFValues(target.plugin().params));
+    check(near(target.hostValue(1), 0.4f));
+    check(target.hostValue(6) == 0.f);
+
+    auto saved = CFPropertyListRef {};
+    auto saveStatus = OSStatus {-1};
+    std::thread(
+        [&]
+        {
+            auto size = UInt32 {sizeof(saved)};
+            saveStatus = AudioUnitGetProperty(target.unit,
+                                              kAudioUnitProperty_ClassInfo,
+                                              kAudioUnitScope_Global,
+                                              0,
+                                              &saved,
+                                              &size);
+        })
+        .join();
+    check(saveStatus == noErr);
+
+    auto owned = CFOwned<CFPropertyListRef>(saved);
+    auto* dictionary = static_cast<CFDictionaryRef>(owned.value);
+    check(CFDictionaryGetValue(dictionary, CFSTR("MakeASoundState")) != nullptr);
+
+    auto again = UnitHost<PlainSVFPort>(plugPortComponentFor("Pnsv"));
+    check(restoreClassInfo(again, owned.value) == noErr);
+    check(TamberPlugFixtures::holdsSVFValues(again.plugin().params));
+
+    check(target.hostWrites(1, 0.9f) == noErr);
+    pumpFor(150);
+    check(near(target.hostValue(1), 0.9f));
+    check(near(target.plugin().params.highPass.cutoff.get(), 0.9f));
+};
+
 // What Plug's own SVFFilter and Chorus AUs published (TamberPlugFixtures.h),
 // through the adapter.
 template <typename P, size_t count>
