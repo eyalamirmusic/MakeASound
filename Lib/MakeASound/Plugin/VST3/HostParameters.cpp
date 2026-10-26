@@ -143,7 +143,9 @@ void ProxyParameter::refreshInfo()
     info.id = entry.hostId;
     copyTo(info.title, entry.displayName);
     copyTo(info.shortTitle, p.shortName());
-    copyTo(info.units, p.label());
+    // No units: valueToText() already carries the label, and hosts append
+    // units to the value text themselves, so "1000 Hz" would read "1000 Hz Hz".
+    copyTo(info.units, {});
     info.stepCount = steps == StepRule::JuceDiscrete
                          ? Compat::juceVST3StepCount(p, juceLegacyAutomationType)
                          : p.numSteps();

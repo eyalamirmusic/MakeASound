@@ -407,13 +407,15 @@ auto tParameters = test("HostedVST3/parametersCarryThePluginsIds") = []
 
     auto cutoff = indexNamed(*plugin, "Cutoff");
     check(cutoff >= 0);
-    check(list[cutoff].label() == "Hz");
     check(list[cutoff].minValue() == 0.f && list[cutoff].maxValue() == 1.f);
 
-    // Text through the plugin's controller: its skew and unit.
+    // Text through the plugin's controller: its skew and unit. The unit is in
+    // the text alone: the fixture publishes no VST3 units, so no label here.
     auto text = list[cutoff].valueToText(list[cutoff].getValue());
+    check(list[cutoff].label().empty());
     check(text.find("1000") != std::string::npos);
     check(text.find("Hz") != std::string::npos);
+    check(text.find("Hz") == text.rfind("Hz"));
 
     auto alt = indexNamed(*plugin, "Alt Names");
     check(list[alt].numSteps() == 1);
