@@ -80,13 +80,17 @@ std::string shared(const std::string& what,
 ParameterList::ParameterList(ParameterGroup& group, ParameterIdentity identity)
     : ids(identity)
 {
-    group.forEach([this](Parameter& param,
-                         std::string_view id,
-                         std::string_view displayName,
-                         bool automatable,
-                         bool persistent,
-                         std::span<const ParameterGroup* const> groups)
-                  { add(param, id, displayName, automatable, persistent, groups); });
+    group.forEachMember(
+        [this](const ParameterGroup::Member& member)
+        {
+            add(member.param,
+                member.id,
+                member.displayName,
+                member.automatable,
+                member.persistent,
+                member.reportsPluginMoves,
+                member.groups);
+        });
 
     findBypass();
     assignIds();
@@ -98,7 +102,13 @@ void ParameterList::addHostBypass(Parameter& param)
     if (bypass >= 0)
         return;
 
-    add(param, param.id(), param.name(), true, param.isPersistent(), {});
+    add(param,
+        param.id(),
+        param.name(),
+        true,
+        param.isPersistent(),
+        param.reportsPluginMoves(),
+        {});
 
     bypass = entries.size() - 1;
     entries[bypass].bypass = true;
@@ -179,9 +189,11 @@ void ParameterList::add(Parameter& param,
                         std::string_view displayName,
                         bool automatable,
                         bool persistent,
+                        std::optional<bool> reportsPluginMoves,
                         std::span<const ParameterGroup* const> groups)
 {
     auto& entry = entries.add(Entry {});
+    moveReportChoices.add(reportsPluginMoves);
     entry.param = &param;
     entry.id = std::string {id};
     entry.displayName = std::string {displayName};
@@ -265,6 +277,8 @@ void ParameterList::assignIds()
     {
         auto& entry = entries[position];
         entry.hostKey = groupedKey(entry, ids.juceKeyGroupSeparator);
+        entry.reportsPluginMoves = moveReportChoices[position].value_or(
+            ids.pluginMoves == PluginMoveReports::Unbracketed);
 
         auto indexRule = ids.paramIds == ParamIdRule::Index;
 

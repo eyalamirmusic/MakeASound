@@ -772,7 +772,7 @@ void Adapter::startTreeTimer()
     // past the adapter.
     auto* adapter = this;
     dispatch_source_set_event_handler(treeTimer, ^{
-      adapter->syncTreeFromPlugin();
+      adapter->syncTreeFromPlugin(!adapter->loadToSync.exchange(false));
     });
     dispatch_source_set_timer(treeTimer,
                               dispatch_time(DISPATCH_TIME_NOW, treeSyncInterval),
@@ -813,13 +813,20 @@ float Adapter::plainFromTree(int index, AUValue value) const noexcept
     return space.fromHost(entry, value);
 }
 
-void Adapter::syncTreeFromPlugin()
+void Adapter::syncTreeFromPlugin(bool onlyReported)
 {
+    const auto& list = plugin().parameters();
+
     for (auto index: exposed)
     {
         auto undo = undoHostWrite[index].exchange(false);
 
-        if (undo || pluginWrapper.getParameter(index) != lastPluginValue[index])
+        // Left unreported, the tree's value provider still reads the plugin, so
+        // a host that asks has the value all the same.
+        auto moved = pluginWrapper.getParameter(index) != lastPluginValue[index]
+                     && (!onlyReported || list.entry(index).reportsPluginMoves);
+
+        if (undo || moved)
             setTreeValue(index);
     }
 }
@@ -966,6 +973,8 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
         // Off the message thread the timer carries the values into the tree.
         if (isMessageThread())
             syncTreeFromPlugin();
+        else
+            loadToSync = true;
 
         notifyHostIfLatencyChanged();
     }

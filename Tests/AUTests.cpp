@@ -2344,6 +2344,92 @@ auto tPluginMovePosted = test("AU/aPluginSideMoveReachesAnEventListener") = []
     AUListenerDispose(listener);
 };
 
+// Under IdScheme::TamberPlug a value the plugin moves on its own is mirrored
+// into the unit's values, which a host reads, but posts no event a DAW would
+// record (PluginMoveReports::GesturesOnly), as Plug's AU did; a bulk
+// notification and a gesture still post.
+auto tPlugMoveMirrored =
+    test("AU/aTamberPlugPortMirrorsAPluginSideMoveWithoutAnEvent") = []
+{
+    auto host = UnitHost<GainPlugin>(plugPortComponentFor("Pgan"));
+    auto& gain = host.plugin().params.gain;
+    auto gainId = host.hostIdOf(gain);
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, {gainId});
+
+    gain.setValue(-7.f);
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.empty());
+    check(near(host.hostValue(gainId), -7.f));
+
+    // What the host was never told.
+    host.plugin().notifyHostParameterValuesChanged();
+    check(pumpUntil([&] { return !log.types.empty(); }));
+    check(log.types.size() == 1);
+    check(near(log.values[0], -7.f));
+
+    auto& edits = *host.plugin().hostEditListener();
+    edits.beginParameterEdit(0);
+    gain.setValue(-12.f);
+    edits.performParameterEdit(0, gain.getNormalized());
+    edits.endParameterEdit(0);
+    check(pumpUntil([&] { return log.types.size() == 2; }));
+    check(near(log.values[1], -12.f));
+
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.size() == 2);
+
+    AUListenerDispose(listener);
+};
+
+// A parameter's own reportsPluginMoves, or its group's, overrides the scheme's
+// either way; every value is mirrored all the same.
+void checkMoveReports(AudioComponent component, bool native)
+{
+    auto host = UnitHost<MoveReportPlugin>(component);
+    auto& p = host.plugin().params;
+    auto all = std::vector<FloatParam*> {
+        &p.plain, &p.reported, &p.unreported, &p.quiet.muted, &p.quiet.loud};
+    auto ids = std::vector<AudioUnitParameterID> {};
+
+    for (auto* param: all)
+        ids.push_back(host.hostIdOf(*param));
+
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, ids);
+
+    for (auto* param: all)
+        param->setValue(0.5f);
+
+    check(host.render(maxBlock) == noErr);
+    check(pumpUntil([&] { return log.types.size() >= (native ? 3u : 2u); }));
+    pumpFor(150);
+
+    auto posted = [&](const FloatParam& param)
+    { return std::ranges::count(log.ids, host.hostIdOf(param)) == 1; };
+
+    check(log.types.size() == (native ? 3u : 2u));
+    check(posted(p.plain) == native);
+    check(posted(p.reported));
+    check(!posted(p.unreported));
+    check(!posted(p.quiet.muted));
+    check(posted(p.quiet.loud));
+
+    for (auto id: ids)
+        check(near(host.hostValue(id), 0.5f));
+
+    AUListenerDispose(listener);
+}
+
+auto tMoveReportChoices =
+    test("AU/aParametersMoveReportChoiceOverridesTheSchemes") = []
+{
+    checkMoveReports(plugPortComponentFor("Nmov"), true);
+    checkMoveReports(plugPortComponentFor("Pmov"), false);
+};
+
 auto tHeldMoveNotPosted = test("AU/aHeldParameterIsLeftToItsGesture") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");

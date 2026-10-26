@@ -2229,6 +2229,83 @@ auto tHeldNoOutput = test("VST3/aHeldParameterLeavesNoOutputPoint") = []
     check(host.outputChanges.getParameterCount() == 0);
 };
 
+// Under IdScheme::TamberPlug a value the plugin moves on its own is not news to
+// the host (PluginMoveReports::GesturesOnly), as in Plug's VST3; a gesture and a
+// bulk notification still are.
+auto tPlugMovesUnreported =
+    test("VST3/aTamberPlugPortLeavesNoOutputPointForAPluginSideMove") = []
+{
+    using Kind = TestComponentHandler::EditKind;
+
+    auto host =
+        AdapterHost<GainPlugin> {policyFor(IdScheme::TamberPlug, {}).parameters};
+    auto& params = host.plugin().params;
+    auto& edits = host.handler.edits;
+    auto gainId = host.hostIdOf(params.gain);
+
+    params.gain.setValue(-7.f);
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+    check(
+        near(host.adapter->getParamNormalized(gainId), params.gain.getNormalized()));
+
+    // Taken as the baseline: no later block reports it either.
+    runQuietBlock(host, 0);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    auto& listener = *host.plugin().hostEditListener();
+    listener.beginParameterEdit(0);
+    params.gain.setValue(-12.f);
+    listener.performParameterEdit(0, params.gain.getNormalized());
+    listener.endParameterEdit(0);
+
+    check(edits.size() == 3);
+    check(edits[0].kind == Kind::Begin && edits[0].id == gainId);
+    check(edits[1].kind == Kind::Perform && edits[1].id == gainId);
+    check(near(edits[1].value, params.gain.getNormalized()));
+    check(edits[2].kind == Kind::End && edits[2].id == gainId);
+
+    runQuietBlock(host);
+    check(host.outputChanges.getParameterCount() == 0);
+
+    params.mode.setValue(2.f);
+    host.plugin().notifyHostParameterValuesChanged();
+    check(host.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+};
+
+// A parameter's own reportsPluginMoves, or its group's, overrides the scheme's
+// either way.
+auto tMoveReportChoices =
+    test("VST3/aParametersMoveReportChoiceOverridesTheSchemes") = []
+{
+    for (auto scheme: {IdScheme::Native, IdScheme::TamberPlug})
+    {
+        auto host = AdapterHost<MoveReportPlugin> {policyFor(scheme, {}).parameters};
+        auto& p = host.plugin().params;
+        auto all = {
+            &p.plain, &p.reported, &p.unreported, &p.quiet.muted, &p.quiet.loud};
+
+        for (auto* param: all)
+            param->setValue(0.5f);
+
+        host.clearQueues();
+        host.fillBlock(blockSize);
+        host.run();
+
+        auto reported = [&](const FloatParam& param)
+        {
+            return outputPoints(host.outputChanges, host.hostIdOf(param)).size()
+                   == 1;
+        };
+
+        check(reported(p.plain) == (scheme == IdScheme::Native));
+        check(reported(p.reported));
+        check(!reported(p.unreported));
+        check(!reported(p.quiet.muted));
+        check(reported(p.quiet.loud));
+    }
+};
+
 auto tBulkValues = test("VST3/manyValuesChangedRestartsParamValues") = []
 {
     auto host = AdapterHost<GainPlugin> {};

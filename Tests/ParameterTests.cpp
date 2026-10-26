@@ -364,6 +364,99 @@ auto tGroupFlags = test("Parameters/aNonAutomatableGroupHidesItsParameters") = [
     check(params.hidden.level.isAutomatable());
 };
 
+// reportsPluginMoves: the parameter's own, else the innermost group's that
+// chose (a nameless one, and one its parent mounts, included), else the
+// identity's pluginMoves.
+struct QuietLfoParams : ParameterGroup
+{
+    QuietLfoParams()
+        : ParameterGroup("LFO", {.reportsPluginMoves = false})
+    {
+        add(rate, shown, unnamed);
+    }
+
+    struct Unnamed : ParameterGroup
+    {
+        Unnamed()
+            : ParameterGroup({}, {.reportsPluginMoves = true})
+        {
+            add(depth);
+        }
+
+        FloatParam depth {"Depth"};
+    };
+
+    FloatParam rate {"Rate"};
+    FloatParam shown {"Shown", 0.f, 1.f, 0.f, {.reportsPluginMoves = true}};
+    Unnamed unnamed;
+};
+
+struct MoveReportGroups : ParameterGroup
+{
+    MoveReportGroups()
+    {
+        add(plain, quiet, lfo);
+        addChild("Loud LFO", loud, {.reportsPluginMoves = true});
+    }
+
+    FloatParam plain {"Plain"};
+    FloatParam quiet {"Quiet", 0.f, 1.f, 0.f, {.reportsPluginMoves = false}};
+    QuietLfoParams lfo;
+    QuietLfoParams loud;
+};
+
+auto tMoveReports = test("Parameters/moveReportsResolveThroughTheGroups") = []
+{
+    auto params = MoveReportGroups {};
+    auto list = ParameterList {params};
+
+    auto reports = [&]
+    {
+        auto result = std::vector<bool> {};
+
+        for (const auto& entry: list)
+            result.push_back(entry.reportsPluginMoves);
+
+        return result;
+    };
+
+    check(idsOf(list)
+          == std::vector<std::string> {"Plain",
+                                       "Quiet",
+                                       "LFO/Rate",
+                                       "LFO/Shown",
+                                       "LFO/Depth",
+                                       "Loud LFO/Rate",
+                                       "Loud LFO/Shown",
+                                       "Loud LFO/Depth"});
+    check(reports()
+          == std::vector<bool> {true, false, false, true, true, true, true, true});
+    check(!params.plain.reportsPluginMoves());
+    check(params.loud.reportsPluginMoves() == true);
+
+    auto identity = MakeASound::ParameterIdentity {};
+    identity.pluginMoves = MakeASound::PluginMoveReports::GesturesOnly;
+    list.setIdentity(identity);
+    check(reports()
+          == std::vector<bool> {false, false, false, true, true, true, true, true});
+
+    // The scheme's default, and the Visitor still walks every parameter.
+    check(MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {})
+              .parameters.pluginMoves
+          == MakeASound::PluginMoveReports::GesturesOnly);
+    check(MakeASound::ParameterIdentity {}.pluginMoves
+          == MakeASound::PluginMoveReports::Unbracketed);
+
+    auto visited = 0;
+    params.forEach([&](Parameter&,
+                       std::string_view,
+                       std::string_view,
+                       bool,
+                       bool,
+                       std::span<const ParameterGroup* const>) { ++visited; });
+    check(visited == list.size());
+};
+
 struct BypassParams : ParameterGroup
 {
     BypassParams() { add(gain, hiddenBypass, bypass); }

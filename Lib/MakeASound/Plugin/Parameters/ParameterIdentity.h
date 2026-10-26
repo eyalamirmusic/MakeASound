@@ -39,7 +39,9 @@ enum class IdScheme
     // PluginWrapper adds is left to the AU bypass property; AUv3 and AAX ids,
     // the VST3 class id and the AAX plug-in ids MakeASound's (Plug shipped no
     // AUv3 or AAX, and its class id is MakeASound's). A post-port parameter
-    // (IdentityOverrides::indexedThroughVersion) takes FNV-1a of its path.
+    // (IdentityOverrides::indexedThroughVersion) takes FNV-1a of its path. A
+    // value the plugin moves outside a gesture is not reported
+    // (PluginMoveReports::GesturesOnly), as Plug's formats never reported one.
     TamberPlug
 };
 
@@ -225,6 +227,24 @@ enum class StepRule
     JuceDiscrete
 };
 
+// Whether a value a parameter's plugin sets on its own, outside a gesture,
+// reaches the host as a value change (VST3 an output parameter point, AU a
+// kAudioUnitEvent_ParameterValueChange, AUv3 a tree write), which a DAW writing
+// automation records. The default of every parameter that makes no choice of its
+// own (ParameterOptions::reportsPluginMoves).
+enum class PluginMoveReports
+{
+    // Every move the plugin does not hold, as soon as the adapter finds it.
+    Unbracketed,
+
+    // Only what a gesture brackets (Plugin::beginParameterEdit,
+    // performParameterEdit, endParameterEdit), a load and
+    // notifyHostParameterValuesChanged() tell the host; any other move stays in
+    // the plugin, and in the AU's own copy of the values, which a host reads
+    // without being told. Tamber Plug's formats reported nothing else.
+    GesturesOnly
+};
+
 // How the VST3 adapter lays out the hidden parameters a host maps MIDI
 // controllers onto (IMidiMapping), when the plugin has them
 // (vst3MidiControllersFor()).
@@ -327,6 +347,10 @@ struct ParameterIdentity
     // when the plugin's loadForeignState declines it. A port that kept Plug's
     // ids and plain ranges has Plug's schema, so needs no loadLegacy for it.
     bool foreignPlugStateIsNative = false;
+
+    // Not an id either: what the adapters tell the host of a value the plugin
+    // moved on its own (ParameterList::Entry::reportsPluginMoves).
+    PluginMoveReports pluginMoves = PluginMoveReports::Unbracketed;
 
     // The VST3 adapter's MIDI controller parameters: their layout, and whether
     // there are any (vst3MidiControllersFor() of the description, which

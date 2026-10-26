@@ -64,6 +64,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
         params.auUnits = AUUnits::Plug;
         params.hostGroups = false;
         params.foreignPlugStateIsNative = true;
+        params.pluginMoves = PluginMoveReports::GesturesOnly;
         return policy;
     }
 

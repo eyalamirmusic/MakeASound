@@ -118,7 +118,8 @@ auto tTransport = test("Allocations/auHostTransportReadIsOffTheHeap") = []
 };
 
 // The plugin moves every parameter itself between renders, so each render writes
-// Globals() and raises a moved bit per parameter for the message thread.
+// Globals() and raises a moved bit per parameter for the message thread: under
+// IdScheme::TamberPlug none, and per parameter's choice some.
 auto tPluginSideMoves = test("Allocations/auPluginSideMovesAreOffTheHeap") = []
 {
     auto host = UnitHost<GainPlugin>("Gain");
@@ -126,6 +127,14 @@ auto tPluginSideMoves = test("Allocations/auPluginSideMovesAreOffTheHeap") = []
 
     check(pluginSideMovesAllocations(host) == 0);
     check(host.hostValue(ids[0]) == host.plugin().params.gain.getValue());
+
+    auto unreported = UnitHost<GainPlugin>(plugPortComponentFor("Pgan"));
+    check(pluginSideMovesAllocations(unreported) == 0);
+    check(unreported.hostValue(exposedIds(unreported)[0])
+          == unreported.plugin().params.gain.getValue());
+
+    auto chosen = UnitHost<MoveReportPlugin>(plugPortComponentFor("Pmov"));
+    check(pluginSideMovesAllocations(chosen) == 0);
 };
 
 // A JUCE port under both JUCE schemes: host writes in JUCE's space (the

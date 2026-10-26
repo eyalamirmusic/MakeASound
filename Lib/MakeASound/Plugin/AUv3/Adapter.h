@@ -103,9 +103,12 @@ public:
     void setContextName(NSString* name);
 
     // Every exposed parameter whose plugin value moved since the last call goes
-    // into the tree, as does a held parameter's dropped host write being undone.
-    // Message thread; a 30 Hz timer calls it, and so does a load.
-    void syncTreeFromPlugin();
+    // into the tree, as does a held parameter's dropped host write being undone;
+    // with `onlyReported`, of the moved ones only those whose entry
+    // reportsPluginMoves, the rest waiting for a call without. Message thread; a
+    // 30 Hz timer calls it with `onlyReported`, and a load and
+    // parameterValuesChanged() without.
+    void syncTreeFromPlugin(bool onlyReported = false);
 
     // HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
@@ -201,6 +204,10 @@ private:
     Vector<int> exposed;
     EA::FixedDynamicArray<std::atomic<float>> lastPluginValue;
     EA::FixedDynamicArray<std::atomic<bool>> undoHostWrite;
+
+    // A load made off the message thread, whose values the next tick carries
+    // into the tree whether their entries report plugin moves or not.
+    std::atomic<bool> loadToSync {false};
 
     // What the render block captures: C++ only, sized at allocate.
     OwningPointer<Render> state;

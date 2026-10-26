@@ -14,6 +14,7 @@
 
 #include <eacp/Core/Threads/EventLoop.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -846,6 +847,121 @@ auto tGestures = test("AUv3/gesturesReachAnAutomationObserver") = []
     check(std::all_of(
         addresses.begin(), addresses.end(), [&](auto a) { return a == address; }));
     check(near(values[1], -15.f));
+};
+
+// The values each automation event carried, by address.
+struct AutomationLog
+{
+    explicit AutomationLog(AUParameterTree* treeToUse)
+        : tree(treeToUse)
+    {
+        auto* into = &events;
+        token = [tree tokenByAddingParameterAutomationObserver:^(
+                          NSInteger count, const AUParameterAutomationEvent* list) {
+          for (auto i = 0; i < count; ++i)
+              into->push_back(list[i]);
+        }];
+    }
+
+    ~AutomationLog() { [tree removeParameterObserver:token]; }
+
+    AutomationLog(const AutomationLog&) = delete;
+    AutomationLog& operator=(const AutomationLog&) = delete;
+
+    int countFor(AUParameterAddress address) const
+    {
+        return static_cast<int>(std::ranges::count_if(
+            events, [&](const auto& event) { return event.address == address; }));
+    }
+
+    AUParameterTree* tree = nil;
+    AUParameterObserverToken token = nullptr;
+    std::vector<AUParameterAutomationEvent> events;
+};
+
+// Under IdScheme::TamberPlug a value the plugin moves on its own reaches no
+// automation observer (PluginMoveReports::GesturesOnly), though a host reading
+// the tree has it; a bulk notification and a gesture still reach one.
+auto tPlugMovesUnobserved =
+    test("AUv3/aTamberPlugPortsPluginSideMoveReachesNoObserver") = []
+{
+    auto host = UnitHost<GainPlugin>(
+        *TamberPlugFixtures::plugDescriptionFor(FourCC("Pgan").toUint32()));
+    auto& gain = host.plugin().params.gain;
+    auto* node = host.parameterFor(gain);
+    auto log = AutomationLog {host.unit.parameterTree};
+
+    gain.setValue(-9.f);
+    pumpFor(150);
+    check(log.events.empty());
+    check(near(node.value, -9.f));
+
+    host.plugin().notifyHostParameterValuesChanged();
+    check(pumpUntil([&] { return log.countFor(node.address) == 1; }));
+    check(!log.events.empty() && near(log.events.back().value, -9.f));
+
+    auto& edits = *host.plugin().hostEditListener();
+    edits.beginParameterEdit(0);
+    gain.setValue(-15.f);
+    edits.performParameterEdit(0, gain.getNormalized());
+    edits.endParameterEdit(0);
+    check(pumpUntil([&] { return log.countFor(node.address) == 4; }));
+    check(!log.events.empty() && near(log.events.back().value, -15.f));
+};
+
+// A load from a worker is the host's news all the same: the next tick carries
+// it into the tree.
+auto tPlugLoadObserved = test("AUv3/aTamberPlugPortsLoadFromAWorkerReachesTheTree") = []
+{
+    const auto& description =
+        *TamberPlugFixtures::plugDescriptionFor(FourCC("Pgan").toUint32());
+    auto source = UnitHost<GainPlugin>(description);
+    source.plugin().params.gain.setValue(-12.f);
+    auto* state = source.unit.fullStateForDocument;
+
+    auto target = UnitHost<GainPlugin>(description);
+    auto* node = target.parameterFor(target.plugin().params.gain);
+    auto log = AutomationLog {target.unit.parameterTree};
+
+    auto* unit = target.unit;
+    auto loader = std::thread([&] { unit.fullStateForDocument = state; });
+    loader.join();
+
+    check(pumpUntil([&] { return log.countFor(node.address) == 1; }));
+    check(!log.events.empty() && near(log.events.back().value, -12.f));
+};
+
+// A parameter's own reportsPluginMoves, or its group's, overrides the scheme's
+// either way.
+auto tMoveReportChoices = test("AUv3/aParametersMoveReportChoiceOverridesTheSchemes") = []
+{
+    for (auto code: {FourCC("Nmov"), FourCC("Pmov")})
+    {
+        const auto* description =
+            TamberPlugFixtures::plugDescriptionFor(code.toUint32());
+        auto native = description->idScheme == IdScheme::Native;
+        auto host = UnitHost<MoveReportPlugin>(*description);
+        auto& p = host.plugin().params;
+        auto log = AutomationLog {host.unit.parameterTree};
+
+        for (auto* param:
+             {&p.plain, &p.reported, &p.unreported, &p.quiet.muted, &p.quiet.loud})
+            param->setValue(0.5f);
+
+        auto expected = native ? 3u : 2u;
+        check(pumpUntil([&] { return log.events.size() >= expected; }));
+        pumpFor(150);
+        check(log.events.size() == expected);
+
+        auto observed = [&](const FloatParam& param)
+        { return log.countFor(host.parameterFor(param).address) == 1; };
+
+        check(observed(p.plain) == native);
+        check(observed(p.reported));
+        check(!observed(p.unreported));
+        check(!observed(p.quiet.muted));
+        check(observed(p.quiet.loud));
+    }
 };
 
 auto tStateForms = test("AUv3/fullStateIsAPresetAndTheDocumentsASession") = []

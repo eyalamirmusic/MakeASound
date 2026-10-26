@@ -425,6 +425,47 @@ struct TwinGroupPlugin : StatePlugin<State<TwinGroupParams>>
     void process(ProcessContext&) noexcept override {}
 };
 
+// Each choice over whether a value the plugin moves on its own reaches the host
+// (ParameterOptions::reportsPluginMoves): none, so the IdScheme's; its own
+// either way; and a nameless group's, which a member's own choice overrides.
+struct UnreportedMoveParams : ParameterGroup
+{
+    UnreportedMoveParams()
+        : ParameterGroup({}, {.reportsPluginMoves = false})
+    {
+        add(muted, loud);
+    }
+
+    FloatParam muted {"Muted", 0.f, 1.f, 0.f, {.versionHint = 1}};
+    FloatParam loud {
+        "Loud", 0.f, 1.f, 0.f, {.reportsPluginMoves = true, .versionHint = 1}};
+};
+
+struct MoveReportParams : ParameterGroup
+{
+    MoveReportParams() { add(plain, reported, unreported, quiet); }
+
+    FloatParam plain {"Plain", 0.f, 1.f, 0.f, {.versionHint = 1}};
+    FloatParam reported {
+        "Reported", 0.f, 1.f, 0.f, {.reportsPluginMoves = true, .versionHint = 1}};
+    FloatParam unreported {"Unreported",
+                           0.f,
+                           1.f,
+                           0.f,
+                           {.reportsPluginMoves = false, .versionHint = 1}};
+    UnreportedMoveParams quiet;
+};
+
+struct MoveReportPlugin : StatePlugin<State<MoveReportParams>>
+{
+    std::string_view name() const override { return "Move Reports"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
 struct SynthParams : ParameterGroup
 {
     SynthParams() { add(level); }

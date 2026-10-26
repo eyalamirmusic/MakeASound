@@ -41,6 +41,16 @@ struct ParameterOptions
     // visibility are unchanged. For padding that only holds later ids in place.
     bool persistent = true;
 
+    // Whether a value the plugin sets on its own, outside a gesture (a
+    // setValue from the audio thread, a camera, a randomize), reaches the host
+    // as a plain value change, which a DAW writing automation records. Unset
+    // takes the innermost enclosing group's choice, else the IdScheme's
+    // (ParameterIdentity::pluginMoves). False leaves the host to learn the value
+    // only from a gesture (Plugin::beginParameterEdit and its pair), a load, or
+    // notifyHostParameterValuesChanged(): JUCE's line between
+    // setValueNotifyingHost and a silent write.
+    std::optional<bool> reportsPluginMoves = {};
+
     // Overrides the derived id (the path's hash, a JUCE key's hash or an
     // index), e.g. to keep the id a release that named it differently gave to
     // the host: the VST3 and AU id in every IdScheme. It moves no other entry's
@@ -111,6 +121,10 @@ public:
     bool isBypass() const noexcept { return bypass; }
     bool isSessionOnly() const noexcept { return sessionOnly; }
     bool isPersistent() const noexcept { return persistent; }
+
+    // Its own choice, unset when it made none: ParameterList::Entry has the
+    // resolved one.
+    std::optional<bool> reportsPluginMoves() const noexcept { return moveReports; }
     std::optional<uint32_t> explicitHostId() const noexcept { return hostId; }
     int versionHint() const noexcept { return hint; }
 
@@ -202,6 +216,7 @@ private:
     bool bypass;
     bool sessionOnly;
     bool persistent;
+    std::optional<bool> moveReports;
     std::optional<uint32_t> hostId;
     int hint;
     std::string paramHostKey;

@@ -236,7 +236,8 @@ private:
     bool sdkIndexedList = false;
 
     // Per slot, raised by the render thread when it wrote a value the plugin
-    // moved on its own into Globals(), taken by postMovedParameters().
+    // moved on its own into Globals() and the entry reportsPluginMoves, taken
+    // by postMovedParameters().
     std::unique_ptr<std::atomic<bool>[]> movedByPlugin;
 
     // Per slot, the plugin's value (plain) the host last had: from its own write,
