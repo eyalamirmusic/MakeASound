@@ -1595,4 +1595,40 @@ auto tPlugTree = test("AUv3/aTamberPlugPortsTreeLeavesTheBypassOut") = []
     check(host.unit.shouldBypassEffect);
     check(list[list.bypassIndex()].getValue() == 1.f);
 };
+
+// A port with no reader takes Plug's state from a worker as its own: the
+// parameters at once, so a save then carries them, and a write the host makes
+// before the rest of the load runs stands.
+auto tPlugAsNativeOffThread =
+    test("AUv3/aTamberPlugStateFromAWorkerSetsTheParametersAtOnce") = []
+{
+    using TamberPlugFixtures::PlainSVFPort;
+
+    const auto& description =
+        *TamberPlugFixtures::plugDescriptionFor(FourCC("Pnsv").toUint32());
+    auto source = UnitHost<PlainSVFPort>(description);
+    auto* plug = plugFullState(source.unit.fullStateForDocument,
+                               TamberPlugFixtures::svfClassInfo);
+
+    auto target = UnitHost<PlainSVFPort>(description);
+    auto& params = target.plugin().params;
+    auto* unit = target.unit;
+    std::thread([&] { unit.fullStateForDocument = plug; }).join();
+
+    check(TamberPlugFixtures::holdsSVFValues(params));
+    check(near(target.parameterFor(params.highPass.cutoff).value, 0.4f));
+
+    auto* saved = static_cast<NSDictionary<NSString*, id>*>(nil);
+    std::thread([&] { saved = unit.fullStateForDocument; }).join();
+    check([saved[@"MakeASoundState"] isKindOfClass:[NSData class]]);
+
+    auto again = UnitHost<PlainSVFPort>(description);
+    again.unit.fullStateForDocument = saved;
+    check(TamberPlugFixtures::holdsSVFValues(again.plugin().params));
+
+    target.parameterFor(params.highPass.cutoff).value = 0.9f;
+    pumpFor(150);
+    check(near(params.highPass.cutoff.get(), 0.9f));
+    check(near(target.parameterFor(params.highPass.cutoff).value, 0.9f));
+};
 } // namespace

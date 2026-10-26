@@ -9,10 +9,13 @@
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 
 #include <NanoTest/NanoTest.h>
+#include <eacp/Core/Threads/EventLoop.h>
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <thread>
 
 namespace TamberPlugIdentityTests
 {
@@ -126,6 +129,64 @@ auto tPlugAsNative = test("TamberPlug/plugsAUStateLoadsWithNoLoadLegacy") = []
     auto native = plugPort<TamberPlugFixtures::PlainSVFPort>();
     native.idScheme = IdScheme::Native;
     check(!wrap(native)->loadForeignState(foreign));
+};
+
+// A Plug port whose document holds more than its parameters.
+struct NotedSVFState : State<TamberPlugFixtures::SVFParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        State::reflect(ref);
+        ref["note"](note);
+    }
+
+    std::string note;
+};
+
+struct NotedSVFPort : StatePlugin<NotedSVFState>
+{
+    std::string_view name() const override { return "NotedSVFPort"; }
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+// Off the message thread, Plug's document loads as a native one does: the
+// parameters now, the rest later, and a host write in between stands.
+auto tPlugAsNativeOffThread =
+    test("TamberPlug/plugsAUStateFromAnotherThreadSetsTheParametersAtOnce") = []
+{
+    auto document = std::string(TamberPlugFixtures::svfDocument);
+    document.insert(document.size() - 1, R"(,"note":"Plug")");
+
+    auto foreign = ForeignState {.origin = ForeignOrigin::TamberPlugAU,
+                                 .bytes = document,
+                                 .context = StateContext::Session};
+
+    auto port = wrap(plugPort<NotedSVFPort>());
+    auto& state = static_cast<NotedSVFPort&>(port->plugin()).state;
+    auto taken = false;
+    std::thread([&] { taken = port->loadForeignState(foreign); }).join();
+
+    check(taken);
+    check(TamberPlugFixtures::holdsSVFValues(state.params));
+    check(state.note.empty());
+
+    // A save from another thread carries them.
+    auto saved = std::string();
+    std::thread([&] { saved = port->saveState(StateContext::Session); }).join();
+    auto reloaded = wrap(plugPort<NotedSVFPort>());
+    reloaded->loadState(saved, StateContext::Session);
+    check(TamberPlugFixtures::holdsSVFValues(
+        static_cast<NotedSVFPort&>(reloaded->plugin()).state.params));
+
+    auto cutoff = port->plugin().parameters().indexOf("HP/Cutoff");
+    port->setParameter(cutoff, 0.9f);
+
+    check(eacp::Threads::runEventLoopUntil([&] { return state.note == "Plug"; },
+                                           eacp::Time::MS {5000}));
+    check(TamberPlugFixtures::plugNear(state.params.highPass.cutoff.get(), 0.9f));
+    check(state.params.highPass.enabled.isOn());
 };
 
 // The VST3 class id Plug's builds registered (probed), which is MakeASound's.
