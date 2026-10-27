@@ -437,6 +437,9 @@ void HostedAudioUnit::buildParameters()
         AudioUnitUninitialize(instance);
     }
 
+    listedIds = ids;
+    std::sort(listedIds.begin(), listedIds.end());
+
     // Per parameter JUCE's host listed: its storage index or -1, and its clump.
     auto listed = Vector<int>();
     auto clumps = Vector<Vector<int64_t>>();
@@ -515,17 +518,17 @@ void HostedAudioUnit::installListeners()
 
     listening = true;
 
-    // The rename source: a property listener may run on any thread, and the names
-    // are read back on the main run loop.
+    // A property listener may run on any thread: the names are read back, and the
+    // host's listener told of a latency change, on the main run loop.
     auto context = CFRunLoopSourceContext();
     context.info = this;
-    context.perform = &infoRefresh;
+    context.perform = &onMainLoop;
 
     if (auto* source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context))
     {
         mainRunLoop = CFRunLoopGetMain();
         CFRunLoopAddSource(mainRunLoop, source, kCFRunLoopCommonModes);
-        infoSource.store(source, std::memory_order_release);
+        mainLoopSource.store(source, std::memory_order_release);
     }
 
     // The unit's own view reports values and gestures through AUEventListener
@@ -569,7 +572,7 @@ void HostedAudioUnit::removeListeners() noexcept
 
     eventListener = nullptr;
 
-    if (auto* source = infoSource.exchange(nullptr, std::memory_order_acq_rel))
+    if (auto* source = mainLoopSource.exchange(nullptr, std::memory_order_acq_rel))
     {
         CFRunLoopSourceInvalidate(source);
         CFRelease(source);
@@ -999,17 +1002,17 @@ void HostedAudioUnit::parameterEvent(const AudioUnitEvent& event,
 
 bool HostedAudioUnit::refreshInfo()
 {
-    // A changed SET of parameters needs a reload; swapping parameters here would
-    // dangle every index a host holds. Names and units are read back in place.
+    // A changed SET of parameters, grown or shrunk, needs a reload; swapping
+    // parameters here would dangle every index a host holds. Names and units are
+    // read back in place.
     auto ids = readParameterIds();
     std::sort(ids.begin(), ids.end());
 
-    for (auto* param: byId)
-        if (!std::binary_search(ids.begin(), ids.end(), param->parameterId()))
-        {
-            raiseIoChanged();
-            return false;
-        }
+    if (ids != listedIds)
+    {
+        raiseIoChanged();
+        return false;
+    }
 
     auto changed = false;
 
@@ -1037,6 +1040,15 @@ void HostedAudioUnit::refreshInfoIfDirty()
 
     raiseParameterInfoChanged();
     refreshParameterNames();
+}
+
+void HostedAudioUnit::signalMainLoop() noexcept
+{
+    if (auto* source = mainLoopSource.load(std::memory_order_acquire))
+    {
+        CFRunLoopSourceSignal(source);
+        CFRunLoopWakeUp(mainRunLoop);
+    }
 }
 
 void HostedAudioUnit::pushMidi(const ProcessContext& context) noexcept
@@ -1152,6 +1164,12 @@ void HostedAudioUnit::propertyChanged(void* self,
         case kAudioUnitProperty_TailTime:
             unit.readLatencyAndTail();
             unit.raiseLatencyChanged();
+
+            if (property == kAudioUnitProperty_Latency)
+            {
+                unit.latencyDirty.store(true, std::memory_order_release);
+                unit.signalMainLoop();
+            }
             break;
 
         case kAudioUnitProperty_StreamFormat:
@@ -1161,12 +1179,7 @@ void HostedAudioUnit::propertyChanged(void* self,
         case kAudioUnitProperty_ParameterList:
         case kAudioUnitProperty_ParameterInfo:
             unit.infoDirty.store(true, std::memory_order_release);
-
-            if (auto* source = unit.infoSource.load(std::memory_order_acquire))
-            {
-                CFRunLoopSourceSignal(source);
-                CFRunLoopWakeUp(unit.mainRunLoop);
-            }
+            unit.signalMainLoop();
             break;
 
         default:
@@ -1184,9 +1197,13 @@ void HostedAudioUnit::eventArrived(void* self,
         static_cast<HostedAudioUnit*>(self)->parameterEvent(*event, value);
 }
 
-void HostedAudioUnit::infoRefresh(void* self)
+void HostedAudioUnit::onMainLoop(void* self)
 {
-    static_cast<HostedAudioUnit*>(self)->refreshInfoIfDirty();
+    auto& unit = *static_cast<HostedAudioUnit*>(self);
+    unit.refreshInfoIfDirty();
+
+    if (unit.latencyDirty.exchange(false, std::memory_order_acq_rel))
+        unit.notifyHostLatencyChanged();
 }
 
 OSStatus HostedAudioUnit::midiOutput(void* self,

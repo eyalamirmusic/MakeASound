@@ -148,6 +148,7 @@ private:
     bool refreshInfo();
     void refreshInfoIfDirty();
     void refreshValues() noexcept;
+    void signalMainLoop() noexcept;
 
     HostedAudioUnitParameter* findParameter(AudioUnitParameterID id) const noexcept;
     void parameterEvent(const AudioUnitEvent& event, AudioUnitParameterValue value);
@@ -173,7 +174,7 @@ private:
                              const AudioUnitEvent* event,
                              UInt64 hostTime,
                              AudioUnitParameterValue value);
-    static void infoRefresh(void* self);
+    static void onMainLoop(void* self);
 
     // The unit's MIDI out, called from inside AudioUnitRender: each packet's
     // time stamp is its sample offset in the block.
@@ -214,6 +215,10 @@ private:
     HostedGroup group;
     Vector<HostedAudioUnitParameter*> byId;
 
+    // Every id the unit listed when loaded, sorted, the ones left out of
+    // parameters() included: a list that differs is a changed set.
+    std::vector<AudioUnitParameterID> listedIds;
+
     // Per parameter in JUCE's order, its storage index or -1.
     Vector<int> juceIndices;
 
@@ -221,10 +226,12 @@ private:
     bool listening = false;
 
     // A main-run-loop source a property listener signals from any thread, so a
-    // rename is read back on the message thread.
+    // rename is read back, and a latency change told to the listener, on the
+    // message thread.
     CFRunLoopRef mainRunLoop = nullptr;
-    std::atomic<CFRunLoopSourceRef> infoSource {nullptr};
+    std::atomic<CFRunLoopSourceRef> mainLoopSource {nullptr};
     std::atomic<bool> infoDirty {false};
+    std::atomic<bool> latencyDirty {false};
 
     // Sized in prepare(): one AudioBufferList per output bus, and the stand-ins
     // for channels the caller did not supply.

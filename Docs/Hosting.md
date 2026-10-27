@@ -136,7 +136,15 @@ first, as Logic loads it, and in process only if that fails, each with a timeout
 Parameters are Global-scope, in the unit's own plain range, with an indexed one's
 value strings as its text; the unit's own view reaches the listener through an
 AUEventListener on the main run loop, and `refreshParameterValue(i)` re-reads a
-value an AU editor moved without notifying. The state is
+value an AU editor moved without notifying. A unit's property listeners may run
+on any thread, so a rename it announces (`ParameterInfo`, or `ParameterList` with
+the same ids) is read back on the main run loop: `takeParameterInfoChanged()` and
+the listener's `parameterInfoChanged` see it once that loop turns. A latency
+change raises `takeLatencyChanged()` at once and reaches the listener's
+`latencyChanged` on the main run loop. A list whose ids changed, grown or shrunk,
+leaves `parameters()` as it was and raises `takeIoChanged()`: reload the plugin.
+`syncEditorWithProcessor()` tells the unit's other listeners (its view) about
+values set from the audio thread, never the host's own. The state is
 `kAudioUnitProperty_ClassInfo` as a binary property list. Values from the audio
 thread go out as `AudioUnitScheduleParameters` events at the next render. A unit
 with MIDI out lists its outputs (`kAudioUnitProperty_MIDIOutputCallbackInfo`) as
