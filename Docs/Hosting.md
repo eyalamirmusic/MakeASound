@@ -141,7 +141,11 @@ on any thread, so a rename it announces (`ParameterInfo`, or `ParameterList` wit
 the same ids) is read back on the main run loop: `takeParameterInfoChanged()` and
 the listener's `parameterInfoChanged` see it once that loop turns. A latency
 change raises `takeLatencyChanged()` at once and reaches the listener's
-`latencyChanged` on the main run loop. A list whose ids changed, grown or shrunk,
+`latencyChanged` on the main run loop. `latencySamples()` and `tailSamples()`
+convert the unit's figures in seconds at the rate last prepared, so a latency the
+unit announces while `prepare()` runs lands in the new rate. Destroying the unit
+waits for a property listener still running in it, and one the unit calls after
+that reaches nothing. A list whose ids changed, grown or shrunk,
 leaves `parameters()` as it was and raises `takeIoChanged()`: reload the plugin.
 The list a unit gives once `prepare()` initialized it is the set, and a unit that
 lists nothing until initialized (loading initializes it once to read the list)

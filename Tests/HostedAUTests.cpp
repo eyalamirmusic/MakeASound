@@ -6,13 +6,15 @@
 // the host's back, audio-thread values reaching the unit's other listeners,
 // renames and a changed parameter set, a list published only once initialized,
 // latency and tail, audio, MIDI in, the state round trip and the fallback
-// playhead. What the fixtures cannot do, a unit made by hand below does.
+// playhead, and a unit's own thread notifying while the host destroys or
+// prepares it. What the fixtures cannot do, a unit made by hand below does.
 
 #include "AUTestHost.h"
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 #include <MakeASound/Hosting/AU/AUFormat.h>
 #include <MakeASound/Hosting/AU/HostedAudioUnit.h>
+#include <MakeASound/Common/TestPoints.h>
 
 #include <NanoTest/NanoTest.h>
 
@@ -20,12 +22,16 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <dlfcn.h>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace HostedAUTests
@@ -193,6 +199,44 @@ void turnTheRunLoop(eacp::Time::MS duration = eacp::Time::MS {250})
     eacp::Threads::runEventLoopUntil([] { return false; }, duration);
 }
 
+// A one-way gate between threads, for a test point's handler to hold a thread
+// at. Made with makeLatch() and never freed: a test that finds a unit destroyed
+// under a held thread leaves the thread held, rather than let it run on into
+// freed memory, and the latch must outlive it.
+struct Latch
+{
+    void open()
+    {
+        {
+            auto hold = std::scoped_lock(lock);
+            isSet = true;
+        }
+
+        opened.notify_all();
+    }
+
+    void wait()
+    {
+        auto hold = std::unique_lock(lock);
+        opened.wait(hold, [this] { return isSet; });
+    }
+
+    bool isOpen()
+    {
+        auto hold = std::scoped_lock(lock);
+        return isSet;
+    }
+
+    std::mutex lock;
+    std::condition_variable opened;
+    bool isSet = false;
+};
+
+Latch& makeLatch()
+{
+    return *new Latch();
+}
+
 // Another listener on one of the unit's parameters, on the main run loop, as the
 // unit's own view would be: what it hears and the last value it heard.
 struct ParameterObserver
@@ -249,7 +293,9 @@ void notifyGesture(HostedAudioUnit& unit, int index, AudioUnitEventType type)
 // changes the set, and renames through the list and the info together): a list
 // published only once initialized, a set that grows or shrinks while loaded or
 // on initialize, a list told on uninitialize too, a rename told through
-// ParameterInfo alone, and a latency told from another thread. Registered in this process, its component handed to the loader.
+// ParameterInfo alone, and a property told from another thread, held there by
+// a test while the host destroys or prepares the unit. Registered in this
+// process, its component handed to the loader.
 namespace Stub
 {
 constexpr auto numParameters = 3;
@@ -320,13 +366,26 @@ UInt32 listedCount(const Unit& unit)
     return static_cast<UInt32>(std::max(0, count));
 }
 
+// When set, notify() calls it once it has read its listeners and before it calls
+// them, where a unit's own thread can be preempted.
+std::atomic<void (*)()> beforeTelling {nullptr};
+
 // What a unit's PropertyChanged does: every listener for the property hears it.
+// From a copy of the list, as a unit that calls its listeners outside its own
+// lock does: one removed meanwhile is still called, and the unit itself is not
+// touched again, so it may be disposed of while a listener runs.
 void notify(Unit& unit, AudioUnitPropertyID property, AudioUnitElement element = 0)
 {
-    for (const auto& listener: unit.listeners)
+    auto listeners = unit.listeners;
+    auto* instance = unit.instance;
+
+    if (auto* hook = beforeTelling.load())
+        hook();
+
+    for (const auto& listener: listeners)
         if (listener.property == property)
             listener.proc(listener.userData,
-                          unit.instance,
+                          instance,
                           property,
                           kAudioUnitScope_Global,
                           element);
@@ -1589,6 +1648,209 @@ auto tPendingDies = test("HostedAU/whatIsPendingForTheRunLoopDiesWithTheUnit") =
     turnTheRunLoop();
     check(listener.latencies == 0);
     check(listener.infos == 0);
+};
+
+// A property listener is running on the unit's own thread, the run-loop source
+// loaded and not yet signalled, when the host destroys the unit. Removing a
+// listener does not wait for one already running, so the destructor has to, or
+// the listener goes on to signal a released source in a freed unit.
+auto tTeardownWaits =
+    test("HostedAU/destroyingTheUnitWaitsForAListenerRunningInIt") = []
+{
+    static const void* unit = nullptr;
+    static Latch* inside = nullptr;
+    static Latch* letGo = nullptr;
+
+    auto loaded = Stub::load();
+
+    if (!loaded)
+        return;
+
+    unit = loaded.plugin.get();
+    inside = &makeLatch();
+    letGo = &makeLatch();
+
+    // The listener is held between loading the source and signalling it, and let
+    // go only from inside the destructor, once that waits for it.
+    TestPoints::handler = [](const char* name, const void* object)
+    {
+        if (object != unit)
+            return;
+
+        auto point = std::string_view(name);
+
+        if (point == "HostedAudioUnit::signalMainLoop")
+        {
+            inside->open();
+            letGo->wait();
+        }
+        else if (point == "HostedAudioUnit::closeListeners")
+        {
+            letGo->open();
+        }
+    };
+
+    auto listener = EditRecorder();
+    loaded.plugin->setHostEditListener(&listener);
+    loaded.unit->names[0] = "Renamed";
+
+    auto* stub = loaded.unit;
+    auto told = std::thread(
+        [stub] { Stub::notify(*stub, kAudioUnitProperty_ParameterInfo); });
+    inside->wait();
+
+    loaded.plugin.reset();
+    TestPoints::handler = nullptr;
+
+    // The destructor returned only after the listener was let go from inside it.
+    auto waited = letGo->isOpen();
+    check(waited,
+          "the unit was destroyed with a property listener still running in it, "
+          "its run-loop source loaded and not yet signalled");
+
+    if (!waited)
+    {
+        // Let go now, it would signal a released source in a freed unit.
+        told.detach();
+        return;
+    }
+
+    told.join();
+
+    // And what it signalled died with the unit.
+    turnTheRunLoop();
+    check(listener.infos == 0);
+};
+
+// A unit that calls its listeners from a list it read first may call one the
+// host removed meanwhile, after the removal returned and the host destroyed its
+// side. That call must find nothing, never the destroyed unit.
+auto tLateCall =
+    test("HostedAU/aListenerCalledAfterTheUnitIsDestroyedReachesNothing") = []
+{
+    static const void* destroyed = nullptr;
+    static Latch* listRead = nullptr;
+    static Latch* tell = nullptr;
+    static Latch* finished = nullptr;
+    static auto reachedDestroyed = std::atomic<bool> {false};
+
+    auto loaded = Stub::load();
+
+    if (!loaded)
+        return;
+
+    listRead = &makeLatch();
+    tell = &makeLatch();
+    finished = &makeLatch();
+    reachedDestroyed = false;
+
+    // The unit's thread reads its listeners, then is preempted before it calls
+    // them.
+    Stub::beforeTelling = []
+    {
+        Stub::beforeTelling = nullptr;
+        listRead->open();
+        tell->wait();
+    };
+
+    auto* stub = loaded.unit;
+    auto told = std::thread(
+        [stub]
+        {
+            Stub::notify(*stub, kAudioUnitProperty_ParameterInfo);
+            finished->open();
+        });
+    listRead->wait();
+
+    destroyed = loaded.plugin.get();
+    loaded.plugin.reset();
+
+    // A listener that reaches the destroyed unit is held there for good: past
+    // this point it would read and write freed memory.
+    TestPoints::handler = [](const char* name, const void* object)
+    {
+        if (object != destroyed
+            || std::string_view(name) != "HostedAudioUnit::propertyChanged")
+            return;
+
+        reachedDestroyed = true;
+        finished->open();
+        makeLatch().wait();
+    };
+
+    tell->open();
+    finished->wait();
+    TestPoints::handler = nullptr;
+
+    check(!reachedDestroyed,
+          "a property listener called after the unit was destroyed reached the "
+          "destroyed unit");
+
+    if (reachedDestroyed)
+        told.detach();
+    else
+        told.join();
+};
+
+// The unit's latency read on its own thread, converted to samples, and kept only
+// after the host prepared at a new rate. The rate is the message thread's: read
+// on the unit's thread unsynchronised, a figure converted at the old rate lands
+// after prepare() kept the new one.
+auto tLatencyAcrossPrepare =
+    test("HostedAU/aLatencyReadAcrossAPrepareIsInThePreparedRate") = []
+{
+    static const void* unit = nullptr;
+    static auto messageThread = std::thread::id();
+    static Latch* held = nullptr;
+    static Latch* letGo = nullptr;
+
+    auto settings = Stub::Unit();
+    settings.latencySeconds = 0.01;
+    auto loaded = Stub::load(settings);
+
+    if (!loaded)
+        return;
+
+    auto& plugin = *loaded.plugin;
+    plugin.prepare({.sampleRate = 44100.0,
+                    .maxBlockSize = blockSize,
+                    .layout = plugin.getBusLayout()});
+    check(plugin.latencySamples() == 441);
+
+    unit = &plugin;
+    messageThread = std::this_thread::get_id();
+    held = &makeLatch();
+    letGo = &makeLatch();
+
+    // The unit's thread is held once it has read the latency, before it keeps it;
+    // the message thread's own read passes.
+    TestPoints::handler = [](const char* name, const void* object)
+    {
+        if (object != unit || std::this_thread::get_id() == messageThread
+            || std::string_view(name) != "HostedAudioUnit::readLatencyAndTail")
+            return;
+
+        held->open();
+        letGo->wait();
+    };
+
+    auto* stub = loaded.unit;
+    auto told =
+        std::thread([stub] { Stub::notify(*stub, kAudioUnitProperty_Latency); });
+    held->wait();
+
+    prepareAt48k(plugin);
+    check(plugin.latencySamples() == 480);
+
+    letGo->open();
+    told.join();
+    TestPoints::handler = nullptr;
+
+    // Still the prepared rate's figure.
+    auto samples = plugin.latencySamples();
+    check(samples == 480,
+          "0.01 s of latency is " + std::to_string(samples)
+              + " samples once prepared at 48 kHz");
 };
 } // namespace
 } // namespace HostedAUTests

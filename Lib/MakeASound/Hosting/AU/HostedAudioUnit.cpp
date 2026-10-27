@@ -1,13 +1,18 @@
 #include "HostedAudioUnit.h"
 #include "../JuceHostCompat.h"
+#include "../../Common/TestPoints.h"
 
 #include <mach/mach_time.h>
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <limits>
+#include <map>
+#include <mutex>
 
 namespace MakeASound::Hosting
 {
@@ -16,6 +21,110 @@ namespace
 {
 // How often the event listener delivers value changes to the main run loop.
 constexpr Float32 notificationInterval = 0.02f;
+
+// Property listeners are registered with a ticket, never the unit's address.
+// Removing a listener waits for nothing: one already running carries on, and a
+// unit that read its listeners just before the removal may call one after it
+// returned. So a ticket reaches its unit only while it is open, and closing it
+// turns every later listener away and waits for those still inside.
+class ListenerTickets
+{
+public:
+    // Never destroyed: a unit may be destroyed during static destruction.
+    static ListenerTickets& shared()
+    {
+        static auto* tickets = new ListenerTickets();
+        return *tickets;
+    }
+
+    void* open(HostedAudioUnit& unit)
+    {
+        auto hold = std::scoped_lock(lock);
+        auto ticket = ++lastTicket;
+        units[ticket] = Entry {&unit, 0};
+        return reinterpret_cast<void*>(ticket);
+    }
+
+    // Waits until no listener is inside the unit, and lets none in after. Never
+    // from inside one of its own listeners, which would wait for itself.
+    void close(void* ticket)
+    {
+        auto hold = std::unique_lock(lock);
+        auto found = units.find(keyOf(ticket));
+
+        if (found == units.end())
+            return;
+
+        found->second.unit = nullptr;
+        left.wait(hold, [&] { return found->second.inside == 0; });
+        units.erase(found);
+    }
+
+    // A listener inside the unit its ticket names, for as long as it lives; no
+    // unit once the ticket is closed.
+    class Inside
+    {
+    public:
+        explicit Inside(void* ticketToUse)
+            : ticket(keyOf(ticketToUse))
+            , unit(shared().enter(ticket))
+        {
+        }
+
+        ~Inside()
+        {
+            if (unit != nullptr)
+                shared().leave(ticket);
+        }
+
+        Inside(const Inside&) = delete;
+        Inside& operator=(const Inside&) = delete;
+
+        std::uintptr_t ticket;
+        HostedAudioUnit* unit;
+    };
+
+private:
+    struct Entry
+    {
+        HostedAudioUnit* unit = nullptr;
+        int inside = 0;
+    };
+
+    static std::uintptr_t keyOf(void* ticket) noexcept
+    {
+        return reinterpret_cast<std::uintptr_t>(ticket);
+    }
+
+    HostedAudioUnit* enter(std::uintptr_t ticket)
+    {
+        auto hold = std::scoped_lock(lock);
+        auto found = units.find(ticket);
+
+        if (found == units.end() || found->second.unit == nullptr)
+            return nullptr;
+
+        ++found->second.inside;
+        return found->second.unit;
+    }
+
+    void leave(std::uintptr_t ticket)
+    {
+        {
+            auto hold = std::scoped_lock(lock);
+
+            if (auto found = units.find(ticket); found != units.end())
+                --found->second.inside;
+        }
+
+        left.notify_all();
+    }
+
+    std::mutex lock;
+    std::condition_variable left;
+    std::map<std::uintptr_t, Entry> units;
+    std::uintptr_t lastTicket = 0;
+};
 
 std::string stringFromCF(CFStringRef text)
 {
@@ -514,8 +623,11 @@ constexpr AudioUnitPropertyID watchedProperties[] = {
 
 void HostedAudioUnit::installListeners()
 {
+    listenerTicket = ListenerTickets::shared().open(*this);
+
     for (auto property: watchedProperties)
-        AudioUnitAddPropertyListener(instance, property, &propertyChanged, this);
+        AudioUnitAddPropertyListener(
+            instance, property, &propertyChanged, listenerTicket);
 
     listening = true;
 
@@ -573,16 +685,26 @@ void HostedAudioUnit::removeListeners() noexcept
 
     eventListener = nullptr;
 
-    // The property listeners first, so none signals the source once it is gone;
-    // invalidating it drops a signal still pending, so nothing it would have told
-    // runs after this unit.
     if (listening && instance != nullptr)
         for (auto property: watchedProperties)
             AudioUnitRemovePropertyListenerWithUserData(
-                instance, property, &propertyChanged, this);
+                instance, property, &propertyChanged, listenerTicket);
 
     listening = false;
 
+    // Removing a listener does not wait for one already running, nor stop one
+    // the unit is about to call from the list it read: closing the ticket turns
+    // those away and waits for any inside, so none reaches the source, or this
+    // unit, once they are gone.
+    if (listenerTicket != nullptr)
+    {
+        TestPoints::reach("HostedAudioUnit::closeListeners", this);
+        ListenerTickets::shared().close(listenerTicket);
+        listenerTicket = nullptr;
+    }
+
+    // Invalidating the source drops a signal still pending, so nothing it would
+    // have told runs after this unit.
     if (auto* source = mainLoopSource.exchange(nullptr, std::memory_order_acq_rel))
     {
         CFRunLoopSourceInvalidate(source);
@@ -602,7 +724,11 @@ void HostedAudioUnit::readLatencyAndTail() noexcept
                              &seconds,
                              &size)
         == noErr)
-        latency.store(static_cast<int>(std::lround(seconds * sampleRate)));
+    {
+        TestPoints::reach("HostedAudioUnit::readLatencyAndTail", this);
+        latencySeconds.store(static_cast<double>(seconds));
+        latency.store(latencySamples());
+    }
 
     seconds = 0.0;
     size = sizeof(seconds);
@@ -619,12 +745,12 @@ void HostedAudioUnit::readLatencyAndTail() noexcept
 
 int HostedAudioUnit::latencySamples() const noexcept
 {
-    return latency.load();
+    return static_cast<int>(std::lround(latencySeconds.load() * sampleRate.load()));
 }
 
 int HostedAudioUnit::tailSamples() const noexcept
 {
-    auto samples = tail.load() * sampleRate;
+    auto samples = tail.load() * sampleRate.load();
 
     if (!std::isfinite(samples) || samples >= infiniteTail)
         return infiniteTail;
@@ -640,7 +766,7 @@ bool HostedAudioUnit::applyStreamFormat(AudioUnitScope scope,
         return false;
 
     auto format = AudioStreamBasicDescription();
-    format.mSampleRate = sampleRate;
+    format.mSampleRate = sampleRate.load();
     format.mFormatID = kAudioFormatLinearPCM;
     format.mFormatFlags =
         static_cast<AudioFormatFlags>(kAudioFormatFlagsNativeFloatPacked)
@@ -736,7 +862,7 @@ void HostedAudioUnit::prepare(const ProcessSpec& spec)
     }
 
     // The host's rate exactly, never rounded: the stream format carries a double.
-    sampleRate = spec.sampleRate > 0.0 ? spec.sampleRate : 44100.0;
+    sampleRate.store(spec.sampleRate > 0.0 ? spec.sampleRate : 44100.0);
     maxBlockSize = std::max(0, spec.maxBlockSize);
     renderSampleTime = 0;
     rewindFallbackPlayhead();
@@ -838,7 +964,7 @@ void HostedAudioUnit::process(ProcessContext& context) noexcept
         return;
 
     currentContext = &context;
-    blockPlayhead = playheadFor(context.playhead, numSamples, sampleRate);
+    blockPlayhead = playheadFor(context.playhead, numSamples, sampleRate.load());
 
     pushMidi(context);
     scheduleParameters();
@@ -1065,6 +1191,7 @@ void HostedAudioUnit::signalMainLoop() noexcept
 {
     if (auto* source = mainLoopSource.load(std::memory_order_acquire))
     {
+        TestPoints::reach("HostedAudioUnit::signalMainLoop", this);
         CFRunLoopSourceSignal(source);
         CFRunLoopWakeUp(mainRunLoop);
     }
@@ -1169,13 +1296,21 @@ OSStatus HostedAudioUnit::renderInput(void* self,
         static_cast<int>(bus), numFrames, data);
 }
 
-void HostedAudioUnit::propertyChanged(void* self,
+void HostedAudioUnit::propertyChanged(void* ticket,
                                       AudioUnit,
                                       AudioUnitPropertyID property,
                                       AudioUnitScope,
                                       AudioUnitElement)
 {
-    auto& unit = *static_cast<HostedAudioUnit*>(self);
+    // `ticket` reaches the unit only until its destructor closes it, which then
+    // waits for this to return.
+    auto inside = ListenerTickets::Inside(ticket);
+
+    if (inside.unit == nullptr)
+        return;
+
+    TestPoints::reach("HostedAudioUnit::propertyChanged", inside.unit);
+    auto& unit = *inside.unit;
 
     switch (property)
     {
@@ -1344,7 +1479,7 @@ OSStatus HostedAudioUnit::musicalTime(void* self,
         auto secondsPerBeat = playhead.bpm > 0.0 ? 60.0 / playhead.bpm : 0.5;
         auto beats = std::ceil(playhead.ppqPosition) - playhead.ppqPosition;
         *toNextBeat = static_cast<UInt32>(
-            std::max(0.0, beats * secondsPerBeat * unit.sampleRate));
+            std::max(0.0, beats * secondsPerBeat * unit.sampleRate.load()));
     }
 
     if (numerator != nullptr)
