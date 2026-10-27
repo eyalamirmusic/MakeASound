@@ -143,6 +143,9 @@ the listener's `parameterInfoChanged` see it once that loop turns. A latency
 change raises `takeLatencyChanged()` at once and reaches the listener's
 `latencyChanged` on the main run loop. A list whose ids changed, grown or shrunk,
 leaves `parameters()` as it was and raises `takeIoChanged()`: reload the plugin.
+The list a unit gives once `prepare()` initialized it is the set, and a unit that
+lists nothing until initialized (loading initializes it once to read the list)
+keeps its set while uninitialized: neither is a change.
 `syncEditorWithProcessor()` tells the unit's other listeners (its view) about
 values set from the audio thread, never the host's own. The state is
 `kAudioUnitProperty_ClassInfo` as a binary property list. Values from the audio

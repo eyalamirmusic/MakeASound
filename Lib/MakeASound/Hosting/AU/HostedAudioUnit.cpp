@@ -434,6 +434,7 @@ void HostedAudioUnit::buildParameters()
     if (ids.empty() && AudioUnitInitialize(instance) == noErr)
     {
         ids = readParameterIds();
+        listsOnlyOnceInitialized = !ids.empty();
         AudioUnitUninitialize(instance);
     }
 
@@ -1021,7 +1022,12 @@ bool HostedAudioUnit::refreshInfo()
     auto ids = readParameterIds();
     std::sort(ids.begin(), ids.end());
 
-    if (ids != listedIds)
+    // A unit that lists nothing until initialized lists nothing before the
+    // first prepare(), or after one that failed to initialize it, as at load:
+    // its set is unchanged, and the names are read back as they can be.
+    auto unlisted = listsOnlyOnceInitialized && !initialized && ids.empty();
+
+    if (!unlisted && ids != listedIds)
     {
         raiseIoChanged();
         return false;

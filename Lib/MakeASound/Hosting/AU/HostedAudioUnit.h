@@ -215,9 +215,15 @@ private:
     HostedGroup group;
     Vector<HostedAudioUnitParameter*> byId;
 
-    // Every id the unit listed when loaded, sorted, the ones left out of
-    // parameters() included: a list that differs is a changed set.
+    // Every id the unit listed when loaded, and again once prepare() initialized
+    // it, sorted, the ones left out of parameters() included: a list that
+    // differs is a changed set.
     std::vector<AudioUnitParameterID> listedIds;
+
+    // The unit listed nothing until initialized, so loading initialized it
+    // once to read the list: while it is uninitialized, an empty list is that
+    // set still, not a changed one.
+    bool listsOnlyOnceInitialized = false;
 
     // Per parameter in JUCE's order, its storage index or -1.
     Vector<int> juceIndices;
