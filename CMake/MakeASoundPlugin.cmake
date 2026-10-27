@@ -13,6 +13,7 @@
 #         [NO_AUDIO_INPUT]
 #         [NO_INSTALL]
 #         [HOSTS_PLUGINS]
+#         [AUV3_APP <Name of another plugin>]
 #         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
@@ -88,6 +89,14 @@
 # inside out, for the simulator and left unsigned for a device; under Xcode the app
 # embeds the extension and Xcode signs both: automatically for MAKEASOUND_IOS_TEAM,
 # otherwise ad hoc for the simulator and not at all for a device.
+#
+# AUV3_APP names another plugin whose app carries this one's AUv3 instead, for an
+# app that ships more than one extension (an instrument and its MIDI effect): the
+# extension goes into <that OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex, and
+# FORMATS names AUv3 without Standalone, which the other plugin's call has and
+# must have made first. AUV3_BUNDLE_ID must then extend that app's BUNDLE_ID, and
+# defaults to <that BUNDLE_ID>.<name, lowercased>.auv3. The extension's code and
+# class names are still this plugin's own.
 
 # The Apple development team an iOS tree signs with under the Xcode generator.
 set(MAKEASOUND_IOS_TEAM "" CACHE STRING
@@ -97,7 +106,7 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
 
 function(makeasound_add_plugin name)
     set(one_value OUTPUT_NAME BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID
-            AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY)
+            AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY AUV3_APP)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL;HOSTS_PLUGINS"
             "${one_value}"
             "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
@@ -116,9 +125,23 @@ function(makeasound_add_plugin name)
                 "or STANDALONE_LIBRARIES without the Standalone format")
     endif ()
 
-    if ("AUv3" IN_LIST ARG_FORMATS AND NOT "Standalone" IN_LIST ARG_FORMATS)
+    if (ARG_AUV3_APP)
+        if (NOT "AUv3" IN_LIST ARG_FORMATS OR "Standalone" IN_LIST ARG_FORMATS)
+            message(FATAL_ERROR "makeasound_add_plugin(${name}): AUV3_APP needs the "
+                    "AUv3 format and no Standalone, as ${ARG_AUV3_APP}'s app "
+                    "carries it")
+        endif ()
+
+        if (NOT TARGET ${ARG_AUV3_APP})
+            message(FATAL_ERROR "makeasound_add_plugin(${name}): AUV3_APP "
+                    "${ARG_AUV3_APP} is not a plugin added before this one")
+        endif ()
+
+        get_target_property(ARG_AUV3_APP_BUNDLE_ID ${ARG_AUV3_APP}
+                MAKEASOUND_BUNDLE_ID)
+    elseif ("AUv3" IN_LIST ARG_FORMATS AND NOT "Standalone" IN_LIST ARG_FORMATS)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): AUv3 without the "
-                "Standalone format, the app that carries it")
+                "Standalone format, the app that carries it, or AUV3_APP")
     endif ()
 
     if (ARG_STANDALONE_LIBRARIES AND NOT ARG_STANDALONE_SOURCES)
@@ -165,10 +188,13 @@ function(makeasound_add_plugin name)
     # own tree needs CMAKE_POSITION_INDEPENDENT_CODE on for whatever else it links.
     # MAKEASOUND_FORMATS: the formats asked for, built here or not, which
     # makeasound_add_allocation_tests reads (an AUv3 is measured on macOS too).
+    # MAKEASOUND_BUNDLE_ID: the app's identifier, which another plugin's AUV3_APP
+    # extends.
     set_target_properties(${name} PROPERTIES
             FOLDER "${ARG_FOLDER}"
             POSITION_INDEPENDENT_CODE ON
-            MAKEASOUND_FORMATS "${ARG_FORMATS}")
+            MAKEASOUND_FORMATS "${ARG_FORMATS}"
+            MAKEASOUND_BUNDLE_ID "${ARG_BUNDLE_ID}")
 
     if (MAKEASOUND_UNITY_BUILD)
         set_target_properties(${name} PROPERTIES UNITY_BUILD ON)
@@ -283,25 +309,43 @@ function(makeasound_add_plugin name)
     endforeach ()
 
     if ("AUv3" IN_LIST ARG_FORMATS)
+        if (ARG_AUV3_APP)
+            set(app ${ARG_AUV3_APP}-Standalone)
+        else ()
+            set(app ${name}-Standalone)
+        endif ()
+
         if (NOT IOS)
             message(STATUS "${name}: AUv3 format skipped (iOS only; macOS ships AU)")
         elseif (NOT TARGET MakeASoundAUv3)
             message(STATUS "${name}: AUv3 format skipped (MakeASoundAUv3 not built)")
-        elseif (NOT TARGET ${name}-Standalone)
+        elseif (NOT TARGET ${app})
             message(STATUS "${name}: AUv3 format skipped (no standalone app to carry it)")
         else ()
-            _makeasound_add_auv3(${name})
+            _makeasound_add_auv3(${name} ${app})
         endif ()
     endif ()
 endfunction()
 
 # Resolves the caller's ARG_BUNDLE_ID and each format's ARG_<FORMAT>_BUNDLE_ID,
 # defaulting a format's to <BUNDLE_ID>.<suffix>, and checks that the AUv3's
-# extends the app's. Needs no target, so it runs in script mode too, which is how
-# the tests reach it (Tests/BundleIds/Resolve.cmake).
+# extends the app's: ARG_AUV3_APP_BUNDLE_ID, the AUV3_APP's identifier, when
+# another plugin's app carries it. Needs no target, so it runs in script mode
+# too, which is how the tests reach it (Tests/BundleIds/Resolve.cmake).
 function(_makeasound_bundle_ids name)
     if (NOT ARG_BUNDLE_ID)
         string(TOLOWER "com.makeasound.${name}" ARG_BUNDLE_ID)
+    endif ()
+
+    if (ARG_AUV3_APP_BUNDLE_ID)
+        set(app_id "${ARG_AUV3_APP_BUNDLE_ID}")
+
+        if (NOT ARG_AUV3_BUNDLE_ID)
+            string(TOLOWER "${name}" lower_name)
+            set(ARG_AUV3_BUNDLE_ID "${app_id}.${lower_name}.auv3")
+        endif ()
+    else ()
+        set(app_id "${ARG_BUNDLE_ID}")
     endif ()
 
     foreach (pair VST3:vst3 AU:component AUV3:auv3 AAX:aaxplugin)
@@ -318,13 +362,13 @@ function(_makeasound_bundle_ids name)
 
     # iOS refuses to install an app whose extension's identifier is not the app's
     # followed by a dot and more.
-    string(LENGTH "${ARG_BUNDLE_ID}." prefix_length)
+    string(LENGTH "${app_id}." prefix_length)
     string(SUBSTRING "${ARG_AUV3_BUNDLE_ID}" 0 ${prefix_length} prefix)
     string(LENGTH "${ARG_AUV3_BUNDLE_ID}" auv3_length)
 
-    if (NOT prefix STREQUAL "${ARG_BUNDLE_ID}." OR auv3_length LESS_EQUAL prefix_length)
+    if (NOT prefix STREQUAL "${app_id}." OR auv3_length LESS_EQUAL prefix_length)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): AUV3_BUNDLE_ID "
-                "'${ARG_AUV3_BUNDLE_ID}' does not begin with '${ARG_BUNDLE_ID}.', "
+                "'${ARG_AUV3_BUNDLE_ID}' does not begin with '${app_id}.', "
                 "the identifier of the app that carries it")
     endif ()
 
@@ -585,15 +629,15 @@ endfunction()
 # <Name>-AUv3: the app extension, its executable a stub over NSExtensionMain beside
 # the module's AudioUnit.mm and view controller, compiled with this bundle's class
 # suffix, and the core linked again. Its plist is written by <Name>-Describe from
-# the host sub-build before it links. Reads the caller's ARG_* variables.
-function(_makeasound_add_auv3 name)
+# the host sub-build before it links. <app> is the Standalone target that carries
+# it, this plugin's own or AUV3_APP's. Reads the caller's ARG_* variables.
+function(_makeasound_add_auv3 name app)
     get_target_property(auv3_main MakeASoundAUv3 MAKEASOUND_AUV3_MAIN)
     get_target_property(auv3_sources MakeASoundAUv3 MAKEASOUND_AUV3_SOURCES)
     get_target_property(auv3_view_libraries MakeASoundAUv3 MAKEASOUND_AUV3_VIEW_LIBRARIES)
     get_target_property(auv3_has_view MakeASoundAUv3 MAKEASOUND_AUV3_HAS_VIEW)
     get_target_property(auv3_principal MakeASoundAUv3 MAKEASOUND_AUV3_PRINCIPAL_CLASS)
 
-    set(app ${name}-Standalone)
     set(target ${name}-AUv3)
 
     add_executable(${target} "${auv3_main}" ${auv3_sources})
@@ -675,20 +719,23 @@ function(_makeasound_add_auv3 name)
                 XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
                 XCODE_ATTRIBUTE_SKIP_INSTALL YES)
         _makeasound_ios_bundle(${target} XPC!)
-        set_target_properties(${app} PROPERTIES XCODE_EMBED_APP_EXTENSIONS ${target})
+        # Appended: an app may carry another plugin's extension too (AUV3_APP).
+        set_property(TARGET ${app} APPEND PROPERTY XCODE_EMBED_APP_EXTENSIONS ${target})
         return()
     endif ()
 
     # Laid out by hand inside the app's bundle, as the .component is: CMake would
     # wrap a MACOSX_BUNDLE executable in an .app of its own. $<1:...> keeps a
-    # multi-config generator from appending a per-config folder.
+    # multi-config generator from appending a per-config folder. The app is named
+    # and placed by its own call, which may be another plugin's (AUV3_APP).
     get_target_property(app_dir ${app} RUNTIME_OUTPUT_DIRECTORY)
 
     if (NOT app_dir)
-        set(app_dir "${CMAKE_CURRENT_BINARY_DIR}")
+        get_target_property(app_dir ${app} BINARY_DIR)
     endif ()
 
-    set(app_bundle "${app_dir}/${ARG_OUTPUT_NAME}.app")
+    get_target_property(app_name ${app} OUTPUT_NAME)
+    set(app_bundle "${app_dir}/${app_name}.app")
     set(appex "${app_bundle}/PlugIns/${ARG_OUTPUT_NAME}.appex")
 
     set_target_properties(${target} PROPERTIES
@@ -708,7 +755,7 @@ function(_makeasound_add_auv3 name)
         list(APPEND post
                 COMMAND codesign --force --sign - --timestamp=none "${appex}"
                 COMMAND ${CMAKE_COMMAND} -D "BUNDLE=${app_bundle}"
-                        -D "EXECUTABLE=${ARG_OUTPUT_NAME}"
+                        -D "EXECUTABLE=${app_name}"
                         -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SignBuiltBundle.cmake")
     endif ()
 

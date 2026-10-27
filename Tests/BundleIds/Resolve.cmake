@@ -7,6 +7,10 @@
 #                only its own format's
 #   foreignAUv3  an AUV3_BUNDLE_ID that does not extend BUNDLE_ID: a FATAL_ERROR,
 #                which the test expects
+#   carriedAUv3  another plugin's app carries the AUv3 (AUV3_APP): the default
+#                extends that app's identifier, and so must an override
+#   foreignCarriedAUv3  a carried AUv3 whose identifier extends its own plugin's
+#                BUNDLE_ID but not the app's: a FATAL_ERROR
 include("${PLUGIN_CMAKE}")
 
 function(expect variable expected)
@@ -16,7 +20,8 @@ function(expect variable expected)
 endfunction()
 
 macro(clear_ids)
-    foreach (variable BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID AAX_BUNDLE_ID)
+    foreach (variable BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID AAX_BUNDLE_ID
+            AUV3_APP_BUNDLE_ID)
         unset(ARG_${variable})
     endforeach ()
 endmacro()
@@ -70,6 +75,31 @@ elseif (CASE STREQUAL "foreignAUv3")
     set(ARG_AUV3_BUNDLE_ID "com.makeasound.tests.bundleidextension")
     _makeasound_bundle_ids(BundleId)
     message(STATUS "no error for an AUv3 identifier outside the app's")
+elseif (CASE STREQUAL "carriedAUv3")
+    # The default: the carrying app's identifier, this plugin's name, the suffix.
+    # The other formats still derive from this plugin's own BUNDLE_ID.
+    clear_ids()
+    set(ARG_BUNDLE_ID "com.vendor.Synth-MIDI")
+    set(ARG_AUV3_APP_BUNDLE_ID "com.vendor.Synth")
+    _makeasound_bundle_ids(Synth-MIDI)
+    expect(ARG_BUNDLE_ID "com.vendor.Synth-MIDI")
+    expect(ARG_AUV3_BUNDLE_ID "com.vendor.Synth.synth-midi.auv3")
+    expect(ARG_VST3_BUNDLE_ID "com.vendor.Synth-MIDI.vst3")
+
+    # An override inside the app's identifier.
+    clear_ids()
+    set(ARG_BUNDLE_ID "com.vendor.Synth-MIDI")
+    set(ARG_AUV3_APP_BUNDLE_ID "com.vendor.Synth")
+    set(ARG_AUV3_BUNDLE_ID "com.vendor.Synth.MIDIFX")
+    _makeasound_bundle_ids(Synth-MIDI)
+    expect(ARG_AUV3_BUNDLE_ID "com.vendor.Synth.MIDIFX")
+elseif (CASE STREQUAL "foreignCarriedAUv3")
+    clear_ids()
+    set(ARG_BUNDLE_ID "com.makeasound.tests.carried")
+    set(ARG_AUV3_APP_BUNDLE_ID "com.makeasound.tests.app")
+    set(ARG_AUV3_BUNDLE_ID "com.makeasound.tests.carried.auv3")
+    _makeasound_bundle_ids(Carried)
+    message(STATUS "no error for a carried AUv3 outside its app's identifier")
 else ()
     message(FATAL_ERROR "unknown CASE '${CASE}'")
 endif ()
