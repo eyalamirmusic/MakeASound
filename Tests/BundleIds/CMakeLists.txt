@@ -4,6 +4,9 @@
 #                                     resolved in script mode (Resolve.cmake)
 #   CMake/BundleIds/auv3ExtendsTheApp an AUV3_BUNDLE_ID outside BUNDLE_ID is an
 #                                     error
+#   CMake/BundleIds/carriedAUv3       an AUv3 carried by another plugin's app
+#                                     (AUV3_APP) extends that app's identifier
+#   CMake/BundleIds/carriedAUv3ExtendsItsApp  and one outside it is an error
 #   CMake/BundleIds/builtBundles      on macOS, the CFBundleIdentifier and the
 #                                     code signature's identifier of the bundles
 #                                     two fixtures built (CheckBundles.cmake)
@@ -58,6 +61,17 @@ set_tests_properties(CMake/BundleIds/auv3ExtendsTheApp PROPERTIES
         # CMake wraps a long message, so any space may have become a newline.
         PASS_REGULAR_EXPRESSION
         "does[ \n]+not[ \n]+begin[ \n]+with[ \n]+'com\\.makeasound\\.tests\\.bundleid\\.'")
+
+add_test(NAME CMake/BundleIds/carriedAUv3
+        COMMAND ${CMAKE_COMMAND} -D "PLUGIN_CMAKE=${plugin_cmake}" -D CASE=carriedAUv3
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/Resolve.cmake")
+
+add_test(NAME CMake/BundleIds/carriedAUv3ExtendsItsApp
+        COMMAND ${CMAKE_COMMAND} -D "PLUGIN_CMAKE=${plugin_cmake}"
+                -D CASE=foreignCarriedAUv3 -P "${CMAKE_CURRENT_SOURCE_DIR}/Resolve.cmake")
+set_tests_properties(CMake/BundleIds/carriedAUv3ExtendsItsApp PROPERTIES
+        PASS_REGULAR_EXPRESSION
+        "does[ \n]+not[ \n]+begin[ \n]+with[ \n]+'com\\.makeasound\\.tests\\.app\\.'")
 
 if (APPLE AND NOT IOS)
     set(bundle_id_targets "")

@@ -8,6 +8,9 @@
 #   badOrientation    an ORIENTATION other than portrait or landscape: a
 #                     FATAL_ERROR, which the test expects
 #   badDeviceFamily   a DEVICE_FAMILY other than iphone or ipad: the same
+#   carriedAUv3       an AUv3 another plugin's app carries (AUV3_APP) takes that
+#                     app's families
+#   carriedAUv3Shape  and naming DEVICE_FAMILY or ORIENTATION there: the same
 include("${PLUGIN_CMAKE}")
 
 function(expect variable expected)
@@ -19,6 +22,7 @@ endfunction()
 macro(clear_shape)
     unset(ARG_ORIENTATION)
     unset(ARG_DEVICE_FAMILY)
+    unset(ARG_AUV3_APP_DEVICE_FAMILY)
 endmacro()
 
 if (CASE STREQUAL "resolve")
@@ -65,6 +69,19 @@ elseif (CASE STREQUAL "badDeviceFamily")
     set(ARG_DEVICE_FAMILY ipad watch)
     _makeasound_ios_shape(App)
     message(STATUS "no error for an unknown device family")
+elseif (CASE STREQUAL "carriedAUv3")
+    # The carrying app's call resolved DEVICE_FAMILY ipad.
+    clear_shape()
+    set(ARG_AUV3_APP_DEVICE_FAMILY 2)
+    _makeasound_ios_shape(Effect)
+    expect(ARG_IOS_ORIENTATIONS "")
+    expect(ARG_IOS_DEVICE_FAMILY "2")
+elseif (CASE STREQUAL "carriedAUv3Shape")
+    clear_shape()
+    set(ARG_AUV3_APP_DEVICE_FAMILY 2)
+    set(ARG_DEVICE_FAMILY iphone)
+    _makeasound_ios_shape(Effect)
+    message(STATUS "no error for a carried AUv3 naming DEVICE_FAMILY")
 else ()
     message(FATAL_ERROR "unknown CASE '${CASE}'")
 endif ()
