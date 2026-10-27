@@ -164,7 +164,7 @@ private:
                                 UInt32 bus,
                                 UInt32 numFrames,
                                 AudioBufferList* data);
-    static void propertyChanged(void* self,
+    static void propertyChanged(void* ticket,
                                 AudioUnit unit,
                                 AudioUnitPropertyID property,
                                 AudioUnitScope scope,
@@ -231,6 +231,11 @@ private:
     AUEventListenerRef eventListener = nullptr;
     bool listening = false;
 
+    // What the property listeners are registered with in place of this unit's
+    // address: it reaches the unit only until the destructor closes it, and the
+    // close waits for a listener still running (see ListenerTickets).
+    void* listenerTicket = nullptr;
+
     // A main-run-loop source a property listener signals from any thread, so a
     // rename is read back, and a latency change told to the listener, on the
     // message thread.
@@ -253,12 +258,21 @@ private:
     int scheduledCount = 0;
     std::atomic<bool> anyScheduled {false};
 
-    double sampleRate = 44100.0;
+    // Set by prepare() on the message thread, and read on the unit's own thread
+    // too, where it announces its latency or tail.
+    std::atomic<double> sampleRate {44100.0};
     int maxBlockSize = 0;
     int64_t renderSampleTime = 0;
 
-    std::atomic<int> latency {0};
+    // The unit's latency and tail as it reports them, in seconds: kept on any
+    // thread, and converted at the rate prepared when asked, so a figure read
+    // on the unit's thread across a prepare() never lands in the old rate.
+    std::atomic<double> latencySeconds {0.0};
     std::atomic<double> tail {0.0};
+
+    // The latency in samples when it was last read, what a notification
+    // compares with to tell whether it moved.
+    std::atomic<int> latency {0};
     bool initialized = false;
 };
 
