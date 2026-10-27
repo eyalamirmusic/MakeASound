@@ -247,9 +247,9 @@ void notifyGesture(HostedAudioUnit& unit, int index, AudioUnitEventType type)
 // An Audio Unit made by hand over the component C API, for what the fixtures
 // cannot show (MakeASound's adapter lists its parameters from the start, never
 // changes the set, and renames through the list and the info together): a list
-// published only once initialized, a set that grows or shrinks while loaded, a
-// rename told through ParameterInfo alone, and a latency told from another
-// thread. Registered in this process, its component handed to the loader.
+// published only once initialized, a set that grows or shrinks while loaded or
+// on initialize, a list told on uninitialize too, a rename told through
+// ParameterInfo alone, and a latency told from another thread. Registered in this process, its component handed to the loader.
 namespace Stub
 {
 constexpr auto numParameters = 3;
@@ -281,6 +281,9 @@ struct Unit
 
     // As some units do: more parameters once initialized than when loaded.
     int extraOnceInitialized = 0;
+
+    // As some units do: tell the list on uninitialize too, as on initialize.
+    bool announceListOnUninitialize = false;
 
     Float64 latencySeconds = 0.0;
 
@@ -365,7 +368,12 @@ OSStatus initialize(void* ref)
 
 OSStatus uninitialize(void* ref)
 {
-    self(ref).initialized = false;
+    auto& unit = self(ref);
+    unit.initialized = false;
+
+    if (unit.announceListOnUninitialize)
+        notify(unit, kAudioUnitProperty_ParameterList, 0);
+
     return noErr;
 }
 
@@ -1412,6 +1420,103 @@ auto tSetOnInitialize = test("HostedAU/aSetThatChangesOnInitializeIsNoIoChange")
     check(plugin.parameters().size() == Stub::numParameters);
     check(!plugin.setParameterFromAudioThread(Stub::numParameters, 0.5f));
     check(plugin.setParameterFromAudioThread(Stub::numParameters - 1, 0.5f));
+};
+
+auto tSetAcrossPrepares =
+    test("HostedAU/aSetThatChangesOnEveryInitializeEndsAfterOnePrepare") = []
+{
+    // Lists one parameter more once initialized, and tells its listeners about
+    // the list on initialize and uninitialize alike, so every prepare() takes it
+    // through both.
+    auto settings = Stub::Unit();
+    settings.extraOnceInitialized = 1;
+    settings.announceListOnUninitialize = true;
+    auto loaded = Stub::load(settings);
+
+    if (!loaded)
+        return;
+
+    auto& plugin = *loaded.plugin;
+
+    // What a host that renegotiates on takeIoChanged() does: load, prepare,
+    // and prepare again at another rate and block size, the run loop turning
+    // in between, and once with no turn at all.
+    struct Spec
+    {
+        double sampleRate;
+        int maxBlockSize;
+        bool turn;
+    };
+
+    auto ioChanges = Vector<int>();
+    auto prepares = 0;
+
+    for (auto spec: {Spec {48000.0, blockSize, true},
+                     Spec {48000.0, blockSize, true},
+                     Spec {44100.0, 256, true},
+                     Spec {96000.0, 1024, false},
+                     Spec {48000.0, blockSize, true}})
+    {
+        plugin.prepare({.sampleRate = spec.sampleRate,
+                        .maxBlockSize = spec.maxBlockSize,
+                        .layout = plugin.getBusLayout()});
+        ++prepares;
+
+        if (spec.turn)
+            turnTheRunLoop();
+
+        if (plugin.takeIoChanged())
+            ioChanges.add(prepares);
+    }
+
+    check(ioChanges.empty());
+    check(loaded.unit->initializeCalls == prepares);
+    check(plugin.parameters().size() == Stub::numParameters);
+};
+
+auto tUnpreparedRename =
+    test("HostedAU/aUnitListingOnlyOnceInitializedRenamesBeforePrepare") = []
+{
+    // Lists nothing until initialized: loading initialized it once to read the
+    // set, and handed it over uninitialized.
+    auto settings = Stub::Unit();
+    settings.listOnlyOnceInitialized = true;
+    auto loaded = Stub::load(settings);
+
+    if (!loaded)
+        return;
+
+    auto& plugin = *loaded.plugin;
+    check(!plugin.isInitialized());
+    check(plugin.parameters().size() == Stub::numParameters);
+
+    auto listener = EditRecorder();
+    plugin.setHostEditListener(&listener);
+
+    // A rename told before the first prepare(), as a state restored right after
+    // the load can bring. The unit lists nothing while uninitialized, as at
+    // load: that is not a changed set, and a host that reloads on
+    // takeIoChanged() and restores the state again would never stop.
+    loaded.unit->names[0] = "Renamed";
+    Stub::notify(*loaded.unit, kAudioUnitProperty_ParameterInfo, 0);
+    turnTheRunLoop();
+
+    check(!plugin.takeIoChanged());
+    check(plugin.takeParameterInfoChanged());
+    check(listener.infos == 1);
+    check(loaded.parameter(0).name() == "Renamed");
+
+    // A real change once prepared is still one.
+    prepareAt48k(plugin);
+    turnTheRunLoop();
+    check(!plugin.takeIoChanged());
+
+    loaded.unit->extraParameters = 1;
+    Stub::notify(*loaded.unit, kAudioUnitProperty_ParameterList);
+    turnTheRunLoop();
+    check(plugin.takeIoChanged());
+
+    plugin.setHostEditListener(nullptr);
 };
 
 auto tLatencyUnmoved =
