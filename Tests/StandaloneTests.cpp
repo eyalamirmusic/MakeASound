@@ -604,6 +604,184 @@ auto tSettingsMissing = test("Standalone/settingsMissingOrGarbageAreNullopt") = 
     check(!loadSettings(file.path).has_value());
 };
 
+// A file saveSettings wrote, every field set, pinned as text: what an earlier
+// build left on disk, which this one must read as that build did, and which
+// that build must read back once this one saved it.
+// clang-format off
+constexpr auto everyFieldFile = std::string_view {R"json({
+  "app": {
+    "lastStateFile": "/Users/me/State.preset"
+  },
+  "audio": {
+    "input": {
+      "device": {
+        "backend": "Unknown",
+        "currentSampleRate": 44100,
+        "duplexChannels": 0,
+        "id": 4,
+        "inputChannels": 1,
+        "isDefaultInput": false,
+        "isDefaultOutput": false,
+        "name": "Mic",
+        "outputChannels": 0,
+        "preferredSampleRate": 48000,
+        "sampleRates": [
+          44100,
+          48000
+        ]
+      },
+      "firstChannel": 0,
+      "nChannels": 1
+    },
+    "maxBlockSize": 256,
+    "options": null,
+    "output": {
+      "device": {
+        "backend": "Unknown",
+        "currentSampleRate": 44100,
+        "duplexChannels": 0,
+        "id": 3,
+        "inputChannels": 0,
+        "isDefaultInput": false,
+        "isDefaultOutput": false,
+        "name": "Speakers",
+        "outputChannels": 2,
+        "preferredSampleRate": 48000,
+        "sampleRates": [
+          44100,
+          48000
+        ]
+      },
+      "firstChannel": 0,
+      "nChannels": 2
+    },
+    "sampleRate": 48000
+  },
+  "audioOpenPending": true,
+  "inputMuted": true,
+  "midiInputPorts": [
+    "Keys",
+    "Pads"
+  ],
+  "midiOutputPort": "Synth",
+  "midiVirtualOutput": "My App",
+  "pluginState": "{\"__bypass\":0,\"params\":{\"Gain\":-6.0},\"version\":1}",
+  "version": 1,
+  "window": {
+    "x": 120.5,
+    "y": -40
+  }
+})json"};
+// clang-format on
+
+void writeText(const std::string& path, std::string_view text)
+{
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+    std::ofstream(path, std::ios::binary | std::ios::trunc) << text;
+}
+
+std::string readText(const std::string& path)
+{
+    auto stream = std::ifstream(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(stream),
+            std::istreambuf_iterator<char>()};
+}
+
+auto tSettingsPinned =
+    test("Standalone/settingsAnEarlierBuildSavedLoadAndSaveUnchanged") = []
+{
+    auto file = TempFile {};
+    writeText(file.path, everyFieldFile);
+
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+
+    // Field for field what a whole read of the file makes of it.
+    auto whole =
+        Miro::createFromJSON<Settings>(Miro::Json::getParsedValue(everyFieldFile));
+    check(Miro::toJSONString(*loaded, 2) == Miro::toJSONString(whole, 2));
+
+    check(loaded->pluginState
+          == R"({"__bypass":0,"params":{"Gain":-6.0},"version":1})");
+    check(loaded->audio.output.has_value());
+    check(loaded->audio.output->device.name == "Speakers");
+    check(loaded->midiInputPorts == Vector<std::string> {"Keys", "Pads"});
+    check(loaded->window == WindowPosition {120.5f, -40.f});
+
+    // Saved again, it is the same bytes: same keys, same shape, so the build
+    // that wrote it reads it back.
+    check(saveSettings(file.path, *loaded));
+    check(readText(file.path) == everyFieldFile);
+};
+
+auto tSettingsBadKey =
+    test("Standalone/settingsAKeyThisBuildCannotReadCostsOnlyItsOwnField") = []
+{
+    auto file = TempFile {};
+    auto good = Miro::toJSON(
+        Miro::createFromJSON<Settings>(Miro::Json::getParsedValue(everyFieldFile)));
+
+    // A value of another type or shape for each key, as a later build that
+    // retyped or reshaped it would write.
+    auto badValues = std::vector<std::pair<std::string, std::string>> {
+        {"version", R"("two")"},
+        {"audio", R"("Speakers")"},
+        {"audio", R"([1, 2])"},
+        {"audio", R"({"output": "Speakers"})"},
+        {"audio", R"({"output": {"device": {"backend": "NoSuchApi"}}})"},
+        {"audio", R"({"output": {"device": {"sampleRates": [{"rate": 1}]}}})"},
+        {"audio", R"({"sampleRate": "fast", "maxBlockSize": {}})"},
+        {"midiInputPorts", R"("Keys")"},
+        {"midiInputPorts", R"({"Keys": 1})"},
+        {"midiOutputPort", R"({"name": "Synth"})"},
+        {"midiVirtualOutput", R"(7)"},
+        {"pluginState", R"({"params": {}})"},
+        {"inputMuted", R"("yes")"},
+        {"window", R"([1, 2])"},
+        {"window", R"({"x": "left"})"},
+        {"app", R"([1, 2])"},
+        {"app", R"("lastStateFile")"},
+        {"audioOpenPending", R"([1])"},
+    };
+
+    for (const auto& [key, bad]: badValues)
+    {
+        auto json = Miro::Json::getParsedValue(everyFieldFile);
+        json.asObject()[key] = Miro::Json::getParsedValue(bad);
+        writeText(file.path, Miro::Json::print(json, 2));
+
+        auto loaded = loadSettings(file.path);
+        check(loaded.has_value());
+
+        if (!loaded)
+            continue;
+
+        // Every other field is as the file had it.
+        auto read = Miro::toJSON(*loaded);
+
+        for (const auto& [other, value]: good.asObject())
+            if (other != key)
+                check(read[other] == value);
+    }
+};
+
+auto tSettingsLater =
+    test("Standalone/settingsFromALaterBuildLoadWhatTheyShare") = []
+{
+    auto file = TempFile {};
+    auto json = Miro::Json::getParsedValue(everyFieldFile);
+    auto& object = json.asObject();
+    object["midiClock"] = Miro::Json::getParsedValue(R"({"send": true})");
+    object["audio"].asObject()["latencyCompensation"] = 12;
+    object["window"].asObject()["display"] = "Studio";
+    writeText(file.path, Miro::Json::print(json, 2));
+
+    auto loaded = loadSettings(file.path);
+
+    check(loaded.has_value());
+    check(Miro::toJSONString(*loaded, 2) == everyFieldFile);
+};
+
 auto tSettingsPath = test("Standalone/settingsPathIsUnderTheVendorAndPlugin") = []
 {
     auto path = settingsPath("Acme", "Gain");
