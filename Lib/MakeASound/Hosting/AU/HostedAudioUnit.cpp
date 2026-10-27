@@ -1,5 +1,6 @@
 #include "HostedAudioUnit.h"
 #include "../JuceHostCompat.h"
+#include "../../Common/TestPoints.h"
 
 #include <mach/mach_time.h>
 
@@ -602,7 +603,11 @@ void HostedAudioUnit::readLatencyAndTail() noexcept
                              &seconds,
                              &size)
         == noErr)
-        latency.store(static_cast<int>(std::lround(seconds * sampleRate)));
+    {
+        auto rate = sampleRate;
+        TestPoints::reach("HostedAudioUnit::readLatencyAndTail", this);
+        latency.store(static_cast<int>(std::lround(seconds * rate)));
+    }
 
     seconds = 0.0;
     size = sizeof(seconds);
@@ -1065,6 +1070,7 @@ void HostedAudioUnit::signalMainLoop() noexcept
 {
     if (auto* source = mainLoopSource.load(std::memory_order_acquire))
     {
+        TestPoints::reach("HostedAudioUnit::signalMainLoop", this);
         CFRunLoopSourceSignal(source);
         CFRunLoopWakeUp(mainRunLoop);
     }
@@ -1175,6 +1181,7 @@ void HostedAudioUnit::propertyChanged(void* self,
                                       AudioUnitScope,
                                       AudioUnitElement)
 {
+    TestPoints::reach("HostedAudioUnit::propertyChanged", self);
     auto& unit = *static_cast<HostedAudioUnit*>(self);
 
     switch (property)
