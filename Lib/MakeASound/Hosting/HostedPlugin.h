@@ -109,7 +109,9 @@ public:
     bool takeParameterInfoChanged() noexcept;
 
     // Once each time the plugin changed its buses: the host must renegotiate the
-    // layout and prepare again.
+    // layout and prepare again. An Audio Unit whose set of parameters changed
+    // while loaded raises it too; parameters() keeps the set it had, and only a
+    // reload lists the new one.
     bool takeIoChanged() noexcept;
 
     bool takeLatencyChanged() noexcept override;

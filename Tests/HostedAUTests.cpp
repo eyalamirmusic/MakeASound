@@ -279,7 +279,13 @@ struct Unit
     // Parameters listed beyond the first ones, or (negative) fewer.
     int extraParameters = 0;
 
+    // As some units do: more parameters once initialized than when loaded.
+    int extraOnceInitialized = 0;
+
     Float64 latencySeconds = 0.0;
+
+    // As many units do: tell the latency on every initialize, moved or not.
+    bool announceLatencyOnInitialize = false;
 
     Vector<PropertyListener> listeners;
 };
@@ -306,7 +312,9 @@ UInt32 listedCount(const Unit& unit)
     if (unit.listOnlyOnceInitialized && !unit.initialized)
         return 0;
 
-    return static_cast<UInt32>(std::max(0, numParameters + unit.extraParameters));
+    auto count = numParameters + unit.extraParameters
+                 + (unit.initialized ? unit.extraOnceInitialized : 0);
+    return static_cast<UInt32>(std::max(0, count));
 }
 
 // What a unit's PropertyChanged does: every listener for the property hears it.
@@ -342,8 +350,16 @@ OSStatus close(void* ref)
 
 OSStatus initialize(void* ref)
 {
-    self(ref).initialized = true;
-    ++self(ref).initializeCalls;
+    auto& unit = self(ref);
+    unit.initialized = true;
+    ++unit.initializeCalls;
+
+    // What a unit's Initialize often tells: its list and its latency.
+    notify(unit, kAudioUnitProperty_ParameterList, 0);
+
+    if (unit.announceLatencyOnInitialize)
+        notify(unit, kAudioUnitProperty_Latency, 0);
+
     return noErr;
 }
 
@@ -416,7 +432,7 @@ OSStatus getProperty(void* ref,
 
     if (property == kAudioUnitProperty_ParameterInfo)
     {
-        if (element >= static_cast<UInt32>(numParameters) + 1)
+        if (element >= static_cast<UInt32>(numParameters) + 2)
             return kAudioUnitErr_InvalidParameter;
 
         auto& info = *static_cast<AudioUnitParameterInfo*>(data);
@@ -1349,6 +1365,125 @@ auto tLatencyThread =
     check(listener.latencies == 1);
 
     plugin.setHostEditListener(nullptr);
+};
+
+void prepareAt48k(HostedAudioUnit& plugin)
+{
+    plugin.prepare({.sampleRate = 48000.0,
+                    .maxBlockSize = blockSize,
+                    .layout = plugin.getBusLayout()});
+}
+
+auto tSetOnInitialize = test("HostedAU/aSetThatChangesOnInitializeIsNoIoChange") = []
+{
+    // Lists one parameter more once initialized than when loaded.
+    auto settings = Stub::Unit();
+    settings.extraOnceInitialized = 1;
+    auto loaded = Stub::load(settings);
+
+    if (!loaded)
+        return;
+
+    auto& plugin = *loaded.plugin;
+    check(plugin.parameters().size() == Stub::numParameters);
+
+    // Initialize tells the listeners about the list: the set the host prepared
+    // against, so no reload is asked for, and preparing again ends there.
+    prepareAt48k(plugin);
+    turnTheRunLoop();
+    check(!plugin.takeIoChanged());
+
+    prepareAt48k(plugin);
+    turnTheRunLoop();
+    check(!plugin.takeIoChanged());
+
+    // A change once prepared is one: told once per change, and a host that only
+    // prepares again on it is not asked again.
+    loaded.unit->extraParameters = 1;
+    Stub::notify(*loaded.unit, kAudioUnitProperty_ParameterList);
+    turnTheRunLoop();
+    check(plugin.takeIoChanged());
+
+    prepareAt48k(plugin);
+    turnTheRunLoop();
+    check(!plugin.takeIoChanged());
+
+    // The table is the one it loaded with throughout, so every index holds.
+    check(plugin.parameters().size() == Stub::numParameters);
+    check(!plugin.setParameterFromAudioThread(Stub::numParameters, 0.5f));
+    check(plugin.setParameterFromAudioThread(Stub::numParameters - 1, 0.5f));
+};
+
+auto tLatencyUnmoved =
+    test("HostedAU/aLatencyToldButUnmovedDoesNotReachTheListener") = []
+{
+    auto settings = Stub::Unit();
+    settings.latencySeconds = 0.01;
+    settings.announceLatencyOnInitialize = true;
+    auto loaded = Stub::load(settings);
+
+    if (!loaded)
+        return;
+
+    auto& plugin = *loaded.plugin;
+    prepareAt48k(plugin);
+    turnTheRunLoop();
+    check(plugin.latencySamples() == 480);
+
+    auto listener = EditRecorder();
+    plugin.setHostEditListener(&listener);
+
+    // A unit that tells its latency on every initialize, the figure unmoved: a
+    // host that prepares again on latencyChanged() is not told again.
+    prepareAt48k(plugin);
+    turnTheRunLoop();
+    check(listener.latencies == 0);
+
+    // Told without a move: the flag, as ever, but not the listener.
+    Stub::notify(*loaded.unit, kAudioUnitProperty_Latency);
+    turnTheRunLoop();
+    check(plugin.takeLatencyChanged());
+    check(listener.latencies == 0);
+
+    // Moved: the listener, once.
+    loaded.unit->latencySeconds = 0.02;
+    Stub::notify(*loaded.unit, kAudioUnitProperty_Latency);
+    turnTheRunLoop();
+    check(plugin.latencySamples() == 960);
+    check(listener.latencies == 1);
+
+    plugin.setHostEditListener(nullptr);
+};
+
+auto tPendingDies = test("HostedAU/whatIsPendingForTheRunLoopDiesWithTheUnit") = []
+{
+    auto listener = EditRecorder();
+
+    {
+        auto loaded = Stub::load();
+
+        if (!loaded)
+            return;
+
+        loaded.plugin->setHostEditListener(&listener);
+
+        // Told from another thread, as a render thread would, and the unit gone
+        // before the main run loop turns.
+        loaded.unit->latencySeconds = 0.01;
+        loaded.unit->names[0] = "Renamed";
+        std::thread(
+            [&]
+            {
+                Stub::notify(*loaded.unit, kAudioUnitProperty_Latency);
+                Stub::notify(*loaded.unit, kAudioUnitProperty_ParameterInfo);
+            })
+            .join();
+    }
+
+    // Nothing it would have told runs once it is gone.
+    turnTheRunLoop();
+    check(listener.latencies == 0);
+    check(listener.infos == 0);
 };
 } // namespace
 } // namespace HostedAUTests

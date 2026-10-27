@@ -572,18 +572,21 @@ void HostedAudioUnit::removeListeners() noexcept
 
     eventListener = nullptr;
 
-    if (auto* source = mainLoopSource.exchange(nullptr, std::memory_order_acq_rel))
-    {
-        CFRunLoopSourceInvalidate(source);
-        CFRelease(source);
-    }
-
+    // The property listeners first, so none signals the source once it is gone;
+    // invalidating it drops a signal still pending, so nothing it would have told
+    // runs after this unit.
     if (listening && instance != nullptr)
         for (auto property: watchedProperties)
             AudioUnitRemovePropertyListenerWithUserData(
                 instance, property, &propertyChanged, this);
 
     listening = false;
+
+    if (auto* source = mainLoopSource.exchange(nullptr, std::memory_order_acq_rel))
+    {
+        CFRunLoopSourceInvalidate(source);
+        CFRelease(source);
+    }
 }
 
 void HostedAudioUnit::readLatencyAndTail() noexcept
@@ -804,6 +807,16 @@ void HostedAudioUnit::prepare(const ProcessSpec& spec)
     initialized = AudioUnitInitialize(instance) == noErr;
     readLatencyAndTail();
     refreshValues();
+
+    // Some units list more, or fewer, once initialized than when loaded. That is
+    // the set the host prepared against, so only a change after this is one it
+    // must reload for; otherwise a host that prepares again on takeIoChanged()
+    // would never stop.
+    if (initialized)
+    {
+        listedIds = readParameterIds();
+        std::sort(listedIds.begin(), listedIds.end());
+    }
 }
 
 AudioBufferList* HostedAudioUnit::outputList(int bus) noexcept
@@ -1162,15 +1175,22 @@ void HostedAudioUnit::propertyChanged(void* self,
     {
         case kAudioUnitProperty_Latency:
         case kAudioUnitProperty_TailTime:
+        {
+            auto before = unit.latency.load();
             unit.readLatencyAndTail();
             unit.raiseLatencyChanged();
 
-            if (property == kAudioUnitProperty_Latency)
+            // The listener only when the figure moved: many units announce their
+            // latency on every initialize, and a host that prepares again when
+            // told would otherwise never stop.
+            if (property == kAudioUnitProperty_Latency
+                && unit.latency.load() != before)
             {
                 unit.latencyDirty.store(true, std::memory_order_release);
                 unit.signalMainLoop();
             }
             break;
+        }
 
         case kAudioUnitProperty_StreamFormat:
             unit.raiseIoChanged();
