@@ -324,6 +324,9 @@ if (MAKEASOUND_BUILD_PLUGIN)
     # makeasound_add_plugin's bundle identifiers: CMake-level cases, and on macOS
     # two fixtures' built bundles.
     add_subdirectory(BundleIds)
+
+    # makeasound_add_plugin's iOS orientation and device families.
+    add_subdirectory(IOSShape)
 endif ()
 
 # The ALSA backend's conversions are the one half of a platform backend that can

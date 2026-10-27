@@ -14,6 +14,8 @@
 #         [NO_INSTALL]
 #         [HOSTS_PLUGINS]
 #         [AUV3_APP <Name of another plugin>]
+#         [ORIENTATION <portrait|landscape>]
+#         [DEVICE_FAMILY <iphone|ipad>...]
 #         [STANDALONE_SOURCES <file>... [STANDALONE_LIBRARIES <target>...]])
 #
 # Builds the plugin's sources once as the static core <Name>, linked into one
@@ -59,6 +61,15 @@
 # time, so the flag is the caller's to keep true. On iOS the plist also gains
 # UIBackgroundModes audio, so the plugin keeps playing behind another app.
 #
+# ORIENTATION and DEVICE_FAMILY shape the iOS app and are ignored elsewhere.
+# ORIENTATION locks the app to one orientation (UISupportedInterfaceOrientations),
+# landscape being either way up, as eacp_add_app's does; unset, the device rotates
+# it. DEVICE_FAMILY names the devices the app and its AUv3 install on, iphone,
+# ipad or both, the default; an AUv3 another plugin puts in the app (AUV3_APP)
+# installs on the same. iPad multitasking needs every orientation, so an iPad
+# app that names ORIENTATION must also opt out of it with UIRequiresFullScreen,
+# which is the caller's to add to the plist (eacp_add_plist_entries).
+#
 # HOSTS_PLUGINS marks a plugin that loads third-party plugins inside itself. Its
 # AU components declare `resourceUsage` (network client and read-write access to
 # any file) instead of `sandboxSafe`: in a sandboxed AU host such as Logic's
@@ -95,8 +106,10 @@
 # extension goes into <that OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex, and
 # FORMATS names AUv3 without Standalone, which the other plugin's call has and
 # must have made first. AUV3_BUNDLE_ID must then extend that app's BUNDLE_ID, and
-# defaults to <that BUNDLE_ID>.<name, lowercased>.auv3. The extension's code and
-# class names are still this plugin's own.
+# defaults to <that BUNDLE_ID>.<name, lowercased>.auv3. The extension installs on
+# that app's DEVICE_FAMILY, and this call names neither DEVICE_FAMILY nor
+# ORIENTATION, which shape the app (FATAL_ERROR otherwise). The extension's code
+# and class names are still this plugin's own.
 
 # The Apple development team an iOS tree signs with under the Xcode generator.
 set(MAKEASOUND_IOS_TEAM "" CACHE STRING
@@ -106,10 +119,11 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
 
 function(makeasound_add_plugin name)
     set(one_value OUTPUT_NAME BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID
-            AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY AUV3_APP)
+            AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY
+            AUV3_APP ORIENTATION)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL;HOSTS_PLUGINS"
             "${one_value}"
-            "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES")
+            "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES;DEVICE_FAMILY")
 
     if (NOT ARG_SOURCES)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): no SOURCES")
@@ -139,6 +153,8 @@ function(makeasound_add_plugin name)
 
         get_target_property(ARG_AUV3_APP_BUNDLE_ID ${ARG_AUV3_APP}
                 MAKEASOUND_BUNDLE_ID)
+        get_target_property(ARG_AUV3_APP_DEVICE_FAMILY ${ARG_AUV3_APP}
+                MAKEASOUND_IOS_DEVICE_FAMILY)
     elseif ("AUv3" IN_LIST ARG_FORMATS AND NOT "Standalone" IN_LIST ARG_FORMATS)
         message(FATAL_ERROR "makeasound_add_plugin(${name}): AUv3 without the "
                 "Standalone format, the app that carries it, or AUV3_APP")
@@ -154,6 +170,7 @@ function(makeasound_add_plugin name)
     endif ()
 
     _makeasound_bundle_ids(${name})
+    _makeasound_ios_shape(${name})
 
     if (NOT ARG_COMPANY)
         set(ARG_COMPANY "MakeASound")
@@ -189,12 +206,14 @@ function(makeasound_add_plugin name)
     # MAKEASOUND_FORMATS: the formats asked for, built here or not, which
     # makeasound_add_allocation_tests reads (an AUv3 is measured on macOS too).
     # MAKEASOUND_BUNDLE_ID: the app's identifier, which another plugin's AUV3_APP
-    # extends.
+    # extends; MAKEASOUND_IOS_DEVICE_FAMILY: the app's device families, which that
+    # plugin's extension installs on too.
     set_target_properties(${name} PROPERTIES
             FOLDER "${ARG_FOLDER}"
             POSITION_INDEPENDENT_CODE ON
             MAKEASOUND_FORMATS "${ARG_FORMATS}"
-            MAKEASOUND_BUNDLE_ID "${ARG_BUNDLE_ID}")
+            MAKEASOUND_BUNDLE_ID "${ARG_BUNDLE_ID}"
+            MAKEASOUND_IOS_DEVICE_FAMILY "${ARG_IOS_DEVICE_FAMILY}")
 
     if (MAKEASOUND_UNITY_BUILD)
         set_target_properties(${name} PROPERTIES UNITY_BUILD ON)
@@ -269,6 +288,13 @@ function(makeasound_add_plugin name)
                 eacp_plist_array(modes audio)
                 eacp_append_plist_xml(${target}
                         "\t<key>UIBackgroundModes</key>\n\t${modes}\n")
+            endif ()
+
+            if (IOS AND ARG_IOS_ORIENTATIONS)
+                eacp_plist_array(orientations ${ARG_IOS_ORIENTATIONS})
+                set(key UISupportedInterfaceOrientations)
+                eacp_append_plist_xml(${target}
+                        "\t<key>${key}</key>\n\t${orientations}\n")
             endif ()
 
             if (IOS)
@@ -373,6 +399,62 @@ function(_makeasound_bundle_ids name)
     endif ()
 
     set(ARG_BUNDLE_ID "${ARG_BUNDLE_ID}" PARENT_SCOPE)
+endfunction()
+
+# Resolves the caller's ORIENTATION and DEVICE_FAMILY into what the plists and
+# Xcode take: ARG_IOS_ORIENTATIONS, the UIInterfaceOrientation names (empty for
+# no lock), and ARG_IOS_DEVICE_FAMILY, Apple's family numbers (1 iPhone, 2 iPad).
+# An AUv3 carried by another plugin's app takes that app's families,
+# ARG_AUV3_APP_DEVICE_FAMILY, and names neither argument: both are the app's.
+# Checked on every platform, so a typo fails a macOS configure too. Needs no
+# target, so the tests reach it in script mode (Tests/IOSShape/Resolve.cmake).
+function(_makeasound_ios_shape name)
+    if (ARG_AUV3_APP_DEVICE_FAMILY)
+        if (ARG_ORIENTATION OR ARG_DEVICE_FAMILY)
+            message(FATAL_ERROR "makeasound_add_plugin(${name}): ORIENTATION and "
+                    "DEVICE_FAMILY shape the app, so they belong to the call that "
+                    "makes the AUV3_APP")
+        endif ()
+
+        set(ARG_IOS_ORIENTATIONS "" PARENT_SCOPE)
+        set(ARG_IOS_DEVICE_FAMILY "${ARG_AUV3_APP_DEVICE_FAMILY}" PARENT_SCOPE)
+        return()
+    endif ()
+
+    if (ARG_ORIENTATION STREQUAL "portrait")
+        set(orientations UIInterfaceOrientationPortrait)
+    elseif (ARG_ORIENTATION STREQUAL "landscape")
+        set(orientations UIInterfaceOrientationLandscapeLeft
+                UIInterfaceOrientationLandscapeRight)
+    elseif (ARG_ORIENTATION)
+        message(FATAL_ERROR "makeasound_add_plugin(${name}): ORIENTATION is "
+                "portrait or landscape, not '${ARG_ORIENTATION}'")
+    else ()
+        set(orientations "")
+    endif ()
+
+    if (NOT ARG_DEVICE_FAMILY)
+        set(ARG_DEVICE_FAMILY iphone ipad)
+    endif ()
+
+    set(families "")
+
+    foreach (device IN LISTS ARG_DEVICE_FAMILY)
+        if (device STREQUAL "iphone")
+            list(APPEND families 1)
+        elseif (device STREQUAL "ipad")
+            list(APPEND families 2)
+        else ()
+            message(FATAL_ERROR "makeasound_add_plugin(${name}): DEVICE_FAMILY "
+                    "takes iphone and ipad, not '${device}'")
+        endif ()
+    endforeach ()
+
+    list(REMOVE_DUPLICATES families)
+    list(SORT families)
+
+    set(ARG_IOS_ORIENTATIONS "${orientations}" PARENT_SCOPE)
+    set(ARG_IOS_DEVICE_FAMILY "${families}" PARENT_SCOPE)
 endfunction()
 
 # <Name>-VST3: the module, the SDK's platform entry and our GetPluginFactory, laid
@@ -576,15 +658,17 @@ endfunction()
 # An iOS bundle's packaging, the app's (APPL) or the extension's (XPC!), for both
 # generators. Xcode writes the platform keys itself and signs: automatically with
 # MAKEASOUND_IOS_TEAM, otherwise ad hoc, and a device build without a team not at
-# all. Under Ninja the plist states the platform, the minimum OS and both device
+# all. Under Ninja the plist states the platform, the minimum OS and the device
 # families, which a bundle laid out by hand has nobody else to write, and the
 # bundle is signed ad hoc after the build for the simulator only: a device needs a
 # real identity, which is Xcode's job, so a device build stays unsigned. An
-# extension's keys are added to its generated plist by _makeasound_add_auv3.
+# extension's keys are added to its generated plist by _makeasound_add_auv3. The
+# families are the caller's ARG_IOS_DEVICE_FAMILY.
 function(_makeasound_ios_bundle target type)
     if (CMAKE_GENERATOR STREQUAL "Xcode")
+        string(JOIN "," families ${ARG_IOS_DEVICE_FAMILY})
         set_target_properties(${target} PROPERTIES
-                XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")
+                XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "${families}")
 
         if (MAKEASOUND_IOS_TEAM)
             set_target_properties(${target} PROPERTIES
@@ -604,10 +688,13 @@ function(_makeasound_ios_bundle target type)
 
     if (type STREQUAL "APPL")
         _makeasound_ios_platform(platform)
+        list(TRANSFORM ARG_IOS_DEVICE_FAMILY
+                REPLACE "(.+)" "<integer>\\1</integer>" OUTPUT_VARIABLE families)
+        string(JOIN "" families ${families})
         set(xml "\t<key>CFBundleSupportedPlatforms</key>\n"
                 "\t<array><string>${platform}</string></array>\n"
                 "\t<key>UIDeviceFamily</key>\n"
-                "\t<array><integer>1</integer><integer>2</integer></array>\n")
+                "\t<array>${families}</array>\n")
 
         if (CMAKE_OSX_DEPLOYMENT_TARGET)
             list(APPEND xml "\t<key>MinimumOSVersion</key>\n"
@@ -681,10 +768,11 @@ function(_makeasound_add_auv3 name app)
     # writes its own and must not find them in the template.
     if (NOT CMAKE_GENERATOR STREQUAL "Xcode")
         _makeasound_ios_platform(platform)
+        string(JOIN "," families ${ARG_IOS_DEVICE_FAMILY})
         list(APPEND commands
                 COMMAND plutil -insert CFBundleSupportedPlatforms
                         -json "[\"${platform}\"]" "${plist}"
-                COMMAND plutil -insert UIDeviceFamily -json "[1,2]" "${plist}")
+                COMMAND plutil -insert UIDeviceFamily -json "[${families}]" "${plist}")
 
         if (CMAKE_OSX_DEPLOYMENT_TARGET)
             list(APPEND commands COMMAND plutil -insert MinimumOSVersion
