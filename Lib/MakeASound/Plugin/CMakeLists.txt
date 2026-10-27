@@ -58,9 +58,11 @@ set_makeasound_target_settings(MakeASoundPlugin)
 # The two drawing tiers, each gated on the eacp target it needs rather than on a
 # flag of ours: a plugin that wants eacp-ui for its editor links MakeASoundPluginUI;
 # only a <Name>-Standalone executable ever links MakeASoundStandalone.
-# The host sub-build of an iOS tree needs only MakeASoundAUDescribe, in AU/: no UI
-# tier.
+# The host sub-build of an iOS tree needs MakeASoundAUDescribe, in AU/, and the
+# UI tier too: it links each plugin's core again, and a core whose editor is
+# drawn with eacp-ui links MakeASoundPluginUI.
 if (MAKEASOUND_DESCRIBE_BUILD)
+    add_subdirectory(UI)
     add_subdirectory(AU)
 else ()
     add_subdirectory(UI)
