@@ -660,5 +660,35 @@ auto tPanelDialogLayout = test("Standalone/settingsPanelTakesItsWordsAndSizes") 
         check(bounds.y == 12.f + 3.f && bounds.h == 24.f);
     }
 };
+
+// A size the device does not list, as a settings file from another machine
+// holds: shown, and first among the choices.
+auto tPanelUnlistedBlockSize =
+    test("Standalone/settingsPanelShowsABlockSizeTheDeviceDoesNotList") = []
+{
+    auto devices = MakeASound::DeviceManager {};
+    auto midi = MakeASound::MidiManager {};
+
+    auto config = fourChannelConfig();
+    config.maxBlockSize = 16;
+
+    auto panel = SettingsPanel {devices, midi, {.touch = true}};
+    panel.setConfig(config);
+
+    auto shown = std::vector<eacp::UI::ComboBox*> {};
+
+    for (auto* combo: findAll<eacp::UI::ComboBox>(*panel.getRootComponent()))
+        if (combo->getText() == "16")
+            shown.push_back(combo);
+
+    check(shown.size() == 1);
+
+    if (shown.size() == 1)
+    {
+        check(shown[0]->getNumItems() > 1);
+        check(shown[0]->getItemText(0) == "16");
+        check(shown[0]->getSelectedIndex() == 0);
+    }
+};
 } // namespace
 } // namespace StandaloneUITests

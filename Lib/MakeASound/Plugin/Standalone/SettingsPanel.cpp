@@ -213,12 +213,26 @@ UI::DropdownInfo channelChoices(const UI::DropdownInfo& all,
     return result;
 }
 
+// The device's sizes, and the one the stream runs at among them even where the
+// device leaves it out: a size saved on another machine or another backend.
+Vector<int> offeredBlockSizes(Vector<int> sizes, int currentSize)
+{
+    if (currentSize > 0)
+    {
+        sizes.addIfNotThere(currentSize);
+        sizes.sort();
+    }
+
+    return sizes;
+}
+
 UI::DropdownInfo blockSizeChoices(const Vector<int>& sizes,
                                   int currentSize,
                                   int sampleRate,
                                   const SettingsPanelOptions& options)
 {
-    auto info = UI::makeBlockSizeDropdown(sizes, currentSize);
+    auto info = UI::makeBlockSizeDropdown(offeredBlockSizes(sizes, currentSize),
+                                          currentSize);
 
     if (options.blockSizeLabel)
         for (auto& item: info.items)
