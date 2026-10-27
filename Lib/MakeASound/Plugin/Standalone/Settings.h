@@ -85,6 +85,12 @@ std::string settingsPath(std::string_view vendor, std::string_view pluginName);
 std::string juceSettingsPath(std::string_view juceName);
 
 // Nullopt when the file is missing, blank or not a JSON object.
+//
+// A file outlives the build that wrote it, so a key this build cannot read (an
+// unknown one, one of another type, one a later build reshaped) costs at most
+// its own field: the others, the plugin's state among them, load as they
+// would without it (StandaloneTests pins this). A file this build saves has
+// the keys and shape an earlier one wrote, so that build reads it back.
 std::optional<Settings> loadSettings(const std::string& path);
 
 // Atomic, creating the directory; false on failure, never throws.
