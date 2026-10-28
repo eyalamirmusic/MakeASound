@@ -623,16 +623,10 @@ constexpr AudioUnitPropertyID watchedProperties[] = {
 
 void HostedAudioUnit::installListeners()
 {
-    listenerTicket = ListenerTickets::shared().open(*this);
-
-    for (auto property: watchedProperties)
-        AudioUnitAddPropertyListener(
-            instance, property, &propertyChanged, listenerTicket);
-
-    listening = true;
-
     // A property listener may run on any thread: the names are read back, and the
-    // host's listener told of a latency change, on the main run loop.
+    // host's listener told of a latency change, on the main run loop. The source
+    // comes before the listeners: a unit may call one as soon as it is added, and
+    // with no source yet what it marked would wait for the unit's next signal.
     auto context = CFRunLoopSourceContext();
     context.info = this;
     context.perform = &onMainLoop;
@@ -643,6 +637,14 @@ void HostedAudioUnit::installListeners()
         CFRunLoopAddSource(mainRunLoop, source, kCFRunLoopCommonModes);
         mainLoopSource.store(source, std::memory_order_release);
     }
+
+    listenerTicket = ListenerTickets::shared().open(*this);
+
+    for (auto property: watchedProperties)
+        AudioUnitAddPropertyListener(
+            instance, property, &propertyChanged, listenerTicket);
+
+    listening = true;
 
     // The unit's own view reports values and gestures through AUEventListener
     // notifications, delivered on the main run loop.
