@@ -566,12 +566,20 @@ OSStatus setParameter(void* ref,
     return noErr;
 }
 
+// When set, addPropertyListener() calls it once the listener is on the list: a
+// unit may tell a listener as soon as the host adds it.
+std::atomic<void (*)(Unit&, AudioUnitPropertyID)> listenerAdded {nullptr};
+
 OSStatus addPropertyListener(void* ref,
                              AudioUnitPropertyID property,
                              AudioUnitPropertyListenerProc proc,
                              void* userData)
 {
     self(ref).listeners.add({property, proc, userData});
+
+    if (auto* hook = listenerAdded.load())
+        hook(self(ref), property);
+
     return noErr;
 }
 
@@ -1851,6 +1859,45 @@ auto tLatencyAcrossPrepare =
     check(samples == 480,
           "0.01 s of latency is " + std::to_string(samples)
               + " samples once prepared at 48 kHz");
+};
+
+// A unit that renames its parameters on its own thread as the host starts
+// listening, while the host is still in its constructor: what the listener marks
+// for the main run loop has to get there, or the names stay stale until the unit
+// next tells something.
+auto tToldOnAdd =
+    test("HostedAU/aRenameToldAsTheHostStartsListeningIsReadBack") = []
+{
+    // Told from another thread once the host adds its ParameterInfo listener,
+    // the last it adds.
+    Stub::listenerAdded = [](Stub::Unit& unit, AudioUnitPropertyID property)
+    {
+        if (property != kAudioUnitProperty_ParameterInfo)
+            return;
+
+        Stub::listenerAdded = nullptr;
+        unit.names[0] = "Renamed";
+        std::thread([&unit]
+                    { Stub::notify(unit, kAudioUnitProperty_ParameterInfo, 0); })
+            .join();
+    };
+
+    auto loaded = Stub::load();
+    Stub::listenerAdded = nullptr;
+
+    if (!loaded)
+        return;
+
+    auto& plugin = *loaded.plugin;
+    auto& renamed = loaded.parameter(0);
+
+    eacp::Threads::runEventLoopUntil([&] { return renamed.name() == "Renamed"; },
+                                     eacp::Time::MS {2000});
+
+    check(renamed.name() == "Renamed",
+          "a rename told as the host added its listener was never read back");
+    check(plugin.parameters().entry(0).displayName == "Renamed");
+    check(plugin.takeParameterInfoChanged());
 };
 } // namespace
 } // namespace HostedAUTests
