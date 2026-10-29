@@ -1,6 +1,7 @@
 #pragma once
 
-#include "ScanWorker.h"
+#include "WorkerCommand.h"
+#include "../FormatManager.h"
 
 #include <functional>
 #include <string>
@@ -31,10 +32,11 @@ enum class ScanMode
 //
 // Every target produces exactly one ModuleScan, whatever happened:
 //
-//   the worker printed a result          that result, verbatim
+//   the command's decoder read a result  that result, verbatim
 //   the worker exited non-zero           crashed
 //   the worker outlived the timeout      killed, crashed
-//   the worker printed nothing usable    crashed
+//   the decoder read nothing usable      crashed
+//   the command has no decoder           crashed
 //
 // A synthesized failure carries the target's stamp and format, through the
 // FormatManager, so the cache blacklists it until the plugin changes.

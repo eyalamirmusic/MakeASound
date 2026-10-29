@@ -3,6 +3,8 @@
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 
+#include <ScanProtocol/ScanWorker.h>
+
 #include <eacp/Core/Process/Process.h>
 
 #include <NanoTest/NanoTest.h>
@@ -29,7 +31,7 @@ auto tWorker = test("HostingPluginHost/theAppIsItsOwnScanWorker") = []
     auto result = eacp::Processes::run(std::move(options));
     check(result.exitCode == 0);
 
-    auto scan = Hosting::decodeScanResult(result.output);
+    auto scan = ScanProtocol::decodeScanResult(result.output);
     check(scan.has_value() && scan->succeeded());
     check(scan.has_value() && scan->classes.size() == 1
           && scan->classes[0].name == "HostFixtureEffect");

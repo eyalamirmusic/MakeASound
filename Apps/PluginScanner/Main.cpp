@@ -1,7 +1,9 @@
 // PluginScanner: a console front end to MakeASound's plugin scanning, and the
-// worker it relaunches itself as. A host can ship this binary as its scanner and
-// point its own ScanSession at it (Hosting::workerCommandFor), or run it and read
-// the database it writes.
+// worker it relaunches itself as. It is the reference assembly of a scanner from
+// the hosting library: its worker protocol (Apps/ScanProtocol) and command line
+// are its own, and a product writes its own the same way. A host can also ship
+// this binary as its scanner and point its own ScanSession at it
+// (ScanProtocol::workerCommandFor), or run it and read the database it writes.
 //
 //   PluginScanner [options]                    sweep (the orchestrator)
 //   PluginScanner --makeasound-scan <target>   one target (a worker)
@@ -11,6 +13,9 @@
 // the sweep runs there too so both share one exit path.
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
+
+#include <ScanProtocol/ScanArgs.h>
+#include <ScanProtocol/ScanWorker.h>
 
 #include <eacp/Core/App/App.h>
 #include <eacp/Core/App/Args.h>
@@ -25,6 +30,7 @@
 
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
+using namespace MakeASound::ScanProtocol;
 
 namespace
 {
@@ -139,9 +145,10 @@ int runRequestedMode()
     if (const auto code = runScanWorkerIfRequested(formats))
         return *code;
 
-    // Its worker is this binary relaunched, the default: runConsole recorded
-    // argv[0] before this ran.
+    // Its worker is this binary relaunched: runConsole recorded argv[0] before
+    // this ran.
     auto options = ScanSessionOptions();
+    options.worker = defaultWorkerCommand();
 
     auto cli = eacp::Args::Parser {"PluginScanner", helpText("Description.txt")};
     addScanOptions(cli, options);

@@ -59,6 +59,7 @@ WorkerCommand fakeWorker(const char* mode, const char* delayMs = nullptr)
 {
     auto command = WorkerCommand();
     command.executable = MAKEASOUND_FAKE_SCAN_WORKER;
+    command.decode = decodeScanResult;
     command.argumentPrefix.add("--fake-worker");
     command.argumentPrefix.add(mode);
 
@@ -72,6 +73,26 @@ WorkerCommand fakeWorker(const char* mode, const char* delayMs = nullptr)
         command.argumentPrefix.add(std::string(scanArgument));
 
     return command;
+}
+
+// A protocol that is not the example's: FakeScanWorker's "old" mode answers with
+// another marker, which only this decoder reads.
+ScanResultDecoder otherProtocolDecoder()
+{
+    return [](std::string_view output) -> std::optional<ModuleScan>
+    {
+        constexpr auto marker = std::string_view("TAMBERPLUG_SCAN:");
+        const auto at = output.rfind(marker);
+
+        if (at == std::string_view::npos)
+            return std::nullopt;
+
+        auto line = output.substr(at + marker.size());
+        line = line.substr(0, line.find_first_of("\r\n"));
+
+        return Miro::createFromJSON<ModuleScan>(
+            Miro::Json::parse(std::string(line)));
+    };
 }
 
 // Polls on this thread, as an app's timer would, until the run ends or the
@@ -423,6 +444,40 @@ auto tCoordinatorCrashes = test("HostingScan/everyWayAWorkerFailsIsACrash") = []
     fs::remove_all(folder);
 };
 
+auto tCustomDecoder = test("HostingScan/aWorkerCommandReadsWithItsOwnDecoder") = []
+{
+    const auto folder = freshFolder("decoder");
+    const auto module = makeBundle(folder / "Other.vst3", 77);
+    const auto formats = StubFormats();
+
+    auto otherProtocol = fakeWorker("old");
+    otherProtocol.decode = otherProtocolDecoder();
+
+    const auto scan = scanThroughWorker(formats, module, otherProtocol);
+    check(!scan.crashed, scan.error);
+    check(scan.classes.size() == 1 && scan.classes[0].name == "Other");
+    check(scan.stamp() == moduleStamp(module));
+
+    auto readsNothing = fakeWorker("ok");
+    readsNothing.decode = [](std::string_view)
+    { return std::optional<ModuleScan>(); };
+    const auto unread = scanThroughWorker(formats, module, readsNothing);
+    check(unread.crashed);
+    check(unread.error.find("no usable result") != std::string::npos);
+
+    auto noDecoder = fakeWorker("ok");
+    noDecoder.decode = nullptr;
+    const auto undecoded = scanThroughWorker(formats, module, noDecoder);
+    check(undecoded.crashed);
+    check(undecoded.error.find("no decoder") != std::string::npos);
+
+    const auto line = encodeScanResult(StubFileFormat().scan(module));
+    const auto byExample = workerCommandFor("/Apps/Scanner").decode(line);
+    check(byExample.has_value() && byExample->path == module);
+
+    fs::remove_all(folder);
+};
+
 auto tTimeout = test("HostingScan/aHungWorkerIsKilledAtTheTimeout") = []
 {
     const auto folder = freshFolder("timeout");
@@ -746,6 +801,37 @@ auto tUninstalled = test("HostingScan/anUninstalledModuleLeavesTheDatabase") = [
     check(cache.load());
     check(cache.document().modules.size() == 1);
     check(cache.plugins()[0].name == "Kept");
+
+    fs::remove_all(folder);
+};
+
+auto tSweepOwnProtocol =
+    test("HostingScan/aSweepSpeaksTheProtocolItsWorkerIsGiven") = []
+{
+    const auto folder = freshFolder("sweepOwnProtocol");
+    const auto module = makeBundle(folder / "Plugins" / "Own.vst3");
+
+    const auto formats = StubFormats();
+
+    auto options = sessionOptions(folder);
+    options.mode = ScanMode::Subprocess;
+    options.worker = fakeWorker("old");
+
+    const auto unread = sweep(formats, options);
+    check(unread.summary.crashed == 1);
+
+    options.worker.decode = otherProtocolDecoder();
+    options.forceRescan = true;
+
+    const auto read = sweep(formats, options);
+    check(read.summary.ok == 1);
+    check(read.summary.crashed == 0);
+
+    auto cache = PluginCache(read.summary.cachePath);
+    check(cache.load());
+    check(cache.plugins().size() == 1);
+    check(cache.plugins()[0].name == "Own");
+    check(cache.plugins()[0].path == module);
 
     fs::remove_all(folder);
 };

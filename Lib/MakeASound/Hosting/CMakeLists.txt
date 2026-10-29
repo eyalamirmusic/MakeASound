@@ -25,11 +25,9 @@ add_library(MakeASoundHosting STATIC
         JuceHostCompat.cpp
         PluginCache.cpp
         Scan/ExecutablePath.cpp
-        Scan/ScanArgs.cpp
         Scan/ScanCoordinator.cpp
         Scan/Scanner.cpp
         Scan/ScanSession.cpp
-        Scan/ScanWorker.cpp
         VST3/VST3Format.cpp
         VST3/VST3HostedParameter.cpp
         VST3/VST3HostedPlugin.cpp)

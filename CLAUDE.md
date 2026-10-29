@@ -85,7 +85,7 @@ On Windows ARM64, build from a VS dev shell (see memory).
 
 **Hosting**
 - The plugin database's schema (`PluginDescription`, `ModuleScan`, `PluginCacheDocument`) is Tamber Plug's and is append-only: never rename or repurpose a field. `Tests/HostingFixtures.h` pins a file Plug wrote, byte for byte.
-- The worker protocol is `--makeasound-scan <target>` in and one `MAKEASOUND_SCAN:` line out (`scanResultPrefix`), plus the `ScanWorkerExit` codes. Stdout outside worker mode stays empty.
+- `MakeASoundHosting` has no worker protocol: a `WorkerCommand` carries the argv prefix and the `decode` that reads a worker's stdout, and a consumer assembles its own scanner from `FormatManager::scanTarget` and `prepareWorkerProcess`. The example apps' protocol lives in `Apps/ScanProtocol` (`MakeASoundScanProtocol`): `--makeasound-scan <target>` in, one `MAKEASOUND_SCAN:` line out (`scanResultPrefix`), the `ScanWorkerExit` codes. Nothing in `Lib/` may depend on it. Stdout outside worker mode stays empty.
 - No process-wide format registries: what a host scans and stamps is what its `FormatManager` holds. An Audio Unit stamps as its component version, so a cache holding them stamps through the formats (`useFormatStamps`).
 - Hosting tests load only `Tests/HostFixtures` and Apple's built-in AUs. A fixture that crashes or hangs is scanned only through a worker.
 

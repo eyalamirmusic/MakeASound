@@ -6,9 +6,12 @@
 // Everything but the windows is PluginHost.h.
 //
 // The scan runs in this process and loads each plugin in a copy of this app
-// relaunched with --makeasound-scan, so main() answers that first.
+// relaunched with --makeasound-scan (Apps/ScanProtocol), so main() answers that
+// first.
 
 #include "PluginHost.h"
+
+#include <ScanProtocol/ScanWorker.h>
 
 #include <MakeASound/Hosting/HostedEditor.h>
 #include <MakeASound/Plugin/Standalone/SettingsPanel.h>
@@ -278,6 +281,7 @@ struct App
     static HostOptions editorOptions()
     {
         auto options = HostOptions();
+        options.scan.worker = MakeASound::ScanProtocol::defaultWorkerCommand();
         options.editors = Hosting::hostedEditors();
         options.settingsFile = defaultSettingsPath();
         return options;
@@ -305,7 +309,7 @@ int runScanWorker()
     auto formats = MakeASound::Hosting::FormatManager();
     formats.addDefaultFormats();
 
-    return MakeASound::Hosting::runScanWorkerIfRequested(formats).value_or(0);
+    return MakeASound::ScanProtocol::runScanWorkerIfRequested(formats).value_or(0);
 }
 } // namespace
 
@@ -315,7 +319,7 @@ int main(int argc, char** argv)
 {
     eacp::Apps::setCommandLineArgs(argc, argv);
 
-    if (MakeASound::Hosting::requestedScanTarget())
+    if (MakeASound::ScanProtocol::requestedScanTarget())
         return eacp::Apps::runConsole(runScanWorker);
 
     return eacp::Apps::run<PluginHost::App>();

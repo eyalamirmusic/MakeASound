@@ -37,9 +37,9 @@ Vector<int> chooseMidiInputs(const std::optional<Vector<std::string>>& picked,
 struct HostOptions
 {
     // What a scan sweeps, as ScanSessionOptions' defaults have it: this app's
-    // own database (Hosting::defaultPluginCachePath()), every format this
-    // platform hosts, and this app relaunched as the worker. Its forceRescan is
-    // scan()'s argument.
+    // own database (Hosting::defaultPluginCachePath()) and every format this
+    // platform hosts. Its worker is the app's to set (the app relaunches itself,
+    // Main.cpp). Its forceRescan is scan()'s argument.
     Hosting::ScanSessionOptions scan;
 
     // What a loaded plugin shows as its editor; empty, and it shows none.

@@ -12,6 +12,8 @@
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 
+#include <ScanProtocol/ScanWorker.h>
+
 #include <filesystem>
 #include <map>
 #include <string>
@@ -21,6 +23,7 @@ namespace HostingTestFormats
 {
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
+using namespace MakeASound::ScanProtocol;
 using EA::makeOwned;
 
 // The database's description, not the plugin core's, where a unity build sees
