@@ -31,8 +31,9 @@ the hosting itself, with no UI:
   and every MIDI input;
 - `syncEditorWithProcessor()` from a UI timer.
 
-[`Main.cpp`](../Apps/PluginHost/Main.cpp) answers `--makeasound-scan` before
-anything else, then puts one window on it (filter, Scan, Rescan All, the list,
+[`Main.cpp`](../Apps/PluginHost/Main.cpp) answers `--makeasound-scan` (the example
+protocol, `Apps/ScanProtocol`) before anything else and points its sweeps at
+itself relaunched, then puts one window on it (filter, Scan, Rescan All, the list,
 Show Editor, Audio / MIDI, a status line), the plugin's editor in a second window
 that resizes when the plugin asks, and the standalone's `SettingsPanel` in a
 third, picking the output and input devices and channels, the sample rate, the

@@ -4,6 +4,8 @@
 
 #include <PluginHost.h>
 
+#include <ScanProtocol/ScanWorker.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <chrono>
@@ -29,6 +31,7 @@ PluginHost::HostOptions fixtureOptions(const fs::path& folder)
     options.scan.worker.executable = MAKEASOUND_FAKE_SCAN_WORKER;
     options.scan.worker.argumentPrefix = {
         "--fake-worker", "formats", "--makeasound-scan"};
+    options.scan.worker.decode = ScanProtocol::decodeScanResult;
     options.scan.timeoutMs = 2000;
     options.startsAudio = false;
     return options;

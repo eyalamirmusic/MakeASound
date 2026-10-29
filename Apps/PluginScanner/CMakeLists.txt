@@ -5,7 +5,7 @@
 add_executable(PluginScanner Main.cpp)
 
 makeasound_enable_hosting(PluginScanner)
-target_link_libraries(PluginScanner PRIVATE eacp-core)
+target_link_libraries(PluginScanner PRIVATE MakeASoundScanProtocol eacp-core)
 set_makeasound_target_settings(PluginScanner)
 
 # The --help text is data, not code: embedded so the binary carries it with no

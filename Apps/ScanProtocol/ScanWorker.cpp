@@ -1,6 +1,7 @@
 #include "ScanWorker.h"
-#include "ExecutablePath.h"
-#include "WorkerProcess.h"
+
+#include <MakeASound/Hosting/Scan/ExecutablePath.h>
+#include <MakeASound/Hosting/Scan/WorkerProcess.h>
 
 #include <Miro/Reflection/Serialize.h>
 
@@ -8,8 +9,10 @@
 
 #include <cstdio>
 
-namespace MakeASound::Hosting
+namespace MakeASound::ScanProtocol
 {
+
+using namespace Hosting;
 
 namespace
 {
@@ -37,6 +40,7 @@ WorkerCommand workerCommandFor(std::string executable)
 
     command.executable = std::move(executable);
     command.argumentPrefix.add(std::string(scanArgument));
+    command.decode = decodeScanResult;
 
     return command;
 }
@@ -192,4 +196,4 @@ std::optional<int>
     return runWorkerFor(argumentsOf(argc, argv), formats);
 }
 
-} // namespace MakeASound::Hosting
+} // namespace MakeASound::ScanProtocol

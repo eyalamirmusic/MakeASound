@@ -4,6 +4,8 @@
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 
+#include <ScanProtocol/ScanWorker.h>
+
 #include <eacp/Core/Process/Process.h>
 
 #include <NanoTest/NanoTest.h>
@@ -20,6 +22,7 @@ namespace HostingScannerAppTests
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
+using namespace MakeASound::ScanProtocol;
 
 namespace
 {

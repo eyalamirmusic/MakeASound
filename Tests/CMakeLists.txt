@@ -251,14 +251,22 @@ if (MAKEASOUND_BUILD_PLUGIN)
     # whose sealed exports would hide the allocation suites' operator new from the
     # system libraries.
     if (TARGET MakeASoundHosting)
+        # The example apps' worker protocol, which the scan suites speak; Apps/ is
+        # not always configured.
+        if (NOT TARGET MakeASoundScanProtocol)
+            add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Apps/ScanProtocol
+                    ${CMAKE_CURRENT_BINARY_DIR}/ScanProtocol)
+        endif ()
+
         list(APPEND MAKEASOUND_TEST_SOURCES
                 HostingCacheTests.cpp HostingJuceCompatTests.cpp HostingScanTests.cpp)
-        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting)
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting MakeASoundScanProtocol)
 
         # A stand-in scan worker whose misbehaviour the command line picks
         # (crash, abort, hang, garbage, the old marker), for the scan suites.
         add_executable(FakeScanWorker FakeScanWorker.cpp)
         makeasound_enable_hosting(FakeScanWorker)
+        target_link_libraries(FakeScanWorker PRIVATE MakeASoundScanProtocol)
 
         # Its abort, and the crash fixture's, must end the process rather than
         # open a dialog no CI runner dismisses.

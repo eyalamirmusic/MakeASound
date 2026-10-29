@@ -20,7 +20,8 @@ add_executable(PluginHost Main.cpp)
 # Sealed, as every host that loads third-party code should be.
 makeasound_enable_hosting(PluginHost)
 target_link_libraries(PluginHost PRIVATE
-        PluginHostCore MakeASoundHostedEditor MakeASoundStandalone eacp-ui)
+        PluginHostCore MakeASoundScanProtocol MakeASoundHostedEditor
+        MakeASoundStandalone eacp-ui)
 
 set(BUNDLE_ID "com.makeasound.pluginhost")
 

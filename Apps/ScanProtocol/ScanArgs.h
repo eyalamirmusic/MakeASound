@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ScanSession.h"
+#include <MakeASound/Hosting/Scan/ScanSession.h>
 
 // Declared only: a front end that calls addScanOptions() includes
 // <eacp/Core/App/Args.h> and links eacp-core itself.
@@ -9,8 +9,10 @@ namespace eacp::Args
 class Parser;
 }
 
-namespace MakeASound::Hosting
+namespace MakeASound::ScanProtocol
 {
+
+using Hosting::ScanSessionOptions;
 
 // The command line of a sweep, for a console front end built on eacp's Args.
 // Declares the standard scan options on `parser`, each bound straight onto a
@@ -29,4 +31,4 @@ namespace MakeASound::Hosting
 // to set.
 void addScanOptions(eacp::Args::Parser& parser, ScanSessionOptions& options);
 
-} // namespace MakeASound::Hosting
+} // namespace MakeASound::ScanProtocol

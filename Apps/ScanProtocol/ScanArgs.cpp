@@ -2,8 +2,10 @@
 
 #include <eacp/Core/App/Args.h>
 
-namespace MakeASound::Hosting
+namespace MakeASound::ScanProtocol
 {
+
+using namespace Hosting;
 
 void addScanOptions(eacp::Args::Parser& parser, ScanSessionOptions& options)
 {
@@ -53,4 +55,4 @@ void addScanOptions(eacp::Args::Parser& parser, ScanSessionOptions& options)
         .hint("<ms>");
 }
 
-} // namespace MakeASound::Hosting
+} // namespace MakeASound::ScanProtocol

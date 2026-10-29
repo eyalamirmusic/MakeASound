@@ -4,6 +4,8 @@
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 
+#include <ScanProtocol/ScanWorker.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <chrono>
@@ -21,6 +23,7 @@ namespace HostingVST3ScanTests
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
+using namespace MakeASound::ScanProtocol;
 
 namespace
 {
@@ -51,6 +54,7 @@ WorkerCommand realWorker()
     auto command = WorkerCommand();
     command.executable = MAKEASOUND_FAKE_SCAN_WORKER;
     command.argumentPrefix = {"--fake-worker", "formats", std::string(scanArgument)};
+    command.decode = decodeScanResult;
     return command;
 }
 

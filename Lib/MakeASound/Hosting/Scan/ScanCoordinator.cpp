@@ -291,7 +291,10 @@ struct ScanCoordinator::Impl
                                "the scan worker exited with code "
                                    + std::to_string(exitCode) + errors);
 
-        auto decoded = decodeScanResult(process.output());
+        if (!command.decode)
+            return crashedHere(job.target, "the worker command has no decoder");
+
+        auto decoded = command.decode(process.output());
 
         if (!decoded.has_value())
             return crashedHere(job.target,
@@ -305,7 +308,7 @@ struct ScanCoordinator::Impl
     ScanCoordinator& owner;
     const FormatManager& formats;
 
-    WorkerCommand command = defaultWorkerCommand();
+    WorkerCommand command;
     ScanMode mode = ScanMode::Subprocess;
     int maxConcurrent = defaultScanJobCount();
     int timeout = 30000;

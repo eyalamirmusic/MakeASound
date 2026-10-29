@@ -1,23 +1,27 @@
 #pragma once
 
-#include "../FormatManager.h"
+#include <MakeASound/Hosting/FormatManager.h>
+#include <MakeASound/Hosting/Scan/WorkerCommand.h>
 
 #include <optional>
 #include <string>
 #include <string_view>
 
-namespace MakeASound::Hosting
+namespace MakeASound::ScanProtocol
 {
 
-// The scan WORKER: the child process that loads one plugin, so a plugin that
-// crashes or hangs takes the child down instead of the host. See
-// Docs/PluginScanning.md for the protocol.
+using Hosting::FormatManager;
+using Hosting::ModuleScan;
+using Hosting::WorkerCommand;
+
+// The scan worker protocol MakeASound's example apps speak, assembled from the
+// hosting library: Apps/PluginScanner answers it, and Apps/PluginHost both
+// answers it (relaunched as its own worker) and drives a ScanSession with it. A
+// product with its own scanner writes its own instead; nothing in the library
+// depends on this one. See Docs/PluginScanning.md.
 //
-// Any executable becomes a worker by calling runScanWorkerIfRequested() first
-// thing in main(): the host itself, relaunched (the default), or a separate
-// scanner such as Apps/PluginScanner. The transport is argv in, one line of
-// stdout and an exit code out. There is no channel to keep alive: a plugin that
-// crashes the worker just means no line.
+// The transport is argv in, one line of stdout and an exit code out. There is no
+// channel to keep alive: a plugin that crashes the worker just means no line.
 
 // The argument that asks for a scan, followed by the target.
 inline constexpr auto scanArgument = std::string_view("--makeasound-scan");
@@ -39,16 +43,8 @@ enum class ScanWorkerExit
     unknownTarget = 4 // no format in this build claims the target
 };
 
-// How to launch one worker: the executable, and the arguments before the target.
-// The host builds the command line as `executable argumentPrefix... target`.
-struct WorkerCommand
-{
-    std::string executable;
-    Vector<std::string> argumentPrefix;
-};
-
-// `executable` in worker mode: [executable, --makeasound-scan]. For a host that
-// ships a separate scanner binary, which answers the same flag.
+// `executable` as this protocol's worker: [executable, --makeasound-scan], read
+// with decodeScanResult. For a host that ships a separate scanner binary.
 WorkerCommand workerCommandFor(std::string executable);
 
 // This executable relaunched as its own worker.
@@ -86,9 +82,10 @@ std::optional<ModuleScan> decodeScanResult(std::string_view workerOutput);
 //         return eacp::Apps::runConsole(argc, argv, runRequestedMode);
 //     }
 //
-// The target is classified and scanned through `formats`, so a worker answers
-// about exactly the formats its host adds. Call with an event loop available on
-// this thread: loading a plugin expects one.
+// The target is classified and scanned through `formats`
+// (FormatManager::scanTarget), so a worker answers about exactly the formats its
+// host adds. Call with an event loop available on this thread: loading a plugin
+// expects one.
 std::optional<int> runScanWorkerIfRequested(const FormatManager& formats);
 
 // The same over an explicit argv, argv[0] skipped, for a main() that has not
@@ -105,4 +102,4 @@ std::optional<std::string> requestedScanTarget();
 // The same over an explicit argv, argv[0] skipped.
 std::optional<std::string> requestedScanTarget(int argc, char** argv);
 
-} // namespace MakeASound::Hosting
+} // namespace MakeASound::ScanProtocol

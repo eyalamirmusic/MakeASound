@@ -57,11 +57,11 @@ struct ScanSessionOptions
     int jobs = 0;
     int timeoutMs = 30000;
 
-    // How each target is scanned, and what to launch when that is a child: by
-    // default this executable relaunched with --makeasound-scan. A host that
-    // ships a separate scanner passes workerCommandFor(its path).
+    // How each target is scanned, and, when that is a child, how to launch it and
+    // read its answer. Subprocess mode needs a worker; the library has none of
+    // its own (see WorkerCommand).
     ScanMode mode = ScanMode::Subprocess;
-    WorkerCommand worker = defaultWorkerCommand();
+    WorkerCommand worker;
 };
 
 // How many targets one format contributed to a sweep.

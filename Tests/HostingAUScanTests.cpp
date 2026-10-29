@@ -11,6 +11,8 @@
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 #include <MakeASound/Hosting/AU/AUFormat.h>
 
+#include <ScanProtocol/ScanWorker.h>
+
 #include <Miro/Reflection/Serialize.h>
 
 #include <NanoTest/NanoTest.h>
@@ -24,6 +26,7 @@ namespace HostingAUScanTests
 using namespace nano;
 using namespace MakeASound;
 using namespace MakeASound::Hosting;
+using namespace MakeASound::ScanProtocol;
 
 namespace
 {
@@ -42,6 +45,7 @@ ModuleScan scanThroughWorker(const FormatManager& formats, const std::string& ta
     auto command = WorkerCommand();
     command.executable = MAKEASOUND_FAKE_SCAN_WORKER;
     command.argumentPrefix = {"--fake-worker", "formats", std::string(scanArgument)};
+    command.decode = decodeScanResult;
 
     auto coordinator = ScanCoordinator(formats);
     auto scans = Vector<ModuleScan>();
