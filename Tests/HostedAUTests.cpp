@@ -1429,15 +1429,17 @@ auto tLatencyThread =
     std::thread([&] { Stub::notify(*loaded.unit, kAudioUnitProperty_Latency); })
         .join();
 
-    // The flag and the figure at once, from any thread...
-    check(plugin.takeLatencyChanged());
-    check(plugin.latencySamples() == 480);
-
-    // ...the listener only on the main run loop.
+    // Never read back on the unit's thread, from inside its notification: the
+    // flag, the figure and the listener all on the main run loop.
+    check(!plugin.takeLatencyChanged());
+    check(plugin.latencySamples() == 0);
     check(listener.latencies == 0);
+
     eacp::Threads::runEventLoopUntil([&] { return listener.latencies > 0; },
                                      eacp::Time::MS {2000});
     check(listener.latencies == 1);
+    check(plugin.takeLatencyChanged());
+    check(plugin.latencySamples() == 480);
 
     plugin.setHostEditListener(nullptr);
 };
@@ -1800,18 +1802,12 @@ auto tLateCall =
         told.join();
 };
 
-// The unit's latency read on its own thread, converted to samples, and kept only
-// after the host prepared at a new rate. The rate is the message thread's: read
-// on the unit's thread unsynchronised, a figure converted at the old rate lands
-// after prepare() kept the new one.
+// A latency told on the unit's own thread just before the host prepares at a new
+// rate: read back on the main run loop, after prepare() kept the new rate, it is
+// converted at that rate, never the old one.
 auto tLatencyAcrossPrepare =
     test("HostedAU/aLatencyReadAcrossAPrepareIsInThePreparedRate") = []
 {
-    static const void* unit = nullptr;
-    static auto messageThread = std::thread::id();
-    static Latch* held = nullptr;
-    static Latch* letGo = nullptr;
-
     auto settings = Stub::Unit();
     settings.latencySeconds = 0.01;
     auto loaded = Stub::load(settings);
@@ -1825,34 +1821,13 @@ auto tLatencyAcrossPrepare =
                     .layout = plugin.getBusLayout()});
     check(plugin.latencySamples() == 441);
 
-    unit = &plugin;
-    messageThread = std::this_thread::get_id();
-    held = &makeLatch();
-    letGo = &makeLatch();
-
-    // The unit's thread is held once it has read the latency, before it keeps it;
-    // the message thread's own read passes.
-    TestPoints::handler = [](const char* name, const void* object)
-    {
-        if (object != unit || std::this_thread::get_id() == messageThread
-            || std::string_view(name) != "HostedAudioUnit::readLatencyAndTail")
-            return;
-
-        held->open();
-        letGo->wait();
-    };
-
     auto* stub = loaded.unit;
-    auto told =
-        std::thread([stub] { Stub::notify(*stub, kAudioUnitProperty_Latency); });
-    held->wait();
+    std::thread([stub] { Stub::notify(*stub, kAudioUnitProperty_Latency); }).join();
 
     prepareAt48k(plugin);
     check(plugin.latencySamples() == 480);
 
-    letGo->open();
-    told.join();
-    TestPoints::handler = nullptr;
+    turnTheRunLoop();
 
     // Still the prepared rate's figure.
     auto samples = plugin.latencySamples();
@@ -1865,8 +1840,7 @@ auto tLatencyAcrossPrepare =
 // listening, while the host is still in its constructor: what the listener marks
 // for the main run loop has to get there, or the names stay stale until the unit
 // next tells something.
-auto tToldOnAdd =
-    test("HostedAU/aRenameToldAsTheHostStartsListeningIsReadBack") = []
+auto tToldOnAdd = test("HostedAU/aRenameToldAsTheHostStartsListeningIsReadBack") = []
 {
     // Told from another thread once the host adds its ParameterInfo listener,
     // the last it adds.

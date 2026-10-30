@@ -6,6 +6,7 @@
 
 #include "HostingAllocationDriver.h"
 #include "AUTestHost.h"
+#include "MisbehavingAU.h"
 
 #include <MakeASound/Hosting/AU/HostedAudioUnit.h>
 
@@ -78,6 +79,33 @@ auto tInstrument = test("Allocations/aHostedAudioUnitsMidiTouchesNothing") = []
 
     // The unit's MIDI out came back through the callback, inside the ban.
     check(context.midiOut.size() == 1 && context.midiOut[0].size() == 3);
+};
+
+// A unit that pulls its input with no memory of its own, and tells its latency
+// from inside every Render: the host's own input memory, and the listener that
+// only marks what was told for the main run loop.
+auto tPullAndTell = test(
+    "Allocations/aHostedAudioUnitPullingAndTellingFromRenderTouchesNothing") = []
+{
+    auto behaviour = MisbehavingAU::Behaviour();
+    behaviour.pullIntoHostMemory = true;
+    behaviour.latencyOnFirstRender = 0.01;
+    behaviour.tellLatencyOnEveryRender = true;
+    auto loaded = MisbehavingAU::load(behaviour);
+
+    if (!loaded)
+        return;
+
+    auto& unit = *loaded.plugin;
+    auto context = contextFor(unit, blockSize);
+    warmUp(unit, context);
+
+    auto count = allocationsOverBlocks(unit, context, [](int) {});
+    check(count == 0);
+
+    const auto& record = loaded.unit->record;
+    check(record.pulls > 0 && record.nonSilentSamples == 0);
+    check(record.reentrantReads == 0);
 };
 } // namespace
 } // namespace HostingAUAllocationTests

@@ -304,7 +304,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
         # Audio Units: Apple's own, found through the registry, and the test
         # module's own components, registered here and loaded directly.
         if (APPLE)
-            list(APPEND MAKEASOUND_TEST_SOURCES HostingAUScanTests.cpp)
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingAUScanTests.cpp
+                    HostedAURobustnessTests.cpp)
 
             if (TARGET MakeASoundAU)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostedAUTests.cpp)
