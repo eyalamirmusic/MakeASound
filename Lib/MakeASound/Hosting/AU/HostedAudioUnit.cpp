@@ -231,9 +231,9 @@ InfoStrings takeStrings(AudioUnit unit,
         && info.cfNameString != nullptr)
         strings.name = stringFromCF(info.cfNameString);
 
+    // The C string may fill its field with no terminator.
     if (strings.name.empty())
-        strings.name =
-            std::string(info.name, std::char_traits<char>::length(info.name));
+        strings.name = std::string(info.name, strnlen(info.name, sizeof(info.name)));
 
     strings.units = unitsOf(info);
 
@@ -259,9 +259,12 @@ InfoStrings takeStrings(AudioUnit unit,
         }
     }
 
+    // cfNameString is valid, and so the host's to release, only with
+    // HasCFNameString; unitName whenever the unit is a custom one.
     if ((info.flags & kAudioUnitParameterFlag_CFNameRelease) != 0)
     {
-        if (info.cfNameString != nullptr)
+        if ((info.flags & kAudioUnitParameterFlag_HasCFNameString) != 0
+            && info.cfNameString != nullptr)
             CFRelease(info.cfNameString);
 
         if (info.unit == kAudioUnitParameterUnit_CustomUnit
@@ -270,6 +273,39 @@ InfoStrings takeStrings(AudioUnit unit,
     }
 
     return strings;
+}
+
+// A parameter's info and its strings, read together.
+struct ReadInfo
+{
+    AudioUnitParameterID id = 0;
+    AudioUnitParameterInfo info {};
+    InfoStrings strings;
+};
+
+// Every id's info whose read succeeds, in order, its strings taken: the CF
+// references in `info` are gone once this returns.
+std::vector<ReadInfo> readInfos(AudioUnit unit,
+                                const std::vector<AudioUnitParameterID>& ids)
+{
+    auto read = std::vector<ReadInfo>();
+    read.reserve(ids.size());
+
+    for (auto id: ids)
+    {
+        auto entry = ReadInfo();
+        entry.id = id;
+
+        if (!readInfo(unit, id, entry.info))
+            continue;
+
+        entry.strings = takeStrings(unit, id, entry.info);
+        entry.info.cfNameString = nullptr;
+        entry.info.unitName = nullptr;
+        read.push_back(std::move(entry));
+    }
+
+    return read;
 }
 
 bool isAddressable(const AudioUnitParameterInfo& info) noexcept
@@ -414,6 +450,7 @@ HostedAudioUnit::HostedAudioUnit(PluginDescription description,
     , consumesMidi(typeConsumesMidi(componentToUse.componentType))
 {
     readBusLayout();
+    installCallbacks();
     buildParameters();
     installListeners();
     readLatencyAndTail();
@@ -532,19 +569,71 @@ std::vector<AudioUnitParameterID> HostedAudioUnit::readParameterIds() const
         return {};
 
     ids.resize(size / sizeof(AudioUnitParameterID));
-    return ids;
+
+    // An id listed twice is one parameter, where it first appears.
+    auto sorted = ids;
+    std::sort(sorted.begin(), sorted.end());
+
+    if (std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end())
+        return ids;
+
+    auto unique = std::vector<AudioUnitParameterID>();
+    unique.reserve(ids.size());
+
+    for (auto id: ids)
+        if (std::find(unique.begin(), unique.end(), id) == unique.end())
+            unique.push_back(id);
+
+    return unique;
+}
+
+void HostedAudioUnit::installCallbacks()
+{
+    // Before any Initialize, the one that reads a late list at load included: a
+    // unit may look for its host's callbacks there.
+    auto host = HostCallbackInfo();
+    host.hostUserData = this;
+    host.beatAndTempoProc = &beatAndTempo;
+    host.musicalTimeLocationProc = &musicalTime;
+    host.transportStateProc = &transportStateV1;
+    host.transportStateProc2 = &transportState;
+    AudioUnitSetProperty(instance,
+                         kAudioUnitProperty_HostCallbacks,
+                         kAudioUnitScope_Global,
+                         0,
+                         &host,
+                         sizeof(host));
+
+    if (!layout.midiOutputs.empty())
+    {
+        auto midiOut = AUMIDIOutputCallbackStruct {&midiOutput, this};
+        AudioUnitSetProperty(instance,
+                             kAudioUnitProperty_MIDIOutputCallback,
+                             kAudioUnitScope_Global,
+                             0,
+                             &midiOut,
+                             sizeof(midiOut));
+    }
 }
 
 void HostedAudioUnit::buildParameters()
 {
     auto ids = readParameterIds();
+    auto infos = std::vector<ReadInfo>();
 
-    // Some units publish their list only once initialized.
+    // Some units publish their list only once initialized, and answer for their
+    // parameters only then too: every info and value string is read before the
+    // unit is uninitialized again.
     if (ids.empty() && AudioUnitInitialize(instance) == noErr)
     {
         ids = readParameterIds();
         listsOnlyOnceInitialized = !ids.empty();
+        infos = readInfos(instance, ids);
         AudioUnitUninitialize(instance);
+    }
+    else
+    {
+        infos = readInfos(instance, ids);
     }
 
     listedIds = ids;
@@ -554,15 +643,9 @@ void HostedAudioUnit::buildParameters()
     auto listed = Vector<int>();
     auto clumps = Vector<Vector<int64_t>>();
 
-    for (auto id: ids)
+    for (auto& [id, info, strings]: infos)
     {
-        auto info = AudioUnitParameterInfo();
-
-        if (!readInfo(instance, id, info))
-            continue;
-
         auto addressable = isAddressable(info);
-        auto strings = takeStrings(instance, id, info);
 
         listed.add(addressable ? storage.size() : -1);
         clumps.add((info.flags & kAudioUnitParameterFlag_HasClump) != 0
@@ -779,13 +862,37 @@ bool HostedAudioUnit::applyStreamFormat(AudioUnitScope scope,
     format.mBytesPerFrame = sizeof(Float32);
     format.mBytesPerPacket = sizeof(Float32);
 
-    return AudioUnitSetProperty(instance,
-                                kAudioUnitProperty_StreamFormat,
-                                scope,
-                                static_cast<AudioUnitElement>(element),
-                                &format,
-                                sizeof(format))
-           == noErr;
+    if (AudioUnitSetProperty(instance,
+                             kAudioUnitProperty_StreamFormat,
+                             scope,
+                             static_cast<AudioUnitElement>(element),
+                             &format,
+                             sizeof(format))
+        == noErr)
+        return true;
+
+    // Turned down: still taken if the unit already holds that very format, as
+    // some refuse to set what they have.
+    auto current = AudioStreamBasicDescription();
+    auto size = UInt32 {sizeof(current)};
+
+    if (AudioUnitGetProperty(instance,
+                             kAudioUnitProperty_StreamFormat,
+                             scope,
+                             static_cast<AudioUnitElement>(element),
+                             &current,
+                             &size)
+        != noErr)
+        return false;
+
+    constexpr auto layoutFlags = static_cast<AudioFormatFlags>(
+        kAudioFormatFlagIsFloat | kAudioFormatFlagIsNonInterleaved);
+
+    return current.mFormatID == kAudioFormatLinearPCM
+           && (current.mFormatFlags & layoutFlags) == layoutFlags
+           && current.mBitsPerChannel == 32
+           && current.mChannelsPerFrame == format.mChannelsPerFrame
+           && current.mSampleRate == format.mSampleRate;
 }
 
 bool HostedAudioUnit::acceptsLayout(const BusLayout& proposed) const
@@ -869,9 +976,18 @@ void HostedAudioUnit::prepare(const ProcessSpec& spec)
     renderSampleTime = 0;
     rewindFallbackPlayhead();
 
-    // Everything process() touches, sized here.
-    silence.assign(static_cast<size_t>(maxBlockSize), 0.f);
+    // Everything process() touches, sized here: the input pull's own memory
+    // for a unit that hands none, one block a channel per input bus.
     scratch.assign(static_cast<size_t>(maxBlockSize), 0.f);
+    inputScratch.resize(static_cast<size_t>(layout.inputs.size()));
+
+    for (auto i = 0; i < layout.inputs.size(); ++i)
+    {
+        auto channels =
+            static_cast<size_t>(std::max(1, layout.inputs[i].numChannels));
+        inputScratch[static_cast<size_t>(i)].assign(
+            channels * static_cast<size_t>(maxBlockSize), 0.f);
+    }
     outputLists.resize(static_cast<size_t>(layout.outputs.size()));
 
     for (auto i = 0; i < layout.outputs.size(); ++i)
@@ -891,49 +1007,39 @@ void HostedAudioUnit::prepare(const ProcessSpec& spec)
                          &maxFrames,
                          sizeof(maxFrames));
 
+    // A bus whose format or input the unit turns down would render buffers that
+    // do not match what it holds: the unit is left uninitialized, and process()
+    // renders nothing, as when Initialize itself fails.
+    auto ready = true;
+
     for (auto i = 0; i < layout.inputs.size(); ++i)
-        applyStreamFormat(kAudioUnitScope_Input, i, layout.inputs[i].numChannels);
+        if (auto channels = layout.inputs[i].numChannels;
+            channels > 0 && !applyStreamFormat(kAudioUnitScope_Input, i, channels))
+            ready = false;
 
     for (auto i = 0; i < layout.outputs.size(); ++i)
-        applyStreamFormat(kAudioUnitScope_Output, i, layout.outputs[i].numChannels);
+        if (auto channels = layout.outputs[i].numChannels;
+            channels > 0 && !applyStreamFormat(kAudioUnitScope_Output, i, channels))
+            ready = false;
 
     auto callback = AURenderCallbackStruct();
     callback.inputProc = &renderInput;
     callback.inputProcRefCon = this;
 
     for (auto i = 0; i < layout.inputs.size(); ++i)
-        AudioUnitSetProperty(instance,
-                             kAudioUnitProperty_SetRenderCallback,
-                             kAudioUnitScope_Input,
-                             static_cast<AudioUnitElement>(i),
-                             &callback,
-                             sizeof(callback));
+        if (AudioUnitSetProperty(instance,
+                                 kAudioUnitProperty_SetRenderCallback,
+                                 kAudioUnitScope_Input,
+                                 static_cast<AudioUnitElement>(i),
+                                 &callback,
+                                 sizeof(callback))
+                != noErr
+            && layout.inputs[i].numChannels > 0)
+            ready = false;
 
-    if (!layout.midiOutputs.empty())
-    {
-        auto midiOut = AUMIDIOutputCallbackStruct {&midiOutput, this};
-        AudioUnitSetProperty(instance,
-                             kAudioUnitProperty_MIDIOutputCallback,
-                             kAudioUnitScope_Global,
-                             0,
-                             &midiOut,
-                             sizeof(midiOut));
-    }
+    installCallbacks();
 
-    auto host = HostCallbackInfo();
-    host.hostUserData = this;
-    host.beatAndTempoProc = &beatAndTempo;
-    host.musicalTimeLocationProc = &musicalTime;
-    host.transportStateProc = &transportStateV1;
-    host.transportStateProc2 = &transportState;
-    AudioUnitSetProperty(instance,
-                         kAudioUnitProperty_HostCallbacks,
-                         kAudioUnitScope_Global,
-                         0,
-                         &host,
-                         sizeof(host));
-
-    initialized = AudioUnitInitialize(instance) == noErr;
+    initialized = ready && AudioUnitInitialize(instance) == noErr;
     readLatencyAndTail();
     refreshValues();
 
@@ -1100,10 +1206,14 @@ void HostedAudioUnit::parameterEdited(AudioUnitParameterID id, float plain)
     {
         auto target = AudioUnitParameter {instance, id, kAudioUnitScope_Global, 0};
         AUParameterSet(eventListener, this, &target, plain, 0);
-        return;
+    }
+    else
+    {
+        AudioUnitSetParameter(instance, id, kAudioUnitScope_Global, 0, plain, 0);
     }
 
-    AudioUnitSetParameter(instance, id, kAudioUnitScope_Global, 0, plain, 0);
+    // A latency the edit moved is read now, the unit's notification over.
+    readToldLatency();
 }
 
 void HostedAudioUnit::parameterEvent(const AudioUnitEvent& event,
@@ -1147,15 +1257,48 @@ bool HostedAudioUnit::refreshInfo()
     // A changed SET of parameters, grown or shrunk, needs a reload; swapping
     // parameters here would dangle every index a host holds. Names and units are
     // read back in place.
+    //
+    // A unit that lists nothing until initialized answers for its parameters
+    // only then too, and may crash when asked before: before the first
+    // prepare(), or after one that failed to initialize it, it is initialized
+    // for the read and uninitialized after. What it tells meanwhile, as many do
+    // on initialize, is what this reads, so it is not read again for that.
+    auto briefly = listsOnlyOnceInitialized && !initialized;
+
+    if (briefly)
+    {
+        initializingBriefly.store(true, std::memory_order_release);
+
+        if (AudioUnitInitialize(instance) != noErr)
+        {
+            initializingBriefly.store(false, std::memory_order_release);
+            return false;
+        }
+    }
+
     auto ids = readParameterIds();
     std::sort(ids.begin(), ids.end());
 
-    // A unit that lists nothing until initialized lists nothing before the
-    // first prepare(), or after one that failed to initialize it, as at load:
-    // its set is unchanged, and the names are read back as they can be.
-    auto unlisted = listsOnlyOnceInitialized && !initialized && ids.empty();
+    auto infos = std::vector<ReadInfo>();
 
-    if (!unlisted && ids != listedIds)
+    if (ids == listedIds)
+    {
+        auto stored = std::vector<AudioUnitParameterID>();
+        stored.reserve(static_cast<size_t>(storage.size()));
+
+        for (auto& param: storage)
+            stored.push_back(param->parameterId());
+
+        infos = readInfos(instance, stored);
+    }
+
+    if (briefly)
+    {
+        AudioUnitUninitialize(instance);
+        initializingBriefly.store(false, std::memory_order_release);
+    }
+
+    if (ids != listedIds)
     {
         raiseIoChanged();
         return false;
@@ -1163,19 +1306,12 @@ bool HostedAudioUnit::refreshInfo()
 
     auto changed = false;
 
-    for (auto& param: storage)
-    {
-        auto info = AudioUnitParameterInfo();
-
-        if (!readInfo(instance, param->parameterId(), info))
-            continue;
-
-        auto strings = takeStrings(instance, param->parameterId(), info);
-        changed = param->updateInfo(std::move(strings.name),
-                                    std::move(strings.units),
-                                    std::move(strings.values))
-                  || changed;
-    }
+    for (auto& [id, info, strings]: infos)
+        if (auto* param = findParameter(id))
+            changed = param->updateInfo(std::move(strings.name),
+                                        std::move(strings.units),
+                                        std::move(strings.values))
+                      || changed;
 
     return changed;
 }
@@ -1248,14 +1384,21 @@ OSStatus HostedAudioUnit::supplyInput(int bus,
     if (data == nullptr)
         return noErr;
 
+    // More than prepare() was told of: there is no memory of ours that long.
+    if (numFrames > static_cast<UInt32>(maxBlockSize))
+        return kAudioUnitErr_TooManyFramesToProcess;
+
     const auto* supplied = currentContext != nullptr && bus >= 0
                                    && bus < currentContext->inputs.size()
                                    && !currentContext->inputs[bus].isEmpty()
                                ? &currentContext->inputs[bus]
                                : nullptr;
 
-    auto frames = std::min<UInt32>(numFrames, static_cast<UInt32>(maxBlockSize));
-    auto bytes = static_cast<UInt32>(frames * sizeof(float));
+    // The block's own samples, never past them; zeros after, up to the pull.
+    auto available =
+        supplied != nullptr
+            ? std::min(numFrames, static_cast<UInt32>(supplied->getNumSamples()))
+            : UInt32 {0};
 
     for (auto i = UInt32 {0}; i < data->mNumberBuffers; ++i)
     {
@@ -1266,25 +1409,43 @@ OSStatus HostedAudioUnit::supplyInput(int bus,
                 ? supplied->getChannelPointer(channel)
                 : nullptr;
 
-        // A unit that hands no memory reads ours: the caller's, or zeros.
+        // A unit that hands no memory gets its own, never the caller's input
+        // or a silence shared across blocks: it may write into what it gets.
         if (buffer.mData == nullptr)
         {
+            auto* own = inputScratchFor(bus, channel);
+
+            if (own == nullptr)
+                return kAudioUnitErr_FormatNotSupported;
+
             buffer.mNumberChannels = 1;
-            buffer.mData = source != nullptr ? const_cast<float*>(source)
-                                             : static_cast<void*>(silence.data());
-            buffer.mDataByteSize = bytes;
-            continue;
+            buffer.mData = own;
+            buffer.mDataByteSize = static_cast<UInt32>(numFrames * sizeof(float));
         }
 
-        auto copied = std::min(bytes, buffer.mDataByteSize);
+        auto* target = static_cast<float*>(buffer.mData);
+        auto room =
+            std::min<UInt32>(numFrames, buffer.mDataByteSize / sizeof(float));
+        auto copied = source != nullptr ? std::min(available, room) : UInt32 {0};
 
-        if (source != nullptr)
-            std::memcpy(buffer.mData, source, copied);
-        else
-            std::memset(buffer.mData, 0, copied);
+        if (copied > 0)
+            std::memcpy(target, source, copied * sizeof(float));
+
+        std::fill(target + copied, target + room, 0.f);
     }
 
     return noErr;
+}
+
+float* HostedAudioUnit::inputScratchFor(int bus, int channel) noexcept
+{
+    if (bus < 0 || bus >= static_cast<int>(inputScratch.size()) || maxBlockSize <= 0)
+        return nullptr;
+
+    auto& memory = inputScratch[static_cast<size_t>(bus)];
+    auto offset = static_cast<size_t>(channel) * static_cast<size_t>(maxBlockSize);
+
+    return offset < memory.size() ? memory.data() + offset : nullptr;
 }
 
 OSStatus HostedAudioUnit::renderInput(void* self,
@@ -1314,26 +1475,20 @@ void HostedAudioUnit::propertyChanged(void* ticket,
     TestPoints::reach("HostedAudioUnit::propertyChanged", inside.unit);
     auto& unit = *inside.unit;
 
+    // Nothing here reads the unit back: it may be telling from inside its own
+    // Initialize or Render, holding a lock a read would wait on. What it told is
+    // marked, and read on the main run loop.
     switch (property)
     {
         case kAudioUnitProperty_Latency:
-        case kAudioUnitProperty_TailTime:
-        {
-            auto before = unit.latency.load();
-            unit.readLatencyAndTail();
-            unit.raiseLatencyChanged();
-
-            // The listener only when the figure moved: many units announce their
-            // latency on every initialize, and a host that prepares again when
-            // told would otherwise never stop.
-            if (property == kAudioUnitProperty_Latency
-                && unit.latency.load() != before)
-            {
-                unit.latencyDirty.store(true, std::memory_order_release);
-                unit.signalMainLoop();
-            }
+            unit.latencyTold.store(true, std::memory_order_release);
+            unit.signalMainLoop();
             break;
-        }
+
+        case kAudioUnitProperty_TailTime:
+            unit.tailTold.store(true, std::memory_order_release);
+            unit.signalMainLoop();
+            break;
 
         case kAudioUnitProperty_StreamFormat:
             unit.raiseIoChanged();
@@ -1341,6 +1496,10 @@ void HostedAudioUnit::propertyChanged(void* ticket,
 
         case kAudioUnitProperty_ParameterList:
         case kAudioUnitProperty_ParameterInfo:
+            // Told by a brief initialize for a refresh, which reads it already.
+            if (unit.initializingBriefly.load(std::memory_order_acquire))
+                break;
+
             unit.infoDirty.store(true, std::memory_order_release);
             unit.signalMainLoop();
             break;
@@ -1364,9 +1523,32 @@ void HostedAudioUnit::onMainLoop(void* self)
 {
     auto& unit = *static_cast<HostedAudioUnit*>(self);
     unit.refreshInfoIfDirty();
+    unit.readToldLatency();
 
-    if (unit.latencyDirty.exchange(false, std::memory_order_acq_rel))
+    if (unit.latencyMoved.exchange(false, std::memory_order_acq_rel))
         unit.notifyHostLatencyChanged();
+}
+
+void HostedAudioUnit::readToldLatency()
+{
+    auto latencyWasTold = latencyTold.exchange(false, std::memory_order_acq_rel);
+    auto tailWasTold = tailTold.exchange(false, std::memory_order_acq_rel);
+
+    if (!latencyWasTold && !tailWasTold)
+        return;
+
+    auto before = latency.load();
+    readLatencyAndTail();
+    raiseLatencyChanged();
+
+    // The listener, on the main run loop, only when the figure moved: many
+    // units announce their latency on every initialize, and a host that
+    // prepares again when told would otherwise never stop.
+    if (latencyWasTold && latency.load() != before)
+    {
+        latencyMoved.store(true, std::memory_order_release);
+        signalMainLoop();
+    }
 }
 
 OSStatus HostedAudioUnit::midiOutput(void* self,
@@ -1606,6 +1788,9 @@ void HostedAudioUnit::loadState(std::string_view data, StateContext)
         instance, kAUParameterListener_AnyParameter, kAudioUnitScope_Global, 0};
     AUParameterListenerNotify(nullptr, nullptr, &any);
     refreshValues();
+
+    // And a latency the state moved, the unit's notification over.
+    readToldLatency();
 }
 
 } // namespace MakeASound::Hosting

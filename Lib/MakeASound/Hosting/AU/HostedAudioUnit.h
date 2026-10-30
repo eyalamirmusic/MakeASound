@@ -140,6 +140,7 @@ private:
 
     void readBusLayout();
     std::vector<AudioUnitParameterID> readParameterIds() const;
+    void installCallbacks();
     void buildParameters();
     void installListeners();
     void removeListeners() noexcept;
@@ -147,6 +148,7 @@ private:
     bool applyStreamFormat(AudioUnitScope scope, int element, int channels) const;
     bool refreshInfo();
     void refreshInfoIfDirty();
+    void readToldLatency();
     void refreshValues() noexcept;
     void signalMainLoop() noexcept;
 
@@ -156,6 +158,7 @@ private:
     void pushMidi(const ProcessContext& context) noexcept;
     void scheduleParameters() noexcept;
     OSStatus supplyInput(int bus, UInt32 numFrames, AudioBufferList* data) noexcept;
+    float* inputScratchFor(int bus, int channel) noexcept;
     AudioBufferList* outputList(int bus) noexcept;
 
     static OSStatus renderInput(void* self,
@@ -237,18 +240,25 @@ private:
     void* listenerTicket = nullptr;
 
     // A main-run-loop source a property listener signals from any thread, so a
-    // rename is read back, and a latency change told to the listener, on the
-    // message thread.
+    // rename, a latency or a tail is read back on the message thread, never from
+    // inside the unit's own notification.
     CFRunLoopRef mainRunLoop = nullptr;
     std::atomic<CFRunLoopSourceRef> mainLoopSource {nullptr};
     std::atomic<bool> infoDirty {false};
-    std::atomic<bool> latencyDirty {false};
+    std::atomic<bool> latencyTold {false};
+    std::atomic<bool> tailTold {false};
+    std::atomic<bool> latencyMoved {false};
 
-    // Sized in prepare(): one AudioBufferList per output bus, and the stand-ins
-    // for channels the caller did not supply.
+    // A unit that lists only once initialized is initialized briefly to refresh
+    // its names; what it tells about them meanwhile is that refresh's.
+    std::atomic<bool> initializingBriefly {false};
+
+    // Sized in prepare(): one AudioBufferList per output bus, the stand-ins for
+    // channels the caller did not supply, and per input bus the memory handed
+    // to a unit that pulls its input with none of its own.
     std::vector<std::vector<std::uint64_t>> outputLists;
-    std::vector<float> silence;
     std::vector<float> scratch;
+    std::vector<std::vector<float>> inputScratch;
 
     // The block being rendered, for the input pull and the MIDI the unit sends.
     ProcessContext* currentContext = nullptr;
@@ -264,9 +274,9 @@ private:
     int maxBlockSize = 0;
     int64_t renderSampleTime = 0;
 
-    // The unit's latency and tail as it reports them, in seconds: kept on any
-    // thread, and converted at the rate prepared when asked, so a figure read
-    // on the unit's thread across a prepare() never lands in the old rate.
+    // The unit's latency and tail as it reports them, in seconds, read on the
+    // message thread and converted at the rate prepared when asked, so a figure
+    // read before a prepare() never lands in the old rate.
     std::atomic<double> latencySeconds {0.0};
     std::atomic<double> tail {0.0};
 
