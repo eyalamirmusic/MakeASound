@@ -2555,10 +2555,34 @@ auto tDirty = test("VST3/markChangedSetsTheHostDirty") = []
     check(host.handler.dirtyCalls == 1);
 };
 
+// hasEditor() false: no view at all, createEditor() never asked, and the host
+// shows its own parameter page, as for a JUCE plugin without an editor.
+auto tNoEditor = test("VST3/aPluginWithNoEditorGivesNoView") = []
+{
+    auto host = AdapterHost<NoEditorGainPlugin> {};
+    auto asked = 0;
+    Module::editorFactory = [&asked](Plugin&)
+    {
+        ++asked;
+        return OwningPointer<Editor>();
+    };
+
+    auto* view = host.adapter->createView(Vst::ViewType::kEditor);
+    Module::editorFactory = nullptr;
+
+    if (view != nullptr)
+        view->release();
+
+    check(view == nullptr);
+    check(asked == 0);
+};
+
 #if MAKEASOUND_VST3_HAS_VIEW
 auto tView = test("VST3/theEditorViewIsTheGenericEditor") = []
 {
     auto host = AdapterHost<GainPlugin> {};
+    check(host.adapter->plugin().hasEditor());
+
     auto view = Steinberg::owned(host.adapter->createView(Vst::ViewType::kEditor));
     check(view != nullptr);
     Steinberg::FUnknownPtr<Steinberg::IPlugViewContentScaleSupport>(view.get())

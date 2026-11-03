@@ -186,6 +186,33 @@ using MakeASound::AUv3::Adapter;
         adapter->plugin(), availableViewConfigurations);
 }
 
+// A plugin with no editor at all gets no view controller, and the host shows its
+// own parameter page. Otherwise the framework's, which loads the extension's.
+// Only an in-process unit is asked: out of process the host's proxy loads the
+// extension's view controller, which then embeds nothing.
+- (void)requestViewControllerWithCompletionHandler:
+    (void (^)(AUViewControllerBase* _Nullable))completionHandler
+{
+    if (!adapter->plugin().hasEditor())
+    {
+        completionHandler(nil);
+        return;
+    }
+
+    [super requestViewControllerWithCompletionHandler:completionHandler];
+}
+
+// The framework's answer counts the override above as a view, so it is narrowed
+// to a module that has one (its principal class is a view controller) and a
+// plugin that has an editor.
+- (BOOL)providesUserInterface
+{
+    return adapter->plugin().hasEditor()
+           && [MakeASound::AUv3::principalClass()
+               isSubclassOfClass:[AUViewController class]]
+           && [super providesUserInterface];
+}
+
 - (Adapter*)adapter
 {
     return adapter.get();

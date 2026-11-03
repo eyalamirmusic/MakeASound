@@ -1,4 +1,5 @@
 #include "EditorWindow.h"
+#include "../UI/GenericEditor.h"
 
 #include <cmath>
 
@@ -19,6 +20,15 @@ Graphics::Point toPoint(EditorSize size) noexcept
     return {static_cast<float>(size.width), static_cast<float>(size.height)};
 }
 } // namespace
+
+OwningPointer<Editor> createWindowEditor(Plugin& plugin)
+{
+    if (plugin.hasEditor())
+        if (auto editor = plugin.createEditor())
+            return editor;
+
+    return EA::makeOwned<GenericEditor>(plugin);
+}
 
 Graphics::WindowOptions editorWindowOptions(const Editor& editor, std::string title)
 {

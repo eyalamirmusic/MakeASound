@@ -166,9 +166,22 @@ public:
     // Message thread.
     virtual bool takeLatencyChanged() noexcept { return false; }
 
-    // Null means no editor of its own, and the host shows its generic parameter
-    // page. Cheap by contract: a host may call it only to learn whether one
-    // exists, so build the view lazily in Editor::view(). Message thread.
+    // Whether the plugin has an editor at all, as JUCE's
+    // AudioProcessor::hasEditor(). True (the default): every format shows one,
+    // createEditor()'s or, when that is null, MakeASound's GenericEditor. False:
+    // the plugin has none, every format reports no view (VST3 createView answers
+    // null, an AU names no CocoaUI, an AUv3 provides no user interface, an AAX
+    // registers no GUI), createEditor() is never asked, and the host shows its
+    // own generic parameter page. The standalone, which has no host page to fall
+    // back on, shows GenericEditor either way. A property of the plugin's type,
+    // not of its state: AAX asks it once, of the instance it describes with.
+    // Message thread.
+    virtual bool hasEditor() const { return true; }
+
+    // The plugin's own editor; null shows GenericEditor in its place (see
+    // hasEditor() for having none at all). Cheap by contract: a host may call it
+    // only to learn whether one exists, so build the view lazily in
+    // Editor::view(). Message thread.
     virtual OwningPointer<Editor> createEditor() { return {}; }
 
     // The plugin's whole document, on the message thread.

@@ -345,4 +345,59 @@ auto tViewFirstClose = test("AUv3/closingTheViewDetachesTheEditor") = []
 
     check(probe.record.removed == 1);
 };
+
+// hasEditor() false: the unit provides no user interface and answers a request
+// for its view controller with nil, so a host shows its own parameter page; the
+// extension's controller, should a host load it anyway, embeds nothing, and
+// createEditor() is never asked.
+auto tNoEditor = test("AUv3/aPluginWithNoEditorGivesNoViewController") = []
+{
+    auto probe = ScopedProbe {};
+
+    @autoreleasepool
+    {
+        auto standIn = Module::ScopedStandIn<NoEditorGainPlugin>(Module::gainStandIn);
+        auto host = ViewHost {};
+
+        check(!host.unit.providesUserInterface);
+
+        struct Answer
+        {
+            bool answered = false;
+            AUViewControllerBase* given = nil;
+        };
+
+        auto answer = Answer {};
+        auto* into = &answer;
+        [host.unit requestViewControllerWithCompletionHandler:^(
+                       AUViewControllerBase* controller) {
+          into->given = controller;
+          into->answered = true;
+        }];
+
+        pumpUntil([&] { return answer.answered; });
+        check(answer.answered);
+        check(answer.given == nil);
+
+        check(probe.record.attached == 0);
+        check(probe.record.editor == nullptr && !probe.record.destroyed);
+        check(host.controller.view.subviews.count == 0);
+
+        auto* available = configurations({{100, 100}, {2000, 2000}});
+        check([[host.unit supportedViewConfigurations:available]
+            isEqualToIndexSet:indices({0, 1})]);
+        check(probe.record.editor == nullptr && !probe.record.destroyed);
+    }
+};
+
+// The default, hasEditor() true, provides one.
+auto tHasEditor = test("AUv3/aPluginWithAnEditorProvidesAUserInterface") = []
+{
+    @autoreleasepool
+    {
+        auto host = ViewHost {};
+        check(AUv3::adapterOf(host.unit)->plugin().hasEditor());
+        check(host.unit.providesUserInterface);
+    }
+};
 } // namespace

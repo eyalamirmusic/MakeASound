@@ -182,7 +182,9 @@ bool describeEffect(AAX_ICollection& collection,
     checked = effect->AddProcPtr(reinterpret_cast<void*>(&Adapter::create),
                                  kAAX_ProcPtrID_Create_EffectParameters);
 
-    if (hasAAXView())
+    // A plugin with no editor at all registers no GUI, and Pro Tools shows its
+    // own controls.
+    if (hasAAXView() && instance->hasEditor())
         checked = effect->AddProcPtr(reinterpret_cast<void*>(&createAAXView),
                                      kAAX_ProcPtrID_Create_EffectGUI);
 

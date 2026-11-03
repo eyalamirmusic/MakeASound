@@ -262,4 +262,59 @@ auto tUnitClosesFirst = test("AU/closingTheUnitBeforeTheViewClosesTheEditor") = 
 
     check(probe.record.removed == 1);
 };
+
+// hasEditor() false: the unit does not answer kAudioUnitProperty_CocoaUI, so a
+// host finds no view and shows its own parameter page, and createEditor() is
+// never asked.
+auto tNoEditor = test("AU/aPluginWithNoEditorNamesNoCocoaView") = []
+{
+    @autoreleasepool
+    {
+        auto probe = ScopedProbe {};
+        auto standIn = Module::ScopedStandIn<NoEditorGainPlugin>(Module::gainStandIn);
+        auto host = UnitHost<NoEditorGainPlugin>("Gain");
+
+        auto size = UInt32 {0};
+        auto writable = Boolean {0};
+        check(AudioUnitGetPropertyInfo(host.unit,
+                                       kAudioUnitProperty_CocoaUI,
+                                       kAudioUnitScope_Global,
+                                       0,
+                                       &size,
+                                       &writable)
+              != noErr);
+
+        auto info = AudioUnitCocoaViewInfo {};
+        size = UInt32 {sizeof(info)};
+        check(AudioUnitGetProperty(host.unit,
+                                   kAudioUnitProperty_CocoaUI,
+                                   kAudioUnitScope_Global,
+                                   0,
+                                   &info,
+                                   &size)
+              != noErr);
+        check(info.mCocoaAUViewClass[0] == nullptr);
+
+        check(openView(host.unit) == nil);
+        check(probe.record.editor == nullptr && !probe.record.destroyed);
+    }
+};
+
+// The default, hasEditor() true, still names the view.
+auto tHasEditor = test("AU/aPluginWithAnEditorNamesACocoaView") = []
+{
+    auto host = UnitHost<GainPlugin>("Gain");
+    check(host.plugin().hasEditor());
+
+    auto size = UInt32 {0};
+    auto writable = Boolean {0};
+    check(AudioUnitGetPropertyInfo(host.unit,
+                                   kAudioUnitProperty_CocoaUI,
+                                   kAudioUnitScope_Global,
+                                   0,
+                                   &size,
+                                   &writable)
+          == noErr);
+    check(size == sizeof(AudioUnitCocoaViewInfo));
+};
 } // namespace

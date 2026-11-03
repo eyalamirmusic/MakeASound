@@ -3,10 +3,12 @@
 // panel's look.
 
 #include "TestEditor.h"
+#include "TestPlugins.h"
 
 #include <MakeASound/Plugin/Standalone/TypingKeyboard.h>
 #include <MakeASound/Plugin/Standalone/EditorWindow.h>
 #include <MakeASound/Plugin/Standalone/SettingsPanel.h>
+#include <MakeASound/Plugin/UI/GenericEditor.h>
 
 #include <NanoTest/NanoTest.h>
 
@@ -263,6 +265,53 @@ auto tFixedEditor = test("Standalone/aFixedEditorOpensAFixedWindow") = []
     check(options.width == 500);
     check(options.height == 320);
     check(options.effectiveAllowsFullScreen());
+};
+
+// The window's editor: the plugin's own when it makes one, else GenericEditor.
+auto tOwnEditor = test("Standalone/theWindowShowsThePluginsOwnEditor") = []
+{
+    auto plugin = GainPlugin {};
+    auto* made = static_cast<Editor*>(nullptr);
+    Module::editorFactory = [&made](Plugin&)
+    {
+        auto created = EA::makeOwned<TestEditor>();
+        made = created.get();
+        return OwningPointer<Editor>(std::move(created));
+    };
+
+    auto editor = createWindowEditor(plugin);
+    Module::editorFactory = nullptr;
+
+    check(made != nullptr);
+    check(editor.get() == made);
+};
+
+auto tNullEditor = test("Standalone/aNullEditorShowsTheGenericEditor") = []
+{
+    auto plugin = GainPlugin {};
+    check(plugin.hasEditor());
+
+    auto editor = createWindowEditor(plugin);
+    check(dynamic_cast<GenericEditor*>(editor.get()) != nullptr);
+};
+
+// hasEditor() false: the standalone has no host page to fall back on, so it
+// still shows GenericEditor, as JUCE's does, and never asks createEditor().
+auto tNoEditor = test("Standalone/aPluginWithNoEditorShowsTheGenericEditor") = []
+{
+    auto plugin = NoEditorGainPlugin {};
+    auto asked = 0;
+    Module::editorFactory = [&asked](Plugin&)
+    {
+        ++asked;
+        return OwningPointer<Editor>(EA::makeOwned<TestEditor>());
+    };
+
+    auto editor = createWindowEditor(plugin);
+    Module::editorFactory = nullptr;
+
+    check(dynamic_cast<GenericEditor*>(editor.get()) != nullptr);
+    check(asked == 0);
 };
 
 auto tResizableEditor = test("Standalone/aResizableEditorConstrainsTheWindow") = []

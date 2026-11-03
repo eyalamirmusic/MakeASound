@@ -166,6 +166,39 @@ auto tSize = test("AAX/theViewAnswersTheEditorsConstrainedSize") = []
     check(isSize(view.size(), expected.width, expected.height));
 };
 
+// hasEditor() false: no GUI is registered (AAXTests), and a view a host makes
+// anyway shows nothing and never asks createEditor().
+auto tNoEditor = test("AAX/aPluginWithNoEditorEmbedsNothing") = []
+{
+    auto plugin = NoEditorGainPlugin {};
+    auto asked = 0;
+    Module::editorFactory = [&asked](Plugin&)
+    {
+        ++asked;
+        return OwningPointer<Editor>();
+    };
+
+    auto container = FakeViewContainer {};
+    auto viewSize = AAX_Result {AAX_SUCCESS};
+    auto* shown = static_cast<Editor*>(nullptr);
+
+    {
+        auto view = PluginView(plugin);
+        view.SetViewContainer(&container);
+
+        auto point = AAX_Point {};
+        viewSize = view.GetViewSize(&point);
+        shown = view.editor();
+        view.SetViewContainer(nullptr);
+    }
+
+    Module::editorFactory = nullptr;
+
+    check(viewSize != AAX_SUCCESS);
+    check(shown == nullptr);
+    check(asked == 0);
+};
+
 auto tResize = test("AAX/requestResizeGoesThroughTheViewContainer") = []
 {
     auto plugin = GainPlugin {};

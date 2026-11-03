@@ -77,7 +77,9 @@ EditorSize sizeOf(NSSize size)
 
     auto* adapter = MakeASound::AUv3::adapterOf(unit);
 
-    if (adapter == nullptr)
+    // No editor at all: the view stays empty, for a host that loaded the
+    // extension's controller without asking the unit.
+    if (adapter == nullptr || !EmbeddedEditor::hasEditor(*adapter))
         return;
 
     editor = EA::makeOwned<EmbeddedEditor>(*adapter);

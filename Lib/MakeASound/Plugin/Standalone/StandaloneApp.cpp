@@ -1,15 +1,14 @@
 #include "StandaloneApp.h"
-#include "../UI/GenericEditor.h"
+#include "EditorWindow.h"
 
 namespace MakeASound::Standalone
 {
 
+// GenericEditor even for a plugin whose hasEditor() is false: the app has to
+// show a window, and there is no host page to show instead.
 OwningPointer<Editor> StandaloneApp::createEditor(StandaloneHost& host)
 {
-    if (auto editor = host.createEditor())
-        return editor;
-
-    return EA::makeOwned<GenericEditor>(host.plugin());
+    return createWindowEditor(host.plugin());
 }
 
 void StandaloneApp::connectSettings(SettingsPanel& panel, StandaloneHost& host)
