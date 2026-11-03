@@ -67,7 +67,9 @@ void View::CreateViewContents()
 
     auto* plugin = findPlugin();
 
-    if (plugin == nullptr)
+    // No GUI is registered for a plugin with no editor at all; should a host
+    // make one anyway, it shows nothing.
+    if (plugin == nullptr || !plugin->hasEditor())
         return;
 
     auto created = plugin->createEditor();

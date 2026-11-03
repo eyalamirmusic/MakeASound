@@ -51,7 +51,8 @@ const PluginDescription* findPlugin(const ModuleDescription& module,
                                     std::string_view effectId);
 
 // One effect per plugin, one component per stem pair its plugin accepts.
-// Constructs each plugin once to read its layout and bypass.
+// Constructs each plugin once to read its layout, its bypass and whether it has
+// an editor, which decides whether its GUI proc is registered.
 AAX_Result describeEffects(AAX_ICollection& collection,
                            const ModuleDescription& module,
                            std::string_view bundleId,

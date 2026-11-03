@@ -678,6 +678,10 @@ Steinberg::IPlugView* PLUGIN_API Adapter::createView(FIDString name)
     if (name == nullptr || std::string_view(name) != Vst::ViewType::kEditor)
         return nullptr;
 
+    // No editor at all: no view, and the host shows its own parameter page.
+    if (!plugin().hasEditor())
+        return nullptr;
+
     return createPlugView(*static_cast<Vst::IAudioProcessor*>(this), plugin());
 }
 

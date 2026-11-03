@@ -77,6 +77,10 @@ public:
                      EditorSize initial,
                      EditorSize configuration) noexcept;
 
+    // Whether a unit gets an editor at all: false for a plugin whose hasEditor()
+    // is false, and the controller then embeds nothing.
+    static bool hasEditor(Adapter& adapter);
+
     // supportedViewConfigurations: for a unit of `plugin`, over a throwaway editor
     // (createEditor() is cheap by contract). Off the main thread it asks there.
     static NSIndexSet*

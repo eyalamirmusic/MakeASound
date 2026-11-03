@@ -18,7 +18,8 @@ namespace MakeASound::AAX
 
 // The editor's AAX_IEffectGUI, defined by View.cpp where the UI tier exists and
 // by NoView.cpp where it does not; without one no GUI proc is registered, and
-// Pro Tools shows its own controls.
+// Pro Tools shows its own controls. Nor is one for a plugin whose hasEditor() is
+// false (see describeEffects).
 bool hasAAXView() noexcept;
 AAX_IEffectGUI* AAX_CALLBACK createAAXView();
 

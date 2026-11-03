@@ -678,8 +678,10 @@ OSStatus Adapter::GetPropertyInfo(AudioUnitPropertyID id,
                 outDataSize = sizeof(Adapter*);
                 return noErr;
 
+            // A plugin with no editor at all names no view, and the host shows
+            // its own parameter page.
             case kAudioUnitProperty_CocoaUI:
-                if (!hasCocoaView())
+                if (!hasCocoaView() || !plugin().hasEditor())
                     break;
 
                 outDataSize = sizeof(AudioUnitCocoaViewInfo);
@@ -750,6 +752,9 @@ OSStatus Adapter::GetProperty(AudioUnitPropertyID id,
 
             case kAudioUnitProperty_CocoaUI:
             {
+                if (!plugin().hasEditor())
+                    break;
+
                 auto view = cocoaViewInfo();
 
                 if (view.className == nullptr)

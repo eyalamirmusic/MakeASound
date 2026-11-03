@@ -35,6 +35,11 @@ bool fitsSide(int editor, int configuration) noexcept
 NSIndexSet* fittingConfigurations(Plugin& plugin,
                                   NSArray<AUAudioUnitViewConfiguration*>* available)
 {
+    // No editor at all, so none to fit: every configuration, as a module with
+    // no view answers.
+    if (!plugin.hasEditor())
+        return [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, available.count)];
+
     auto editor = editorFor(plugin);
     auto limits = editor->constraints();
     auto initial = editor->initialSize();
@@ -128,6 +133,11 @@ bool EmbeddedEditor::fits(const EditorConstraints& limits,
 
     return fitsSide(smallest.width, configuration.width)
            && fitsSide(smallest.height, configuration.height);
+}
+
+bool EmbeddedEditor::hasEditor(Adapter& adapter)
+{
+    return adapter.plugin().hasEditor();
 }
 
 NSIndexSet* EmbeddedEditor::supportedConfigurations(

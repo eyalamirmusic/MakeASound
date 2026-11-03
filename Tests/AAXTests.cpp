@@ -160,6 +160,25 @@ auto tDescribe = test("AAX/describesAnEffectPerPlugin") = []
     check(gain->procs.count(kAAX_ProcPtrID_Create_EffectParameters) == 1);
 };
 
+// hasEditor() false: the effect registers no GUI proc, so Pro Tools shows its
+// own controls; a plugin with an editor keeps the module's.
+auto tNoEditorGUI = test("AAX/aPluginWithNoEditorRegistersNoGUI") = []
+{
+    auto gui = [](const FakeCollection& collection, const char* effect)
+    {
+        return collection.effect(effect)->procs.count(
+            kAAX_ProcPtrID_Create_EffectGUI);
+    };
+
+    auto withEditor = gui(describeTestModule(), "com.makeasound.tests.Gain");
+
+    auto standIn = ScopedStandIn<NoEditorGainPlugin>(Module::gainStandIn);
+    auto collection = describeTestModule();
+
+    check(gui(collection, "com.makeasound.tests.Gain") == 0);
+    check(gui(collection, "com.makeasound.tests.Echo") == withEditor);
+};
+
 auto tStems = test("AAX/describesOnlyTheStemPairsThePluginAccepts") = []
 {
     auto collection = describeTestModule();

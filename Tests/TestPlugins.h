@@ -179,6 +179,14 @@ struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
 using GainPlugin = GainPluginOf<GainParams>;
 using NewerGainPlugin = GainPluginOf<NewerGainParams>;
 
+// The gain with no editor at all, which every format reports as no view; a
+// format suite stands it in under the gain's codes. Its createEditor() still
+// goes through Module::editorFactory, so a suite can tell it is never asked.
+struct NoEditorGainPlugin : GainPlugin
+{
+    bool hasEditor() const override { return false; }
+};
+
 // The gain effect with no bypass parameter, which PluginWrapper gives one of its
 // own; a format suite stands it in under the gain's codes.
 struct UnbypassedGainParams : ParameterGroup
