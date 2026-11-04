@@ -67,6 +67,7 @@ set(MAKEASOUND_TEST_SOURCES
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
         MidiParserTests.cpp
+        MidiFileTests.cpp
         MidiManagerTests.cpp
         RealtimeTests.cpp
         TestSynthTests.cpp)
