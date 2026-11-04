@@ -6,9 +6,19 @@ add_library(MakeASoundFiles STATIC
         MemoryStreams.cpp
         FileStreams.cpp
         SampleConversion.cpp
+        FrameReading.cpp
         WavReader.cpp
         WavWriter.cpp
         AiffReader.cpp)
+
+# Opening a path and 64-bit file offsets: _wfsopen and _fseeki64/_ftelli64 on
+# Windows, fopen and fseeko/ftello (with a 64-bit off_t) elsewhere.
+if (WIN32)
+    target_sources(MakeASoundFiles PRIVATE FileAccess-Windows.cpp)
+else ()
+    target_sources(MakeASoundFiles PRIVATE FileAccess-Default.cpp)
+    target_compile_definitions(MakeASoundFiles PRIVATE _FILE_OFFSET_BITS=64)
+endif ()
 
 add_library(MakeASound::Files ALIAS MakeASoundFiles)
 

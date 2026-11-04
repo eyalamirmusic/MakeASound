@@ -44,6 +44,9 @@ public:
                    std::int32_t* const* dest) noexcept;
 
 private:
+    // Back to the closed state, every accessor at its default.
+    void forget() noexcept;
+
     ByteSource* source = nullptr;
     int channels = 0;
     double rate = 0.0;

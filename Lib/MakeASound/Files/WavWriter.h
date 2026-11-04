@@ -87,9 +87,25 @@ public:
     std::int64_t framesWritten() const noexcept;
 
 private:
+    template <typename Sample>
+    bool appendFrames(const Sample* const* channels, int numFramesToWrite);
+
+    // Everything before the samples, for these sizes: the RIFF or RF64 header, the
+    // format chunk, the metadata if it goes first, and the data chunk's header.
+    std::vector<std::uint8_t> buildHeader(std::uint64_t riffSize, bool asRF64) const;
+
     ByteSink* sink = nullptr;
-    WavWriterOptions settings;
+    BitDepth depth = BitDepth::pcm24;
+    int numChannels = 0;
+    std::uint32_t storedRate = 0;
+    std::uint32_t mask = 0;
+    bool padded = true;
+    bool metadataFirst = true;
+    bool alwaysRF64 = false;
+    std::vector<std::uint8_t> metadataBytes;
     std::int64_t headerStart = 0;
+    std::int64_t headerBytes = 0;
+    std::int64_t dataBytes = 0;
     std::int64_t frames = 0;
     bool failed = false;
     std::vector<std::uint8_t> scratch;
