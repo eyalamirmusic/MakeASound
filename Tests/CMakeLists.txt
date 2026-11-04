@@ -53,6 +53,16 @@ set_target_properties(MakeASoundCoreTests PROPERTIES
         INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 _makeasound_test_unity(MakeASoundCoreTests)
 
+# MakeASoundFilesTests: the audio-file library over the core alone, so it builds and
+# runs in a core-only build too.
+nano_add_executable(MakeASoundFilesTests
+        SOURCES FilesWavReaderTests.cpp FilesWavWriterTests.cpp
+        FilesAiffReaderTests.cpp FilesStreamTests.cpp
+        TARGETS MakeASoundFiles)
+set_target_properties(MakeASoundFilesTests PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+_makeasound_test_unity(MakeASoundFilesTests)
+
 # The main suite covers the device library, so a core-only build stops here.
 if (NOT TARGET MakeASound)
     message(STATUS "MakeASoundTests skipped (needs MAKEASOUND_BUILD_DEVICES)")
