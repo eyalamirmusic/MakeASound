@@ -1082,11 +1082,16 @@ auto tFileRoundTrip = test("Files/WavReader/throughARealFile") = []
         check(sink.close());
     }
 
-    auto source = Files::FileSource(path);
-    auto reader = WavReader();
-    check(reader.open(source));
-    check(reader.numFrames() == 300);
-    check(sameBits(readAll(reader), input));
+    // The reader and its source are destroyed (the file closed) before the
+    // remove: Windows will not remove a file that is open.
+    {
+        auto source = Files::FileSource(path);
+        auto reader = WavReader();
+        check(reader.open(source));
+        check(reader.numFrames() == 300);
+        check(sameBits(readAll(reader), input));
+    }
+
     std::filesystem::remove(path);
 };
 

@@ -531,7 +531,8 @@ auto tLargeOffsets = test("Files/Hardening/fileOffsetsPastTwoGigabytes") = []
         auto out = std::ofstream(path, std::ios::binary | std::ios::app);
         out.write((const char*) tail.bytes.data(),
                   (std::streamsize) tail.bytes.size());
-        check(out.good());
+        out.close();
+        check(!out.fail());
     }
 
     {

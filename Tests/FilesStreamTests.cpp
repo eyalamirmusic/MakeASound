@@ -193,18 +193,22 @@ auto tFileRoundTrip = test("Files/Streams/fileSinkThenFileSource") = []
     expected[3] = 0xbb;
     expected.push_back(0xcc);
 
-    auto source = FileSource(path);
-    check(source.isOpen());
-    check(source.size() == 101);
+    // The source is destroyed (its file closed) before the remove: Windows will
+    // not remove a file that is open.
+    {
+        auto source = FileSource(path);
+        check(source.isOpen());
+        check(source.size() == 101);
 
-    auto all = Bytes(101);
-    check(source.read(0, all) == 101);
-    check(all == expected);
+        auto all = Bytes(101);
+        check(source.read(0, all) == 101);
+        check(all == expected);
 
-    auto part = Bytes(10);
-    check(source.read(95, part) == 6);
-    check(source.read(101, part) == 0);
-    check(source.read(-5, part) == 0);
+        auto part = Bytes(10);
+        check(source.read(95, part) == 6);
+        check(source.read(101, part) == 0);
+        check(source.read(-5, part) == 0);
+    }
 
     std::filesystem::remove(path);
 };
@@ -217,16 +221,22 @@ auto tFileSinkTruncates = test("Files/Streams/fileSinkTruncatesAnExistingFile") 
         auto sink = FileSink(path);
         auto bytes = counting(50);
         check(sink.write(bytes));
+        check(sink.close());
     }
 
     {
         auto sink = FileSink(path);
         auto bytes = Bytes {1, 2};
         check(sink.write(bytes));
+        check(sink.close());
     }
 
-    auto source = FileSource(path);
-    check(source.size() == 2);
+    // Closed before the remove: Windows will not remove a file that is open.
+    {
+        auto source = FileSource(path);
+        check(source.size() == 2);
+    }
+
     std::filesystem::remove(path);
 };
 
