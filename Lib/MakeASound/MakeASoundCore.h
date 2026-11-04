@@ -10,5 +10,6 @@
 #include "Realtime/SpinLock.h"
 #include "Audio/Processor.h"
 #include "MIDI/MIDI.h"
+#include "MIDI/MidiFile.h"
 #include "MIDI/MidiInfo.h"
 #include "MIDI/MidiParser.h"
