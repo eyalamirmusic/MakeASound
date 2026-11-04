@@ -24,6 +24,13 @@ constexpr auto trackId = "MTrk";
 constexpr auto chunkHeaderSize = 8;
 constexpr auto headerDataSize = 6;
 
+// The largest value a 4-byte variable-length quantity holds.
+constexpr auto maxDelta = std::int64_t {0x0FFFFFFF};
+
+// 2^53: the largest tick a time is written at (every integer up to it is a
+// double).
+constexpr auto maxTick = 9007199254740992.0;
+
 std::uint8_t byte(std::uint32_t value) noexcept
 {
     return static_cast<std::uint8_t>(value & 0xFF);
@@ -105,14 +112,67 @@ int dataByteCount(int status) noexcept
     return 0;
 }
 
+// Times in ascending order with `<`, a NaN after every number: a strict weak
+// order, so sorting never sees an inconsistent comparison.
+bool timeBefore(double a, double b) noexcept
+{
+    return !std::isnan(a) && (std::isnan(b) || a < b);
+}
+
+// A time rounded to its tick, ties to even; NaN and negative times give 0, and
+// anything past 2^53 gives 2^53.
+std::int64_t tickOf(double time) noexcept
+{
+    auto rounded = std::nearbyint(time);
+
+    if (!(rounded > 0.0))
+        return 0;
+
+    return static_cast<std::int64_t>(std::min(rounded, maxTick));
+}
+
+// Where a stored meta event's data starts (after FF, the type and the length
+// field) and whether the length field matches the data. When the length field
+// is malformed or cut, the data is everything after the type byte.
+struct MetaLayout
+{
+    std::size_t dataStart = 2;
+    bool consistent = false;
+};
+
+MetaLayout metaLayout(const Bytes& bytes) noexcept
+{
+    auto length = std::size_t {0};
+    auto position = std::size_t {2};
+
+    for (auto i = 0; i < 4 && position < bytes.size(); ++i)
+    {
+        auto next = bytes[position++];
+        length = (length << 7) | (next & 0x7Fu);
+
+        if ((next & 0x80) == 0)
+            return {position, position + length == bytes.size()};
+    }
+
+    return {};
+}
+
+// Whether the writer writes this event as an end-of-track: a meta event of
+// type 2F whose data, once its length is re-encoded, is empty.
+bool writesAsEndOfTrack(const Bytes& bytes) noexcept
+{
+    return bytes.size() >= 2 && bytes[0] == metaStatus && bytes[1] == endOfTrackType
+           && metaLayout(bytes).dataStart == bytes.size();
+}
+
 // Reads over one chunk's bytes; every read fails rather than run past the end.
 struct ChunkReader
 {
     const std::uint8_t* data = nullptr;
-    int size = 0;
-    int position = 0;
+    std::int64_t size = 0;
+    std::int64_t position = 0;
 
-    int remaining() const noexcept { return size - position; }
+    std::int64_t remaining() const noexcept { return size - position; }
 
     // False when the data ends before the last byte, or when a fourth byte
     // still has bit 7 set.
@@ -138,12 +198,12 @@ struct ChunkReader
     // Appends the next `count` bytes to `bytes`, or fails when fewer remain.
     bool take(Bytes& bytes, std::uint32_t count)
     {
-        if (count > static_cast<std::uint32_t>(remaining()))
+        if (static_cast<std::int64_t>(count) > remaining())
             return false;
 
         auto first = data + position;
         append(bytes, first, first + count);
-        position += static_cast<int>(count);
+        position += count;
         return true;
     }
 };
@@ -166,10 +226,10 @@ bool readEvent(ChunkReader& reader, int& runningStatus, Bytes& bytes)
         auto length = std::uint32_t {0};
 
         if (!reader.readVlq(length)
-            || length > static_cast<std::uint32_t>(reader.remaining()))
+            || static_cast<std::int64_t>(length) > reader.remaining())
             return false;
 
-        reader.position += static_cast<int>(length);
+        reader.position += length;
         append(bytes, reader.data + start, reader.data + reader.position);
         return true;
     }
@@ -207,7 +267,7 @@ bool readEvent(ChunkReader& reader, int& runningStatus, Bytes& bytes)
     return reader.take(bytes, static_cast<std::uint32_t>(dataByteCount(status)));
 }
 
-Track readTrack(const std::uint8_t* data, int size)
+Track readTrack(const std::uint8_t* data, std::int64_t size)
 {
     auto track = Track {};
     auto reader = ChunkReader {data, size};
@@ -242,8 +302,8 @@ Track readTrack(const std::uint8_t* data, int size)
     return track;
 }
 
-// Writes one MTrk chunk to `out`: deltas from the rounded times, running status,
-// and an end-of-track when none was added.
+// Writes one MTrk chunk to `out`: clamped deltas from the rounded times, running
+// status, and an end-of-track when none was added.
 class TrackWriter
 {
 public:
@@ -255,6 +315,8 @@ public:
         appendBE32(out, 0);
     }
 
+    // An event that cannot be written (empty, not starting with a status byte,
+    // a lone FF, or shorter than its status needs) is skipped, delta included.
     void add(const TimedMessage& message)
     {
         auto& bytes = message.bytes;
@@ -262,36 +324,14 @@ public:
         if (bytes.empty())
             return;
 
-        auto tick = static_cast<std::int64_t>(std::nearbyint(message.time));
-        auto delta = std::max(std::int64_t {0}, tick - previousTick);
-        previousTick = tick;
-        appendVlq(out, static_cast<std::uint32_t>(delta));
-
         auto status = static_cast<int>(bytes[0]);
-        auto isChannel = status >= 0x80 && status <= 0xEF;
-        auto rest = bytes.data() + 1;
-        auto last = bytes.data() + bytes.size();
 
-        if (isChannel && status == previousStatus && bytes.size() > 1)
-        {
-            append(out, rest, last);
-        }
+        if (status == metaStatus)
+            addMeta(message);
         else if (status == sysExStatus || status == sysExEscapeStatus)
-        {
-            out.push_back(bytes[0]);
-            appendVlq(out, static_cast<std::uint32_t>(bytes.size() - 1));
-            append(out, rest, last);
-        }
-        else
-        {
-            append(out, bytes.data(), last);
-        }
-
-        // Every event sets it, so a meta, SysEx or system event cancels it.
-        previousStatus = status;
-
-        if (message.isEndOfTrack())
-            ended = true;
+            addSysEx(message);
+        else if (status >= 0x80)
+            addShortMessage(message);
     }
 
     void finish()
@@ -311,6 +351,79 @@ public:
     }
 
 private:
+    void addDelta(double time)
+    {
+        auto tick = tickOf(time);
+        auto delta = std::clamp(tick - previousTick, std::int64_t {0}, maxDelta);
+        previousTick = tick;
+        appendVlq(out, static_cast<std::uint32_t>(delta));
+    }
+
+    // Verbatim when the length field matches the data; otherwise re-encoded as
+    // FF type VLQ(data size) data.
+    void addMeta(const TimedMessage& message)
+    {
+        auto& bytes = message.bytes;
+
+        if (bytes.size() < 2)
+            return;
+
+        auto layout = metaLayout(bytes);
+        auto data = bytes.data() + layout.dataStart;
+        auto last = bytes.data() + bytes.size();
+
+        addDelta(message.time);
+
+        if (layout.consistent)
+        {
+            append(out, bytes.data(), last);
+        }
+        else
+        {
+            out.push_back(bytes[0]);
+            out.push_back(bytes[1]);
+            appendVlq(out, static_cast<std::uint32_t>(last - data));
+            append(out, data, last);
+        }
+
+        if (bytes[1] == endOfTrackType && data == last)
+            ended = true;
+
+        previousStatus = metaStatus;
+    }
+
+    void addSysEx(const TimedMessage& message)
+    {
+        auto& bytes = message.bytes;
+
+        addDelta(message.time);
+        out.push_back(bytes[0]);
+        appendVlq(out, static_cast<std::uint32_t>(bytes.size() - 1));
+        append(out, bytes.data() + 1, bytes.data() + bytes.size());
+        previousStatus = bytes[0];
+    }
+
+    // A channel or system message, at exactly its status's length; a channel
+    // status equal to the previous event's is omitted (running status).
+    void addShortMessage(const TimedMessage& message)
+    {
+        auto& bytes = message.bytes;
+        auto status = static_cast<int>(bytes[0]);
+        auto dataBytes = dataByteCount(status);
+
+        if (static_cast<int>(bytes.size()) - 1 < dataBytes)
+            return;
+
+        addDelta(message.time);
+
+        auto isChannel = status <= 0xEF;
+        auto first = bytes.data() + (isChannel && status == previousStatus ? 1 : 0);
+        append(out, first, bytes.data() + 1 + dataBytes);
+
+        // Every event sets it, so a meta, SysEx or system event cancels it.
+        previousStatus = status;
+    }
+
     Bytes& out;
     std::size_t lengthAt = 0;
     std::int64_t previousTick = 0;
@@ -329,7 +442,8 @@ void writeTrack(Bytes& out, const Track& track)
 }
 
 // Every track's events but the end-of-tracks, stably sorted by time, then one
-// end-of-track at the latest time of them all (end-of-tracks included).
+// end-of-track at the latest time of them all (end-of-tracks included, NaNs
+// not).
 void writeMergedTrack(Bytes& out, const std::vector<Track>& tracks)
 {
     auto merged = std::vector<const TimedMessage*> {};
@@ -340,12 +454,13 @@ void writeMergedTrack(Bytes& out, const std::vector<Track>& tracks)
     {
         for (auto& message: track.events)
         {
-            if (first || endTime < message.time)
+            if (!std::isnan(message.time) && (first || endTime < message.time))
+            {
                 endTime = message.time;
+                first = false;
+            }
 
-            first = false;
-
-            if (!message.isEndOfTrack())
+            if (!writesAsEndOfTrack(message.bytes))
                 merged.push_back(&message);
         }
     }
@@ -353,7 +468,7 @@ void writeMergedTrack(Bytes& out, const std::vector<Track>& tracks)
     std::stable_sort(merged.begin(),
                      merged.end(),
                      [](const TimedMessage* a, const TimedMessage* b)
-                     { return a->time < b->time; });
+                     { return timeBefore(a->time, b->time); });
 
     auto writer = TrackWriter {out};
 
@@ -363,6 +478,42 @@ void writeMergedTrack(Bytes& out, const std::vector<Track>& tracks)
     writer.add(TimedMessage::endOfTrack(endTime));
     writer.finish();
 }
+
+// The PPQ seconds arithmetic, shared by TempoMap::ticksToSeconds and
+// File::tempoMap so the two give the same bits. 120 bpm until the first tempo;
+// every entry (time signatures too) splits the accumulation; both multiply-adds
+// are fused (one rounding each), written with std::fma rather than left to
+// contraction.
+struct TempoWalk
+{
+    explicit TempoWalk(int ticksPerQuarterNote) noexcept
+        : tickLength(1.0 / ticksPerQuarterNote)
+        , secondsPerTick(0.5 * tickLength)
+    {
+    }
+
+    double secondsAt(double ticks) const noexcept
+    {
+        return std::fma(ticks - lastTick, secondsPerTick, accumulated);
+    }
+
+    void pass(const TimedMessage& message) noexcept
+    {
+        accumulated = std::fma(message.time - lastTick, secondsPerTick, accumulated);
+        lastTick = message.time;
+
+        if (message.isTempo())
+        {
+            auto microseconds = message.microsecondsPerQuarterNote();
+            secondsPerTick = tickLength * (microseconds / 1000000.0);
+        }
+    }
+
+    double tickLength;
+    double secondsPerTick;
+    double accumulated = 0.0;
+    double lastTick = 0.0;
+};
 } // namespace
 
 bool TimedMessage::isMeta() const noexcept
@@ -468,39 +619,27 @@ double TempoMap::ticksToSeconds(double ticks) const noexcept
 
     if (timeFormat < 0)
     {
-        // SMPTE: code 29 is 30 drop-frame, 29.97 frames per second; the other
-        // codes are literal, so their product is exact.
+        // SMPTE: code 29 is 30 drop-frame, 30000/1001 frames per second; the
+        // other codes are literal, so their product is exact.
         auto frameCode = -(timeFormat >> 8);
         auto ticksPerFrame = timeFormat & 0xFF;
-        auto rate = frameCode == 29 ? 29.97 : static_cast<double>(frameCode);
+        auto rate =
+            frameCode == 29 ? 30000.0 / 1001.0 : static_cast<double>(frameCode);
         return ticks / (rate * static_cast<double>(ticksPerFrame));
     }
 
-    // Both multiply-adds are fused (one rounding each): the pinned values depend
-    // on it, so they are written with std::fma rather than left to contraction.
-    auto tickLength = 1.0 / timeFormat;
-    auto secondsPerTick = 0.5 * tickLength;
-    auto accumulated = 0.0;
-    auto lastTick = 0.0;
+    auto walk = TempoWalk {timeFormat};
 
+    // Stops at the first entry not before `ticks` (a NaN entry included).
     for (auto& event: events)
     {
-        auto tick = event.message.time;
-
-        if (tick >= ticks)
+        if (!(event.message.time < ticks))
             break;
 
-        accumulated = std::fma(tick - lastTick, secondsPerTick, accumulated);
-        lastTick = tick;
-
-        if (event.message.isTempo())
-        {
-            auto microseconds = event.message.microsecondsPerQuarterNote();
-            secondsPerTick = tickLength * (microseconds / 1000000.0);
-        }
+        walk.pass(event.message);
     }
 
-    return std::fma(ticks - lastTick, secondsPerTick, accumulated);
+    return walk.secondsAt(ticks);
 }
 
 int smpteTimeFormat(int framesPerSecond, int ticksPerFrame) noexcept
@@ -524,16 +663,16 @@ bool File::readFrom(Span<const std::uint8_t> data)
     auto format = static_cast<int>(readBE16(bytes + 8));
     auto declaredTracks = static_cast<int>(readBE16(bytes + 10));
     auto division = readBE16(bytes + 12);
+    auto isSmpte = (division & 0x8000) != 0;
 
-    if (format > 2 || division == 0)
+    if (format > 2 || division == 0 || (isSmpte && (division & 0xFF) == 0))
         return false;
 
     auto readTracks = std::vector<Track> {};
     auto position = chunkHeaderSize + headerLength;
 
-    // Other chunks are skipped and not counted; a chunk whose length runs past
-    // the end is read as far as the data goes; whatever follows the last
-    // counted track is ignored.
+    // Other chunks are skipped and not counted; a chunk's length is clamped to
+    // the bytes remaining; whatever follows the last counted track is ignored.
     while (static_cast<int>(readTracks.size()) < declaredTracks
            && size - position >= chunkHeaderSize)
     {
@@ -544,8 +683,7 @@ bool File::readFrom(Span<const std::uint8_t> data)
         auto length = std::min(declaredLength, size - position);
 
         if (idIs(chunk, trackId))
-            readTracks.push_back(
-                readTrack(bytes + position, static_cast<int>(length)));
+            readTracks.push_back(readTrack(bytes + position, length));
 
         position += length;
     }
@@ -558,6 +696,9 @@ bool File::readFrom(Span<const std::uint8_t> data)
 
 bool File::writeTo(std::vector<std::uint8_t>& out, int type) const
 {
+    if (type == -1)
+        type = fileType;
+
     if (type < 0 || type > 2)
         return false;
 
@@ -600,24 +741,51 @@ TempoMap File::tempoMap() const
 {
     auto map = TempoMap {};
     map.timeFormat = timeFormat;
+    auto& events = map.events;
 
     for (auto& track: tracks)
         for (auto& message: track.events)
             if (message.isTempo())
-                map.events.push_back({message, 0.0});
+                events.push_back({message, 0.0});
 
     for (auto& track: tracks)
         for (auto& message: track.events)
             if (message.isTimeSignature())
-                map.events.push_back({message, 0.0});
+                events.push_back({message, 0.0});
 
-    std::stable_sort(map.events.begin(),
-                     map.events.end(),
+    std::stable_sort(events.begin(),
+                     events.end(),
                      [](const TempoEvent& a, const TempoEvent& b)
-                     { return a.message.time < b.message.time; });
+                     { return timeBefore(a.message.time, b.message.time); });
 
-    for (auto& event: map.events)
-        event.seconds = map.ticksToSeconds(event.message.time);
+    if (timeFormat <= 0)
+    {
+        for (auto& event: events)
+            event.seconds = map.ticksToSeconds(event.message.time);
+
+        return map;
+    }
+
+    // One pass, the same bits as map.ticksToSeconds(time) for each entry: the
+    // entries before a time are a prefix of the sorted map, so each group of
+    // equal times reads the walk so far, then is folded into it.
+    auto walk = TempoWalk {timeFormat};
+    auto count = events.size();
+
+    for (auto start = std::size_t {0}; start < count;)
+    {
+        auto time = events[start].message.time;
+        auto seconds = walk.secondsAt(time);
+        auto end = start;
+
+        while (end < count && (end == start || events[end].message.time == time))
+            events[end++].seconds = seconds;
+
+        for (auto i = start; i < end; ++i)
+            walk.pass(events[i].message);
+
+        start = end;
+    }
 
     return map;
 }

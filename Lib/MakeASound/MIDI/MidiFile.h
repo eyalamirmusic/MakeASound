@@ -24,6 +24,8 @@ namespace MakeASound::MIDI
 //   SysEx               F0 followed by the bytes after the file's length field
 //                       (normally ending in F7); F7 escapes likewise
 //   system message      F1..F6, F8..FE with their data bytes
+// Each event owns its bytes in a heap vector, so a file's memory grows with its
+// event count; reading has no cap on the number of events.
 struct TimedMessage
 {
     double time = 0.0;
@@ -115,23 +117,34 @@ struct File
     bool operator==(const File&) const = default;
 
     // Reads a whole file. False (and the File untouched) when the header is not
-    // usable; otherwise true, with every track chunk the header counts, each
-    // parsed as far as its bytes go. Bytes after the last counted track are
-    // ignored.
+    // usable (including a division of 0, or SMPTE with 0 ticks per frame);
+    // otherwise true, with every track chunk the header counts, each parsed as
+    // far as its bytes go. A chunk length is clamped to the bytes remaining, so
+    // a length past the end (up to FFFFFFFF) reads to the end of the data. Bytes
+    // after the last counted track are ignored.
     bool readFrom(Span<const std::uint8_t> data);
 
     // Appends the file to `out`: header, then one chunk per track with running
-    // status, events in the order given. `type` 0 writes a single track, merging
-    // several by time (stable). False, and nothing appended, for a type other
-    // than 0, 1 or 2, a time format of 0 or outside 16 bits, or too many tracks.
-    bool writeTo(std::vector<std::uint8_t>& out, int type = 1) const;
+    // status, events in the order given. `type` -1 (the default) means
+    // `fileType`. Type 0 writes a single track, merging several by time
+    // (stable). Times are rounded to ticks (NaN and negatives to 0, at most 2^53)
+    // and each delta is clamped to 0FFFFFFF. A meta event whose length field
+    // disagrees with its bytes is re-encoded; a channel or system message is
+    // written at its status's length (extra bytes dropped); an event too short
+    // for its status, or empty, or not starting with a status byte, is skipped.
+    // Only an end-of-track with no data counts as the track's end. False, and
+    // nothing appended, for a
+    // type other than 0, 1 or 2, a time format of 0 or outside 16 bits, or too
+    // many tracks.
+    bool writeTo(std::vector<std::uint8_t>& out, int type = -1) const;
 
     // What writeTo would append, or an empty vector when it would fail.
-    std::vector<std::uint8_t> toBytes(int type = 1) const;
+    std::vector<std::uint8_t> toBytes(int type = -1) const;
 
     TempoMap tempoMap() const;
 
-    // tempoMap().ticksToSeconds(ticks).
+    // tempoMap().ticksToSeconds(ticks). This builds the tempo map on every call:
+    // to convert many times, build tempoMap() once and use its ticksToSeconds.
     double ticksToSeconds(double ticks) const;
 };
 

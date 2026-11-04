@@ -10,6 +10,7 @@
 #include <NanoTest/NanoTest.h>
 
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
@@ -489,6 +490,27 @@ auto tHeaderReplaces = test("MidiFile/Header/aReadReplacesEverything") = []
     check(eventIs(file.tracks[0], 0, 0, hex("ff2f00")));
 };
 
+auto tHeaderSmpteZero =
+    test("MidiFile/Header/smpteWithZeroTicksPerFrameIsRejected") = []
+{
+    auto file = File {};
+
+    check(!file.readFrom(
+        view(concat({header(0, 1, 0xe700), trackChunk(hex("00ff2f00"))}))));
+    check(file == File {});
+    check(readOrFail(concat({header(0, 1, 0xe701), trackChunk(hex("00ff2f00"))}))
+              .timeFormat
+          == -6399);
+};
+
+auto tHeaderHugeLength = test("MidiFile/Header/aHugeHeaderLengthIsRejected") = []
+{
+    auto file = File {};
+
+    check(!file.readFrom(view(concat(
+        {hex("4d546864 ffffffff 0001 0001 0060"), trackChunk(hex("00ff2f00"))}))));
+};
+
 // ---------------------------------------------------------------------------
 // The SMF 1.0 specification's examples
 // ---------------------------------------------------------------------------
@@ -926,13 +948,137 @@ auto tWriteUnsorted = test("MidiFile/Write/eventsAreWrittenInTheOrderGiven") = [
     check(eventIs(read.tracks[0], 2, 130, hex("904040")));
 };
 
-auto tWriteNegative = test("MidiFile/Write/aNegativeTimeWritesADeltaOfZero") = []
+auto tWriteNegative = test("MidiFile/Write/aNegativeTimeIsWrittenAtTickZero") = []
 {
+    // Amended 2026-11-04: a negative time is clamped to tick 0, so the next
+    // event keeps its own tick (2, not 5).
     auto file = fileOf(96, {trackOf({at(-3, hex("903c40")), at(2, hex("803c00"))})});
 
     check(file.toBytes(1)
           == concat(
-              {header(1, 1, 96), trackChunk(hex("00903c40 05803c00 00ff2f00"))}));
+              {header(1, 1, 96), trackChunk(hex("00903c40 02803c00 00ff2f00"))}));
+};
+
+auto tWriteNonFinite = test("MidiFile/Write/nonFiniteAndHugeTimesAreClamped") = []
+{
+    // NaN and -inf write at tick 0, +inf and 1e300 at 2^53; every delta is
+    // clamped to 0FFFFFFF (ff ff ff 7f) and never negative.
+    auto file = fileOf(96,
+                       {trackOf({at(std::nan(""), hex("903c40")),
+                                 at(10, hex("903e40")),
+                                 at(INFINITY, hex("904040")),
+                                 at(20, hex("803c00")),
+                                 at(-INFINITY, hex("803e00")),
+                                 at(1e300, hex("804000"))})});
+    auto bytes = file.toBytes(1);
+
+    check(bytes
+          == concat({header(1, 1, 96),
+                     trackChunk(hex("00903c40 0a3e40 ffffff7f4040 00803c00 003e00"
+                                    "ffffff7f4000 00ff2f00"))}));
+
+    auto read = readOrFail(bytes);
+    check(eventIs(read.tracks[0], 2, 0x0fffffff + 10.0, hex("904040")));
+    check(eventIs(read.tracks[0], 5, 2.0 * 0x0fffffff + 10.0, hex("804000")));
+};
+
+auto tWriteDeltaClamp = test("MidiFile/Write/aDeltaPastTheVlqRangeIsClamped") = []
+{
+    // 2^28 and 2^32 ticks apart: each delta is written as 0FFFFFFF, the
+    // largest four-byte quantity, and writeTo still succeeds.
+    auto file = fileOf(96,
+                       {trackOf({at(0, hex("903c40")),
+                                 at(0x10000000, hex("803c00")),
+                                 at(0x110000000, hex("903c40"))})});
+    auto out = Bytes {};
+
+    check(file.writeTo(out, 1));
+    check(out
+          == concat({header(1, 1, 96),
+                     trackChunk(hex("00903c40 ffffff7f803c00 ffffff7f903c40"
+                                    "00ff2f00"))}));
+
+    auto read = readOrFail(out);
+    check(eventIs(read.tracks[0], 1, 0x0fffffff, hex("803c00")));
+    check(eventIs(read.tracks[0], 2, 2.0 * 0x0fffffff, hex("903c40")));
+};
+
+auto tWriteMetaLength =
+    test("MidiFile/Write/inconsistentMetaLengthsAreReencoded") = []
+{
+    // A length that disagrees with the data is re-encoded from the data
+    // present; a cut length field leaves the data as everything after the
+    // type; a consistent length (even a non-minimal one) is kept verbatim.
+    auto file = fileOf(96,
+                       {trackOf({at(0, hex("ff030541")),
+                                 at(0, hex("ff0381")),
+                                 at(0, hex("ff01024142")),
+                                 at(0, hex("ff01800141"))})});
+
+    check(file.toBytes(1)
+          == concat({header(1, 1, 96),
+                     trackChunk(hex("00ff030141 00ff030181 00ff01024142"
+                                    "00ff01800141 00ff2f00"))}));
+};
+
+auto tWriteEndOfTrackForm =
+    test("MidiFile/Write/onlyAnEmptyEndOfTrackEndsTheTrack") = []
+{
+    // FF 2F with no length field is re-encoded to FF 2F 00 and ends the track;
+    // FF 2F 01 05 carries data, so it is written as it stands and an
+    // end-of-track is still appended.
+    auto bare = fileOf(96, {trackOf({at(0, hex("903c40")), at(10, hex("ff2f"))})});
+    check(bare.toBytes(1)
+          == concat({header(1, 1, 96), trackChunk(hex("00903c40 0aff2f00"))}));
+
+    auto withData =
+        fileOf(96, {trackOf({at(0, hex("903c40")), at(10, hex("ff2f0105"))})});
+    check(withData.toBytes(1)
+          == concat(
+              {header(1, 1, 96), trackChunk(hex("00903c40 0aff2f0105 00ff2f00"))}));
+};
+
+auto tWriteExactLength =
+    test("MidiFile/Write/shortMessagesAreWrittenAtTheirStatusLength") = []
+{
+    // Extra bytes are dropped; a message too short for its status, a lone FF
+    // and a data byte without a status are skipped, delta included.
+    auto file = fileOf(96,
+                       {trackOf({at(0, hex("903c4055")),
+                                 at(0, hex("c00506")),
+                                 at(3, hex("903c")),
+                                 at(4, hex("ff")),
+                                 at(5, hex("3c40")),
+                                 at(0, hex("f21020ff")),
+                                 at(0, hex("f8aa")),
+                                 at(0, hex("803c00"))})});
+
+    check(file.toBytes(1)
+          == concat({header(1, 1, 96),
+                     trackChunk(hex("00903c40 00c005 00f21020 00f8 00803c00"
+                                    "00ff2f00"))}));
+};
+
+auto tWriteDefaultType = test("MidiFile/Write/theDefaultTypeIsTheFileType") = []
+{
+    auto format0 = readOrFail(smfExampleFormat0());
+    check(format0.toBytes() == smfExampleFormat0());
+
+    auto format1 = readOrFail(smfExampleFormat1());
+    auto out = Bytes {};
+    check(format1.writeTo(out));
+    check(out == smfExampleFormat1());
+    check(format1.toBytes(-1) == smfExampleFormat1());
+
+    // An explicit type still wins over fileType.
+    check(format1.toBytes(0) == smfExampleFormat1MergedToType0());
+
+    format1.fileType = 2;
+    check(format1.toBytes()[9] == 2);
+
+    format1.fileType = 7;
+    check(format1.toBytes().empty());
+    check(format1.toBytes(1) == smfExampleFormat1());
 };
 
 auto tWriteFailures = test("MidiFile/Write/rejectsWhatCannotBeWritten") = []
@@ -946,7 +1092,7 @@ auto tWriteFailures = test("MidiFile/Write/rejectsWhatCannotBeWritten") = []
 
     auto file = fileOf(96, {Track {}});
     check(fails(file, 3));
-    check(fails(file, -1));
+    check(fails(file, -2)); // -1 is the default: it means fileType
     check(fails(fileOf(0, {Track {}}), 1));
     check(fails(fileOf(32768, {Track {}}), 1));
     check(fails(fileOf(-32769, {Track {}}), 1));
@@ -1067,6 +1213,49 @@ auto tType0FromTwoEmpty = test("MidiFile/Type0/twoEmptyTracksMergeToOne") = []
           == concat({header(0, 1, 96), hex("4d54726b 00000004 00ff2f00")}));
 };
 
+auto tType0Negative = test("MidiFile/Type0/mergeWithNegativeTimes") = []
+{
+    // Sorted by the times as given (-10, -5, 0, 10), written at ticks 0, 0, 0,
+    // 10; the end is at the latest time, 10.
+    auto file = fileOf(96,
+                       {trackOf({at(-5, hex("903c40")), at(10, hex("803c00"))}),
+                        trackOf({at(-10, hex("913c40")), at(0, hex("813c00"))})});
+
+    check(file.toBytes(0)
+          == concat({header(0, 1, 96),
+                     trackChunk(hex("00913c40 00903c40 00813c00 0a803c00"
+                                    "00ff2f00"))}));
+};
+
+auto tType0AfterEnd = test("MidiFile/Type0/eventsAfterAMidTrackEndAreMerged") = []
+{
+    // The end-of-track at 10 is removed; the event after it is kept, and the
+    // merged end is at 20.
+    auto file = fileOf(
+        96,
+        {trackOf(
+             {at(0, hex("903c40")), at(10, hex("ff2f00")), at(20, hex("903e40"))}),
+         trackOf({at(5, hex("913c40"))})});
+
+    check(file.toBytes(0)
+          == concat({header(0, 1, 96),
+                     trackChunk(hex("00903c40 05913c40 0f903e40 00ff2f00"))}));
+};
+
+auto tType0Nan = test("MidiFile/Type0/aNanTimeSortsLast") = []
+{
+    // NaN sorts after every number and writes at tick 0 (a delta of 0); the
+    // end is at the latest number, 5.
+    auto file =
+        fileOf(96,
+               {trackOf({at(std::nan(""), hex("903c40")), at(5, hex("903e40"))}),
+                trackOf({at(3, hex("913c40"))})});
+
+    check(file.toBytes(0)
+          == concat({header(0, 1, 96),
+                     trackChunk(hex("03913c40 02903e40 003c40 05ff2f00"))}));
+};
+
 // ---------------------------------------------------------------------------
 // SMPTE divisions
 // ---------------------------------------------------------------------------
@@ -1091,11 +1280,33 @@ auto tSmpteSeconds = test("MidiFile/Smpte/secondsAreTicksOverFramesTimesTicks") 
     check(fileOf(smpteTimeFormat(30, 80), {}).ticksToSeconds(2400) == 1.0);
     check(fileOf(smpteTimeFormat(24, 4), {}).ticksToSeconds(48) == 0.5);
 
-    // Code 29 is 30 drop-frame: 29.97 frames per second (29.97 * 100 rounds to
-    // exactly 2997). Codes 24, 25 and 30 are literal.
-    check(fileOf(smpteTimeFormat(29, 100), {}).ticksToSeconds(2997) == 1.0);
-    check(fileOf(smpteTimeFormat(29, 100), {}).ticksToSeconds(2900)
-          == 2900.0 / 2997.0);
+    // Code 29 is 30 drop-frame: 30000/1001 frames per second (amended
+    // 2026-11-04, twice: first 29.97, then the exact NTSC rate). 30000 frames
+    // last 1001 seconds. Codes 24, 25 and 30 are literal.
+    auto dropFrame = fileOf(smpteTimeFormat(29, 100), {});
+    auto rate = 30000.0 / 1001.0;
+
+    check(dropFrame.ticksToSeconds(3000000) == 3000000 / (rate * 100.0));
+    check(std::abs(dropFrame.ticksToSeconds(3000000) - 1001.0) < 1e-9);
+    check(dropFrame.ticksToSeconds(2900) == 2900 / (rate * 100.0));
+};
+
+auto tSmpteTempoIgnored = test("MidiFile/Smpte/tempoEventsAreIgnored") = []
+{
+    // Tempo events in an SMPTE file are collected into the map but change
+    // nothing: seconds are ticks over 25 * 40 throughout.
+    auto file = fileOf(-6360,
+                       {trackOf({TimedMessage::tempo(0, 1000000),
+                                 TimedMessage::tempo(40, 250000),
+                                 TimedMessage::endOfTrack(120)})});
+
+    check(bitsAre(file.ticksToSeconds(40), 0x3fa47ae147ae147bull));
+    check(bitsAre(file.ticksToSeconds(120), 0x3fbeb851eb851eb8ull));
+
+    auto map = file.tempoMap();
+    check(map.events.size() == 2);
+    check(map.events[0].seconds == 0.0);
+    check(map.events[1].seconds == 40.0 / 1000.0);
 };
 
 auto tSmpteFile = test("MidiFile/Smpte/readsAndRewritesTheSyntheticFile") = []
@@ -1294,6 +1505,52 @@ auto tTempoHandBuilt = test("MidiFile/TempoMap/aHandBuiltMapIsWalkedAsStored") =
     check(map.ticksToSeconds(256) == 1.5);
 };
 
+auto tTempoLarge = test("MidiFile/TempoMap/aLargeMapIsFilledInOnePass") = []
+{
+    // 60000 entries over two tracks, three per tick, every fifth a time
+    // signature. tempoMap() fills each entry's seconds in one pass, with the
+    // same bits as walking the map up to that entry's tick.
+    constexpr auto count = 60000;
+    auto file = fileOf(480, {Track {}, Track {}});
+
+    for (auto i = 0; i < count; ++i)
+    {
+        auto tick = (double) ((i / 3) * 7);
+        auto& events = file.tracks[(std::size_t) (i % 2)].events;
+
+        if (i % 5 == 4)
+            events.push_back(TimedMessage::timeSignature(tick, 3 + i % 4, 4));
+        else
+            events.push_back(
+                TimedMessage::tempo(tick, 300000 + (i * 7919) % 400000));
+    }
+
+    auto start = std::chrono::steady_clock::now();
+    auto map = file.tempoMap();
+    auto elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+
+    // A quadratic fill would take about 1.8e9 steps here; one pass takes
+    // milliseconds, even in a Debug build.
+    check(elapsed < 1.0, "tempoMap() fills 60000 entries in under a second");
+    check(map.events.size() == (std::size_t) count);
+
+    auto checkEntry = [&](int index)
+    {
+        auto& event = map.events[(std::size_t) index];
+        check(event.seconds == map.ticksToSeconds(event.message.time));
+    };
+
+    for (auto i = 0; i < count; i += 211)
+        checkEntry(i);
+
+    for (auto i = count - 10; i < count; ++i)
+        checkEntry(i);
+
+    check(file.ticksToSeconds(1000.5) == map.ticksToSeconds(1000.5));
+};
+
 // ---------------------------------------------------------------------------
 // Tolerances
 // ---------------------------------------------------------------------------
@@ -1384,6 +1641,88 @@ auto tFormat0Many =
     check(file.fileType == 0);
     check(file.tracks.size() == 2);
     check(file.tracks == readOrFail(exportLikeType1()).tracks);
+};
+
+auto tHugeTrackLength = test("MidiFile/Tolerance/hugeTrackLengthsReadToTheEnd") = []
+{
+    // The length is clamped to the bytes remaining: the track reads in full.
+    for (auto length: {0xffffffffll, 0x80000000ll})
+    {
+        auto file = readOrFail(concat(
+            {header(1, 1, 96), chunk("MTrk", hex("00903c40 00ff2f00"), length)}));
+
+        check(file.tracks.size() == 1);
+        check(file.tracks[0].events.size() == 2);
+        check(eventIs(file.tracks[0], 1, 0, hex("ff2f00")));
+    }
+};
+
+auto tAlienPastEnd =
+    test("MidiFile/Tolerance/anOtherChunkRunningPastTheEndEndsReading") = []
+{
+    // The unknown chunk claims 100 bytes and swallows the track chunk after
+    // it: reading succeeds with no track.
+    auto file = readOrFail(
+        concat({header(1, 1, 96),
+                chunk("XFIH", trackChunk(hex("00903c40 00ff2f00")), 100)}));
+
+    check(file.tracks.empty());
+};
+
+auto tSevenBytesLeft =
+    test("MidiFile/Tolerance/sevenBytesBeforeTheNextChunkEndReading") = []
+{
+    auto file = readOrFail(concat(
+        {header(1, 2, 96), trackChunk(hex("00ff2f00")), hex("4d54726b 000000")}));
+
+    check(file.tracks.size() == 1);
+};
+
+auto tCutMetaHeader =
+    test("MidiFile/Tolerance/aMetaCutAfterItsStatusOrTypeIsDropped") = []
+{
+    // Cut right after FF, then right after the type byte: only the note stays.
+    for (auto data: {"00903c40 00ff", "00903c40 00ff03"})
+    {
+        auto file = readOrFail(concat({header(1, 1, 96), trackChunk(hex(data))}));
+
+        check(file.tracks[0].events.size() == 1);
+        check(eventIs(file.tracks[0], 0, 0, hex("903c40")));
+    }
+};
+
+auto tMetaLongVlq = test("MidiFile/Tolerance/aFiveByteMetaLengthEndsTheTrack") = []
+{
+    auto file = readOrFail(
+        concat({header(1, 1, 96),
+                trackChunk(hex("00903c40 00ff03 8080808001 41 00ff2f00"))}));
+
+    check(file.tracks[0].events.size() == 1);
+};
+
+auto tSysExBadVlq = test("MidiFile/Tolerance/aMalformedSysExLengthEndsTheTrack") = []
+{
+    // A five-byte length, then a length cut by the chunk end.
+    for (auto data: {"00903c40 00f0 8080808001 7ef7 00ff2f00", "00903c40 00f0 81"})
+    {
+        auto file = readOrFail(concat({header(1, 1, 96), trackChunk(hex(data))}));
+
+        check(file.tracks[0].events.size() == 1);
+    }
+};
+
+auto tCutShort =
+    test("MidiFile/Tolerance/cutSystemAndRunningStatusEventsAreDropped") = []
+{
+    // F2 needs two data bytes and has one; a running-status note has one of
+    // its two data bytes.
+    for (auto data: {"00903c40 00f210", "00903c40 003c"})
+    {
+        auto file = readOrFail(concat({header(1, 1, 96), trackChunk(hex(data))}));
+
+        check(file.tracks[0].events.size() == 1);
+        check(eventIs(file.tracks[0], 0, 0, hex("903c40")));
+    }
 };
 
 // ---------------------------------------------------------------------------
