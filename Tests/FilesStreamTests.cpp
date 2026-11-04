@@ -105,7 +105,8 @@ auto tMemorySinkAppends = test("Files/Streams/memorySinkAppendsAndAdvances") = [
     check(sink.position() == 5);
 };
 
-auto tMemorySinkOverwrites = test("Files/Streams/memorySinkSeekOverwritesAndExtends") = []
+auto tMemorySinkOverwrites =
+    test("Files/Streams/memorySinkSeekOverwritesAndExtends") = []
 {
     auto sink = MemorySink();
     auto five = Bytes {1, 2, 3, 4, 5};
@@ -130,7 +131,8 @@ auto tMemorySinkOverwrites = test("Files/Streams/memorySinkSeekOverwritesAndExte
     check(sink.seek(0));
 };
 
-auto tMemorySinkSeekLimits = test("Files/Streams/memorySinkRefusesSeeksOutsideItsExtent") = []
+auto tMemorySinkSeekLimits =
+    test("Files/Streams/memorySinkRefusesSeeksOutsideItsExtent") = []
 {
     auto sink = MemorySink();
     auto three = Bytes {1, 2, 3};
@@ -267,7 +269,8 @@ auto tFloatToInt32Boundaries = test("Files/Conversion/floatToInt32Boundaries") =
     check(floatToInt32(floatOf(0xbf7fffff)) == -2147483519);
 };
 
-auto tFloatToInt32Rounding = test("Files/Conversion/floatToInt32RoundsTheDoubleProduct") = []
+auto tFloatToInt32Rounding =
+    test("Files/Conversion/floatToInt32RoundsTheDoubleProduct") = []
 {
     using Files::floatToInt32;
 
@@ -313,7 +316,8 @@ auto tInt32ToFloat = test("Files/Conversion/int32ToFloatDividesByFullScale") = [
     check(int32ToFloat(0) == 0.0f);
 };
 
-auto tInt32ToFloatExact = test("Files/Conversion/everyShortIntegerConvertsExactly") = []
+auto tInt32ToFloatExact =
+    test("Files/Conversion/everyShortIntegerConvertsExactly") = []
 {
     using Files::int32ToFloat;
 
@@ -342,12 +346,14 @@ auto tRoundTripDepths = test("Files/Conversion/readThenWrittenAtTheSameDepth") =
 
     for (auto s = -32768; s <= 32767; ++s)
         all16 = all16
-                && (floatToInt32(int32ToFloat(s * 65536)) >> 16) == (s > 16384 ? s - 1 : s);
+                && (floatToInt32(int32ToFloat(s * 65536)) >> 16)
+                       == (s > 16384 ? s - 1 : s);
 
     check(all16, "every 16-bit sample");
 
     for (auto s = -128; s <= 127; ++s)
-        check((floatToInt32(int32ToFloat(s * 16777216)) >> 24) == (s > 64 ? s - 1 : s));
+        check((floatToInt32(int32ToFloat(s * 16777216)) >> 24)
+              == (s > 64 ? s - 1 : s));
 
     // 24 bits: 4194305 survives, because 2147483647 * 0x3f000002 rounds (in double)
     // to the tie 1073742079.5, which goes to even.
@@ -356,10 +362,16 @@ auto tRoundTripDepths = test("Files/Conversion/readThenWrittenAtTheSameDepth") =
         int sample, written;
     };
 
-    for (auto c: {Case {-8388608, -8388608}, Case {-4194305, -4194305}, Case {-1, -1},
-                  Case {0, 0}, Case {1, 1}, Case {4194303, 4194303},
-                  Case {4194304, 4194304}, Case {4194305, 4194305},
-                  Case {4194306, 4194305}, Case {8388607, 8388606}})
+    for (auto c: {Case {-8388608, -8388608},
+                  Case {-4194305, -4194305},
+                  Case {-1, -1},
+                  Case {0, 0},
+                  Case {1, 1},
+                  Case {4194303, 4194303},
+                  Case {4194304, 4194304},
+                  Case {4194305, 4194305},
+                  Case {4194306, 4194305},
+                  Case {8388607, 8388606}})
         check((floatToInt32(int32ToFloat(c.sample * 256)) >> 8) == c.written);
 
     check(floatToInt32(floatOf(0x3f000002)) == 1073742080);
@@ -399,7 +411,8 @@ auto tMetadataFind = test("Files/Streams/metadataFindsTheFirstOfAType") = []
     check(metadata.find<Files::ListInfo>()->entries[0].value == "first");
 
     metadata.find<Files::ListInfo>()->entries[0].value = "changed";
-    check(std::get<Files::ListInfo>(metadata.chunks[1]).entries[0].value == "changed");
+    check(std::get<Files::ListInfo>(metadata.chunks[1]).entries[0].value
+          == "changed");
 };
 
 auto tStructDefaults = test("Files/Streams/chunkDefaults") = []

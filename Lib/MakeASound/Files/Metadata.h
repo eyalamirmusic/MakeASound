@@ -26,7 +26,8 @@ struct Bwav
     std::uint64_t timeReference = 0; // samples since midnight
     std::uint16_t version = 0;
     std::array<std::uint8_t, 64> umid {};
-    std::array<std::uint8_t, 190> reserved {}; // version 2's loudness fields live here
+    std::array<std::uint8_t, 190>
+        reserved {}; // version 2's loudness fields live here
     std::string codingHistory;
 
     bool operator==(const Bwav&) const = default;
@@ -154,7 +155,7 @@ struct ListInfo
 struct Acid
 {
     std::uint32_t flags = 0; // 0x01 one shot, 0x02 root set, 0x04 stretch,
-                             // 0x08 disk based, 0x10 the fifth flag
+    // 0x08 disk based, 0x10 the fifth flag
     std::uint16_t rootNote = 0;
     std::uint16_t reserved1 = 0;
     float reserved2 = 0.0f;

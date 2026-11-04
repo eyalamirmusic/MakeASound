@@ -57,7 +57,10 @@ struct ByteWriter
     ByteWriter& u32be(std::uint64_t value) { return be(value, 4); }
 
     ByteWriter& f32(float value) { return u32(std::bit_cast<std::uint32_t>(value)); }
-    ByteWriter& f64(double value) { return u64(std::bit_cast<std::uint64_t>(value)); }
+    ByteWriter& f64(double value)
+    {
+        return u64(std::bit_cast<std::uint64_t>(value));
+    }
 
     ByteWriter& f32be(float value)
     {
@@ -96,13 +99,13 @@ struct ByteWriter
 
 // id, u32 LE size (the payload's unless given), payload, and the pad byte for an
 // odd payload.
-inline Bytes riffChunk(std::string_view id,
-                       const Bytes& payload,
-                       std::int64_t sizeField = -1)
+inline Bytes
+    riffChunk(std::string_view id, const Bytes& payload, std::int64_t sizeField = -1)
 {
     auto out = ByteWriter {};
     out.text(id.substr(0, 4))
-        .u32(sizeField < 0 ? (std::uint64_t) payload.size() : (std::uint64_t) sizeField)
+        .u32(sizeField < 0 ? (std::uint64_t) payload.size()
+                           : (std::uint64_t) sizeField)
         .append(payload);
 
     if (payload.size() % 2 != 0)
@@ -112,13 +115,13 @@ inline Bytes riffChunk(std::string_view id,
 }
 
 // The same with a big-endian size, for AIFF.
-inline Bytes aiffChunk(std::string_view id,
-                       const Bytes& payload,
-                       std::int64_t sizeField = -1)
+inline Bytes
+    aiffChunk(std::string_view id, const Bytes& payload, std::int64_t sizeField = -1)
 {
     auto out = ByteWriter {};
     out.text(id.substr(0, 4))
-        .u32be(sizeField < 0 ? (std::uint64_t) payload.size() : (std::uint64_t) sizeField)
+        .u32be(sizeField < 0 ? (std::uint64_t) payload.size()
+                             : (std::uint64_t) sizeField)
         .append(payload);
 
     if (payload.size() % 2 != 0)
@@ -132,17 +135,48 @@ inline Bytes plainFormat(int tag, int channels, std::uint32_t rate, int bits)
 {
     auto align = channels * bits / 8;
     auto out = ByteWriter {};
-    out.u16(tag).u16(channels).u32(rate).u32((std::uint64_t) rate * align).u16(align).u16(bits);
+    out.u16(tag)
+        .u16(channels)
+        .u32(rate)
+        .u32((std::uint64_t) rate * align)
+        .u16(align)
+        .u16(bits);
     return out.bytes;
 }
 
-inline constexpr std::uint8_t pcmGuid[16] = {
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
-    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71};
+inline constexpr std::uint8_t pcmGuid[16] = {0x01,
+                                             0x00,
+                                             0x00,
+                                             0x00,
+                                             0x00,
+                                             0x00,
+                                             0x10,
+                                             0x00,
+                                             0x80,
+                                             0x00,
+                                             0x00,
+                                             0xaa,
+                                             0x00,
+                                             0x38,
+                                             0x9b,
+                                             0x71};
 
-inline constexpr std::uint8_t floatGuid[16] = {
-    0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
-    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71};
+inline constexpr std::uint8_t floatGuid[16] = {0x03,
+                                               0x00,
+                                               0x00,
+                                               0x00,
+                                               0x00,
+                                               0x00,
+                                               0x10,
+                                               0x00,
+                                               0x80,
+                                               0x00,
+                                               0x00,
+                                               0xaa,
+                                               0x00,
+                                               0x38,
+                                               0x9b,
+                                               0x71};
 
 // The 40-byte extensible format payload.
 inline Bytes extensibleFormat(int channels,
@@ -175,7 +209,8 @@ inline Bytes riffFile(const std::vector<Bytes>& chunks, std::int64_t sizeField =
 
     auto out = ByteWriter {};
     out.text("RIFF")
-        .u32(sizeField < 0 ? (std::uint64_t) body.bytes.size() : (std::uint64_t) sizeField)
+        .u32(sizeField < 0 ? (std::uint64_t) body.bytes.size()
+                           : (std::uint64_t) sizeField)
         .append(body.bytes);
     return out.bytes;
 }

@@ -22,7 +22,8 @@ constexpr auto int32Min = std::numeric_limits<std::int32_t>::min();
 constexpr auto int32Max = std::numeric_limits<std::int32_t>::max();
 
 // A plain-format RIFF file: fmt, then data holding 'samples'.
-Bytes simpleWav(int tag, int channels, std::uint32_t rate, int bits, const Bytes& samples)
+Bytes simpleWav(
+    int tag, int channels, std::uint32_t rate, int bits, const Bytes& samples)
 {
     return riffFile({riffChunk("fmt ", plainFormat(tag, channels, rate, bits)),
                      riffChunk("data", samples)});
@@ -66,7 +67,8 @@ std::string hexOfFloats(const std::vector<float>& values)
 
 auto tEightBit = test("Files/WavReader/eightBitUnsigned") = []
 {
-    auto file = Opened(simpleWav(1, 1, 22050, 8, Bytes {0x00, 0x80, 0xff, 0x01, 0x7f}));
+    auto file =
+        Opened(simpleWav(1, 1, 22050, 8, Bytes {0x00, 0x80, 0xff, 0x01, 0x7f}));
     check(file.ok);
     check(file.reader.isOpen());
     check(file.reader.numChannels() == 1);
@@ -79,12 +81,14 @@ auto tEightBit = test("Files/WavReader/eightBitUnsigned") = []
     check(file.reader.metadata().empty());
 
     auto floats = readAll(file.reader);
-    check(floats[0] == (std::vector<float> {-1.0f, 0.0f, 127.f / 128.f, -127.f / 128.f,
-                                            -1.f / 128.f}));
+    check(floats[0]
+          == (std::vector<float> {
+              -1.0f, 0.0f, 127.f / 128.f, -127.f / 128.f, -1.f / 128.f}));
 
     auto ints = readAllInt32(file.reader);
-    check(ints[0] == (std::vector<std::int32_t> {int32Min, 0, 127 << 24, -127 * 16777216,
-                                                 -16777216}));
+    check(ints[0]
+          == (std::vector<std::int32_t> {
+              int32Min, 0, 127 << 24, -127 * 16777216, -16777216}));
 };
 
 auto tSixteenBit = test("Files/WavReader/sixteenBit") = []
@@ -98,12 +102,15 @@ auto tSixteenBit = test("Files/WavReader/sixteenBit") = []
     check(file.ok && file.reader.bitDepth() == 16 && file.reader.numFrames() == 5);
 
     auto floats = readAll(file.reader);
-    check(floats[0] == (std::vector<float> {-1.0f, -1.f / 32768.f, 0.0f, 1.f / 32768.f,
-                                            32767.f / 32768.f}));
+    check(floats[0]
+          == (std::vector<float> {
+              -1.0f, -1.f / 32768.f, 0.0f, 1.f / 32768.f, 32767.f / 32768.f}));
     check(bitsOf(floats[0][4]) == 0x3f7ffe00);
 
     auto ints = readAllInt32(file.reader);
-    check(ints[0] == (std::vector<std::int32_t> {int32Min, -65536, 0, 65536, 32767 * 65536}));
+    check(
+        ints[0]
+        == (std::vector<std::int32_t> {int32Min, -65536, 0, 65536, 32767 * 65536}));
 };
 
 auto tTwentyFourBit = test("Files/WavReader/twentyFourBit") = []
@@ -117,19 +124,24 @@ auto tTwentyFourBit = test("Files/WavReader/twentyFourBit") = []
     check(file.ok && file.reader.bitDepth() == 24 && file.reader.numFrames() == 6);
 
     auto floats = readAll(file.reader);
-    check(floats[0] == (std::vector<float> {-1.0f, -1.f / 8388608.f, 0.0f, 1.f / 8388608.f,
-                                            8388607.f / 8388608.f,
-                                            (float) 0x123456 / 8388608.f}));
+    check(floats[0]
+          == (std::vector<float> {-1.0f,
+                                  -1.f / 8388608.f,
+                                  0.0f,
+                                  1.f / 8388608.f,
+                                  8388607.f / 8388608.f,
+                                  (float) 0x123456 / 8388608.f}));
 
     auto ints = readAllInt32(file.reader);
-    check(ints[0] == (std::vector<std::int32_t> {int32Min, -256, 0, 256, 8388607 * 256,
-                                                 0x12345600}));
+    check(ints[0]
+          == (std::vector<std::int32_t> {
+              int32Min, -256, 0, 256, 8388607 * 256, 0x12345600}));
 };
 
 auto tThirtyTwoBit = test("Files/WavReader/thirtyTwoBitInteger") = []
 {
-    auto values = std::vector<std::int32_t> {int32Min, -1, 0, 1, int32Max, 2147483583,
-                                             2147483584};
+    auto values = std::vector<std::int32_t> {
+        int32Min, -1, 0, 1, int32Max, 2147483583, 2147483584};
     auto samples = ByteWriter {};
 
     for (auto v: values)
@@ -170,14 +182,21 @@ auto tFloat32 = test("Files/WavReader/float32BitForBit") = []
     check(sameBits(floats, Channels {values}));
 
     auto ints = readAllInt32(file.reader);
-    check(ints[0] == (std::vector<std::int32_t> {int32Max, 0, 0, int32Min, 536870912,
-                                                 int32Min}));
+    check(ints[0]
+          == (std::vector<std::int32_t> {
+              int32Max, 0, 0, int32Min, 536870912, int32Min}));
 };
 
 auto tFloat64 = test("Files/WavReader/float64RoundsToFloat") = []
 {
-    auto values = std::vector<double> {0.1, -0.30000000000000004, 1.0 + 1.0 / 1073741824.0,
-                                       1e-40, 3.4e39, 0.75, 2.0, -1.0};
+    auto values = std::vector<double> {0.1,
+                                       -0.30000000000000004,
+                                       1.0 + 1.0 / 1073741824.0,
+                                       1e-40,
+                                       3.4e39,
+                                       0.75,
+                                       2.0,
+                                       -1.0};
     auto samples = ByteWriter {};
 
     for (auto v: values)
@@ -222,8 +241,9 @@ auto tExtensible = test("Files/WavReader/extensibleFormats") = []
     auto samples = ByteWriter {};
     samples.le(0x400000, 3).le(0x200000, 3).le(0xc00000, 3);
 
-    auto pcm = Opened(riffFile({riffChunk("fmt ", extensibleFormat(3, 48000, 24, 0x7, pcmGuid)),
-                                riffChunk("data", samples.bytes)}));
+    auto pcm = Opened(
+        riffFile({riffChunk("fmt ", extensibleFormat(3, 48000, 24, 0x7, pcmGuid)),
+                  riffChunk("data", samples.bytes)}));
     check(pcm.ok && !pcm.reader.isFloat() && pcm.reader.bitDepth() == 24);
     check(pcm.reader.channelMask() == 0x7);
     check(pcm.reader.numChannels() == 3 && pcm.reader.numFrames() == 1);
@@ -239,25 +259,56 @@ auto tExtensible = test("Files/WavReader/extensibleFormats") = []
 
     auto floatSamples = ByteWriter {};
     floatSamples.f32(0.125f).f32(-2.0f);
-    auto flt = Opened(riffFile({riffChunk("fmt ", extensibleFormat(2, 96000, 32, 0x3, floatGuid)),
-                                riffChunk("data", floatSamples.bytes)}));
+    auto flt = Opened(
+        riffFile({riffChunk("fmt ", extensibleFormat(2, 96000, 32, 0x3, floatGuid)),
+                  riffChunk("data", floatSamples.bytes)}));
     check(flt.ok && flt.reader.isFloat() && flt.reader.channelMask() == 0x3);
     check(readAll(flt.reader) == (Channels {{0.125f}, {-2.0f}}));
 };
 
 auto tAmbisonic = test("Files/WavReader/ambisonicSubFormats") = []
 {
-    constexpr std::uint8_t ambisonicPcm[16] = {0x01, 0x00, 0x00, 0x00, 0x21, 0x07, 0xd3, 0x11,
-                                               0x86, 0x44, 0xc8, 0xc1, 0xca, 0x00, 0x00, 0x00};
-    constexpr std::uint8_t ambisonicFloat[16] = {0x03, 0x00, 0x00, 0x00, 0x21, 0x07, 0xd3, 0x11,
-                                                 0x86, 0x44, 0xc8, 0xc1, 0xca, 0x00, 0x00, 0x00};
+    constexpr std::uint8_t ambisonicPcm[16] = {0x01,
+                                               0x00,
+                                               0x00,
+                                               0x00,
+                                               0x21,
+                                               0x07,
+                                               0xd3,
+                                               0x11,
+                                               0x86,
+                                               0x44,
+                                               0xc8,
+                                               0xc1,
+                                               0xca,
+                                               0x00,
+                                               0x00,
+                                               0x00};
+    constexpr std::uint8_t ambisonicFloat[16] = {0x03,
+                                                 0x00,
+                                                 0x00,
+                                                 0x00,
+                                                 0x21,
+                                                 0x07,
+                                                 0xd3,
+                                                 0x11,
+                                                 0x86,
+                                                 0x44,
+                                                 0xc8,
+                                                 0xc1,
+                                                 0xca,
+                                                 0x00,
+                                                 0x00,
+                                                 0x00};
 
-    auto pcm = Opened(riffFile({riffChunk("fmt ", extensibleFormat(4, 48000, 16, 0, ambisonicPcm)),
-                                riffChunk("data", Bytes(8, 0))}));
+    auto pcm = Opened(
+        riffFile({riffChunk("fmt ", extensibleFormat(4, 48000, 16, 0, ambisonicPcm)),
+                  riffChunk("data", Bytes(8, 0))}));
     check(pcm.ok && !pcm.reader.isFloat() && pcm.reader.numFrames() == 1);
 
-    auto flt = Opened(riffFile({riffChunk("fmt ", extensibleFormat(4, 48000, 32, 0, ambisonicFloat)),
-                                riffChunk("data", Bytes(16, 0))}));
+    auto flt = Opened(riffFile(
+        {riffChunk("fmt ", extensibleFormat(4, 48000, 32, 0, ambisonicFloat)),
+         riffChunk("data", Bytes(16, 0))}));
     check(flt.ok && flt.reader.isFloat());
 };
 
@@ -278,8 +329,22 @@ auto tRejectedFormats = test("Files/WavReader/unsupportedFormatsFailToOpen") = [
     check(fails(plainFormat(1, 1, 0, 16))); // no rate
     check(fails(slice(plainFormat(1, 1, 44100, 16), 0, 14))); // short
 
-    constexpr std::uint8_t otherGuid[16] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
-                                            0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71};
+    constexpr std::uint8_t otherGuid[16] = {0x02,
+                                            0x00,
+                                            0x00,
+                                            0x00,
+                                            0x00,
+                                            0x00,
+                                            0x10,
+                                            0x00,
+                                            0x80,
+                                            0x00,
+                                            0x00,
+                                            0xaa,
+                                            0x00,
+                                            0x38,
+                                            0x9b,
+                                            0x71};
     check(fails(extensibleFormat(2, 44100, 16, 3, otherGuid)));
     check(fails(extensibleFormat(2, 44100, 16, 3, floatGuid))); // float at 16 bits
     check(fails(slice(extensibleFormat(2, 44100, 16, 3, pcmGuid), 0, 39)));
@@ -315,8 +380,9 @@ auto tNotAWav = test("Files/WavReader/notAWavFailsToOpen") = []
 
 auto tNoData = test("Files/WavReader/aFileWithoutDataHasNoFrames") = []
 {
-    auto file = Opened(riffFile({riffChunk("fmt ", plainFormat(1, 2, 44100, 16)),
-                                 riffChunk("Trkn", ByteWriter {}.text("x").zeros(1).bytes)}));
+    auto file = Opened(
+        riffFile({riffChunk("fmt ", plainFormat(1, 2, 44100, 16)),
+                  riffChunk("Trkn", ByteWriter {}.text("x").zeros(1).bytes)}));
     check(file.ok);
     check(file.reader.numFrames() == 0);
     check(file.reader.metadata().find<Files::Trkn>() != nullptr);
@@ -379,14 +445,15 @@ auto tChunkOrder = test("Files/WavReader/chunksInAnyOrder") = []
     auto samples = ByteWriter {};
     samples.u16(0x4000).u16(0xc000);
 
-    auto file = Opened(riffFile({riffChunk("Trkn", ByteWriter {}.text("a").zeros(1).bytes),
-                                 riffChunk("data", samples.bytes),
-                                 riffChunk("JUNK", Bytes(10, 0)),
-                                 riffChunk("odd!", Bytes {1, 2, 3}),
-                                 riffChunk("fact", ByteWriter {}.u32(2).bytes),
-                                 riffChunk("PAD ", Bytes(2, 0)),
-                                 riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
-                                 riffChunk("acid", Bytes(24, 0))}));
+    auto file =
+        Opened(riffFile({riffChunk("Trkn", ByteWriter {}.text("a").zeros(1).bytes),
+                         riffChunk("data", samples.bytes),
+                         riffChunk("JUNK", Bytes(10, 0)),
+                         riffChunk("odd!", Bytes {1, 2, 3}),
+                         riffChunk("fact", ByteWriter {}.u32(2).bytes),
+                         riffChunk("PAD ", Bytes(2, 0)),
+                         riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
+                         riffChunk("acid", Bytes(24, 0))}));
     check(file.ok);
     check(file.reader.numFrames() == 2);
     check(readAll(file.reader) == (Channels {{0.5f, -0.5f}}));
@@ -394,7 +461,8 @@ auto tChunkOrder = test("Files/WavReader/chunksInAnyOrder") = []
     auto& chunks = file.reader.metadata().chunks;
     check(chunks.size() == 3);
     check(std::holds_alternative<Files::Trkn>(chunks[0]));
-    check(std::get<Files::RawChunk>(chunks[1]) == (Files::RawChunk {"odd!", {1, 2, 3}}));
+    check(std::get<Files::RawChunk>(chunks[1])
+          == (Files::RawChunk {"odd!", {1, 2, 3}}));
     check(std::holds_alternative<Files::Acid>(chunks[2]));
 };
 
@@ -433,9 +501,10 @@ auto tTruncatedData = test("Files/WavReader/truncatedDataReadsWhatIsThere") = []
 
 auto tRiffSizes = test("Files/WavReader/wrongRiffSizesAreTolerated") = []
 {
-    auto chunks = std::vector<Bytes> {riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
-                                      riffChunk("data", Bytes(8, 0)),
-                                      riffChunk("Trkn", ByteWriter {}.text("a").zeros(1).bytes)};
+    auto chunks = std::vector<Bytes> {
+        riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
+        riffChunk("data", Bytes(8, 0)),
+        riffChunk("Trkn", ByteWriter {}.text("a").zeros(1).bytes)};
 
     for (auto size: {0ll, 0xffffffffll, 100000ll})
     {
@@ -477,14 +546,16 @@ auto tTrailingGarbage = test("Files/WavReader/aShortTailIsIgnored") = []
     bytes.insert(bytes.end(), {'a', 'b', 'c', 'd', 'e'});
 
     auto garbage = Opened(bytes);
-    check(garbage.ok && garbage.reader.numFrames() == 2 && garbage.reader.metadata().empty());
+    check(garbage.ok && garbage.reader.numFrames() == 2
+          && garbage.reader.metadata().empty());
 };
 
 auto tReopen = test("Files/WavReader/openingAgainForgetsTheLastFile") = []
 {
-    auto good = MemorySource(riffFile({riffChunk("fmt ", plainFormat(1, 2, 44100, 16)),
-                                       riffChunk("data", Bytes(8, 0)),
-                                       riffChunk("Trkn", Bytes {'x', 0})}));
+    auto good =
+        MemorySource(riffFile({riffChunk("fmt ", plainFormat(1, 2, 44100, 16)),
+                               riffChunk("data", Bytes(8, 0)),
+                               riffChunk("Trkn", Bytes {'x', 0})}));
     auto bad = MemorySource(Bytes(20, 0));
     auto reader = WavReader();
 
@@ -513,7 +584,8 @@ auto tReadRanges = test("Files/WavReader/framesOutsideTheFileReadAsZero") = []
     float* dest[] = {out.data()};
 
     check(file.reader.read(-2, 8, dest));
-    check(out == (std::vector<float> {0.f, 0.f, 0.125f, 0.25f, 0.375f, 0.5f, 0.f, 0.f}));
+    check(out
+          == (std::vector<float> {0.f, 0.f, 0.125f, 0.25f, 0.375f, 0.5f, 0.f, 0.f}));
 
     out.assign(8, 9.f);
     check(file.reader.read(3, 2, dest));
@@ -563,8 +635,9 @@ auto tReadArguments = test("Files/WavReader/readArgumentErrors") = []
 // A valid file with the given chunks after its format and data chunks.
 Opened withChunks(const std::vector<Bytes>& extra)
 {
-    auto chunks = std::vector<Bytes> {riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
-                                      riffChunk("data", Bytes(2, 0))};
+    auto chunks =
+        std::vector<Bytes> {riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
+                            riffChunk("data", Bytes(2, 0))};
     chunks.insert(chunks.end(), extra.begin(), extra.end());
     return Opened(riffFile(chunks));
 }
@@ -651,7 +724,8 @@ auto tSmplCounts = test("Files/WavReader/smplLoopCountIsWhatFits") = []
     zeroLoops.zeros(12).u32(60).zeros(20).zeros(24);
     auto file = withChunks({riffChunk("smpl", zeroLoops.bytes)});
     auto* smpl = file.reader.metadata().find<Files::Smpl>();
-    check(smpl != nullptr && smpl->loops.empty() && smpl->extraBytes == Bytes(24, 0));
+    check(smpl != nullptr && smpl->loops.empty()
+          && smpl->extraBytes == Bytes(24, 0));
     check(smpl != nullptr && smpl->midiUnityNote == 60);
 
     // Declares 3 loops, holds 1 and a half.
@@ -661,10 +735,12 @@ auto tSmplCounts = test("Files/WavReader/smplLoopCountIsWhatFits") = []
     tooMany.u32(2).u32(0).u32(30);
     auto partial = withChunks({riffChunk("smpl", tooMany.bytes)});
     smpl = partial.reader.metadata().find<Files::Smpl>();
-    check(smpl != nullptr && smpl->loops.size() == 1 && smpl->extraBytes.size() == 12);
+    check(smpl != nullptr && smpl->loops.size() == 1
+          && smpl->extraBytes.size() == 12);
 
     // Shorter than its fixed part: the missing fields read 0.
-    auto shortSmpl = withChunks({riffChunk("smpl", ByteWriter {}.u32(5).u32(6).bytes)});
+    auto shortSmpl =
+        withChunks({riffChunk("smpl", ByteWriter {}.u32(5).u32(6).bytes)});
     smpl = shortSmpl.reader.metadata().find<Files::Smpl>();
     check(smpl != nullptr && smpl->manufacturer == 5 && smpl->product == 6);
     check(smpl != nullptr && smpl->midiUnityNote == 0 && smpl->loops.empty());
@@ -733,10 +809,20 @@ auto tAdtlRead = test("Files/WavReader/associatedData") = []
     auto list = ByteWriter {};
     list.text("adtl");
     list.text("labl").u32(10).u32(1).text("Intro").zeros(1);
-    list.text("note").u32(9).u32(1).text("Odd").zeros(2).zeros(1); // odd size, padded
+    list.text("note").u32(9).u32(1).text("Odd").zeros(2).zeros(
+        1); // odd size, padded
     list.text("file").u32(4).u32(0); // not read
-    list.text("ltxt").u32(26).u32(2).u32(4800).text("rgn ").u16(1).u16(9).u16(1).u16(437)
-        .text("Loop").zeros(2);
+    list.text("ltxt")
+        .u32(26)
+        .u32(2)
+        .u32(4800)
+        .text("rgn ")
+        .u16(1)
+        .u16(9)
+        .u16(1)
+        .u16(437)
+        .text("Loop")
+        .zeros(2);
     list.text("labl").u32(8).u32(2).text("Out").zeros(1);
 
     auto file = withChunks({riffChunk("LIST", list.bytes)});
@@ -749,19 +835,23 @@ auto tAdtlRead = test("Files/WavReader/associatedData") = []
     check(adtl->labels == (std::vector<Files::CueLabel> {{1, "Intro"}, {2, "Out"}}));
     check(adtl->notes == (std::vector<Files::CueLabel> {{1, "Odd"}}));
     check(adtl->regions.size() == 1);
-    check(adtl->regions[0] == (Files::CueRegion {2, 4800, "rgn ", 1, 9, 1, 437, "Loop"}));
+    check(adtl->regions[0]
+          == (Files::CueRegion {2, 4800, "rgn ", 1, 9, 1, 437, "Loop"}));
 };
 
 auto tOtherLists = test("Files/WavReader/otherListsAreRaw") = []
 {
     auto other = ByteWriter {};
     other.text("exif").u8(1).u8(2);
-    auto file = withChunks({riffChunk("LIST", other.bytes), riffChunk("LIST", Bytes {1, 2})});
+    auto file = withChunks(
+        {riffChunk("LIST", other.bytes), riffChunk("LIST", Bytes {1, 2})});
     auto& chunks = file.reader.metadata().chunks;
 
     check(chunks.size() == 2);
-    check(std::get<Files::RawChunk>(chunks[0]) == (Files::RawChunk {"LIST", other.bytes}));
-    check(std::get<Files::RawChunk>(chunks[1]) == (Files::RawChunk {"LIST", {1, 2}}));
+    check(std::get<Files::RawChunk>(chunks[0])
+          == (Files::RawChunk {"LIST", other.bytes}));
+    check(std::get<Files::RawChunk>(chunks[1])
+          == (Files::RawChunk {"LIST", {1, 2}}));
 };
 
 auto tAcidRead = test("Files/WavReader/acidFields") = []
@@ -782,10 +872,10 @@ auto tAcidRead = test("Files/WavReader/acidFields") = []
 
 auto tTextRead = test("Files/WavReader/trknAxmlAndRawChunks") = []
 {
-    auto file = withChunks(
-        {riffChunk("Trkn", ByteWriter {}.text("loop").zeros(2).bytes),
-         riffChunk("axml", ByteWriter {}.text("<x/>").zeros(4).bytes),
-         riffChunk("iXML", ByteWriter {}.text("<i/>").bytes)});
+    auto file =
+        withChunks({riffChunk("Trkn", ByteWriter {}.text("loop").zeros(2).bytes),
+                    riffChunk("axml", ByteWriter {}.text("<x/>").zeros(4).bytes),
+                    riffChunk("iXML", ByteWriter {}.text("<i/>").bytes)});
     auto& chunks = file.reader.metadata().chunks;
 
     check(chunks.size() == 3);
@@ -796,9 +886,10 @@ auto tTextRead = test("Files/WavReader/trknAxmlAndRawChunks") = []
 
 auto tCutChunk = test("Files/WavReader/aChunkCutByTheEndIsReadInPart") = []
 {
-    auto bytes = riffFile({riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
-                           riffChunk("data", Bytes(2, 0)),
-                           riffChunk("Trkn", ByteWriter {}.text("abcdef").bytes, 50)});
+    auto bytes =
+        riffFile({riffChunk("fmt ", plainFormat(1, 1, 44100, 16)),
+                  riffChunk("data", Bytes(2, 0)),
+                  riffChunk("Trkn", ByteWriter {}.text("abcdef").bytes, 50)});
     auto file = Opened(bytes);
     check(file.ok);
     auto* trkn = file.reader.metadata().find<Files::Trkn>();
@@ -830,7 +921,10 @@ float expectedAfter(BitDepth depth, float x)
 
 auto tRoundTrips = test("Files/WavReader/writerToReaderPerDepthAndChannelCount") = []
 {
-    for (auto depth: {BitDepth::pcm8, BitDepth::pcm16, BitDepth::pcm24, BitDepth::pcm32,
+    for (auto depth: {BitDepth::pcm8,
+                      BitDepth::pcm16,
+                      BitDepth::pcm24,
+                      BitDepth::pcm32,
                       BitDepth::float32})
     {
         for (auto channels: {1, 2, 3, 6, 9})
@@ -935,7 +1029,8 @@ auto tMetadataRoundTrip = test("Files/WavReader/everyChunkRoundTrips") = []
             options.headerPadding = padding;
 
             // 3 frames of 8 bits: odd data, so the trailing metadata follows a pad.
-            auto file = Opened(writeToMemory(options, Channels {{0.5f, -0.5f, 0.0f}}));
+            auto file =
+                Opened(writeToMemory(options, Channels {{0.5f, -0.5f, 0.0f}}));
             check(file.ok);
             check(file.reader.numFrames() == 3);
             check(file.reader.metadata() == everyChunk());
@@ -1008,9 +1103,10 @@ auto tGoldenDecode = test("Files/Golden/longMonoRangeReads") = []
     auto part = std::vector<float>(16);
     float* dest[] = {part.data()};
     check(file.reader.read(1000, 16, dest));
-    check(hexOfFloats(part)
-          == "003895be00c06f3e00788cbe00d02ebe006869be00e05a3e00c83fbe0050d23d00e07f3d0054833e"
-             "00d0fc3e00807a3d00ce1d3f00584b3e00fcbabe008008bd");
+    check(
+        hexOfFloats(part)
+        == "003895be00c06f3e00788cbe00d02ebe006869be00e05a3e00c83fbe0050d23d00e07f3d0054833e"
+           "00d0fc3e00807a3d00ce1d3f00584b3e00fcbabe008008bd");
 
     part.resize(8);
     dest[0] = part.data();
@@ -1024,9 +1120,13 @@ auto tGoldenDecode = test("Files/Golden/longMonoRangeReads") = []
         std::uint32_t bits;
     };
 
-    for (auto s: {Sample {0, 0x3f7ffe00}, Sample {1, 0xbf800000}, Sample {2, 0},
-                  Sample {3, 0x3f7ffe00}, Sample {1023, 0x3cde8000},
-                  Sample {1024, 0x3f04aa00}, Sample {2047, 0x3f083200}})
+    for (auto s: {Sample {0, 0x3f7ffe00},
+                  Sample {1, 0xbf800000},
+                  Sample {2, 0},
+                  Sample {3, 0x3f7ffe00},
+                  Sample {1023, 0x3cde8000},
+                  Sample {1024, 0x3f04aa00},
+                  Sample {2047, 0x3f083200}})
     {
         auto value = 0.0f;
         float* one[] = {&value};

@@ -39,10 +39,7 @@ struct FourCC
     }
 
     // The four bytes as a string of length 4 (bytes as they are, zeros included).
-    std::string toString() const
-    {
-        return std::string(bytes.begin(), bytes.end());
-    }
+    std::string toString() const { return std::string(bytes.begin(), bytes.end()); }
 
     constexpr bool operator==(const FourCC&) const noexcept = default;
 

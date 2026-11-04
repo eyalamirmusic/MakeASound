@@ -134,10 +134,11 @@ constexpr std::uint8_t monoEightHeader[104] = {
 
 auto tPlainHeader = test("Files/WavWriter/paddedPlainHeaderBytes") = []
 {
-    auto file = writeToMemory(makeOptions(1, 48000.0, BitDepth::pcm8),
-                              synthetic(1, 48, 2));
+    auto file =
+        writeToMemory(makeOptions(1, 48000.0, BitDepth::pcm8), synthetic(1, 48, 2));
     check(file.size() == 152);
-    check(file.size() >= 104 && std::equal(file.begin(), file.begin() + 104, monoEightHeader));
+    check(file.size() >= 104
+          && std::equal(file.begin(), file.begin() + 104, monoEightHeader));
 
     // 1, -1, 0, 1.5, -1.5, 1e-9, 2^-16 as unsigned bytes.
     check(slice(file, 104, 7) == (Bytes {0xff, 0x00, 0x80, 0xff, 0x00, 0x80, 0x80}));
@@ -193,7 +194,8 @@ auto tFormatFields = test("Files/WavWriter/formatChunkFieldsPerDepth") = []
 
 auto tFractionalRate = test("Files/WavWriter/sampleRateStoredAsItsIntegerPart") = []
 {
-    auto file = writeToMemory(makeOptions(1, 44100.9, BitDepth::pcm16), Channels {{0.f}});
+    auto file =
+        writeToMemory(makeOptions(1, 44100.9, BitDepth::pcm16), Channels {{0.f}});
     check(readU32(file, 84) == 44100);
     check(readU32(file, 88) == 88200);
 };
@@ -215,8 +217,19 @@ const auto boundaryValues = std::vector<float> {1.0f,
 auto tEncode8 = test("Files/WavWriter/eightBitEncoding") = []
 {
     auto data = encodeMono(BitDepth::pcm8, boundaryValues);
-    check(data == (Bytes {0xff, 0x00, 0x80, 0xc0, 0x40, 0xff, 0x00, 0xdf, 0x73, 0x80, 0xff,
-                          0x00})); // the last byte pads the odd data length
+    check(data
+          == (Bytes {0xff,
+                     0x00,
+                     0x80,
+                     0xc0,
+                     0x40,
+                     0xff,
+                     0x00,
+                     0xdf,
+                     0x73,
+                     0x80,
+                     0xff,
+                     0x00})); // the last byte pads the odd data length
 };
 
 auto tEncode16 = test("Files/WavWriter/sixteenBitEncoding") = []
@@ -224,7 +237,8 @@ auto tEncode16 = test("Files/WavWriter/sixteenBitEncoding") = []
     auto data = encodeMono(BitDepth::pcm16, boundaryValues);
     auto expected = ByteWriter {};
 
-    for (auto v: {32767, -32768, 0, 16384, -16384, 32767, -32768, 24575, -3277, 0, 32767})
+    for (auto v:
+         {32767, -32768, 0, 16384, -16384, 32767, -32768, 24575, -3277, 0, 32767})
         expected.u16((std::uint32_t) v & 0xffff);
 
     check(data == expected.bytes);
@@ -235,8 +249,17 @@ auto tEncode24 = test("Files/WavWriter/twentyFourBitEncoding") = []
     auto data = encodeMono(BitDepth::pcm24, boundaryValues);
     auto expected = ByteWriter {};
 
-    for (auto v: {8388607, -8388608, 0, 4194304, -4194304, 8388607, -8388608, 6291455,
-                  -838861, 128, 8388607})
+    for (auto v: {8388607,
+                  -8388608,
+                  0,
+                  4194304,
+                  -4194304,
+                  8388607,
+                  -8388608,
+                  6291455,
+                  -838861,
+                  128,
+                  8388607})
         expected.le((std::uint32_t) v & 0xffffff, 3);
 
     expected.u8(0); // 11 frames of 3 bytes: an odd length, padded
@@ -248,8 +271,16 @@ auto tEncode32 = test("Files/WavWriter/thirtyTwoBitIntegerEncoding") = []
     auto data = encodeMono(BitDepth::pcm32, boundaryValues);
     auto expected = ByteWriter {};
 
-    for (auto v: {2147483647ll, -2147483648ll, 0ll, 1073741824ll, -1073741824ll,
-                  2147483647ll, -2147483648ll, 1610612735ll, -214748368ll, 32768ll,
+    for (auto v: {2147483647ll,
+                  -2147483648ll,
+                  0ll,
+                  1073741824ll,
+                  -1073741824ll,
+                  2147483647ll,
+                  -2147483648ll,
+                  1610612735ll,
+                  -214748368ll,
+                  32768ll,
                   2147483519ll})
         expected.u32((std::uint64_t) v & 0xffffffffu);
 
@@ -276,8 +307,8 @@ auto tEncodeFloat = test("Files/WavWriter/floatSamplesStoredBitForBit") = []
 
 auto tEncodeInt32 = test("Files/WavWriter/writeInt32ShiftsToTheDepth") = []
 {
-    auto values = std::vector<std::int32_t> {0x7fffffff, (std::int32_t) 0x80000000,
-                                             0x12345678, -1, 0x00ffffff};
+    auto values = std::vector<std::int32_t> {
+        0x7fffffff, (std::int32_t) 0x80000000, 0x12345678, -1, 0x00ffffff};
 
     check(encodeMonoInt32(BitDepth::pcm8, values)
           == (Bytes {0xff, 0x00, 0x92, 0x7f, 0x80, 0x00}));
@@ -287,8 +318,12 @@ auto tEncodeInt32 = test("Files/WavWriter/writeInt32ShiftsToTheDepth") = []
     check(encodeMonoInt32(BitDepth::pcm16, values) == sixteen.bytes);
 
     auto twentyFour = ByteWriter {};
-    twentyFour.le(0x7fffff, 3).le(0x800000, 3).le(0x123456, 3).le(0xffffff, 3)
-        .le(0x00ffff, 3).u8(0);
+    twentyFour.le(0x7fffff, 3)
+        .le(0x800000, 3)
+        .le(0x123456, 3)
+        .le(0xffffff, 3)
+        .le(0x00ffff, 3)
+        .u8(0);
     check(encodeMonoInt32(BitDepth::pcm24, values) == twentyFour.bytes);
 
     auto thirtyTwo = ByteWriter {};
@@ -337,7 +372,8 @@ auto tNullChannel = test("Files/WavWriter/aNullChannelWritesSilence") = []
         if (depth == BitDepth::pcm8)
             check(slice(file, 104, 4) == (Bytes {0xff, 0x80, 0xff, 0x80}));
         else if (depth == BitDepth::pcm16)
-            check(slice(file, 104, 8) == (Bytes {0xff, 0x7f, 0, 0, 0xff, 0x7f, 0, 0}));
+            check(slice(file, 104, 8)
+                  == (Bytes {0xff, 0x7f, 0, 0, 0xff, 0x7f, 0, 0}));
         else
             check(readU32(file, 108) == 0 && readU32(file, 116) == 0);
     }
@@ -363,8 +399,12 @@ auto tDefaultMasks = test("Files/WavWriter/defaultChannelMasks") = []
         std::uint32_t mask;
     };
 
-    for (auto c: {Case {3, 0x7}, Case {4, 0x33}, Case {5, 0x37}, Case {6, 0x3f},
-                  Case {7, 0xf7}, Case {8, 0xff}})
+    for (auto c: {Case {3, 0x7},
+                  Case {4, 0x33},
+                  Case {5, 0x37},
+                  Case {6, 0x3f},
+                  Case {7, 0xf7},
+                  Case {8, 0xff}})
     {
         auto file = writeToMemory(makeOptions(c.channels, 48000.0, BitDepth::pcm24),
                                   Channels((std::size_t) c.channels, {0.0f}));
@@ -392,7 +432,8 @@ auto tExtensibleLayout = test("Files/WavWriter/extensibleFormatChunkBytes") = []
     auto expected = ByteWriter {};
     expected.text("RIFF").u32(96 + 12).text("WAVE");
     expected.text("JUNK").u32(28).zeros(28);
-    expected.text("fmt ").u32(40).append(extensibleFormat(3, 44100, 32, 0x7, floatGuid));
+    expected.text("fmt ").u32(40).append(
+        extensibleFormat(3, 44100, 32, 0x7, floatGuid));
     expected.text("data").u32(12).f32(0.5f).f32(0.25f).f32(-0.5f);
     check(file == expected.bytes);
 
@@ -406,7 +447,8 @@ auto tExtensibleLayout = test("Files/WavWriter/extensibleFormatChunkBytes") = []
                   .bytes));
 };
 
-auto tMaskOverride = test("Files/WavWriter/channelMaskOptionOverridesTheDefault") = []
+auto tMaskOverride =
+    test("Files/WavWriter/channelMaskOptionOverridesTheDefault") = []
 {
     auto stereo = makeOptions(2, 48000.0, BitDepth::pcm16);
     stereo.channelMask = 0x3u;
@@ -455,7 +497,8 @@ auto tAlwaysRF64 = test("Files/WavWriter/alwaysRF64Layout") = []
         auto expected = ByteWriter {};
         expected.text("RF64").u32(0xffffffff).text("WAVE");
         expected.text("ds64").u32(28).u64(96 + 8).u64(8).u64(0).u32(0);
-        expected.text("fmt ").u32(40).append(extensibleFormat(2, 48000, 16, 0, pcmGuid));
+        expected.text("fmt ").u32(40).append(
+            extensibleFormat(2, 48000, 16, 0, pcmGuid));
         expected.text("data").u32(0xffffffff);
         expected.u16(16384).u16(0xc000).u16(16384).u16(0xc000);
         check(file == expected.bytes);
@@ -628,7 +671,8 @@ auto tBextTruncation = test("Files/WavWriter/bextTextsCutAtTheirWidth") = []
 {
     auto bwav = Files::Bwav {};
     bwav.description = std::string(300, 'a');
-    bwav.originator = std::string(31, 'b') + "\xc3\xa9"; // 33 bytes, cut before the é
+    bwav.originator =
+        std::string(31, 'b') + "\xc3\xa9"; // 33 bytes, cut before the é
     bwav.originationDate = "2026-11-04-extra";
 
     auto p = slice(chunkBytes(bwav), 8, 604);
@@ -654,8 +698,15 @@ auto tSmplBytes = test("Files/WavWriter/smplLayout") = []
 
     auto expected = ByteWriter {};
     expected.text("smpl").u32(36 + 48 + 3);
-    expected.u32(1).u32(2).u32(22675).u32(64).u32(0x80000000).u32(25).u32(0x01020304)
-        .u32(2).u32(3);
+    expected.u32(1)
+        .u32(2)
+        .u32(22675)
+        .u32(64)
+        .u32(0x80000000)
+        .u32(25)
+        .u32(0x01020304)
+        .u32(2)
+        .u32(3);
     expected.u32(7).u32(0).u32(100).u32(200).u32(0).u32(0);
     expected.u32(8).u32(1).u32(300).u32(400).u32(5).u32(2);
     expected.u8(0xaa).u8(0xbb).u8(0xcc).u8(0); // odd: padded
@@ -700,7 +751,8 @@ auto tCueBytes = test("Files/WavWriter/cueLayout") = []
     expected.u32(2).u32(1).text("slnt").u32(4).u32(8).u32(2000);
     check(chunkBytes(cue) == expected.bytes);
 
-    check(chunkBytes(Files::Cue {}) == (ByteWriter {}.text("cue ").u32(4).u32(0).bytes));
+    check(chunkBytes(Files::Cue {})
+          == (ByteWriter {}.text("cue ").u32(4).u32(0).bytes));
 };
 
 auto tAdtlBytes = test("Files/WavWriter/associatedDataLayout") = []
@@ -724,8 +776,17 @@ auto tAdtlBytes = test("Files/WavWriter/associatedDataLayout") = []
     list.text("labl").u32(10).u32(1).text("Intro").zeros(1);
     list.text("labl").u32(10).u32(2).text("Verse").zeros(1);
     list.text("note").u32(10).u32(1).text("Note").zeros(2);
-    list.text("ltxt").u32(26).u32(2).u32(4800).text("rgn ").u16(1).u16(9).u16(1).u16(437)
-        .text("Loop").zeros(2);
+    list.text("ltxt")
+        .u32(26)
+        .u32(2)
+        .u32(4800)
+        .text("rgn ")
+        .u16(1)
+        .u16(9)
+        .u16(1)
+        .u16(437)
+        .text("Loop")
+        .zeros(2);
 
     check(chunkBytes(adtl) == riffChunk("LIST", list.bytes));
 };
@@ -742,7 +803,8 @@ auto tInfoBytes = test("Files/WavWriter/listInfoLayout") = []
     list.text("ISFT").u32(2).zeros(2);
     check(chunkBytes(info) == riffChunk("LIST", list.bytes));
 
-    check(chunkBytes(Files::ListInfo {}) == riffChunk("LIST", ByteWriter {}.text("INFO").bytes));
+    check(chunkBytes(Files::ListInfo {})
+          == riffChunk("LIST", ByteWriter {}.text("INFO").bytes));
 };
 
 auto tAcidBytes = test("Files/WavWriter/acidLayout") = []
@@ -785,7 +847,8 @@ auto tTextChunks = test("Files/WavWriter/trknAxmlAndRawLayout") = []
 auto tChunkOrder = test("Files/WavWriter/chunksWrittenInTheGivenOrder") = []
 {
     auto options = makeOptions(1, 48000.0, BitDepth::pcm16);
-    options.metadata.chunks = {Files::Trkn {"a"}, Files::Inst {}, Files::Axml {"xy"}};
+    options.metadata.chunks = {
+        Files::Trkn {"a"}, Files::Inst {}, Files::Axml {"xy"}};
     auto file = writeToMemory(options, Channels {{0.0f}});
 
     check(textAt(file, 96, 4) == "Trkn");
@@ -957,21 +1020,141 @@ struct Golden
 };
 
 constexpr Golden goldens[] = {
-    {"createWaveFile-mono-8", 1, 48, 2, 48000, BitDepth::pcm8, false, 152, 0x70b4947488e89534ull},
-    {"createWaveFile-mono-16", 1, 48, 2, 48000, BitDepth::pcm16, false, 200, 0xcdf6dabf223d38fcull},
-    {"createWaveFile-mono-24", 1, 48, 2, 48000, BitDepth::pcm24, false, 248, 0x20968c3f71cbd1a4ull},
-    {"createWaveFile-mono-32", 1, 48, 2, 48000, BitDepth::float32, false, 296, 0xf72f0ed1557dffc3ull},
-    {"createWaveFile-stereo-8", 2, 64, 1, 48000, BitDepth::pcm8, false, 232, 0x66e00aa4cafd8bdfull},
-    {"createWaveFile-stereo-16", 2, 64, 1, 48000, BitDepth::pcm16, false, 360, 0x4ae0af19b27bbe9eull},
-    {"createWaveFile-stereo-24", 2, 64, 1, 48000, BitDepth::pcm24, false, 488, 0x1279a2cc5f419423ull},
-    {"createWaveFile-stereo-32", 2, 64, 1, 48000, BitDepth::float32, false, 616, 0x7d1433b1aee51dccull},
-    {"createWaveFile-metadata-8", 2, 64, 1, 44100, BitDepth::pcm8, true, 392, 0xd16105dd2b85b0c6ull},
-    {"createWaveFile-metadata-16", 2, 64, 1, 44100, BitDepth::pcm16, true, 520, 0x33555f85d0419cc5ull},
-    {"createWaveFile-metadata-24", 2, 64, 1, 44100, BitDepth::pcm24, true, 648, 0xf6970e68a0bcb7a1ull},
-    {"createWaveFile-metadata-32", 2, 64, 1, 44100, BitDepth::float32, true, 776, 0x6c880ffbc3e3363eull},
-    {"toMemory-stereo", 2, 64, 1, 48000, BitDepth::pcm24, false, 488, 0x1279a2cc5f419423ull},
-    {"toWaveFile-mono-44100", 1, 48, 2, 44100, BitDepth::pcm24, false, 248, 0x4dd0b3477aeefaafull},
-    {"long-mono-16", 1, 2048, 5, 44100, BitDepth::pcm16, false, 4200, 0xceb9eb60be289279ull},
+    {"createWaveFile-mono-8",
+     1,
+     48,
+     2,
+     48000,
+     BitDepth::pcm8,
+     false,
+     152,
+     0x70b4947488e89534ull},
+    {"createWaveFile-mono-16",
+     1,
+     48,
+     2,
+     48000,
+     BitDepth::pcm16,
+     false,
+     200,
+     0xcdf6dabf223d38fcull},
+    {"createWaveFile-mono-24",
+     1,
+     48,
+     2,
+     48000,
+     BitDepth::pcm24,
+     false,
+     248,
+     0x20968c3f71cbd1a4ull},
+    {"createWaveFile-mono-32",
+     1,
+     48,
+     2,
+     48000,
+     BitDepth::float32,
+     false,
+     296,
+     0xf72f0ed1557dffc3ull},
+    {"createWaveFile-stereo-8",
+     2,
+     64,
+     1,
+     48000,
+     BitDepth::pcm8,
+     false,
+     232,
+     0x66e00aa4cafd8bdfull},
+    {"createWaveFile-stereo-16",
+     2,
+     64,
+     1,
+     48000,
+     BitDepth::pcm16,
+     false,
+     360,
+     0x4ae0af19b27bbe9eull},
+    {"createWaveFile-stereo-24",
+     2,
+     64,
+     1,
+     48000,
+     BitDepth::pcm24,
+     false,
+     488,
+     0x1279a2cc5f419423ull},
+    {"createWaveFile-stereo-32",
+     2,
+     64,
+     1,
+     48000,
+     BitDepth::float32,
+     false,
+     616,
+     0x7d1433b1aee51dccull},
+    {"createWaveFile-metadata-8",
+     2,
+     64,
+     1,
+     44100,
+     BitDepth::pcm8,
+     true,
+     392,
+     0xd16105dd2b85b0c6ull},
+    {"createWaveFile-metadata-16",
+     2,
+     64,
+     1,
+     44100,
+     BitDepth::pcm16,
+     true,
+     520,
+     0x33555f85d0419cc5ull},
+    {"createWaveFile-metadata-24",
+     2,
+     64,
+     1,
+     44100,
+     BitDepth::pcm24,
+     true,
+     648,
+     0xf6970e68a0bcb7a1ull},
+    {"createWaveFile-metadata-32",
+     2,
+     64,
+     1,
+     44100,
+     BitDepth::float32,
+     true,
+     776,
+     0x6c880ffbc3e3363eull},
+    {"toMemory-stereo",
+     2,
+     64,
+     1,
+     48000,
+     BitDepth::pcm24,
+     false,
+     488,
+     0x1279a2cc5f419423ull},
+    {"toWaveFile-mono-44100",
+     1,
+     48,
+     2,
+     44100,
+     BitDepth::pcm24,
+     false,
+     248,
+     0x4dd0b3477aeefaafull},
+    {"long-mono-16",
+     1,
+     2048,
+     5,
+     44100,
+     BitDepth::pcm16,
+     false,
+     4200,
+     0xceb9eb60be289279ull},
 };
 
 auto tGoldens = test("Files/Golden/pinnedFilesFromSyntheticInput") = []
@@ -991,9 +1174,21 @@ auto tGoldens = test("Files/Golden/pinnedFilesFromSyntheticInput") = []
 
 auto tGoldenStereo24 = test("Files/Golden/stereo24FirstFrames") = []
 {
-    auto file = writeToMemory(makeOptions(2, 48000.0, BitDepth::pcm24), synthetic(2, 64, 1));
+    auto file =
+        writeToMemory(makeOptions(2, 48000.0, BitDepth::pcm24), synthetic(2, 64, 1));
     check(slice(file, 104, 12)
-          == (Bytes {0xff, 0xff, 0x7f, 0xff, 0xff, 0x7f, 0x00, 0x00, 0x80, 0x00, 0x00, 0x80}));
+          == (Bytes {0xff,
+                     0xff,
+                     0x7f,
+                     0xff,
+                     0xff,
+                     0x7f,
+                     0x00,
+                     0x00,
+                     0x80,
+                     0x00,
+                     0x00,
+                     0x80}));
 };
 } // namespace
 } // namespace FilesWavWriterTests
