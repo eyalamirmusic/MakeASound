@@ -2,7 +2,7 @@
 
 // Internal: the per-platform part of FileSource and FileSink. Opening a path and
 // 64-bit seeks and tells differ between POSIX (fopen, fseeko, ftello) and Windows
-// (_wfopen_s, _fseeki64, _ftelli64); FileAccess-Default.cpp and
+// (_wfsopen, _fseeki64, _ftelli64); FileAccess-Default.cpp and
 // FileAccess-Windows.cpp each implement these, and CMake picks one.
 
 #include <cstdint>

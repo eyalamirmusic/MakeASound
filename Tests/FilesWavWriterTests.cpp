@@ -716,8 +716,8 @@ auto tSmplBytes = test("Files/WavWriter/smplLayout") = []
 auto tInstBytes = test("Files/WavWriter/instLayout") = []
 {
     auto inst = Files::Inst {};
-    inst.baseNote = 61;
-    inst.detune = -12;
+    inst.unshiftedNote = 61;
+    inst.fineTune = -12;
     inst.gain = -3;
     inst.lowNote = 10;
     inst.highNote = 100;
@@ -812,8 +812,8 @@ auto tAcidBytes = test("Files/WavWriter/acidLayout") = []
     auto acid = Files::Acid {};
     acid.flags = 0x02 | 0x04;
     acid.rootNote = 48;
-    acid.reserved1 = 0x8000;
-    acid.reserved2 = 0.5f;
+    acid.unknown1 = 0x8000;
+    acid.unknown2 = 0.5f;
     acid.numBeats = 8;
     acid.meterDenominator = 4;
     acid.meterNumerator = 3;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 namespace MakeASound::Files
@@ -29,7 +30,10 @@ int MemorySource::read(std::int64_t offset, Span<std::uint8_t> dest) noexcept
     if (offset < 0 || offset >= total || dest.empty())
         return 0;
 
-    auto count = std::min((std::int64_t) dest.getSize(), total - offset);
+    // The count comes back as an int, so a larger request copies INT_MAX bytes.
+    auto count = std::min({(std::int64_t) dest.getSize(),
+                           total - offset,
+                           (std::int64_t) std::numeric_limits<int>::max()});
     std::memcpy(dest.data(), view.data() + offset, (std::size_t) count);
     return (int) count;
 }

@@ -167,8 +167,8 @@ void appendChunk(ByteBuilder& out, const Smpl& smpl)
 void appendChunk(ByteBuilder& out, const Inst& inst)
 {
     auto payload = ByteBuilder {};
-    payload.u8(inst.baseNote)
-        .u8((std::uint8_t) inst.detune)
+    payload.u8(inst.unshiftedNote)
+        .u8((std::uint8_t) inst.fineTune)
         .u8((std::uint8_t) inst.gain)
         .u8(inst.lowNote)
         .u8(inst.highNote)
@@ -245,8 +245,8 @@ void appendChunk(ByteBuilder& out, const Acid& acid)
     auto payload = ByteBuilder {};
     payload.u32(acid.flags)
         .u16(acid.rootNote)
-        .u16(acid.reserved1)
-        .u32(std::bit_cast<std::uint32_t>(acid.reserved2))
+        .u16(acid.unknown1)
+        .u32(std::bit_cast<std::uint32_t>(acid.unknown2))
         .u32(acid.numBeats)
         .u16(acid.meterDenominator)
         .u16(acid.meterNumerator)
@@ -442,8 +442,20 @@ constexpr auto maxRiffSize = std::uint64_t {0xffffffffu};
 
 WavWriter::~WavWriter()
 {
-    if (sink != nullptr)
+    if (sink == nullptr)
+        return;
+
+    // finish() builds the final header and asks the sink to write it, either of
+    // which may throw (std::bad_alloc, a consumer's sink); nothing may leave a
+    // destructor. A caller that needs to know calls finish() itself.
+    try
+    {
         finish();
+    }
+    catch (...)
+    {
+        sink = nullptr;
+    }
 }
 
 bool WavWriter::open(ByteSink& newSink, const WavWriterOptions& options)

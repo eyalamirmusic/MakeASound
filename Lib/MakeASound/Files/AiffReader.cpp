@@ -170,9 +170,11 @@ bool AiffReader::open(ByteSource& newSource)
 
         if (id == FourCC("COMM") && !commonSeen)
         {
+            // Only the first 22 bytes (the AIFF-C compression type's end) are
+            // used, whatever the size field says.
             commonSeen = true;
-            auto bytes =
-                Detail::readChunkBytes(newSource, payload, std::min(size, room));
+            auto bytes = Detail::readChunkBytes(
+                newSource, payload, std::min({size, room, std::int64_t {22}}));
             common =
                 parseCommon({bytes.data(), (std::int64_t) bytes.size()}, isAifc);
         }

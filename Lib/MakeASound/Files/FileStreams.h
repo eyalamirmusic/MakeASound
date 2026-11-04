@@ -32,10 +32,16 @@ private:
 // A ByteSink that creates (or truncates) a file and writes to it, with 64-bit
 // offsets on every platform. The file is closed when the sink is destroyed or
 // close() is called.
+//
+// Writes are buffered, so an error such as a full disk may only show when the
+// buffer is flushed: call close() and check it before trusting the file. The
+// destructor closes a file still open but has no way to report a failure.
 class FileSink : public ByteSink
 {
 public:
     explicit FileSink(const std::filesystem::path& path);
+
+    // Closes the file if close() was not called; a failure there is lost.
     ~FileSink() override;
 
     FileSink(const FileSink&) = delete;

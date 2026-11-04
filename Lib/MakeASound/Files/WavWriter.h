@@ -58,7 +58,8 @@ class WavWriter
 public:
     WavWriter() = default;
 
-    // Finishes the file if open() succeeded and finish() was not called.
+    // Finishes the file if open() succeeded and finish() was not called. Its result
+    // (and any exception from the sink) is lost there: call finish() to know.
     ~WavWriter();
 
     WavWriter(const WavWriter&) = delete;
@@ -82,6 +83,10 @@ public:
     // data, rewrites the header with the final sizes (as RF64 if they need it) and
     // leaves the sink's position at the end of the file. The writer is closed
     // afterwards. False if it was not open or a sink operation failed.
+    //
+    // True means the sink accepted every byte, not that they reached a disk: a
+    // FileSink buffers, so a full disk can show only when it flushes. Check
+    // FileSink::close() as well before trusting the file.
     bool finish();
 
     std::int64_t framesWritten() const noexcept;

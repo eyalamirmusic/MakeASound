@@ -252,23 +252,25 @@ void read(const FrameLayout& layout,
 std::vector<std::uint8_t>
     readChunkBytes(ByteSource& source, std::int64_t offset, std::int64_t count)
 {
-    constexpr auto blockBytes = std::int64_t {1} << 30;
-    auto bytes =
-        std::vector<std::uint8_t>((std::size_t) std::max<std::int64_t>(0, count));
-    auto done = std::int64_t {0};
+    // Grown a block at a time as the bytes arrive, so a size field that promises
+    // more than the source holds costs only what is really there.
+    constexpr auto blockBytes = std::int64_t {1} << 16;
+    auto bytes = std::vector<std::uint8_t>();
 
-    while (done < count)
+    while ((std::int64_t) bytes.size() < count)
     {
+        auto done = (std::int64_t) bytes.size();
         auto block = std::min(blockBytes, count - done);
+        bytes.resize((std::size_t) (done + block));
+
         auto got = source.read(offset + done,
                                Span<std::uint8_t>(bytes.data() + done, block));
-        done += got;
+        bytes.resize((std::size_t) (done + std::max(got, 0)));
 
         if (got < block)
             break;
     }
 
-    bytes.resize((std::size_t) done);
     return bytes;
 }
 

@@ -14,6 +14,15 @@ namespace WavParsing
 {
 using Detail::PresentBytes;
 
+// Limits on what a file can make open() hold, whatever its chunk sizes say: the
+// bytes read of a format chunk (the extensible form's 40 are all this reader
+// uses), the bytes of one metadata chunk (a larger one is skipped), the number of
+// metadata chunks kept, and the entries kept from one LIST.
+constexpr auto formatBytesUsed = std::int64_t {40};
+constexpr auto maxMetadataChunkBytes = std::int64_t {16} << 20;
+constexpr auto maxMetadataChunks = 4096;
+constexpr auto maxListEntries = 4096;
+
 FourCC fourCCAt(const std::uint8_t* bytes) noexcept
 {
     return FourCC::fromLittleEndian(Detail::loadU32LE(bytes));
@@ -177,15 +186,23 @@ Cue parseCue(PresentBytes payload)
     return cue;
 }
 
-// Calls visit(id, entryPayload) for each sub-chunk of a LIST after its type.
+// Calls visit(id, entryPayload) for each sub-chunk of a LIST after its type, until
+// the visitor has kept maxListEntries of them (it returns whether it kept one), so
+// a list of many empty entries cannot cost a struct each without limit.
 template <typename Visitor>
 void forEachListEntry(PresentBytes payload, Visitor&& visit)
 {
-    for (auto at = std::int64_t {4}; at + 8 <= payload.size;)
+    auto kept = 0;
+
+    for (auto at = std::int64_t {4};
+         at + 8 <= payload.size && kept < maxListEntries;)
     {
         auto id = FourCC::fromLittleEndian(payload.u32(at));
         auto size = (std::int64_t) payload.u32(at + 4);
-        visit(id, payload.range(at + 8, size));
+
+        if (visit(id, payload.range(at + 8, size)))
+            ++kept;
+
         at += 8 + size + (size & 1);
     }
 }
@@ -211,20 +228,18 @@ CueRegion parseCueRegion(PresentBytes entry)
 
 Chunk parseList(PresentBytes payload)
 {
-    auto raw = RawChunk {"LIST", {payload.bytes, payload.bytes + payload.size}};
-
-    if (payload.size < 4)
-        return raw;
-
-    auto type = FourCC::fromLittleEndian(payload.u32(0));
+    auto type =
+        payload.size < 4 ? FourCC() : FourCC::fromLittleEndian(payload.u32(0));
 
     if (type == FourCC("INFO") || type == FourCC("info"))
     {
         auto info = ListInfo {};
-        forEachListEntry(
-            payload,
-            [&](FourCC id, PresentBytes entry)
-            { info.entries.push_back({id, entry.text(0, entry.size)}); });
+        forEachListEntry(payload,
+                         [&](FourCC id, PresentBytes entry)
+                         {
+                             info.entries.push_back({id, entry.text(0, entry.size)});
+                             return true;
+                         });
         return info;
     }
 
@@ -240,11 +255,17 @@ Chunk parseList(PresentBytes payload)
                                  data.notes.push_back(parseCueLabel(entry));
                              else if (id == FourCC("ltxt"))
                                  data.regions.push_back(parseCueRegion(entry));
+                             else
+                                 return false;
+
+                             return true;
                          });
         return data;
     }
 
-    return raw;
+    // Too short for a type, or a type this reader does not parse: the bytes as
+    // they are, type included.
+    return RawChunk {"LIST", {payload.bytes, payload.bytes + payload.size}};
 }
 
 Acid parseAcid(PresentBytes payload) noexcept
@@ -252,8 +273,8 @@ Acid parseAcid(PresentBytes payload) noexcept
     auto acid = Acid {};
     acid.flags = payload.u32(0);
     acid.rootNote = payload.u16(4);
-    acid.reserved1 = payload.u16(6);
-    acid.reserved2 = std::bit_cast<float>(payload.u32(8));
+    acid.unknown1 = payload.u16(6);
+    acid.unknown2 = std::bit_cast<float>(payload.u32(8));
     acid.numBeats = payload.u32(12);
     acid.meterDenominator = payload.u16(16);
     acid.meterNumerator = payload.u16(18);
@@ -427,12 +448,14 @@ bool WavReader::open(ByteSource& newSource)
             if (!formatSeen)
             {
                 formatSeen = true;
-                auto bytes = Detail::readChunkBytes(newSource, payload, available);
+                auto bytes = Detail::readChunkBytes(
+                    newSource, payload, std::min(available, formatBytesUsed));
                 formatAccepted =
                     parseFormat({bytes.data(), (std::int64_t) bytes.size()}, format);
             }
         }
-        else if (!isSkipped(id))
+        else if (!isSkipped(id) && available <= maxMetadataChunkBytes
+                 && (int) metadata.chunks.size() < maxMetadataChunks)
         {
             auto bytes = Detail::readChunkBytes(newSource, payload, available);
             metadata.chunks.push_back(parseChunk(id, bytes));

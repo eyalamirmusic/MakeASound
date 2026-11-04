@@ -67,8 +67,8 @@ struct Smpl
 // 'inst', the instrument chunk: seven bytes.
 struct Inst
 {
-    std::uint8_t baseNote = 60;
-    std::int8_t detune = 0; // cents
+    std::uint8_t unshiftedNote = 60; // MIDI note
+    std::int8_t fineTune = 0; // cents
     std::int8_t gain = 0; // dB
     std::uint8_t lowNote = 0;
     std::uint8_t highNote = 127;
@@ -157,8 +157,8 @@ struct Acid
     std::uint32_t flags = 0; // 0x01 one shot, 0x02 root set, 0x04 stretch,
     // 0x08 disk based, 0x10 the fifth flag
     std::uint16_t rootNote = 0;
-    std::uint16_t reserved1 = 0;
-    float reserved2 = 0.0f;
+    std::uint16_t unknown1 = 0; // undocumented; kept as stored
+    float unknown2 = 0.0f; // undocumented; kept as stored
     std::uint32_t numBeats = 0;
     std::uint16_t meterDenominator = 0;
     std::uint16_t meterNumerator = 0;

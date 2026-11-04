@@ -3,7 +3,8 @@
 // Builders shared by the Files*Tests suites: byte-by-byte file construction,
 // the synthetic input the pinned WAV files were made from, and small read/write
 // shortcuts. Everything is inline and lives in FilesTestHelpers, so the suites
-// can share one unity batch.
+// can share one unity batch, except the allocation watch, whose replacement of the
+// global operator new lives in FilesAllocationHook.cpp.
 
 #include <MakeASound/Files/MakeASoundFiles.h>
 
@@ -24,6 +25,27 @@ using Bytes = std::vector<std::uint8_t>;
 using Channels = std::vector<std::vector<float>>;
 
 namespace Files = MakeASound::Files;
+
+// What the global operator new was asked for between start and stop, on any thread
+// (the suites run one case at a time). Call check() only after stopping: it
+// allocates as it formats.
+struct AllocationStats
+{
+    std::int64_t count = 0;
+    std::size_t largest = 0;
+    std::size_t total = 0;
+};
+
+void startWatchingAllocations() noexcept;
+AllocationStats stopWatchingAllocations() noexcept;
+
+template <typename Fn>
+AllocationStats allocationsIn(Fn&& fn)
+{
+    startWatchingAllocations();
+    fn();
+    return stopWatchingAllocations();
+}
 
 // Appends numbers and text in either byte order.
 struct ByteWriter

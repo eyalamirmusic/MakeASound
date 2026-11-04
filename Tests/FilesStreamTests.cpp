@@ -422,7 +422,7 @@ auto tStructDefaults = test("Files/Streams/chunkDefaults") = []
     check(smpl.loops.empty() && smpl.extraBytes.empty());
 
     auto inst = Files::Inst {};
-    check(inst.baseNote == 60 && inst.detune == 0 && inst.gain == 0);
+    check(inst.unshiftedNote == 60 && inst.fineTune == 0 && inst.gain == 0);
     check(inst.lowNote == 0 && inst.highNote == 127);
     check(inst.lowVelocity == 1 && inst.highVelocity == 127);
 

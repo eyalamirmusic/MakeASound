@@ -2,6 +2,7 @@
 #include "FileAccess.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace MakeASound::Files
 {
@@ -48,7 +49,10 @@ int FileSource::read(std::int64_t offset, Span<std::uint8_t> dest) noexcept
     if (file == nullptr || offset < 0 || offset >= fileSize || dest.empty())
         return 0;
 
-    auto count = std::min((std::int64_t) dest.getSize(), fileSize - offset);
+    // The count comes back as an int, so a larger request reads INT_MAX bytes.
+    auto count = std::min({(std::int64_t) dest.getSize(),
+                           fileSize - offset,
+                           (std::int64_t) std::numeric_limits<int>::max()});
 
     if (!Detail::seekFile(file, offset, SEEK_SET))
         return 0;

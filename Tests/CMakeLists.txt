@@ -57,7 +57,8 @@ _makeasound_test_unity(MakeASoundCoreTests)
 # runs in a core-only build too.
 nano_add_executable(MakeASoundFilesTests
         SOURCES FilesWavReaderTests.cpp FilesWavWriterTests.cpp
-        FilesAiffReaderTests.cpp FilesStreamTests.cpp
+        FilesAiffReaderTests.cpp FilesStreamTests.cpp FilesHardeningTests.cpp
+        FilesAllocationHook.cpp
         TARGETS MakeASoundFiles)
 set_target_properties(MakeASoundFilesTests PROPERTIES
         INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
