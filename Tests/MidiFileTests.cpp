@@ -1091,8 +1091,11 @@ auto tSmpteSeconds = test("MidiFile/Smpte/secondsAreTicksOverFramesTimesTicks") 
     check(fileOf(smpteTimeFormat(30, 80), {}).ticksToSeconds(2400) == 1.0);
     check(fileOf(smpteTimeFormat(24, 4), {}).ticksToSeconds(48) == 0.5);
 
-    // Code 29 is used as 29 frames per second, not 29.97.
-    check(fileOf(smpteTimeFormat(29, 100), {}).ticksToSeconds(2900) == 1.0);
+    // Code 29 is 30 drop-frame: 29.97 frames per second (29.97 * 100 rounds to
+    // exactly 2997). Codes 24, 25 and 30 are literal.
+    check(fileOf(smpteTimeFormat(29, 100), {}).ticksToSeconds(2997) == 1.0);
+    check(fileOf(smpteTimeFormat(29, 100), {}).ticksToSeconds(2900)
+          == 2900.0 / 2997.0);
 };
 
 auto tSmpteFile = test("MidiFile/Smpte/readsAndRewritesTheSyntheticFile") = []
