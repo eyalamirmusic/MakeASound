@@ -8,6 +8,7 @@ set(CMAKE_FOLDER Lib)
 add_library(MakeASoundCore STATIC
         MakeASound/Audio/Buffer.cpp
         MakeASound/Audio/ProcessContext.cpp
+        MakeASound/MIDI/MidiFile.cpp
         MakeASound/MIDI/MidiInfo.cpp
         MakeASound/MIDI/MidiParser.cpp
         MakeASound/MIDI/MIDI.cpp)
