@@ -269,21 +269,28 @@ tresult PLUGIN_API Adapter::setState(IBStream* state)
         // A session a JUCE build of the plugin saved goes to the plugin's
         // loadForeignState; off the message thread the wrapper queues it and
         // raises parameterValuesChanged once it ran, which repeats what follows.
-        if (isJuceState(document))
-            pluginWrapper.loadForeignState(Compat::juceVST3State(document, context));
-        else
-            pluginWrapper.loadState(document, context);
+        auto result = isJuceState(document)
+                          ? pluginWrapper.loadForeignState(
+                                Compat::juceVST3State(document, context))
+                          : pluginWrapper.loadState(document, context);
 
-        // The host re-reads every value, so the next block sends none of them.
+        // Not a document the plugin knows: nothing moved, and the load is fine.
+        if (result == PluginWrapper::StateLoad::Declined)
+            return Steinberg::kResultOk;
+
+        // The host re-reads every value, so the next block sends none of them;
+        // after a failed load too, whose parameters may have moved first.
         takeAllAsBaseline();
         notifyHostParamValuesChanged();
         notifyHostIfLatencyChanged();
+
+        return result == PluginWrapper::StateLoad::Failed ? Steinberg::kResultFalse
+                                                          : Steinberg::kResultOk;
     }
     catch (...)
     {
+        return Steinberg::kResultFalse;
     }
-
-    return Steinberg::kResultOk;
 }
 
 tresult PLUGIN_API Adapter::getState(IBStream* state)

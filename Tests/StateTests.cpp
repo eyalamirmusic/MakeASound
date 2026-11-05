@@ -6,6 +6,7 @@
 #include <NanoTest/NanoTest.h>
 
 #include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -584,6 +585,51 @@ auto tExceptParams = test("State/deserializeExceptParamsLeavesParameters") = []
 
     state.deserialize(R"({"params":{"Gain":0.2}})");
     check(near(state.params.gain.get(), 0.2f));
+};
+
+// A state whose own members cannot load while `throwOnLoad` is set.
+struct ThrowingToneState : State<ToneParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        State::reflect(ref);
+
+        if (ref.isLoading() && throwOnLoad)
+            throw std::runtime_error("ThrowingToneState: corrupt document");
+
+        ref["preset"](preset);
+    }
+
+    bool throwOnLoad = true;
+    std::string preset = "Init";
+};
+
+// A load whose reflect() throws past the parameters must not leave the next save
+// without them: every save after it still writes `params`, and a later load
+// moves them. (Miro's fromJSON swallows the throw today; were it to let it
+// through, the flag must still be cleared.)
+auto tThrowingExceptParams = test("State/aThrowingLoadStillSavesTheParameters") = []
+{
+    auto state = ThrowingToneState {};
+    state.params.gain.setValue(0.9f);
+
+    try
+    {
+        state.deserializeExceptParams(R"({"params":{"Gain":0.2},"preset":"X"})");
+    }
+    catch (const std::runtime_error&)
+    {
+    }
+
+    check(state.preset == "Init");
+    check(near(state.params.gain.get(), 0.9f));
+    check(contains(state.serialize(), R"("params")"));
+    check(contains(state.serialize(StateContext::Session), R"("Gain")"));
+
+    state.throwOnLoad = false;
+    state.deserialize(R"({"params":{"Gain":0.2},"preset":"Other"})");
+    check(near(state.params.gain.get(), 0.2f));
+    check(state.preset == "Other");
 };
 
 auto tWrongType = test("State/aWrongTypedValueRestoresTheDefault") = []

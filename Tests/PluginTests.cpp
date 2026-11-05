@@ -110,6 +110,8 @@ PluginWrapper makeWrapper(PluginFormat format = PluginFormat::Unknown)
     return PluginWrapper(EA::makeOwned<T>(), format);
 }
 
+using StateLoad = PluginWrapper::StateLoad;
+
 template <typename T>
 T& pluginOf(PluginWrapper& wrapper)
 {
@@ -1563,9 +1565,14 @@ struct LegacyEffectOf : StatePlugin<GainStateOf<ParamsT>>
         if (const auto* preset = root->property("preset"))
             this->state.preset = *preset;
 
+        // Its own state, corrupt past the parameters it already took.
+        if (throwAfterLoad)
+            throw std::runtime_error("LegacyEffect: corrupt legacy state");
+
         return true;
     }
 
+    bool throwAfterLoad = false;
     int legacyLoads = 0;
     ForeignOrigin lastOrigin = ForeignOrigin::JuceVST3;
     std::optional<bool> lastBypass;
@@ -1628,11 +1635,12 @@ std::string legacyDocument(float cutoff, const std::string& preset)
 auto tForeignDefault = test("Plugin/aPluginTakesNoForeignStateByDefault") = []
 {
     auto wrapper = makeWrapper();
-    check(!wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true))
+          == StateLoad::Declined);
     check(!isBypassed(wrapper));
 
     auto plain = PluginWrapper(EA::makeOwned<ThrowingPlugin>());
-    check(!plain.loadForeignState(foreignState(legacyBlob)));
+    check(plain.loadForeignState(foreignState(legacyBlob)) == StateLoad::Declined);
 };
 
 auto tForeignInline = test("Plugin/aForeignStateLoadsAtOnceOnTheMessageThread") = []
@@ -1644,7 +1652,7 @@ auto tForeignInline = test("Plugin/aForeignStateLoadsAtOnceOnTheMessageThread") 
 
     auto state = foreignState(legacyBlob, true);
     state.origin = ForeignOrigin::JuceAAX;
-    check(wrapper.loadForeignState(state));
+    check(wrapper.loadForeignState(state) == StateLoad::Taken);
 
     check(plugin.legacyLoads == 1);
     check(plugin.lastOrigin == ForeignOrigin::JuceAAX);
@@ -1669,13 +1677,15 @@ auto tForeignRefused = test("Plugin/aRefusedForeignStateLeavesTheBypass") = []
     auto wrapper = makeWrapper<LegacyEffect>();
     auto& plugin = pluginOf<LegacyEffect>(wrapper);
 
-    check(!wrapper.loadForeignState(foreignState("not a JUCE state", true)));
+    check(wrapper.loadForeignState(foreignState("not a JUCE state", true))
+          == StateLoad::Declined);
     check(plugin.legacyLoads == 1);
     check(!isBypassed(wrapper));
 
     auto otherRoot =
         juceBlob("<Other><PARAM id=\"cutoff\" value=\"440.0\"/></Other>");
-    check(!wrapper.loadForeignState(foreignState(otherRoot, true)));
+    check(wrapper.loadForeignState(foreignState(otherRoot, true))
+          == StateLoad::Declined);
     check(near(plugin.params.cutoff.get(), 1000.f));
 };
 
@@ -1684,13 +1694,14 @@ auto tForeignPreset = test("Plugin/aForeignPresetLeavesTheAddedBypass") = []
     auto wrapper = makeWrapper<LegacyEffect>();
 
     check(wrapper.loadForeignState(
-        foreignState(legacyBlob, true, StateContext::Preset)));
+              foreignState(legacyBlob, true, StateContext::Preset))
+          == StateLoad::Taken);
     check(near(pluginOf<LegacyEffect>(wrapper).params.cutoff.get(), 440.f));
     check(!isBypassed(wrapper));
 
     // A state that carries no bypass leaves it where it was, as JUCE does.
     setBypass(wrapper, true);
-    check(wrapper.loadForeignState(foreignState(legacyBlob)));
+    check(wrapper.loadForeignState(foreignState(legacyBlob)) == StateLoad::Taken);
     check(isBypassed(wrapper));
 };
 
@@ -1701,7 +1712,8 @@ auto tForeignOwnBypass =
     auto& plugin = pluginOf<LegacyOwnBypassEffect>(wrapper);
     check(!PluginWrapper::addsBypass(plugin, nativeIdentity));
 
-    check(wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true))
+          == StateLoad::Taken);
     check(plugin.lastBypass == std::optional {true});
     check(!plugin.params.bypass.isOn());
 };
@@ -1721,7 +1733,8 @@ auto tForeignInstrumentBypass =
     check(wrapper.plugin().parameters().entry(2).addedBypass);
     check(!isBypassed(wrapper));
 
-    check(wrapper.loadForeignState(foreignState(legacyBlob, true)));
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true))
+          == StateLoad::Taken);
     check(isBypassed(wrapper));
 
     auto session = wrapper.saveState(StateContext::Session);
@@ -1735,7 +1748,8 @@ auto tForeignInstrumentBypass =
     // Under MakeASound's scheme there is none for it to land on.
     auto native = makeWrapper<LegacyInstrument>();
     check(native.plugin().parameters().bypassIndex() < 0);
-    check(native.loadForeignState(foreignState(legacyBlob, true)));
+    check(native.loadForeignState(foreignState(legacyBlob, true))
+          == StateLoad::Taken);
 };
 
 auto tForeignDeferred = test("Plugin/aForeignStateFromAnotherThreadLoadsLater") = []
@@ -1745,7 +1759,7 @@ auto tForeignDeferred = test("Plugin/aForeignStateFromAnotherThreadLoadsLater") 
     auto listener = NotificationCounter {};
     plugin.setHostEditListener(&listener);
 
-    auto taken = false;
+    auto taken = StateLoad::Declined;
 
     {
         // The bytes go before the load runs: the wrapper keeps its own copy.
@@ -1755,7 +1769,7 @@ auto tForeignDeferred = test("Plugin/aForeignStateFromAnotherThreadLoadsLater") 
         host.join();
     }
 
-    check(taken);
+    check(taken == StateLoad::Queued);
     check(plugin.legacyLoads == 0);
     check(near(plugin.params.cutoff.get(), 1000.f));
 
@@ -1799,7 +1813,7 @@ auto tNativeThenForeign = test("Plugin/aForeignStateDropsAQueuedNativeLoad") = [
     host.join();
     check(near(plugin.params.cutoff.get(), 100.f));
 
-    check(wrapper.loadForeignState(foreignState(legacyBlob)));
+    check(wrapper.loadForeignState(foreignState(legacyBlob)) == StateLoad::Taken);
     eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
 
     check(near(plugin.params.cutoff.get(), 440.f));
@@ -1840,6 +1854,133 @@ auto tForeignTeardown = test("Plugin/aForeignStateQueuedPastTeardownDrops") = []
 
     eacp::Threads::runEventLoopFor(eacp::Time::MS {100});
     check(legacyLoadsEver == 0);
+};
+
+// A load the plugin throws from on the message thread is reported, not thrown:
+// the parameters it took first stay, as the host will read them.
+auto tThrowingInline =
+    test("Plugin/aThrowingLoadOnTheMessageThreadIsReportedNotThrown") = []
+{
+    auto document = sessionDocument(-6.f, "Corrupt");
+    auto wrapper = makeWrapper<ThrowingLoadGain>();
+    auto& plugin = pluginOf<ThrowingLoadGain>(wrapper);
+
+    auto escaped = false;
+    auto result = StateLoad::Taken;
+
+    try
+    {
+        result = wrapper.loadState(document, StateContext::Session);
+    }
+    catch (...)
+    {
+        escaped = true;
+    }
+
+    check(!escaped);
+    check(result == StateLoad::Failed);
+    check(near(plugin.params.gain.getValue(), -6.f));
+
+    // The next save still carries what landed.
+    plugin.throwOnLoad = false;
+    auto again = makeWrapper();
+    check(again.loadState(wrapper.saveState(StateContext::Session),
+                          StateContext::Session)
+          == StateLoad::Taken);
+    check(near(pluginOf<GainPlugin>(again).params.gain.getValue(), -6.f));
+};
+
+// On the message thread a foreign state the plugin throws on is Failed, not
+// Declined: it was the plugin's, and what it took before the throw stands.
+auto tThrowingForeignInline =
+    test("Plugin/aForeignStateThePluginThrowsOnIsFailedNotDeclined") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+    plugin.throwAfterLoad = true;
+
+    check(wrapper.loadForeignState(foreignState("not a JUCE state"))
+          == StateLoad::Declined);
+    check(near(plugin.params.cutoff.get(), 1000.f));
+
+    check(wrapper.loadForeignState(foreignState(legacyBlob, true))
+          == StateLoad::Failed);
+    check(near(plugin.params.cutoff.get(), 440.f));
+
+    // A failed load sets no added bypass from the state.
+    check(!isBypassed(wrapper));
+};
+
+// Queued from another thread, a load the plugin throws stays inside the queued
+// call: nothing reaches the event loop, and since the parameters landed before
+// the throw, the host is told to re-read them.
+auto tThrowingQueued =
+    test("Plugin/aThrowingLoadFromAnotherThreadNeverEscapesTheEventLoop") = []
+{
+    auto document = sessionDocument(-6.f, "Corrupt");
+    auto wrapper = makeWrapper<ThrowingLoadGain>();
+    auto& plugin = pluginOf<ThrowingLoadGain>(wrapper);
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto result = StateLoad::Failed;
+    std::thread([&] { result = wrapper.loadState(document, StateContext::Session); })
+        .join();
+    check(result == StateLoad::Queued);
+    check(near(plugin.params.gain.getValue(), -6.f));
+
+    auto escaped = false;
+    auto told = false;
+
+    try
+    {
+        told = pumpUntil([&] { return listener.values >= 1; });
+    }
+    catch (...)
+    {
+        escaped = true;
+    }
+
+    check(!escaped);
+    check(told);
+    check(near(plugin.params.gain.getValue(), -6.f));
+
+    plugin.setHostEditListener(nullptr);
+};
+
+// A foreign state the plugin throws on, queued: what it took before the throw
+// is the host's to re-read, as after one it took.
+auto tThrowingForeignQueued =
+    test("Plugin/aThrowingForeignStateFromAnotherThreadTellsTheHost") = []
+{
+    auto wrapper = makeWrapper<LegacyEffect>();
+    auto& plugin = pluginOf<LegacyEffect>(wrapper);
+    plugin.throwAfterLoad = true;
+    auto listener = NotificationCounter {};
+    plugin.setHostEditListener(&listener);
+
+    auto result = StateLoad::Failed;
+    std::thread([&] { result = wrapper.loadForeignState(foreignState(legacyBlob)); })
+        .join();
+    check(result == StateLoad::Queued);
+
+    auto escaped = false;
+
+    try
+    {
+        check(pumpUntil([&] { return plugin.legacyLoads == 1; }));
+        eacp::Threads::runEventLoopFor(eacp::Time::MS {50});
+    }
+    catch (...)
+    {
+        escaped = true;
+    }
+
+    check(!escaped);
+    check(near(plugin.params.cutoff.get(), 440.f));
+    check(listener.values == 1);
+
+    plugin.setHostEditListener(nullptr);
 };
 
 // A plugin whose parameter is renamed at run time, as a hosted plugin's is.

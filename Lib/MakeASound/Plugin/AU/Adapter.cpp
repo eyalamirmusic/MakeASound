@@ -1042,12 +1042,13 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
     if (result != noErr)
         return result;
 
+    auto load = PluginWrapper::StateLoad::Taken;
+
     try
     {
         if (document)
         {
-            pluginWrapper.loadState(*document, StateContext::Session);
-            mirrorParametersToHost();
+            load = pluginWrapper.loadState(*document, StateContext::Session);
         }
         else if (foreignBytes)
         {
@@ -1059,13 +1060,20 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
             // Off the message thread the load runs later, and its
             // parameterValuesChanged mirrors again; Plug's document, where the
             // identity makes it native, sets the parameters now, as ours does.
-            pluginWrapper.loadForeignState(foreign);
-            mirrorParametersToHost();
+            load = pluginWrapper.loadForeignState(foreign);
         }
         else
         {
             pushParametersToPlugin();
         }
+
+        // Not a document the plugin knows: nothing moved, and the load is fine.
+        if (load == PluginWrapper::StateLoad::Declined)
+            return noErr;
+
+        // After a failed load too, whose parameters may have moved first.
+        if (document || foreignBytes)
+            mirrorParametersToHost();
 
         // Now, from the restoring thread, as JUCE's AU posts its values from
         // setStateInformation: each event reads the restored value. Off the
@@ -1082,9 +1090,12 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
     }
     catch (...)
     {
+        return kAudioUnitErr_InvalidPropertyValue;
     }
 
-    return noErr;
+    return load == PluginWrapper::StateLoad::Failed
+               ? OSStatus {kAudioUnitErr_InvalidPropertyValue}
+               : OSStatus {noErr};
 }
 
 void Adapter::reconcileParameters() noexcept

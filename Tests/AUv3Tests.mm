@@ -1006,6 +1006,43 @@ auto tStateForms = test("AUv3/fullStateIsAPresetAndTheDocumentsASession") = []
     check(near(target.parameterFor(params.width).value, 0.9f));
 };
 
+// The setter has no error to return: a document the plugin throws on is caught,
+// and the tree reads the parameters it took first.
+auto tStateThrowing =
+    test("AUv3/aThrowingLoadIsCaughtAndTheTreeReadsItsParameters") = []
+{
+    auto source = UnitHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+    auto* saved = source.unit.fullStateForDocument;
+
+    auto standIn = ScopedStandIn<ThrowingLoadGain>(Module::gainStandIn);
+    auto target = UnitHost<ThrowingLoadGain>("Gain");
+    const auto& params = target.plugin().params;
+
+    auto escaped = false;
+
+    @try
+    {
+        try
+        {
+            target.unit.fullStateForDocument = saved;
+        }
+        catch (...)
+        {
+            escaped = true;
+        }
+    }
+    @catch (NSException*)
+    {
+        escaped = true;
+    }
+
+    check(!escaped);
+    check(near(params.gain.getValue(), -12.f));
+    check(near(target.parameterFor(params.gain).value, -12.f));
+    check(near(target.parameterFor(params.mode).value, 2.f));
+};
+
 auto tStateInserted = test("AUv3/aParameterInsertedMidListKeepsTheOthers") = []
 {
     auto source = UnitHost<GainPlugin>("Gain");

@@ -8,6 +8,7 @@
 
 #include <array>
 #include <functional>
+#include <stdexcept>
 #include <string>
 
 namespace TestPlugins
@@ -185,6 +186,31 @@ using NewerGainPlugin = GainPluginOf<NewerGainParams>;
 struct NoEditorGainPlugin : GainPlugin
 {
     bool hasEditor() const override { return false; }
+};
+
+// The gain whose document is corrupt past its parameters while `throwOnLoad` is
+// set: loadParameters() takes them, and the rest of the load throws, from any
+// thread. A format suite stands it in under the gain's codes.
+struct ThrowingLoadGain : GainPlugin
+{
+    void loadState(std::string_view data, StateContext context) override
+    {
+        if (throwOnLoad)
+            throw std::runtime_error("ThrowingLoadGain: corrupt document");
+
+        GainPlugin::loadState(data, context);
+    }
+
+    void loadStateExceptParameters(std::string_view data,
+                                   StateContext context) override
+    {
+        if (throwOnLoad)
+            throw std::runtime_error("ThrowingLoadGain: corrupt document");
+
+        GainPlugin::loadStateExceptParameters(data, context);
+    }
+
+    bool throwOnLoad = true;
 };
 
 // The gain effect with no bypass parameter, which PluginWrapper gives one of its

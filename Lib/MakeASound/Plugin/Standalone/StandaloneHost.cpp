@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 
 namespace MakeASound::Standalone
@@ -136,11 +137,55 @@ void StandaloneHost::restoreSession()
     }
 
     if (saved && !saved->pluginState.empty())
-        pluginWrapper.loadState(saved->pluginState, StateContext::Session);
+        loadSavedPluginState(saved->pluginState);
     else if (!saved)
         importJuceSettings();
 
     fallback = deviceManager.getDefaultOutputConfig();
+}
+
+void StandaloneHost::loadSavedPluginState(const std::string& document)
+{
+    // Thrown out of construction this would end every launch the same way. The
+    // file is kept beside itself instead, since the next save replaces it with
+    // what the plugin now holds (which may include the file's parameters: the
+    // wrapper applies them before the plugin's own load). Construction is on
+    // the message thread, so the whole load has run when loadState returns.
+    try
+    {
+        auto result = pluginWrapper.loadState(document, StateContext::Session);
+
+        if (result == PluginWrapper::StateLoad::Failed)
+            keepRejectedSession("the plugin's load threw");
+    }
+    catch (const std::exception& e)
+    {
+        keepRejectedSession(e.what());
+    }
+    catch (...)
+    {
+        keepRejectedSession("unknown exception");
+    }
+}
+
+void StandaloneHost::keepRejectedSession(const std::string& reason)
+{
+    auto copy = settingsPathName + ".rejected";
+    auto error = std::error_code {};
+
+    std::filesystem::copy_file(settingsPathName,
+                               copy,
+                               std::filesystem::copy_options::overwrite_existing,
+                               error);
+
+    std::cerr << "The plugin rejected the session in " << settingsPathName << ": "
+              << reason << '\n';
+
+    if (error)
+        std::cerr << "Could not keep a copy at " << copy << ": " << error.message()
+                  << '\n';
+    else
+        std::cerr << "Kept a copy at " << copy << '\n';
 }
 
 void StandaloneHost::importJuceSettings()

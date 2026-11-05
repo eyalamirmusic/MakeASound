@@ -205,9 +205,15 @@ public:
                                            StateContext context);
 
     // A state another framework wrote (a JUCE build's session, say), which the
-    // adapters hand over when the host's data holds no MakeASound document. True
-    // when the plugin took it; the default takes nothing. Parameters and the rest
-    // alike, on the message thread: Compat/ has the readers.
+    // adapters hand over when the host's data holds no MakeASound document.
+    // Parameters and the rest alike, on the message thread: Compat/ has the
+    // readers. The answer is a contract with the host:
+    // - true: the plugin took it.
+    // - false: not a document it knows. It must have moved nothing, and the host
+    //   is told the load succeeded (the plugin keeps its state). The default.
+    // - a throw: the plugin's own document, but corrupt. The host is told the
+    //   load failed, and since the plugin may have moved something first, it
+    //   re-reads every value. loadState() throwing means the same.
     virtual bool loadForeignState(const ForeignState& state);
 
     const ParameterList& parameters() const noexcept { return parameterList; }

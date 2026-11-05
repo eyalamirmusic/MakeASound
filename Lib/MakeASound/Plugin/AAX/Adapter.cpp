@@ -317,9 +317,12 @@ AAX_Result Adapter::SetChunk(AAX_CTypeID id, const AAX_SPlugInChunk* chunk)
     return guarded(
         [&]() -> AAX_Result
         {
+            auto result = PluginWrapper::StateLoad::Taken;
+
             if (id == chunkId)
             {
-                pluginWrapper->loadState(readChunk(*chunk), StateContext::Session);
+                result = pluginWrapper->loadState(readChunk(*chunk),
+                                                  StateContext::Session);
             }
             else if (id == juceChunkId)
             {
@@ -329,7 +332,7 @@ AAX_Result Adapter::SetChunk(AAX_CTypeID id, const AAX_SPlugInChunk* chunk)
                 foreign.origin = ForeignOrigin::JuceAAX;
                 foreign.bytes = readChunk(*chunk);
                 foreign.context = StateContext::Session;
-                pluginWrapper->loadForeignState(foreign);
+                result = pluginWrapper->loadForeignState(foreign);
             }
             else
             {
@@ -339,17 +342,25 @@ AAX_Result Adapter::SetChunk(AAX_CTypeID id, const AAX_SPlugInChunk* chunk)
                 // host as a set request and comes back through
                 // UpdateParameterNormalizedValue, perhaps later, so the AAX
                 // parameters already hold what they should: nothing to mirror.
-                auto result = AAX_CEffectParameters::SetChunk(id, chunk);
+                auto controls = AAX_CEffectParameters::SetChunk(id, chunk);
 
-                if (result == AAX_SUCCESS)
+                if (controls == AAX_SUCCESS)
                     notifyHostIfLatencyChanged();
 
-                return result;
+                return controls;
             }
 
+            // Not a chunk the plugin knows: nothing moved, and the load is fine.
+            if (result == PluginWrapper::StateLoad::Declined)
+                return AAX_SUCCESS;
+
+            // After a failed load too, whose parameters may have moved first.
             mirrorParametersToHost(true);
             notifyHostIfLatencyChanged();
-            return AAX_SUCCESS;
+
+            return result == PluginWrapper::StateLoad::Failed
+                       ? AAX_ERROR_MALFORMED_CHUNK
+                       : AAX_SUCCESS;
         });
 }
 

@@ -115,7 +115,7 @@ auto tPlugAsNative = test("TamberPlug/plugsAUStateLoadsWithNoLoadLegacy") = []
                                  .context = StateContext::Session};
 
     auto port = wrap(plugPort<TamberPlugFixtures::PlainSVFPort>());
-    check(port->loadForeignState(foreign));
+    check(port->loadForeignState(foreign) == PluginWrapper::StateLoad::Taken);
     check(TamberPlugFixtures::holdsSVFValues(
         static_cast<TamberPlugFixtures::PlainSVFPort&>(port->plugin()).params));
 
@@ -123,12 +123,13 @@ auto tPlugAsNative = test("TamberPlug/plugsAUStateLoadsWithNoLoadLegacy") = []
     auto juce = foreign;
     juce.origin = ForeignOrigin::JuceAU;
     auto other = wrap(plugPort<TamberPlugFixtures::PlainSVFPort>());
-    check(!other->loadForeignState(juce));
+    check(other->loadForeignState(juce) == PluginWrapper::StateLoad::Declined);
 
     // Only under the profile: a native plugin's ids are not Plug's.
     auto native = plugPort<TamberPlugFixtures::PlainSVFPort>();
     native.idScheme = IdScheme::Native;
-    check(!wrap(native)->loadForeignState(foreign));
+    check(wrap(native)->loadForeignState(foreign)
+          == PluginWrapper::StateLoad::Declined);
 };
 
 // A Plug port whose document holds more than its parameters.
@@ -165,10 +166,10 @@ auto tPlugAsNativeOffThread =
 
     auto port = wrap(plugPort<NotedSVFPort>());
     auto& state = static_cast<NotedSVFPort&>(port->plugin()).state;
-    auto taken = false;
+    auto taken = PluginWrapper::StateLoad::Declined;
     std::thread([&] { taken = port->loadForeignState(foreign); }).join();
 
-    check(taken);
+    check(taken == PluginWrapper::StateLoad::Queued);
     check(TamberPlugFixtures::holdsSVFValues(state.params));
     check(state.note.empty());
 

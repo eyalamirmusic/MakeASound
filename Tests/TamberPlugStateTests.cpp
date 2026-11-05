@@ -529,7 +529,7 @@ auto tVALoadsPlug = test("TamberPlugState/plugsNestedDocumentLoadsIntoThePort") 
                                  .bytes = plugVirtualAnalogDocument,
                                  .context = StateContext::Session};
     auto wrapper = wrap(plugPort<VAPort>());
-    check(wrapper->loadForeignState(foreign));
+    check(wrapper->loadForeignState(foreign) == PluginWrapper::StateLoad::Taken);
     check(holdsVirtualAnalogValues(static_cast<VAPort&>(wrapper->plugin()).params));
 };
 

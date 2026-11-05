@@ -20,6 +20,7 @@
 #include <map>
 #include <optional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -965,6 +966,101 @@ auto tHostReset = test("Standalone/hostResetPluginRestoresTheDefaults") = []
     auto loaded = loadSettings(file.path);
     check(loaded.has_value());
     check(!loaded->pluginState.empty());
+};
+
+// A gain whose load rejects every document it is handed.
+struct RejectingGain : GainPlugin
+{
+    void loadState(std::string_view, StateContext) override
+    {
+        throw std::runtime_error("RejectingGain refuses the state");
+    }
+
+    void loadStateExceptParameters(std::string_view, StateContext) override
+    {
+        throw std::runtime_error("RejectingGain refuses the state");
+    }
+};
+
+// MAS-0011: a saved session the plugin rejects must not throw out of the
+// host's construction (it would on every launch): the host is built and the
+// failure is reported rather than thrown. The plugin does not necessarily keep
+// its defaults: the wrapper applies the file's parameters before the plugin's
+// own document load throws, so what is left is whatever got that far, and it
+// is not pinned here.
+auto tHostRejectedSession =
+    test("Standalone/hostSurvivesASessionThePluginRejects") = []
+{
+    auto file = TempFile {};
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        gainOf(host).params.mode.setValue(2.f);
+        host.saveSettings();
+    }
+
+    auto loaded = loadSettings(file.path);
+    check(loaded.has_value());
+    check(!loaded->pluginState.empty());
+
+    auto constructed = false;
+    auto thrown = std::string {};
+
+    try
+    {
+        auto host = StandaloneHost {EA::makeOwned<RejectingGain>(), file.path};
+        constructed = true;
+    }
+    catch (const std::exception& e)
+    {
+        thrown = e.what();
+    }
+
+    check(constructed);
+    check(thrown.empty());
+};
+
+// MAS-0011: the rejected file is kept, byte for byte, at <name>.rejected beside
+// it (replacing an older copy), and the host carries on: its saves write the
+// session file as usual and leave the copy alone.
+auto tHostRejectedCopy = test("Standalone/hostKeepsARejectedSessionBesideIt") = []
+{
+    auto file = TempFile {};
+    auto rejected = file.path + ".rejected";
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+        gainOf(host).params.mode.setValue(2.f);
+        host.saveSettings();
+    }
+
+    // A session the plugin accepts leaves no copy.
+    {
+        auto host = StandaloneHost {EA::makeOwned<GainPlugin>(), file.path};
+    }
+
+    check(!std::filesystem::exists(rejected));
+
+    auto original = readText(file.path);
+    check(!original.empty());
+    writeText(rejected, "an older rejected session");
+
+    {
+        auto host = StandaloneHost {EA::makeOwned<RejectingGain>(), file.path};
+        check(readText(rejected) == original);
+
+        host.setAppSetting("key", std::string("value"));
+
+        auto loaded = loadSettings(file.path);
+        check(loaded.has_value());
+        check(loaded->app.contains("key"));
+        check(!loaded->pluginState.empty());
+        check(readText(rejected) == original);
+    }
+
+    // The destructor's save too.
+    check(loadSettings(file.path).has_value());
+    check(readText(rejected) == original);
 };
 
 auto tHostNoFile = test("Standalone/hostWithNoPathWritesNoFile") = []

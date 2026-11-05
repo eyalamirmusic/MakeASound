@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <exception>
 #include <future>
 #include <utility>
@@ -23,6 +24,27 @@ float stepTowards(float from, float target, float step) noexcept
 {
     return from < target ? std::min(target, from + step)
                          : std::max(target, from - step);
+}
+
+// A queued load has no caller to report to, and nothing it throws may reach the
+// message loop. From inside a handler only.
+void logQueuedLoadFailure(const char* kind) noexcept
+{
+    auto what = static_cast<const char*>("an unknown exception");
+
+    try
+    {
+        throw;
+    }
+    catch (const std::exception& error)
+    {
+        what = error.what();
+    }
+    catch (...)
+    {
+    }
+
+    std::fprintf(stderr, "MakeASound: a queued %s load failed: %s\n", kind, what);
 }
 
 // Before anything samples the plugin: a layout may depend on format().
@@ -305,40 +327,60 @@ std::string PluginWrapper::savePluginState(StateContext stateContext)
     return document.get_future().get();
 }
 
-void PluginWrapper::loadState(std::string_view document, StateContext stateContext)
+PluginWrapper::StateLoad PluginWrapper::loadState(std::string_view document,
+                                                  StateContext stateContext)
 {
-    auto stripped = std::string();
-    auto data = takeBypass(document, stateContext, stripped);
-
+    // Stamped first, so even a load that fails drops one still queued.
     auto stamp = live->latestLoad.fetch_add(1, std::memory_order_acq_rel) + 1;
-    pluginPtr->loadParameters(data, stateContext);
 
-    // The plugin's whole load, whatever it re-stages after the document, is the
-    // host's: nothing in it marks the host's document modified.
-    if (isMessageThread())
+    try
     {
-        auto quiet = pluginPtr->quietStateChanges();
-        pluginPtr->loadStateExceptParameters(data, stateContext);
-        return;
-    }
+        auto stripped = std::string();
+        auto data = takeBypass(document, stateContext, stripped);
+        pluginPtr->loadParameters(data, stateContext);
 
-    callOnMessageThread(
-        [weak = std::weak_ptr<Live>(live),
-         document = std::string(data),
-         stateContext,
-         stamp]
+        // The plugin's whole load, whatever it re-stages after the document, is
+        // the host's: nothing in it marks the host's document modified.
+        if (isMessageThread())
         {
-            auto alive = weak.lock();
+            auto quiet = pluginPtr->quietStateChanges();
+            pluginPtr->loadStateExceptParameters(data, stateContext);
+            return StateLoad::Taken;
+        }
 
-            if (alive && alive->latestLoad.load(std::memory_order_acquire) == stamp)
+        callOnMessageThread(
+            [weak = std::weak_ptr<Live>(live),
+             document = std::string(data),
+             stateContext,
+             stamp]
             {
-                auto quiet = alive->plugin->quietStateChanges();
-                alive->plugin->loadStateExceptParameters(document, stateContext);
-            }
-        });
+                auto alive = weak.lock();
+
+                if (!alive
+                    || alive->latestLoad.load(std::memory_order_acquire) != stamp)
+                    return;
+
+                try
+                {
+                    auto quiet = alive->plugin->quietStateChanges();
+                    alive->plugin->loadStateExceptParameters(document, stateContext);
+                }
+                catch (...)
+                {
+                    logQueuedLoadFailure("state");
+                    alive->plugin->notifyHostParameterValuesChanged();
+                }
+            });
+
+        return StateLoad::Queued;
+    }
+    catch (...)
+    {
+        return StateLoad::Failed;
+    }
 }
 
-bool PluginWrapper::loadForeignState(const ForeignState& state)
+PluginWrapper::StateLoad PluginWrapper::loadForeignState(const ForeignState& state)
 {
     // A stamp like loadState's, so a queued load of either kind gives way.
     auto stamp = live->latestLoad.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -363,27 +405,43 @@ bool PluginWrapper::loadForeignState(const ForeignState& state)
     if (isMessageThread())
         return applyForeignState(*pluginPtr, state, parametersApplied);
 
-    callOnMessageThread(
-        [weak = std::weak_ptr<Live>(live),
-         bytes = std::string(state.bytes),
-         foreign = state,
-         stamp,
-         parametersApplied]
-        {
-            auto alive = weak.lock();
+    try
+    {
+        callOnMessageThread(
+            [weak = std::weak_ptr<Live>(live),
+             bytes = std::string(state.bytes),
+             foreign = state,
+             stamp,
+             parametersApplied]
+            {
+                auto alive = weak.lock();
 
-            if (!alive || alive->latestLoad.load(std::memory_order_acquire) != stamp)
-                return;
+                if (!alive
+                    || alive->latestLoad.load(std::memory_order_acquire) != stamp)
+                    return;
 
-            auto copy = foreign;
-            copy.bytes = bytes;
+                auto copy = foreign;
+                copy.bytes = bytes;
 
-            // The host read its values when the load returned, before this ran.
-            if (applyForeignState(*alive->plugin, copy, parametersApplied))
-                alive->plugin->notifyHostParameterValuesChanged();
-        });
+                auto result =
+                    applyForeignState(*alive->plugin, copy, parametersApplied);
 
-    return true;
+                if (result == StateLoad::Failed)
+                    std::fprintf(stderr,
+                                 "MakeASound: a queued foreign state load failed\n");
+
+                // The host read its values when the load returned, before this
+                // ran; a failed load may have moved some, so it re-reads too.
+                if (result != StateLoad::Declined)
+                    alive->plugin->notifyHostParameterValuesChanged();
+            });
+    }
+    catch (...)
+    {
+        return StateLoad::Failed;
+    }
+
+    return StateLoad::Queued;
 }
 
 void PluginWrapper::setTrackInfo(TrackInfo info)
@@ -407,44 +465,46 @@ void PluginWrapper::setHostName(std::string name)
     pluginPtr->setHostName(std::move(name));
 }
 
-bool PluginWrapper::applyForeignState(Plugin& plugin,
-                                      const ForeignState& state,
-                                      bool parametersApplied)
+PluginWrapper::StateLoad PluginWrapper::applyForeignState(Plugin& plugin,
+                                                          const ForeignState& state,
+                                                          bool parametersApplied)
 {
     try
     {
-        auto quiet = plugin.quietStateChanges();
-
-        if (!plugin.loadForeignState(state))
         {
-            // A Tamber Plug port's AU session: Plug's document is ours.
-            auto plugAsNative =
-                state.origin == ForeignOrigin::TamberPlugAU
-                && plugin.parameters().identity().foreignPlugStateIsNative;
+            auto quiet = plugin.quietStateChanges();
 
-            if (!plugAsNative)
-                return false;
+            if (!plugin.loadForeignState(state))
+            {
+                // A Tamber Plug port's AU session: Plug's document is ours.
+                auto plugAsNative =
+                    state.origin == ForeignOrigin::TamberPlugAU
+                    && plugin.parameters().identity().foreignPlugStateIsNative;
 
-            // A host write made since loadForeignState applied the parameters
-            // stands, as after a native load.
-            if (parametersApplied)
-                plugin.loadStateExceptParameters(state.bytes, state.context);
-            else
-                plugin.loadState(state.bytes, state.context);
+                if (!plugAsNative)
+                    return StateLoad::Declined;
+
+                // A host write made since loadForeignState applied the
+                // parameters stands, as after a native load.
+                if (parametersApplied)
+                    plugin.loadStateExceptParameters(state.bytes, state.context);
+                else
+                    plugin.loadState(state.bytes, state.context);
+            }
         }
+
+        // Session-only, as the added bypass is in a document of ours; one the
+        // state did not carry stays as it was, as in JUCE.
+        if (state.bypass && state.context == StateContext::Session)
+            if (auto* bypass = plugin.activeHostBypass())
+                bypass->setValue(*state.bypass ? 1.f : 0.f);
+
+        return StateLoad::Taken;
     }
     catch (...)
     {
-        return false;
+        return StateLoad::Failed;
     }
-
-    // Session-only, as the added bypass is in a document of ours; one the state
-    // did not carry stays as it was, as in JUCE.
-    if (state.bypass && state.context == StateContext::Session)
-        if (auto* bypass = plugin.activeHostBypass())
-            bypass->setValue(*state.bypass ? 1.f : 0.f);
-
-    return true;
 }
 
 Parameter* PluginWrapper::parameterAt(int index) const noexcept

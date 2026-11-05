@@ -1119,6 +1119,64 @@ auto tJuceRefused = test("VST3/aJuceSessionThePluginRefusesMovesNothing") = []
     check(JuceFixtures::holdsDefaults(host.plugin().params));
 };
 
+// A refused session moved nothing, so the host is not asked to re-read.
+auto tJuceRefusedQuiet = test("VST3/aRefusedJuceSessionRestartsNothing") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    host.plugin().refuse = true;
+
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   JuceFixtures::blob(),
+                   JuceFixtures::bytesOf(JuceFixtures::emptyTrailer)));
+
+    check(host.adapter->setState(&stream) == Steinberg::kResultOk);
+    check(host.handler.restartsWith(Vst::kParamValuesChanged) == 0);
+};
+
+// A document of ours the plugin throws on is an error to the host; the
+// parameters it took first stand, and the host re-reads them.
+auto tThrowingNative = test("VST3/aThrowingNativeLoadIsAnError") = []
+{
+    auto source = AdapterHost<GainPlugin> {};
+    moveEveryParameter(source.plugin().params);
+
+    auto stream = Steinberg::MemoryStream {};
+    check(source.adapter->getState(&stream) == Steinberg::kResultOk);
+    rewind(stream);
+
+    auto target = AdapterHost<ThrowingLoadGain> {};
+    check(target.adapter->setState(&stream) == Steinberg::kResultFalse);
+    check(near(target.plugin().params.gain.getValue(), -12.f));
+    check(target.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+
+    // Taken as the baseline: no block repeats the loaded values.
+    target.clearQueues();
+    target.fillBlock(blockSize);
+    target.run();
+    check(target.outputChanges.getParameterCount() == 0);
+};
+
+// A JUCE session the plugin throws on is an error too, and what it took
+// before the throw reaches the host.
+auto tThrowingJuce = test("VST3/aThrowingJuceSessionIsAnError") = []
+{
+    auto host = AdapterHost<FixturePlugin> {};
+    host.plugin().throwAfterLoad = true;
+
+    auto stream = Steinberg::MemoryStream {};
+    writeBytes(stream,
+               JuceFixtures::withTrailer(
+                   JuceFixtures::blob(),
+                   JuceFixtures::bytesOf(JuceFixtures::emptyTrailer)));
+
+    check(host.adapter->setState(&stream) == Steinberg::kResultFalse);
+    check(host.plugin().legacyLoads == 1);
+    check(JuceFixtures::holdsFixtureValues(host.plugin().params));
+    check(host.handler.restartsWith(Vst::kParamValuesChanged) == 1);
+};
+
 auto tJuceOffThread =
     test("VST3/aJuceSessionFromAWorkerLoadsOnTheMessageThread") = []
 {

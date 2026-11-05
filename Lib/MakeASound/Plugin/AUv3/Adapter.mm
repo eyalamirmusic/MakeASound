@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -941,9 +942,11 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
 {
     try
     {
+        auto load = PluginWrapper::StateLoad::Taken;
+
         if (auto document = readState(fullState, description))
         {
-            pluginWrapper.loadState(*document, context);
+            load = pluginWrapper.loadState(*document, context);
         }
         else if (auto juceState = readJuceState(fullState, description))
         {
@@ -953,7 +956,7 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
             foreign.origin = ForeignOrigin::JuceAUv3;
             foreign.bytes = *juceState;
             foreign.context = context;
-            pluginWrapper.loadForeignState(foreign);
+            load = pluginWrapper.loadForeignState(foreign);
         }
         else if (auto plugState = readTamberPlugState(fullState, description))
         {
@@ -963,12 +966,21 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
             foreign.origin = ForeignOrigin::TamberPlugAU;
             foreign.bytes = *plugState;
             foreign.context = context;
-            pluginWrapper.loadForeignState(foreign);
+            load = pluginWrapper.loadForeignState(foreign);
         }
         else
         {
             return;
         }
+
+        // Not a document the plugin knows: nothing moved.
+        if (load == PluginWrapper::StateLoad::Declined)
+            return;
+
+        // The setter has no error to return. A failed load's parameters may
+        // have moved first, so the tree still follows them.
+        if (load == PluginWrapper::StateLoad::Failed)
+            std::fprintf(stderr, "MakeASound: the plugin failed to load a state\n");
 
         // Off the message thread the timer carries the values into the tree.
         if (isMessageThread())
@@ -980,6 +992,7 @@ void Adapter::setFullState(NSDictionary<NSString*, id>* fullState,
     }
     catch (...)
     {
+        std::fprintf(stderr, "MakeASound: a state could not be restored\n");
     }
 }
 

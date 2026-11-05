@@ -70,30 +70,55 @@ public:
     // to the current latencySamples(), whatever moved it.
     bool takeLatencyChanged() noexcept;
 
+    // What became of a load, for the adapter to tell its host (Plugin.h's
+    // loadForeignState has the contract). Only Failed is an error to the host.
+    enum class StateLoad
+    {
+        // The plugin has it.
+        Taken,
+
+        // A foreign state the plugin does not know: nothing moved, so there is
+        // nothing for the host to re-read.
+        Declined,
+
+        // The plugin threw: its document, but corrupt. Its parameters may have
+        // moved first (a native load's land before the rest), so the adapter
+        // still re-reads and reports every value, as after a load it took.
+        Failed,
+
+        // Off the message thread: whatever lands now (a native load's
+        // parameters) has landed, and the rest runs there later. A queued half
+        // that fails is caught and logged there, telling the host every value
+        // moved, and never reaches the message loop.
+        Queued
+    };
+
     // saveState off the message thread reads the plugin's snapshot, and waits on
     // the message thread only for a plugin with none. loadState never waits: the
     // parameters land now, the rest later unless a newer load or teardown came.
     // With the added bypass, a Session save adds `__bypass` to a JSON object
     // document (an empty one becomes `{"__bypass": ...}`); a load takes it back
     // out before the plugin sees the document, and a Session load without it
-    // turns the bypass off. A Preset never carries it.
+    // turns the bypass off. A Preset never carries it. loadState never throws:
+    // a plugin that does is Failed.
     std::string saveState(StateContext context);
-    void loadState(std::string_view data, StateContext context);
+    StateLoad loadState(std::string_view data, StateContext context);
 
     // A document another framework wrote, for the plugin's loadForeignState: on
-    // the message thread now, returning the plugin's answer; from any other
-    // thread queued there with a copy of the bytes, ordered against loadState as
-    // a load of its own (a later load of either kind wins, teardown drops it),
-    // returning true and telling the host every value moved once the plugin took
-    // it. A `bypass` in a Session state the plugin took sets the added bypass,
-    // where there is one; a plugin with its own bypass reads it from the state.
-    // A TamberPlugAU document the plugin declines loads as a native one where
-    // the identity says so (ParameterIdentity::foreignPlugStateIsNative, the
-    // TamberPlug profile's): Plug's schema is this framework's. There its
-    // parameters land now on any thread, as loadState's do, before the plugin
-    // sees it; declined, only the rest of it loads (queued off the message
-    // thread), so a host write made in between stands.
-    bool loadForeignState(const ForeignState& state);
+    // the message thread now, returning the plugin's answer (Taken, Declined, or
+    // Failed when it threw); from any other thread queued there with a copy of
+    // the bytes, ordered against loadState as a load of its own (a later load of
+    // either kind wins, teardown drops it), returning Queued and telling the host
+    // every value moved once the plugin took it or threw on it. A `bypass` in a
+    // Session state the plugin took sets the added bypass, where there is one; a
+    // plugin with its own bypass reads it from the state. A TamberPlugAU
+    // document the plugin declines loads as a native one where the identity
+    // says so (ParameterIdentity::foreignPlugStateIsNative, the TamberPlug
+    // profile's): Plug's schema is this framework's. There its parameters land
+    // now on any thread, as loadState's do, before the plugin sees it;
+    // declined, only the rest of it loads (queued off the message thread), so a
+    // host write made in between stands. Never throws.
+    StateLoad loadForeignState(const ForeignState& state);
 
     // What the host said about the track: the plugin's trackInfo() and then its
     // onTrackInfoChanged(), now on the message thread, queued there from any
@@ -209,9 +234,9 @@ private:
     Parameter* writableParameterAt(int index) const noexcept;
 
     std::string savePluginState(StateContext context);
-    static bool applyForeignState(Plugin& plugin,
-                                  const ForeignState& state,
-                                  bool parametersApplied);
+    static StateLoad applyForeignState(Plugin& plugin,
+                                       const ForeignState& state,
+                                       bool parametersApplied);
     std::string withBypass(std::string document, StateContext context) const;
     std::string_view takeBypass(std::string_view document,
                                 StateContext context,

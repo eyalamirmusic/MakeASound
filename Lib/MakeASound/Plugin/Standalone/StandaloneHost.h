@@ -42,6 +42,13 @@ namespace MakeASound::Standalone
 // host constructed over a file still marked drops its saved stream, so a
 // driver that hung the last launch cannot hang this one.
 //
+// A Session document the plugin rejects by throwing does not stop construction:
+// the file is copied, byte for byte, to `<settingsFile>.rejected` beside it
+// (replacing an older copy), the failure goes to stderr, and the host carries on
+// with whatever state the plugin is left in (the wrapper applies the file's
+// parameters before the plugin's own load, so those may already be the file's).
+// Its saves then write the settings file as usual and leave the copy alone.
+//
 // With no settings file to read, a port under a JUCE id scheme imports what a
 // JUCE build of the plugin's standalone saved, from that build's settings file
 // (juceImportPath): its `filterState` goes to the plugin's loadForeignState as
@@ -228,6 +235,8 @@ private:
     static OwningPointer<Plugin> createFirstPlugin(const ModuleDescription& module);
 
     void restoreSession();
+    void loadSavedPluginState(const std::string& document);
+    void keepRejectedSession(const std::string& reason);
     void importJuceSettings();
     void restoreMidi(const Settings& settings);
     Error startEngine(const StreamConfig& config);

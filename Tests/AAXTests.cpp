@@ -777,6 +777,42 @@ auto tJuceRefused = test("AAX/aJuceChunkThePluginRefusesMovesNothing") = []
                target.plugin().params.cutoff.getNormalized()));
 };
 
+// A JUCE chunk the plugin throws on is malformed to the host, and what the
+// plugin took before the throw is what the host reads.
+auto tJuceThrowing = test("AAX/aThrowingJuceChunkIsMalformed") = []
+{
+    auto standIn = ScopedStandIn<FixturePlugin>(Module::gainStandIn);
+    auto target = AdapterHost<FixturePlugin>("Gain");
+    target.plugin().throwAfterLoad = true;
+
+    auto chunk = chunkOf(Format::juceChunkId, JuceFixtures::blob());
+    check(target.adapter->SetChunk(Format::juceChunkId, &chunk.get())
+          == AAX_ERROR_MALFORMED_CHUNK);
+    check(target.plugin().legacyLoads == 1);
+    check(JuceFixtures::holdsFixtureValues(target.plugin().params));
+    check(near(target.hostValue(target.plugin().params.cutoff),
+               target.plugin().params.cutoff.getNormalized()));
+};
+
+// A chunk of ours the plugin throws on is malformed to the host; the parameters
+// it took first stand, in the plugin and in the host's view alike.
+auto tNativeThrowing = test("AAX/aThrowingNativeChunkIsMalformed") = []
+{
+    auto source = AdapterHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+    auto chunk = saveChunk(source);
+
+    auto standIn = ScopedStandIn<ThrowingLoadGain>(Module::gainStandIn);
+    auto target = AdapterHost<ThrowingLoadGain>("Gain");
+    check(target.adapter->SetChunk(Format::chunkId, &chunk.get())
+          == AAX_ERROR_MALFORMED_CHUNK);
+
+    const auto& params = target.plugin().params;
+    check(near(params.gain.getValue(), -12.f));
+    check(near(target.hostValue(params.gain), params.gain.getNormalized()));
+    check(near(target.hostValue(params.mode), 1.0));
+};
+
 auto tJuceControls = test("AAX/aControlsChunkSetsTheParametersWhoseIdsItNames") = []
 {
     auto source = AdapterHost<GainPlugin>("Gain");

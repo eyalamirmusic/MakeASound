@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -331,13 +332,20 @@ struct FixturePlugin : StatePlugin<State<FixtureParams>>
         if (refuse)
             return false;
 
-        return Compat::loadJuceApvtsBlob(
-                   foreign.bytes, params, {.rootType = "FixturePlugin"})
-            .has_value();
+        auto taken = Compat::loadJuceApvtsBlob(
+                         foreign.bytes, params, {.rootType = "FixturePlugin"})
+                         .has_value();
+
+        // Its own state, corrupt past the parameters it already took.
+        if (throwAfterLoad)
+            throw std::runtime_error("FixturePlugin: corrupt legacy state");
+
+        return taken;
     }
 
     std::atomic<int> legacyLoads {0};
     std::atomic<bool> refuse {false};
+    std::atomic<bool> throwAfterLoad {false};
     ForeignOrigin origin = ForeignOrigin::JuceVST3;
     StateContext context = StateContext::Preset;
     std::optional<bool> bypass;

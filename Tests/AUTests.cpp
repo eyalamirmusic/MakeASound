@@ -2790,6 +2790,48 @@ auto tJuceRefused = test("AU/aJuceClassInfoThePluginRefusesMovesNothing") = []
     check(near(echo.plugin().params.level.getValue(), 0.8f));
 };
 
+// A JUCE state the plugin throws on is an invalid value to the host, and what
+// the plugin took before the throw is what the host reads.
+auto tJuceThrowing = test("AU/aThrowingJuceClassInfoIsAnError") = []
+{
+    auto standIn = ScopedStandIn<FixturePlugin>(Module::gainStandIn);
+    auto source = UnitHost<FixturePlugin>("Gain");
+    auto ours = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+    auto info = juceClassInfo(ours.value, JuceFixtures::blob());
+
+    auto target = UnitHost<FixturePlugin>("Gain");
+    target.plugin().throwAfterLoad = true;
+    check(restoreClassInfo(target, info.value)
+          == kAudioUnitErr_InvalidPropertyValue);
+    check(target.plugin().legacyLoads == 1);
+    check(JuceFixtures::holdsFixtureValues(target.plugin().params));
+    check(near(
+        target.hostValue(target.hostIdOf(target.plugin().params.cutoff)),
+        JuceFixtures::cutoffRange.toNormalized(target.plugin().params.cutoff.get()),
+        1e-5));
+};
+
+// A document of ours the plugin throws on is an invalid value to the host; the
+// parameters it took first stand, in the plugin and in the host's view alike.
+auto tNativeThrowing = test("AU/aThrowingNativeLoadIsAnError") = []
+{
+    auto source = UnitHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+    auto info = CFOwned<CFPropertyListRef>(copyClassInfo(source));
+
+    auto standIn = ScopedStandIn<ThrowingLoadGain>(Module::gainStandIn);
+    auto target = UnitHost<ThrowingLoadGain>("Gain");
+    const auto& params = target.plugin().params;
+
+    check(restoreClassInfo(target, info.value)
+          == kAudioUnitErr_InvalidPropertyValue);
+    check(near(params.gain.getValue(), -12.f));
+    check(near(target.hostValue(target.hostIdOf(params.gain)),
+               params.gain.getValue()));
+    check(near(target.hostValue(target.hostIdOf(params.mode)),
+               static_cast<float>(params.mode.getIndex())));
+};
+
 auto tJuceOffThread =
     test("AU/aJuceClassInfoFromAWorkerLoadsOnTheMessageThread") = []
 {

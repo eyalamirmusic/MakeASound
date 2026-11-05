@@ -73,12 +73,16 @@ public:
     }
 
     // The message-thread half of a load whose parameters loadParams() applied.
+    // A reflect() that throws leaves the flag clear, so later saves still write
+    // `params`.
     void deserializeExceptParams(std::string_view data,
                                  StateContext context = StateContext::Preset)
     {
-        skippingParams = true;
-        Miro::fromJSONString(*this, data, customOptionsFor(context));
-        skippingParams = false;
+        {
+            auto skipping = SkippingParams {skippingParams};
+            Miro::fromJSONString(*this, data, customOptionsFor(context));
+        }
+
         markChanged();
     }
 
@@ -154,6 +158,23 @@ public:
     int loadedVersion = 1;
 
 private:
+    // Sets the flag for its lifetime, however the scope is left.
+    struct SkippingParams
+    {
+        explicit SkippingParams(bool& flagToUse) noexcept
+            : flag(flagToUse)
+        {
+            flag = true;
+        }
+
+        ~SkippingParams() { flag = false; }
+
+        SkippingParams(const SkippingParams&) = delete;
+        SkippingParams& operator=(const SkippingParams&) = delete;
+
+        bool& flag;
+    };
+
     static std::string withoutParams(const std::string& data)
     {
         auto document = Miro::Json::getParsedValue(data);
