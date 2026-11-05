@@ -47,3 +47,7 @@ if (MAKEASOUND_BUILD_HOSTING AND NOT MAKEASOUND_DESCRIBE_BUILD)
         message(STATUS "MakeASoundHosting skipped (needs MAKEASOUND_BUILD_PLUGIN)")
     endif ()
 endif ()
+
+# The optional audio-file library (WAV, AIFF), like DSP always built and linked
+# only by what asks for it.
+add_subdirectory(MakeASound/Files)
