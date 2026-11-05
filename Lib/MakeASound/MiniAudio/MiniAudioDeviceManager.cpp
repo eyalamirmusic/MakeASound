@@ -115,15 +115,6 @@ void interleaveSlice(
             dst[frame * dstChannels + (firstChannel + ch)] = channel[frame];
     }
 }
-
-// A block larger than the scratch is the one case left that allocates on the
-// audio thread; the open sizes both for the negotiated period so it never fires
-// in the steady state.
-void ensureScratch(Buffer& scratch, int numChannels, int frames)
-{
-    if (scratch.getNumChannels() != numChannels || scratch.getNumSamples() < frames)
-        scratch.setSize(numChannels, frames);
-}
 } // namespace
 
 DeviceManager::DeviceManager()
@@ -761,29 +752,50 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         return;
 
     auto frames = static_cast<int>(frameCount);
-    auto inChannels = inputChannelCount;
-    auto outChannels = outputChannelCount;
+    auto* in = static_cast<const float*>(input);
+    auto* out = static_cast<float*>(output);
 
-    ensureScratch(inputScratch, inChannels, frames);
-    ensureScratch(outputScratch, outChannels, frames);
+    // The open sized the scratch for exactly these; nothing here resizes it.
+    auto inChannels = std::min(inputChannelCount, inputScratch.getNumChannels());
+    auto outChannels = std::min(outputChannelCount, outputScratch.getNumChannels());
 
-    if (inChannels > 0 && input != nullptr)
-        deinterleaveSlice(static_cast<const float*>(input),
-                          inputScratch,
-                          captureChannels,
-                          inputFirstChannel,
-                          frames);
+    // What the scratch holds, which is what the open promised the callback.
+    auto capacity = config.maxBlockSize;
 
-    outputScratch.getSubBuffer(0, frames).clear();
+    if (inChannels > 0)
+        capacity = std::min(capacity, inputScratch.getNumSamples());
+
+    if (outChannels > 0)
+        capacity = std::min(capacity, outputScratch.getNumSamples());
+
+    // A period past that is not supported, and growing the scratch would
+    // allocate on the audio thread. It is rejected: the callback gets a block
+    // the scratch holds, of silence, whose maxBlockSize is the period (a device
+    // maximum past the stream's, which Engine silences and restarts for), and
+    // the device plays silence for the whole period.
+    auto fits = frames <= capacity;
+    auto delivered = fits ? frames : std::max(capacity, 0);
+
+    // No capture buffer is silence, not whatever the last block left here.
+    if (inChannels > 0)
+    {
+        if (fits && in != nullptr)
+            deinterleaveSlice(
+                in, inputScratch, captureChannels, inputFirstChannel, frames);
+        else
+            inputScratch.getSubBuffer(0, delivered).clear();
+    }
+
+    outputScratch.getSubBuffer(0, delivered).clear();
 
     auto info = AudioCallbackInfo {};
     info.inputChannels = inputScratch.getChannelPointers();
     info.outputChannels = outputScratch.getChannelPointers();
-    info.numSamples = frames;
+    info.numSamples = delivered;
     info.numInputs = inChannels;
     info.numOutputs = outChannels;
     info.sampleRate = static_cast<int>(device.sampleRate);
-    info.maxBlockSize = config.maxBlockSize;
+    info.maxBlockSize = fits ? config.maxBlockSize : frames;
     info.latency = getStreamLatency();
     info.streamTime =
         static_cast<double>(framesElapsed) / static_cast<double>(device.sampleRate);
@@ -796,12 +808,11 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
 
     // The device owns every native output channel but we fill only the selected
     // slice, so clear the whole buffer first to keep the rest silent.
-    if (playbackChannels > 0 && output != nullptr)
+    if (playbackChannels > 0 && out != nullptr)
     {
-        auto* out = static_cast<float*>(output);
         std::fill(out, out + playbackChannels * frames, 0.0f);
 
-        if (outChannels > 0)
+        if (fits && outChannels > 0)
             interleaveSlice(
                 outputScratch, out, playbackChannels, outputFirstChannel, frames);
     }

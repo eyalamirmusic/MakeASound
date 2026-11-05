@@ -385,6 +385,11 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     list(APPEND MAKEASOUND_TEST_TARGETS AllocationsChecker)
 
+    # AllocationTests.cpp drives the miniaudio backend's own callback (behind
+    # DeviceManager's pimpl) on a stream opened on miniaudio's null backend, so
+    # it includes the backend's header and needs miniaudio's.
+    list(APPEND MAKEASOUND_TEST_TARGETS miniaudio)
+
     if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_SOURCES PluginAllocationTests.cpp)
     endif ()

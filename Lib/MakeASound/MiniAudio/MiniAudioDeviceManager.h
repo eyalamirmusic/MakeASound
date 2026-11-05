@@ -140,7 +140,8 @@ private:
     Vector<CachedDevice> deviceCache;
 
     // Planar scratch the callback's Buffers refer to, sized at open for the
-    // negotiated block and grown only if a larger one ever arrives.
+    // negotiated block and never grown: a longer period is rejected (silence,
+    // and a maxBlockSize in the callback's info past the stream's).
     Buffer inputScratch;
     Buffer outputScratch;
 

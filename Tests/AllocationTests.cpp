@@ -11,14 +11,19 @@
 #include <MakeASound/DSP/MakeASoundDSP.h>
 #include <MakeASound/Common/Algorithms.h>
 #include <MakeASound/MIDI/MidiParser.h>
+#include <MakeASound/MiniAudio/MiniAudioDeviceManager.h>
 
 #include <NanoTest/NanoTest.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace AllocationTests
 {
@@ -781,6 +786,181 @@ auto tTestSynthBlock = test("Allocations/testSynthBlockStaysOffTheHeap") = []
         });
 
     check(count == 0);
+};
+
+// The miniaudio backend's own callback, reached by opening a duplex stream on
+// miniaudio's null backend and stopping it again: what the open sized (the
+// channel slices, the scratch, config.maxBlockSize) stays, and onCallback is
+// then called directly, from this thread only, with what a backend might hand
+// it.
+struct NullBackendStream
+{
+    NullBackendStream()
+    {
+        manager.autoRecover = false;
+        manager.setBackend(MakeASound::Backend::Null);
+
+        // The null devices take any channel count and so report none: two each
+        // way is asked for here.
+        auto input = std::optional<MakeASound::DeviceInfo> {};
+        auto output = std::optional<MakeASound::DeviceInfo> {};
+
+        for (const auto& device: manager.getDevices())
+        {
+            if (!input && device.name.find("Capture") != std::string::npos)
+            {
+                input = device;
+                input->inputChannels = 2;
+            }
+
+            if (!output && device.name.find("Playback") != std::string::npos)
+            {
+                output = device;
+                output->outputChannels = 2;
+            }
+        }
+
+        if (!input || !output)
+            return;
+
+        auto config = MakeASound::StreamConfig {};
+        config.input = MakeASound::StreamParameters(*input, true, 2, 0);
+        config.output = MakeASound::StreamParameters(*output, false, 2, 0);
+        config.sampleRate = 48000;
+        config.maxBlockSize = 64;
+
+        manager.callback = [this](AudioCallbackInfo& info)
+        {
+            ++calls;
+            sawStaleInput = false;
+            largestCall = std::max(largestCall, info.numSamples);
+            reportedMaxBlock = info.maxBlockSize;
+            sampleRate = info.sampleRate;
+            numOutputs = info.numOutputs;
+
+            for (auto ch = 0; ch < info.numInputs; ++ch)
+                for (auto s = 0; s < info.numSamples; ++s)
+                    if (info.inputChannels[ch][s] != 0.f)
+                        sawStaleInput = true;
+
+            for (auto ch = 0; ch < info.numOutputs; ++ch)
+                for (auto s = 0; s < info.numSamples; ++s)
+                    info.outputChannels[ch][s] = written;
+        };
+
+        opened = manager.start(config) == MakeASound::Error::NoError;
+        manager.stop();
+
+        // Whatever the null device's own thread delivered before the stop.
+        calls = 0;
+        sawStaleInput = false;
+        largestCall = 0;
+        maxBlock = manager.config.maxBlockSize;
+    }
+
+    MakeASound::MiniAudio::DeviceManager manager;
+    bool opened = false;
+    int maxBlock = 0;
+
+    // Room for however many channels miniaudio negotiated on either side: the
+    // interleaved buffers are the device's, wider than the selected slice.
+    int channels = 64;
+    int calls = 0;
+    bool sawStaleInput = false;
+    int largestCall = 0;
+    int reportedMaxBlock = 0;
+    int sampleRate = 0;
+    int numOutputs = 0;
+    static constexpr auto written = 0.25f;
+};
+
+// MAS-0020: a period longer than the stream's maxBlockSize is rejected without
+// the audio thread touching the heap (the scratch the open sized never grows):
+// the device plays silence for the whole period, and the callback, handed no
+// more than the scratch holds, is told the device's maximum is now the period,
+// a shape Engine silences and asks a restart for.
+auto tMiniAudioLongPeriod =
+    test("Allocations/miniaudioCallbackWithALongPeriodStaysOffTheHeap") = []
+{
+    auto stream = NullBackendStream {};
+    check(stream.opened);
+    check(stream.maxBlock > 0);
+
+    auto frames = stream.maxBlock * 4 + 1;
+    auto input = std::vector<float>(stream.channels * frames, 0.5f);
+    auto output = std::vector<float>(stream.channels * frames, 1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            stream.manager.onCallback(
+                output.data(), input.data(), static_cast<ma_uint32>(frames));
+        });
+
+    check(count == 0);
+    check(stream.calls == 1);
+    check(stream.largestCall <= stream.maxBlock);
+    check(stream.reportedMaxBlock == frames);
+    check(!stream.sawStaleInput);
+
+    // Whatever the callback wrote is not played: every selected channel of
+    // every frame is silent.
+    check(std::count(output.begin(), output.end(), stream.written) == 0);
+    check(stream.numOutputs > 0);
+    check(std::count(output.begin(), output.end(), 0.f)
+          >= stream.numOutputs * frames);
+
+    // Through an Engine prepared at the stream's block: a period of that
+    // length plays, and the long one is silenced with a restart requested.
+    auto devices = DeviceManager {};
+    auto midi = MidiManager {};
+    auto engine = Engine {devices, midi};
+    auto processor = WritingProcessor {};
+    engine.prepare(processor, stream.sampleRate, stream.maxBlock);
+    stream.manager.callback = [&](AudioCallbackInfo& info) { engine.process(info); };
+
+    stream.manager.onCallback(
+        output.data(), input.data(), static_cast<ma_uint32>(stream.maxBlock));
+    check(std::count(output.begin(), output.end(), 0.25f) > 0);
+    check(!engine.takeRestartRequest());
+
+    std::fill(output.begin(), output.end(), 1.f);
+
+    count = allocationsIn(
+        [&]
+        {
+            stream.manager.onCallback(
+                output.data(), input.data(), static_cast<ma_uint32>(frames));
+        });
+
+    check(count == 0);
+    check(engine.takeRestartRequest());
+    check(std::count(output.begin(), output.end(), 0.25f) == 0);
+    check(std::count(output.begin(), output.end(), 0.f)
+          >= stream.numOutputs * frames);
+};
+
+// MAS-0020: a callback with no input buffer hands the user silence on the
+// input channels, not the last block's samples left in the scratch.
+auto tMiniAudioNullInput =
+    test("Allocations/miniaudioCallbackWithNoInputIsSilent") = []
+{
+    auto stream = NullBackendStream {};
+    check(stream.opened);
+    check(stream.maxBlock > 0);
+
+    auto frames = stream.maxBlock;
+    auto input = std::vector<float>(stream.channels * frames, 0.5f);
+    auto output = std::vector<float>(stream.channels * frames, 0.f);
+
+    stream.manager.onCallback(
+        output.data(), input.data(), static_cast<ma_uint32>(frames));
+    check(stream.sawStaleInput);
+
+    stream.manager.onCallback(
+        output.data(), nullptr, static_cast<ma_uint32>(frames));
+    check(stream.calls == 2);
+    check(!stream.sawStaleInput);
 };
 } // namespace
 } // namespace AllocationTests
