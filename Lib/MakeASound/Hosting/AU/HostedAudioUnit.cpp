@@ -326,12 +326,6 @@ ParameterOptions optionsFor(AudioUnitParameterID id,
     options.hostId = id;
     return options;
 }
-
-UInt32 dataByte(float normalized) noexcept
-{
-    return static_cast<UInt32>(
-        std::clamp(static_cast<int>(std::lround(normalized * 127.f)), 0, 127));
-}
 } // namespace
 
 // --- HostedAudioUnitParameter ----------------------------------------------
@@ -1340,40 +1334,30 @@ void HostedAudioUnit::pushMidi(const ProcessContext& context) noexcept
     if (!consumesMidi || context.midiIn.empty())
         return;
 
+    // The bytes are the core encoder's, so a value reaches the unit exactly as
+    // MakeASound's own decoders read it back (a bend centred on 8192).
     for (const auto& event: context.midiIn[0])
     {
-        auto channel = static_cast<UInt32>(event.channel & 0x0f);
-        auto offset = static_cast<UInt32>(std::max(0, event.sampleOffset));
+        auto bytes = MIDI::toBytes(event);
 
-        auto send = [&](UInt32 status, UInt32 data1, UInt32 data2)
-        { MusicDeviceMIDIEvent(instance, status | channel, data1, data2, offset); };
+        if (bytes.size <= 0)
+            continue;
 
-        if (const auto* on = event.asNoteOn())
-            send(0x90, static_cast<UInt32>(on->pitch), dataByte(on->velocity));
-        else if (const auto* off = event.asNoteOff())
-            send(0x80, static_cast<UInt32>(off->pitch), dataByte(off->velocity));
-        else if (const auto* poly = event.asPolyAftertouch())
-            send(0xa0, static_cast<UInt32>(poly->pitch), dataByte(poly->pressure));
-        else if (const auto* cc = event.asControlChange())
-            send(0xb0, static_cast<UInt32>(cc->controller), dataByte(cc->value));
-        else if (const auto* program = event.asProgramChange())
-            send(0xc0, static_cast<UInt32>(program->program), 0);
-        else if (const auto* touch = event.asChannelAftertouch())
-            send(0xd0, dataByte(touch->pressure), 0);
-        else if (const auto* bend = event.asPitchBend())
+        if (bytes.data[0] == 0xf0 || bytes.size > 3)
         {
-            auto raw = std::clamp(
-                static_cast<int>(std::lround((bend->value + 1.f) * 0.5f * 16383.f)),
-                0,
-                16383);
-            send(0xe0,
-                 static_cast<UInt32>(raw & 0x7f),
-                 static_cast<UInt32>((raw >> 7) & 0x7f));
-        }
-        else if (const auto* sysEx = event.asSysEx();
-                 sysEx != nullptr && sysEx->size > 0)
             MusicDeviceSysEx(
-                instance, sysEx->data.data(), static_cast<UInt32>(sysEx->size));
+                instance, bytes.data.data(), static_cast<UInt32>(bytes.size));
+            continue;
+        }
+
+        auto byteAt = [&](int i) -> UInt32
+        { return i < bytes.size ? bytes.data[static_cast<std::size_t>(i)] : 0; };
+
+        MusicDeviceMIDIEvent(instance,
+                             byteAt(0),
+                             byteAt(1),
+                             byteAt(2),
+                             static_cast<UInt32>(std::max(0, event.sampleOffset)));
     }
 }
 

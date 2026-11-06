@@ -886,6 +886,93 @@ auto tMidi = test("HostedAU/midiReachesAnInstrument") = []
     check(near(block.context.outputs[0][0][0], 0.5f));
 };
 
+// What a bend of `value` reads as after its 14-bit trip: centre 8192, one step
+// 1/8192, top clamped to 8191, exactly as MIDI::toBytes and convertMidi agree.
+// So -1, -0.5, 0 and 0.5 arrive exactly, and 1 as 8191/8192.
+float quantisedBend(float value)
+{
+    auto steps =
+        std::clamp(static_cast<int>(std::lround(value * 8192.f)), -8192, 8191);
+    return static_cast<float>(steps) / 8192.f;
+}
+
+auto tBendRoundTrips = test("HostedAU/pitchBendAndValuesArriveAsSent") = []
+{
+    auto unit = loadTestUnit("Echo");
+    auto block = Block(*unit);
+    auto* synth =
+        static_cast<TestPlugins::SynthPlugin*>(TestPlugins::Module::lastCreated);
+
+    constexpr auto bends = std::array {-1.f, -0.5f, 0.f, 0.5f, 1.f, 0.3f, -0.123f};
+
+    for (auto i = 0; i < static_cast<int>(bends.size()); ++i)
+        block.context.midiIn[0].add(
+            MIDI::Event::pitchBend(4, bends[static_cast<std::size_t>(i)], i));
+
+    auto values = static_cast<int>(bends.size());
+    block.context.midiIn[0].add(MIDI::Event::controlChange(4, 11, 0.3f, values));
+    block.context.midiIn[0].add(MIDI::Event::channelAftertouch(4, 0.6f, values + 1));
+    block.context.midiIn[0].add(
+        MIDI::Event::polyAftertouch(4, 61, 0.9f, values + 2));
+    block.run();
+
+    check(synth->numEvents == values + 3);
+
+    if (synth->numEvents != values + 3)
+        return;
+
+    for (auto i = 0; i < values; ++i)
+    {
+        const auto& event = synth->events[static_cast<std::size_t>(i)];
+        const auto* bend = event.asPitchBend();
+        check(bend != nullptr);
+        check(event.channel == 4);
+        check(event.sampleOffset == i);
+        check(bend != nullptr
+              && bend->value == quantisedBend(bends[static_cast<std::size_t>(i)]));
+    }
+
+    const auto* cc =
+        synth->events[static_cast<std::size_t>(values)].asControlChange();
+    check(cc != nullptr && cc->controller == 11);
+    check(cc != nullptr && cc->value == 38.f / 127.f);
+
+    const auto* touch =
+        synth->events[static_cast<std::size_t>(values + 1)].asChannelAftertouch();
+    check(touch != nullptr && touch->pressure == 76.f / 127.f);
+
+    const auto* poly =
+        synth->events[static_cast<std::size_t>(values + 2)].asPolyAftertouch();
+    check(poly != nullptr && poly->pitch == 61);
+    check(poly != nullptr && poly->pressure == 114.f / 127.f);
+
+    // A program change and a whole SysEx message, in a block of their own: the
+    // unit's handlers for them carry no sample offset.
+    constexpr auto sysEx =
+        std::array<std::uint8_t, 6> {0xf0, 0x7e, 0x7f, 0x06, 0x01, 0xf7};
+
+    block.context.clearMidi();
+    block.context.midiIn[0].add(MIDI::Event::programChange(4, 17, 0));
+    block.run();
+
+    check(synth->numEvents == 1);
+    check(synth->events[0].asProgramChange() != nullptr
+          && synth->events[0].asProgramChange()->program == 17
+          && synth->events[0].channel == 4);
+
+    block.context.clearMidi();
+    block.context.midiIn[0].add(
+        MIDI::Event::sysEx(sysEx.data(), static_cast<int>(sysEx.size())));
+    block.run();
+
+    check(synth->numEvents == 1);
+
+    const auto* received = synth->events[0].asSysEx();
+    check(received != nullptr && received->size == static_cast<int>(sysEx.size()));
+    check(received != nullptr
+          && std::equal(sysEx.begin(), sysEx.end(), received->data.begin()));
+};
+
 auto tMidiOut = test("HostedAU/midiGoesInAndComesBackOut") = []
 {
     auto plugin =
