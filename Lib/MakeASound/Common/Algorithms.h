@@ -1,13 +1,15 @@
 #pragma once
 
+/** @file Allocation-free algorithms safe to call on the audio thread. */
+
 #include <iterator>
 
 namespace MakeASound::Algorithms
 {
 
-// Allocation-free, so it is safe on the audio thread; the unconditional
-// noexcept assumes the element copy and the comparator never throw.
-// O(N) for already-sorted input, O(N^2) worst case.
+/// Allocation-free, so it is safe on the audio thread; the unconditional
+/// noexcept assumes the element copy and the comparator never throw.
+/// O(N) for already-sorted input, O(N^2) worst case.
 template <class Container, class Compare>
 void stableInsertionSort(Container& c, Compare less) noexcept
 {

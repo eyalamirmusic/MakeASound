@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The Apple MIDI backend over Core MIDI; use it through MidiManager. */
+
 #include "CoreMIDI-Backend.h"
 #include "../MIDI/MidiBackend.h"
 #include "../MIDI/MidiParser.h"
@@ -20,10 +22,10 @@ namespace MakeASound::CoreMIDI
 constexpr auto ignoreClockFlag = std::uint8_t {1};
 constexpr auto ignoreActiveSenseFlag = std::uint8_t {2};
 
-// The only place Core MIDI's receive thread and the host's meet. notifyHost takes
-// a mutex, so the receive thread raises a flag instead and the backend's run loop
-// turns it into a notification; the mask goes the other way, read once per packet
-// list so a setIgnoredTypes() reaches ports that are already open.
+/// The only place Core MIDI's receive thread and the host's meet. notifyHost takes
+/// a mutex, so the receive thread raises a flag instead and the backend's run loop
+/// turns it into a notification; the mask goes the other way, read once per packet
+/// list so a setIgnoredTypes() reaches ports that are already open.
 struct SharedState
 {
     std::atomic<bool> overflowed {false};
@@ -31,12 +33,12 @@ struct SharedState
     std::atomic<std::uint8_t> ignoredTypes {ignoreClockFlag | ignoreActiveSenseFlag};
 };
 
-// One open input: the Core MIDI objects behind it, the parser that turns its
-// packets into whole messages, and the two ways a message leaves — straight to a
-// callback on Core MIDI's receive thread, or into the queue drainMessages()
-// empties on the host's. Everything that thread touches is sized at open time,
-// and only for the mode the port is in: queue mode gets the queue, callback mode
-// a scratch message as large as the SysEx cap, and neither pays for the other.
+/// One open input: the Core MIDI objects behind it, the parser that turns its
+/// packets into whole messages, and the two ways a message leaves — straight to a
+/// callback on Core MIDI's receive thread, or into the queue drainMessages()
+/// empties on the host's. Everything that thread touches is sized at open time,
+/// and only for the mode the port is in: queue mode gets the queue, callback mode
+/// a scratch message as large as the SysEx cap, and neither pays for the other.
 struct InputPort
 {
     static constexpr auto queueCapacity = 2048;
@@ -51,8 +53,8 @@ struct InputPort
     int portId {};
     MidiInputCallback callback;
 
-    // Exactly one of these: a system source the shared input port is connected
-    // to, or a virtual destination of our own with its own receive block.
+    /// Exactly one of these: a system source the shared input port is connected
+    /// to, or a virtual destination of our own with its own receive block.
     MIDIEndpointRef source {};
     MIDIEndpointRef virtualDestination {};
     MIDIPortRef sharedInputPort {};
@@ -63,37 +65,37 @@ struct InputPort
     MidiTimePoint epoch {};
     SharedState* shared {};
 
-    // Queue mode only; null where `callback` took the other path.
+    /// Queue mode only; null where `callback` took the other path.
     OwningPointer<Queue> queue;
 
 private:
     void deliver(const MidiMessageView& message);
 };
 
-// Core MIDI delivers notifications on the run loop that was current when the
-// process created its first MIDI client, and keeps that pin even after the
-// thread is gone — a second manager built after the first had died would hear
-// nothing. So the loop belongs to the process, not to a manager: one thread,
-// started on first use and left running, on which a manager's client is created
-// and disposed and its notify block and flag sweep run. Hotplug then works in a
-// CLI too, with no run loop of the app's. Everything else Core MIDI owns — a
-// port connect or disconnect, a virtual endpoint's creation or disposal — runs
-// on whatever thread called for it.
-//
-// Where another library got its client in first the pin is theirs, and the
-// notifications land on whatever loop that was; both paths still carry them.
-//
-// The loop also holds one client of its own for the life of the process. The iOS
-// simulator's MIDIServer exits a few seconds after its last client is disposed,
-// and the process's Core MIDI never reconnects: every later MIDIClientCreate
-// fails for good. With the keep-alive client a manager can come and go any time.
+/// Core MIDI delivers notifications on the run loop that was current when the
+/// process created its first MIDI client, and keeps that pin even after the
+/// thread is gone — a second manager built after the first had died would hear
+/// nothing. So the loop belongs to the process, not to a manager: one thread,
+/// started on first use and left running, on which a manager's client is created
+/// and disposed and its notify block and flag sweep run. Hotplug then works in a
+/// CLI too, with no run loop of the app's. Everything else Core MIDI owns — a
+/// port connect or disconnect, a virtual endpoint's creation or disposal — runs
+/// on whatever thread called for it.
+///
+/// Where another library got its client in first the pin is theirs, and the
+/// notifications land on whatever loop that was; both paths still carry them.
+///
+/// The loop also holds one client of its own for the life of the process. The iOS
+/// simulator's MIDIServer exits a few seconds after its last client is disposed,
+/// and the process's Core MIDI never reconnects: every later MIDIClientCreate
+/// fails for good. With the keep-alive client a manager can come and go any time.
 class NotifyLoop
 {
 public:
     static NotifyLoop& get();
 
-    // Runs `work` on the loop thread and waits for it, so a client is created and
-    // disposed on the thread its notify block and sweep timer run on.
+    /// Runs `work` on the loop thread and waits for it, so a client is created and
+    /// disposed on the thread its notify block and sweep timer run on.
     void call(const std::function<void()>& work);
 
 private:
@@ -106,10 +108,10 @@ private:
 
 struct MidiManager;
 
-// Where another library pinned the notifications, the notify block runs on their
-// run loop, unserialised against this manager's teardown. So the block holds one
-// of these rather than a pointer: the destructor clears `owner` under the mutex,
-// and a notification already inside has to finish before that returns.
+/// Where another library pinned the notifications, the notify block runs on their
+/// run loop, unserialised against this manager's teardown. So the block holds one
+/// of these rather than a pointer: the destructor clears `owner` under the mutex,
+/// and a notification already inside has to finish before that returns.
 struct NotifyGate
 {
     std::mutex mutex;

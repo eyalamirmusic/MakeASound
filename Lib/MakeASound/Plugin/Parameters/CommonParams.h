@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Ready-made parameter types for decibels, frequency, time, percentages, semitones, notes and octaves. */
+
 #include "FloatParam.h"
 #include "ChoiceParam.h"
 
@@ -9,7 +11,7 @@
 namespace MakeASound
 {
 
-// A level in decibels. gain() is the linear factor the DSP multiplies by.
+/// A level in decibels. gain() is the linear factor the DSP multiplies by.
 struct DecibelParam : FloatParam
 {
     DecibelParam(std::string_view nameToUse,
@@ -38,12 +40,12 @@ struct DecibelParam : FloatParam
     }
 };
 
-// A frequency, skewed so the geometric mean √(min·max) sits at the middle of the
-// travel (20 Hz–20 kHz puts 632 Hz there), or linear when the range starts at 0
-// Hz or below. The FloatRange overload takes any other curve:
-// `FloatRange {minHz, maxHz}` is linear, the mapping a Tamber Plug HzParam had,
-// which a port keeps or every automation lane on it moves. Typed text may use
-// kHz.
+/// A frequency, skewed so the geometric mean √(min·max) sits at the middle of the
+/// travel (20 Hz–20 kHz puts 632 Hz there), or linear when the range starts at 0
+/// Hz or below. The FloatRange overload takes any other curve:
+/// `FloatRange {minHz, maxHz}` is linear, the mapping a Tamber Plug HzParam had,
+/// which a port keeps or every automation lane on it moves. Typed text may use
+/// kHz.
 struct HzParam : FloatParam
 {
     HzParam(std::string_view nameToUse,
@@ -87,7 +89,7 @@ struct HzParam : FloatParam
     }
 };
 
-// A time in seconds, shown in ms below a second.
+/// A time in seconds, shown in ms below a second.
 struct TimeParam : FloatParam
 {
     TimeParam(std::string_view nameToUse,
@@ -140,7 +142,7 @@ private:
     }
 };
 
-// A 0..1 amount shown as a whole percentage.
+/// A 0..1 amount shown as a whole percentage.
 struct PercentParam : FloatParam
 {
     PercentParam(std::string_view nameToUse,
@@ -162,8 +164,8 @@ struct PercentParam : FloatParam
     }
 };
 
-// A -1..1 amount shown as a signed whole percentage: a modulation depth, where a
-// negative one inverts the source.
+/// A -1..1 amount shown as a signed whole percentage: a modulation depth, where a
+/// negative one inverts the source.
 struct BipolarParam : FloatParam
 {
     BipolarParam(std::string_view nameToUse,
@@ -185,9 +187,9 @@ struct BipolarParam : FloatParam
     }
 };
 
-// A pitch offset in semitones, -12..+12 unless given a range, shown signed and
-// whole. The value stays continuous, so a host lane moves smoothly;
-// semitones() rounds it.
+/// A pitch offset in semitones, -12..+12 unless given a range, shown signed and
+/// whole. The value stays continuous, so a host lane moves smoothly;
+/// semitones() rounds it.
 struct SemitoneParam : FloatParam
 {
     SemitoneParam(std::string_view nameToUse,
@@ -219,8 +221,8 @@ struct SemitoneParam : FloatParam
     }
 };
 
-// A MIDI note number, 0..127, shown whole. The value stays continuous, so a host
-// lane moves smoothly; note() rounds it.
+/// A MIDI note number, 0..127, shown whole. The value stays continuous, so a host
+/// lane moves smoothly; note() rounds it.
 struct NoteParam : FloatParam
 {
     NoteParam(std::string_view nameToUse,
@@ -238,10 +240,10 @@ struct NoteParam : FloatParam
     }
 };
 
-// A transpose in whole octaves, -2..+2 unless given a range: a choice per
-// octave named by its signed offset ("-1", "0", "+1"), so saved state keeps the
-// octave if the range grows. octaves() is the offset, semitones() the same in
-// semitones.
+/// A transpose in whole octaves, -2..+2 unless given a range: a choice per
+/// octave named by its signed offset ("-1", "0", "+1"), so saved state keeps the
+/// octave if the range grows. octaves() is the offset, semitones() the same in
+/// semitones.
 struct OctaveParam : ChoiceParam
 {
     explicit OctaveParam(std::string_view nameToUse,

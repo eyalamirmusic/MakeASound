@@ -1,0 +1,16 @@
+# Read by jamierpond/eacp-agent-docs to build the agent API reference.
+# See that repository's README for every key.
+name = "MakeASound"
+slug = "makeasound"
+summary = "C++20 audio devices, MIDI, real-time processing and audio plugins on every desktop and mobile platform."
+source_url = "https://github.com/eyalamirmusic/MakeASound/blob/develop/"
+include_root = "Lib"
+header_roots = ["Lib/MakeASound"]
+exclude_patterns = ["*/Detail/*", "*/detail/*", "*-Backend.h"]
+exclude_symbols = ["Detail", "detail", "*::Detail::*", "*::detail::*"]
+examples_dirs = ["Apps"]
+
+[platforms.directories]
+ALSA = "Linux (ALSA)"
+CoreMIDI = "Apple (Core MIDI)"
+WinMIDI = "Windows (WinMM)"

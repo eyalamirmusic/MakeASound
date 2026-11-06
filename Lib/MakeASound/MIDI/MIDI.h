@@ -1,5 +1,19 @@
 #pragma once
 
+/** @file
+    MIDI for the audio thread and for devices. MIDI::Event is one message timed
+    in samples from the block's start, with values normalised (velocity and
+    controllers 0..1, pitch bend -1..+1); MIDI::Buffer is a block's events.
+    convertMidi() and toBytes() go between Events and raw bytes without
+    allocating. MidiManager (MidiManager.h) opens ports, MidiBlockSync turns
+    queued arrivals into sample offsets, and MidiFile reads and writes Standard
+    MIDI Files.
+
+    - An Event's SysEx holds at most 32 bytes; longer dumps need MidiManager's
+      callback mode, which runs on the platform's MIDI thread.
+    - Everything in this header except toString() is allocation-free.
+*/
+
 #include "../Common/Common.h"
 
 #include <array>
@@ -13,8 +27,8 @@ namespace MakeASound::MIDI
 
 struct NoteOn
 {
-    int pitch = 0; // 0..127
-    float velocity = 0.f; // 0..1
+    int pitch = 0; ///< 0..127
+    float velocity = 0.f; ///< 0..1
 };
 
 struct NoteOff
@@ -25,18 +39,18 @@ struct NoteOff
 
 struct ControlChange
 {
-    int controller = 0; // 0..127
-    float value = 0.f; // 0..1
+    int controller = 0; ///< 0..127
+    float value = 0.f; ///< 0..1
 };
 
 struct PitchBend
 {
-    float value = 0.f; // -1..+1
+    float value = 0.f; ///< -1..+1
 };
 
 struct ChannelAftertouch
 {
-    float pressure = 0.f; // 0..1
+    float pressure = 0.f; ///< 0..1
 };
 
 struct PolyAftertouch
@@ -47,12 +61,12 @@ struct PolyAftertouch
 
 struct ProgramChange
 {
-    int program = 0; // 0..127
+    int program = 0; ///< 0..127
 };
 
-// Capped because the realtime stream only carries short control messages
-// (GM/GS/XG reset, MTC, master volume) plus an identity reply with a three-byte
-// manufacturer id; longer dumps need callback mode, which has no such cap.
+/// Capped because the realtime stream only carries short control messages
+/// (GM/GS/XG reset, MTC, master volume) plus an identity reply with a three-byte
+/// manufacturer id; longer dumps need callback mode, which has no such cap.
 struct SysEx
 {
     static constexpr int maxBytes = 32;
@@ -61,6 +75,7 @@ struct SysEx
     int size = 0;
 };
 
+/// Builds a visitor for Event::visit out of lambdas.
 template <class... Ts>
 struct overloaded : Ts...
 {
@@ -69,13 +84,14 @@ struct overloaded : Ts...
 template <class... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
 
+/// One MIDI message in a block, timed by sampleOffset in samples from the block's start.
 class Event
 {
 public:
     int sampleOffset = 0;
 
-    // 0..15 for voice/channel messages; -1 for SysEx and anything else
-    // where a MIDI channel is not meaningful.
+    /// 0..15 for voice/channel messages; -1 for SysEx and anything else
+    /// where a MIDI channel is not meaningful.
     int channel = 0;
 
     static Event noteOn(int channel,
@@ -107,8 +123,8 @@ public:
     static Event
         programChange(int channel, int program, int sampleOffset = 0) noexcept;
 
-    // Asserts in debug and yields an empty SysEx if `bytes` is null or
-    // `size` is out of [0, SysEx::maxBytes].
+    /// Asserts in debug and yields an empty SysEx if `bytes` is null or
+    /// `size` is out of [0, SysEx::maxBytes].
     static Event
         sysEx(const uint8_t* bytes, int size, int sampleOffset = 0) noexcept;
 
@@ -121,7 +137,7 @@ public:
     bool isProgramChange() const noexcept;
     bool isSysEx() const noexcept;
 
-    // Null unless the event is of that kind (std::get_if semantics).
+    /// Null unless the event is of that kind (std::get_if semantics).
     const NoteOn* asNoteOn() const noexcept;
     const NoteOff* asNoteOff() const noexcept;
     const ControlChange* asControlChange() const noexcept;
@@ -155,17 +171,18 @@ private:
     Payload payload = NoteOn {};
 };
 
+/// A block's events. ProcessContext::prepare reserves it, so adding up to that capacity never allocates.
 struct Buffer : Vector<Event>
 {
     void addFrom(const Buffer& other) noexcept;
 
-    // Stable (ties keep insertion order, so a note-off still precedes a
-    // note-on at the same offset) and allocation-free: audio-thread safe.
+    /// Stable (ties keep insertion order, so a note-off still precedes a
+    /// note-on at the same offset) and allocation-free: audio-thread safe.
     void sortByOffset() noexcept;
 };
 
-// nullopt for messages that don't map (SysEx, MTC, song-position, undersized
-// payloads). Allocation-free — callable from any real-time thread.
+/// nullopt for messages that don't map (SysEx, MTC, song-position, undersized
+/// payloads). Allocation-free — callable from any real-time thread.
 std::optional<Event>
     convertMidi(const std::uint8_t* bytes, int size, int sampleOffset = 0) noexcept;
 
@@ -180,10 +197,11 @@ struct RawBytes
     const std::uint8_t* end() const noexcept { return data.data() + size; }
 };
 
-// Inverse of convertMidi: normalized floats are quantized to 7-bit / 14-bit
-// and clamped to range. Allocation-free.
+/// Inverse of convertMidi: normalized floats are quantized to 7-bit / 14-bit
+/// and clamped to range. Allocation-free.
 RawBytes toBytes(const Event& event) noexcept;
 
+/// For logging; allocates.
 std::string toString(const Event& event);
 
 } // namespace MakeASound::MIDI

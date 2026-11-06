@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file FileSource and FileSink, a ByteSource and a ByteSink over a file on disk with 64-bit offsets. */
+
 #include "ByteStreams.h"
 
 #include <cstdio>
@@ -7,8 +9,8 @@
 
 namespace MakeASound::Files
 {
-// A ByteSource over a file opened for reading, with 64-bit offsets on every
-// platform. The file stays open until the source is destroyed.
+/// A ByteSource over a file opened for reading, with 64-bit offsets on every
+/// platform. The file stays open until the source is destroyed.
 class FileSource : public ByteSource
 {
 public:
@@ -18,7 +20,7 @@ public:
     FileSource(const FileSource&) = delete;
     FileSource& operator=(const FileSource&) = delete;
 
-    // False when the file could not be opened; size() is then 0 and read() 0.
+    /// False when the file could not be opened; size() is then 0 and read() 0.
     bool isOpen() const noexcept;
 
     std::int64_t size() const noexcept override;
@@ -29,33 +31,33 @@ private:
     std::int64_t fileSize = 0;
 };
 
-// A ByteSink that creates (or truncates) a file and writes to it, with 64-bit
-// offsets on every platform. The file is closed when the sink is destroyed or
-// close() is called.
-//
-// Writes are buffered, so an error such as a full disk may only show when the
-// buffer is flushed: call close() and check it before trusting the file. The
-// destructor closes a file still open but has no way to report a failure.
+/// A ByteSink that creates (or truncates) a file and writes to it, with 64-bit
+/// offsets on every platform. The file is closed when the sink is destroyed or
+/// close() is called.
+///
+/// Writes are buffered, so an error such as a full disk may only show when the
+/// buffer is flushed: call close() and check it before trusting the file. The
+/// destructor closes a file still open but has no way to report a failure.
 class FileSink : public ByteSink
 {
 public:
     explicit FileSink(const std::filesystem::path& path);
 
-    // Closes the file if close() was not called; a failure there is lost.
+    /// Closes the file if close() was not called; a failure there is lost.
     ~FileSink() override;
 
     FileSink(const FileSink&) = delete;
     FileSink& operator=(const FileSink&) = delete;
 
-    // False when the file could not be created; every write then fails.
+    /// False when the file could not be created; every write then fails.
     bool isOpen() const noexcept;
 
     bool write(Span<const std::uint8_t> bytes) override;
     bool seek(std::int64_t newPosition) override;
     std::int64_t position() const noexcept override;
 
-    // Flushes and closes the file. False if the flush or the close failed, or the
-    // file was not open. Writes after it fail.
+    /// Flushes and closes the file. False if the flush or the close failed, or the
+    /// file was not open. Writes after it fail.
     bool close();
 
 private:

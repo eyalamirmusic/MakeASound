@@ -1,8 +1,10 @@
 #pragma once
 
-// Internal: little- and big-endian loads and stores on raw bytes, and a view of a
-// chunk payload that reads 0 past the bytes present. Shared by the readers and the
-// writer; not part of the public interface.
+/** @file
+    Internal: little- and big-endian loads and stores on raw bytes, and a view of a
+    chunk payload that reads 0 past the bytes present. Shared by the readers and the
+    writer; not part of the public interface.
+*/
 
 #include <cstdint>
 #include <string>
@@ -57,8 +59,8 @@ inline void storeU32LE(std::uint8_t* bytes, std::uint32_t number) noexcept
     bytes[3] = (std::uint8_t) (number >> 24);
 }
 
-// The bytes of a chunk payload of which 'size' are present. Every load past them
-// (or before 0) reads 0, so a chunk cut short parses with its missing fields 0.
+/// The bytes of a chunk payload of which 'size' are present. Every load past them
+/// (or before 0) reads 0, so a chunk cut short parses with its missing fields 0.
 struct PresentBytes
 {
     std::uint8_t at(std::int64_t offset) const noexcept
@@ -94,8 +96,8 @@ struct PresentBytes
         return (std::uint16_t) ((at(offset) << 8) | at(offset + 1));
     }
 
-    // The bytes from 'offset' to the first zero, to offset + width, or to the end
-    // of what is present, whichever comes first.
+    /// The bytes from 'offset' to the first zero, to offset + width, or to the end
+    /// of what is present, whichever comes first.
     std::string text(std::int64_t offset, std::int64_t width) const
     {
         auto out = std::string();
@@ -111,7 +113,7 @@ struct PresentBytes
         return out;
     }
 
-    // The present bytes in [offset, offset + length), clipped to what is there.
+    /// The present bytes in [offset, offset + length), clipped to what is there.
     PresentBytes range(std::int64_t offset, std::int64_t length) const noexcept
     {
         if (offset < 0 || offset >= size || length <= 0)

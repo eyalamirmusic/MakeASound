@@ -1,11 +1,14 @@
 #pragma once
 
+/** @file UIDeviceManager: dropdown data built from a DeviceManager's devices. */
+
 #include "../Devices/DeviceManager.h"
 #include "Dropdown.h"
 
 namespace MakeASound
 {
 
+/// Keeps a pointer to the DeviceManager, which must outlive it.
 class UIDeviceManager
 {
 public:
@@ -20,8 +23,8 @@ public:
     UI::DropdownInfo makeBlockSizeDropdown(int currentDeviceId,
                                            int currentSize) const;
 
-    // Which of the device's channels the stream uses. Ids encode (firstChannel,
-    // count) — see UI::decodeChannelSelection.
+    /// Which of the device's channels the stream uses. Ids encode (firstChannel,
+    /// count) — see UI::decodeChannelSelection.
     UI::DropdownInfo makeOutputChannelDropdown(int currentDeviceId,
                                                int firstChannel,
                                                int count) const;

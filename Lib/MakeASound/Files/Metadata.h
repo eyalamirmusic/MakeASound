@@ -1,5 +1,11 @@
 #pragma once
 
+/** @file
+    The metadata chunks of a WAV file, each as a plain struct holding every field
+    the chunk stores. Texts are UTF-8 bytes as stored, with no terminating zero.
+    WavWriter.h lists how each is laid out in a file.
+*/
+
 #include "FourCC.h"
 
 #include <array>
@@ -10,29 +16,27 @@
 
 namespace MakeASound::Files
 {
-// The metadata chunks of a WAV file, each as a plain struct holding every field
-// the chunk stores. Texts are UTF-8 bytes as stored, with no terminating zero.
-// WavWriter.h lists how each is laid out in a file.
 
-// 'bext', the Broadcast Wave description. The fixed text fields are stored
-// zero-padded to their width (in brackets); a longer text is cut at that width.
+/// 'bext', the Broadcast Wave description. The fixed text fields are stored
+/// zero-padded to their width (in brackets); a longer text is cut at that width.
 struct Bwav
 {
-    std::string description; // [256]
-    std::string originator; // [32]
-    std::string originatorReference; // [32]
-    std::string originationDate; // [10] "yyyy-mm-dd"
-    std::string originationTime; // [8] "hh:mm:ss"
-    std::uint64_t timeReference = 0; // samples since midnight
+    std::string description; ///< [256]
+    std::string originator; ///< [32]
+    std::string originatorReference; ///< [32]
+    std::string originationDate; ///< [10] "yyyy-mm-dd"
+    std::string originationTime; ///< [8] "hh:mm:ss"
+    std::uint64_t timeReference = 0; ///< samples since midnight
     std::uint16_t version = 0;
     std::array<std::uint8_t, 64> umid {};
     std::array<std::uint8_t, 190>
-        reserved {}; // version 2's loudness fields live here
+        reserved {}; ///< version 2's loudness fields live here
     std::string codingHistory;
 
     bool operator==(const Bwav&) const = default;
 };
 
+/// One loop of a 'smpl' chunk; start and end are sample offsets.
 struct SampleLoop
 {
     std::uint32_t identifier = 0;
@@ -45,9 +49,9 @@ struct SampleLoop
     bool operator==(const SampleLoop&) const = default;
 };
 
-// 'smpl', the sampler chunk: tuning, SMPTE offset and loops. The loop count is
-// loops.size(). samplerDataSize is the stored sampler-data size field, written as
-// given; extraBytes are any bytes after the loops, written and read verbatim.
+/// 'smpl', the sampler chunk: tuning, SMPTE offset and loops. The loop count is
+/// loops.size(). samplerDataSize is the stored sampler-data size field, written as
+/// given; extraBytes are any bytes after the loops, written and read verbatim.
 struct Smpl
 {
     std::uint32_t manufacturer = 0;
@@ -64,12 +68,12 @@ struct Smpl
     bool operator==(const Smpl&) const = default;
 };
 
-// 'inst', the instrument chunk: seven bytes.
+/// 'inst', the instrument chunk: seven bytes.
 struct Inst
 {
-    std::uint8_t unshiftedNote = 60; // MIDI note
-    std::int8_t fineTune = 0; // cents
-    std::int8_t gain = 0; // dB
+    std::uint8_t unshiftedNote = 60; ///< MIDI note
+    std::int8_t fineTune = 0; ///< cents
+    std::int8_t gain = 0; ///< dB
     std::uint8_t lowNote = 0;
     std::uint8_t highNote = 127;
     std::uint8_t lowVelocity = 1;
@@ -78,10 +82,11 @@ struct Inst
     bool operator==(const Inst&) const = default;
 };
 
+/// One cue point of a 'cue ' chunk.
 struct CuePoint
 {
     std::uint32_t identifier = 0;
-    std::uint32_t position = 0; // play order
+    std::uint32_t position = 0; ///< play order
     FourCC chunkId = "data";
     std::uint32_t chunkStart = 0;
     std::uint32_t blockStart = 0;
@@ -90,7 +95,7 @@ struct CuePoint
     bool operator==(const CuePoint&) const = default;
 };
 
-// 'cue ', the cue points.
+/// 'cue ', the cue points.
 struct Cue
 {
     std::vector<CuePoint> points;
@@ -98,7 +103,7 @@ struct Cue
     bool operator==(const Cue&) const = default;
 };
 
-// A 'labl' or 'note' entry: text attached to a cue point.
+/// A 'labl' or 'note' entry: text attached to a cue point.
 struct CueLabel
 {
     std::uint32_t cuePointId = 0;
@@ -107,7 +112,7 @@ struct CueLabel
     bool operator==(const CueLabel&) const = default;
 };
 
-// An 'ltxt' entry: a region of samples starting at a cue point, with text.
+/// An 'ltxt' entry: a region of samples starting at a cue point, with text.
 struct CueRegion
 {
     std::uint32_t cuePointId = 0;
@@ -122,8 +127,8 @@ struct CueRegion
     bool operator==(const CueRegion&) const = default;
 };
 
-// A 'LIST' chunk of type 'adtl': the cue points' labels, notes and regions,
-// stored in that order (labels first, then notes, then regions).
+/// A 'LIST' chunk of type 'adtl': the cue points' labels, notes and regions,
+/// stored in that order (labels first, then notes, then regions).
 struct AssociatedData
 {
     std::vector<CueLabel> labels;
@@ -133,8 +138,8 @@ struct AssociatedData
     bool operator==(const AssociatedData&) const = default;
 };
 
-// One entry of a LIST/INFO chunk: a four-character key ('IART', 'ICMT', ...) and
-// its text.
+/// One entry of a LIST/INFO chunk: a four-character key ('IART', 'ICMT', ...) and
+/// its text.
 struct InfoEntry
 {
     FourCC id;
@@ -143,7 +148,7 @@ struct InfoEntry
     bool operator==(const InfoEntry&) const = default;
 };
 
-// A 'LIST' chunk of type 'INFO', its entries in file order.
+/// A 'LIST' chunk of type 'INFO', its entries in file order.
 struct ListInfo
 {
     std::vector<InfoEntry> entries;
@@ -151,14 +156,14 @@ struct ListInfo
     bool operator==(const ListInfo&) const = default;
 };
 
-// 'acid', the loop description some editors write: 24 bytes.
+/// 'acid', the loop description some editors write: 24 bytes.
 struct Acid
 {
-    std::uint32_t flags = 0; // 0x01 one shot, 0x02 root set, 0x04 stretch,
-    // 0x08 disk based, 0x10 the fifth flag
+    std::uint32_t flags = 0; ///< 0x01 one shot, 0x02 root set, 0x04 stretch,
+    /// 0x08 disk based, 0x10 the fifth flag
     std::uint16_t rootNote = 0;
-    std::uint16_t unknown1 = 0; // undocumented; kept as stored
-    float unknown2 = 0.0f; // undocumented; kept as stored
+    std::uint16_t unknown1 = 0; ///< undocumented; kept as stored
+    float unknown2 = 0.0f; ///< undocumented; kept as stored
     std::uint32_t numBeats = 0;
     std::uint16_t meterDenominator = 0;
     std::uint16_t meterNumerator = 0;
@@ -167,7 +172,7 @@ struct Acid
     bool operator==(const Acid&) const = default;
 };
 
-// 'Trkn', a text chunk some editors write their loop information into.
+/// 'Trkn', a text chunk some editors write their loop information into.
 struct Trkn
 {
     std::string text;
@@ -175,7 +180,7 @@ struct Trkn
     bool operator==(const Trkn&) const = default;
 };
 
-// 'axml', an XML document (EBU Core and the like).
+/// 'axml', an XML document (EBU Core and the like).
 struct Axml
 {
     std::string xml;
@@ -183,8 +188,8 @@ struct Axml
     bool operator==(const Axml&) const = default;
 };
 
-// Any other chunk, its id and its bytes as stored (for a LIST of another type,
-// the bytes start with that type).
+/// Any other chunk, its id and its bytes as stored (for a LIST of another type,
+/// the bytes start with that type).
 struct RawChunk
 {
     FourCC id;
@@ -193,6 +198,7 @@ struct RawChunk
     bool operator==(const RawChunk&) const = default;
 };
 
+/// One metadata chunk; a RawChunk for any kind not listed.
 using Chunk = std::variant<Bwav,
                            Smpl,
                            Inst,
@@ -204,15 +210,15 @@ using Chunk = std::variant<Bwav,
                            Axml,
                            RawChunk>;
 
-// A file's metadata: its chunks in file order. A writer writes them in this
-// order; a reader lists them in the order it found them.
+/// A file's metadata: its chunks in file order. A writer writes them in this
+/// order; a reader lists them in the order it found them.
 struct Metadata
 {
     std::vector<Chunk> chunks;
 
     bool empty() const noexcept { return chunks.empty(); }
 
-    // The first chunk of type T, or null.
+    /// The first chunk of type T, or null.
     template <typename T>
     const T* find() const noexcept
     {

@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file MIDI port, message and input-event types shared by MidiManager and its backends. */
+
 #include "../Common/Common.h"
 #include "MIDI.h"
 #include <Miro/Miro.h>
@@ -13,6 +15,7 @@
 namespace MakeASound
 {
 
+/// steady_clock; MidiManager::now() reads the same clock.
 using MidiTimePoint = std::chrono::steady_clock::time_point;
 
 struct MidiPortInfo
@@ -27,15 +30,15 @@ struct MidiPortInfo
 
 struct MidiMessage
 {
-    // Seconds since the MidiManager was created, taken from the packet's own
-    // hardware stamp on MidiManager::now()'s clock — so two messages can be
-    // subtracted for the interval between them, at the platform's resolution
-    // rather than the delivery thread's.
+    /// Seconds since the MidiManager was created, taken from the packet's own
+    /// hardware stamp on MidiManager::now()'s clock — so two messages can be
+    /// subtracted for the interval between them, at the platform's resolution
+    /// rather than the delivery thread's.
     double timestamp {};
 
-    // One whole message, framing bytes included: a SysEx arrives with its 0xF0
-    // and 0xF7. The buffer belongs to the port and the next message refills it,
-    // so copy what you keep.
+    /// One whole message, framing bytes included: a SysEx arrives with its 0xF0
+    /// and 0xF7. The buffer belongs to the port and the next message refills it,
+    /// so copy what you keep.
     std::vector<std::uint8_t> bytes;
 
     MIRO_REFLECT(timestamp, bytes)
@@ -46,11 +49,12 @@ struct MidiInputEvent
     int portId {};
     MIDI::Event event;
 
-    // Stamped on MidiManager::now()'s clock when the message arrived;
-    // MidiBlockSync translates it into event.sampleOffset.
+    /// Stamped on MidiManager::now()'s clock when the message arrived;
+    /// MidiBlockSync translates it into event.sampleOffset.
     MidiTimePoint arrival {};
 };
 
+/// Reserved at construction, so filling it up to capacity on the audio thread never allocates.
 class MidiEvents
 {
 public:
@@ -78,8 +82,8 @@ private:
     Vector<MidiInputEvent> events;
 };
 
-// Something the platform's MIDI system did on its own, or a limit this library hit
-// on the way through. Informational only.
+/// Something the platform's MIDI system did on its own, or a limit this library hit
+/// on the way through. Informational only.
 enum class MidiNotification
 {
     PortAdded,
@@ -88,10 +92,11 @@ enum class MidiNotification
     QueueOverflow
 };
 
+/// Runs on the platform's MIDI thread.
 using MidiInputCallback = std::function<void(const MidiMessage&)>;
 using MidiNotificationCallback = std::function<void(MidiNotification)>;
 
-// Decoded status, data bytes and a hex dump; channel is rendered 1-based.
+/// Decoded status, data bytes and a hex dump; channel is rendered 1-based.
 std::string formatMessage(const MidiMessage& message);
 
 } // namespace MakeASound

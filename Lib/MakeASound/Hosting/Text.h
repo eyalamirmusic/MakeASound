@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file ASCII case-insensitive string comparisons used to match plugin names, categories and file extensions. */
+
 #include <algorithm>
 #include <cctype>
 #include <string_view>
@@ -7,14 +9,15 @@
 namespace MakeASound::Hosting::Text
 {
 
-// ASCII case folding, which is all the comparisons below need: plugin names,
-// categories and file extensions are matched the way a user types them.
+/// ASCII case folding, which is all the comparisons below need: plugin names,
+/// categories and file extensions are matched the way a user types them.
 inline bool equalIgnoringCase(char a, char b) noexcept
 {
     return std::tolower(static_cast<unsigned char>(a))
            == std::tolower(static_cast<unsigned char>(b));
 }
 
+/// An empty needle is always found.
 inline bool containsIgnoringCase(std::string_view text, std::string_view needle)
 {
     if (needle.empty())

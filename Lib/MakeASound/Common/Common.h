@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The container and pointer types MakeASound uses everywhere, taken from ea_data_structures. */
+
 #include <ea_data_structures/ea_data_structures.h>
 
 namespace MakeASound

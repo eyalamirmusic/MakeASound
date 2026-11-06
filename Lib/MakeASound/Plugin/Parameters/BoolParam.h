@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file BoolParam, an on/off parameter. */
+
 #include "Parameter.h"
 
 #include <atomic>
@@ -9,8 +11,8 @@
 namespace MakeASound
 {
 
-// On or off. Saved as a JSON bool: the two labels are cosmetic, so a document
-// never depends on them, though loading accepts them as text too.
+/// On or off. Saved as a JSON bool: the two labels are cosmetic, so a document
+/// never depends on them, though loading accepts them as text too.
 class BoolParam : public Parameter
 {
 public:

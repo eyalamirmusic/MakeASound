@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file IntParam, a whole-number parameter. */
+
 #include "Parameter.h"
 
 #include <atomic>
@@ -9,8 +11,8 @@
 namespace MakeASound
 {
 
-// A whole number in [minimum, maximum], one step per value, shown and saved as
-// an integer. Normalizes as JUCE's AudioParameterInt does.
+/// A whole number in [minimum, maximum], one step per value, shown and saved as
+/// an integer. Normalizes as JUCE's AudioParameterInt does.
 class IntParam : public Parameter
 {
 public:

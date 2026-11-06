@@ -1,7 +1,9 @@
 #pragma once
 
-// MakeASoundCore: the audio and MIDI vocabulary and the processing types, with no
-// device backend behind them. MakeASound.h adds the devices on top.
+/** @file
+    MakeASoundCore: the audio and MIDI vocabulary and the processing types, with
+    no device backend behind them. MakeASound.h adds the devices on top.
+*/
 
 #include "Common/Common.h"
 #include "Realtime/SPSCQueue.h"

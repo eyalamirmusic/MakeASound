@@ -1,11 +1,13 @@
 #pragma once
 
+/** @file The interface through which a plugin reports its own parameter edits and changes to the host. */
+
 namespace MakeASound
 {
 
-// How the plugin reports its own edits to the host, on the message thread. A
-// gesture is begin, performs, end; while open the wrapper drops host writes as
-// echoes, and perform never writes the plugin, so set the Parameter first.
+/// How the plugin reports its own edits to the host, on the message thread. A
+/// gesture is begin, performs, end; while open the wrapper drops host writes as
+/// echoes, and perform never writes the plugin, so set the Parameter first.
 class HostEditListener
 {
 public:
@@ -15,25 +17,25 @@ public:
     virtual void performParameterEdit(int index, float normalized) noexcept = 0;
     virtual void endParameterEdit(int index) noexcept = 0;
 
-    // Several gestures the host should stamp as one edit, e.g. a control driving
-    // a group. Only VST3 has it and no host must honour it. Does not nest.
+    /// Several gestures the host should stamp as one edit, e.g. a control driving
+    /// a group. Only VST3 has it and no host must honour it. Does not nest.
     virtual void beginParameterEditGroup() noexcept {}
     virtual void endParameterEditGroup() noexcept {}
 
-    // latencySamples() moved for a reason no parameter edit carries.
+    /// latencySamples() moved for a reason no parameter edit carries.
     virtual void latencyChanged() noexcept {}
 
-    // A parameter's name, range or text changed: the host should re-read them.
+    /// A parameter's name, range or text changed: the host should re-read them.
     virtual void parameterInfoChanged() noexcept {}
 
-    // Many parameter values moved at once outside any gesture (a preset picked in
-    // the plugin's own browser, a randomize): the host should re-read them all.
-    // A single value the plugin moves reaches the host without this.
+    /// Many parameter values moved at once outside any gesture (a preset picked in
+    /// the plugin's own browser, a randomize): the host should re-read them all.
+    /// A single value the plugin moves reaches the host without this.
     virtual void parameterValuesChanged() noexcept {}
 
-    // Something saved besides the parameters changed: the host should mark its
-    // document as modified. Never raised for a load the host asked for, during
-    // a save, or under the plugin's QuietStateChanges.
+    /// Something saved besides the parameters changed: the host should mark its
+    /// document as modified. Never raised for a load the host asked for, during
+    /// a save, or under the plugin's QuietStateChanges.
     virtual void stateChanged() noexcept {}
 };
 

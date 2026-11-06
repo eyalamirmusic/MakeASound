@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file matchesFilter, the free-text search a host runs over a scanned plugin list. */
+
 #include "PluginDescription.h"
 
 #include <string_view>
@@ -7,13 +9,13 @@
 namespace MakeASound::Hosting
 {
 
-// Free-text filtering of a scanned plugin list: what a host's search box does,
-// kept out of the UI so it can be tested without one.
-//
-// The query is split on whitespace and EVERY token must appear, ignoring case, in
-// one of the fields a user types: the name, the vendor, the sub-categories or the
-// path. Tokens narrow rather than widen ("arturia synth" finds that vendor's
-// instruments), and a blank query matches everything.
+/// Free-text filtering of a scanned plugin list: what a host's search box does,
+/// kept out of the UI so it can be tested without one.
+///
+/// The query is split on whitespace and EVERY token must appear, ignoring case, in
+/// one of the fields a user types: the name, the vendor, the sub-categories or the
+/// path. Tokens narrow rather than widen ("arturia synth" finds that vendor's
+/// instruments), and a blank query matches everything.
 inline bool matchesFilter(const PluginDescription& description,
                           std::string_view query)
 {
@@ -47,7 +49,7 @@ inline bool matchesFilter(const PluginDescription& description,
     return true;
 }
 
-// The descriptions matching `query`, in the order they came in.
+/// The descriptions matching `query`, in the order they came in.
 inline Vector<PluginDescription>
     filterPlugins(const Vector<PluginDescription>& plugins, std::string_view query)
 {

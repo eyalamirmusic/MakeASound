@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file GenericEditor, the parameter page shown for a plugin with no editor of its own. */
+
 #include "../Core/Editor.h"
 #include "../Core/Plugin.h"
 #include "../../Common/Common.h"
@@ -7,9 +9,9 @@
 namespace MakeASound
 {
 
-// The page a host shows for a plugin whose createEditor() returns null: one row
-// per parameter, a label, a control by type and the value text, in eacp's
-// widget tier. Every member runs on the message thread.
+/// The page a host shows for a plugin whose createEditor() returns null: one row
+/// per parameter, a label, a control by type and the value text, in eacp's
+/// widget tier. Every member runs on the message thread.
 class GenericEditor : public Editor
 {
 public:
@@ -19,11 +21,11 @@ public:
     eacp::Graphics::View& view() override;
 
     EditorSize initialSize() const override;
-    // Resizable within bounds at any ratio, since the rows scroll.
+    /// Resizable within bounds at any ratio, since the rows scroll.
     EditorConstraints constraints() const override;
 
-    // The values are pulled from the parameters at 30 Hz while attached, and a
-    // ResizeGrip is shown for a host without a grip of its own.
+    /// The values are pulled from the parameters at 30 Hz while attached, and a
+    /// ResizeGrip is shown for a host without a grip of its own.
     void onAttached() override;
     void onRemoved() override;
 

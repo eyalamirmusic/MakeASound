@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Buffer, the planar float sample block every process call reads and writes. */
+
 #include "Channel.h"
 
 #include <algorithm>
@@ -7,20 +9,20 @@
 namespace MakeASound
 {
 
-// A planar block of float samples that either owns its storage or refers to
-// storage owned by someone else: a host's channel array, another Buffer, the
-// backend's scratch. Every access goes through a table of per-channel pointers
-// plus a start offset, so a sub-range or a channel subset is another Buffer
-// over the same table with no storage of its own and no channel cap.
-//
-// Move-only. A copy would have to decide between aliasing and allocating, and
-// neither is right on an audio thread, so copying is spelled out: copyOf() for
-// a deep copy, getSubBuffer(0) for an alias. Everything that does not allocate
-// is noexcept; the four members that can allocate are the two owning
-// constructors, setSize and copyOf.
-//
-// Constness lives in the reference: a const Buffer hands out ConstChannels and
-// cannot be sliced, since the slice would be writable.
+/// A planar block of float samples that either owns its storage or refers to
+/// storage owned by someone else: a host's channel array, another Buffer, the
+/// backend's scratch. Every access goes through a table of per-channel pointers
+/// plus a start offset, so a sub-range or a channel subset is another Buffer
+/// over the same table with no storage of its own and no channel cap.
+///
+/// Move-only. A copy would have to decide between aliasing and allocating, and
+/// neither is right on an audio thread, so copying is spelled out: copyOf() for
+/// a deep copy, getSubBuffer(0) for an alias. Everything that does not allocate
+/// is noexcept; the four members that can allocate are the two owning
+/// constructors, setSize and copyOf.
+///
+/// Constness lives in the reference: a const Buffer hands out ConstChannels and
+/// cannot be sliced, since the slice would be writable.
 class Buffer
 {
 public:
@@ -32,10 +34,10 @@ public:
 
     Buffer() noexcept = default;
 
-    // Owning, zeroed.
+    /// Owning, zeroed.
     Buffer(int numChannelsToUse, int numSamplesToUse);
 
-    // Referring: channel c is channelsToUse[c] + startSampleToUse.
+    /// Referring: channel c is channelsToUse[c] + startSampleToUse.
     Buffer(float* const* channelsToUse,
            int numChannelsToUse,
            int numSamplesToUse,
@@ -60,14 +62,15 @@ public:
     Buffer(const Buffer&) = delete;
     Buffer& operator=(const Buffer&) = delete;
 
+    /// Owning deep copy; allocates.
     static Buffer copyOf(const Buffer& source);
 
-    // Gives the buffer storage of its own, zeroed, dropping anything it referred
-    // to. Capacity is never released, so after one call at the largest shape every
-    // equal-or-smaller call is allocation-free.
+    /// Gives the buffer storage of its own, zeroed, dropping anything it referred
+    /// to. Capacity is never released, so after one call at the largest shape every
+    /// equal-or-smaller call is allocation-free.
     void setSize(int numChannelsToUse, int numSamplesToUse);
 
-    // Drops owned storage and refers instead.
+    /// Drops owned storage and refers instead.
     void referTo(float* const* channelsToUse,
                  int numChannelsToUse,
                  int numSamplesToUse,
@@ -105,13 +108,13 @@ public:
         return channels[channel] + startSample;
     }
 
-    // The table the channels are read through, with the offset reported beside
-    // it rather than applied: a buffer over sample 0 of its table (every owning
-    // buffer, and anything a host handed over) can pass this straight to a C API.
+    /// The table the channels are read through, with the offset reported beside
+    /// it rather than applied: a buffer over sample 0 of its table (every owning
+    /// buffer, and anything a host handed over) can pass this straight to a C API.
     float* const* getChannelPointers() const noexcept { return channels; }
     int getStartSample() const noexcept { return startSample; }
 
-    // Referring buffers over part of this one, clamped to its shape.
+    /// Referring buffers over part of this one, clamped to its shape.
     Buffer getSubBuffer(int start, int numSamplesToUse) noexcept
     {
         auto first = std::clamp(start, 0, numSamples);
@@ -144,7 +147,7 @@ public:
             channel.fill(value);
     }
 
-    // Copies the channels and samples both buffers have; the rest is left as it was.
+    /// Copies the channels and samples both buffers have; the rest is left as it was.
     void copyFrom(const Buffer& other) noexcept
     {
         forEachSharedChannel(
@@ -187,9 +190,9 @@ public:
         return {channels, startSample, numSamples, numChannels};
     }
 
-    // Yields a Span per channel. The shape is held by value rather than through a
-    // pointer back to the Buffer, so an iterator stays valid once the Buffer it
-    // came from is gone: `for (auto channel: info.getOutput())` is safe.
+    /// Yields a Span per channel. The shape is held by value rather than through a
+    /// pointer back to the Buffer, so an iterator stays valid once the Buffer it
+    /// came from is gone: `for (auto channel: info.getOutput())` is safe.
     template <typename T>
     class ChannelIterator
     {
@@ -257,10 +260,10 @@ private:
     bool owning = false;
 };
 
-// A Buffer referring to a read-only channel table (a host's inputs, a const
-// view), only ever handed out as const, so nothing can write through it. Holds
-// no storage and allocates nothing: the table must outlive it, as for any
-// referring Buffer.
+/// A Buffer referring to a read-only channel table (a host's inputs, a const
+/// view), only ever handed out as const, so nothing can write through it. Holds
+/// no storage and allocates nothing: the table must outlive it, as for any
+/// referring Buffer.
 class ReadOnlyBuffer
 {
 public:

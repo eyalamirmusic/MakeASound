@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file RAII guard that flushes denormal floats to zero on the current thread. */
+
 #include <cstdint>
 
 #if defined(__SSE2__) || defined(_M_X64) || defined(_M_AMD64)
@@ -14,9 +16,9 @@
 namespace MakeASound
 {
 
-// Flushes denormals while alive and restores the host's mode after: x86 takes
-// hundreds of cycles per subnormal multiply. Set on ARM too, where it is free, so
-// both slices of a universal binary render identically.
+/// Flushes denormals while alive and restores the host's mode after: x86 takes
+/// hundreds of cycles per subnormal multiply. Set on ARM too, where it is free, so
+/// both slices of a universal binary render identically.
 class ScopedNoDenormals
 {
 public:

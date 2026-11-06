@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file DeviceManager: enumerates audio devices and runs one stream through miniaudio. */
+
 #include "AudioSession.h"
 #include "../Common/Common.h"
 #include "DeviceInfo.h"
@@ -12,6 +14,7 @@ namespace MiniAudio
 struct DeviceManager;
 }
 
+/// Enumerates devices and owns at most one running stream; errors come back as values, never thrown.
 class DeviceManager
 {
 public:
@@ -22,67 +25,68 @@ public:
     DeviceInfo getDefaultInputDevice() const;
     DeviceInfo getDefaultOutputDevice() const;
 
-    // Probed once and remembered, so a JACK server started after the manager was
-    // constructed is not picked up; construct another one to look again.
+    /// Probed once and remembered, so a JACK server started after the manager was
+    /// constructed is not picked up; construct another one to look again.
     Vector<Backend> getAvailableBackends() const;
 
-    // Never Unknown once construction succeeded — the default is one of them.
+    /// Never Unknown once construction succeeded — the default is one of them.
     Backend getBackend() const;
 
-    // Device ids and channel counts are per-API: this stops the stream and drops
-    // the config instead of carrying it across, so follow with a fresh default
-    // config (getDefaultOutputConfig() or the direction you want) and start(). A
-    // backend that won't come up enumerates nothing.
+    /// Device ids and channel counts are per-API: this stops the stream and drops
+    /// the config instead of carrying it across, so follow with a fresh default
+    /// config (getDefaultOutputConfig() or the direction you want) and start(). A
+    /// backend that won't come up enumerates nothing.
     Error setBackend(Backend backendToUse);
 
-    // One per direction rather than one that guesses: claiming a capture side an app
-    // never asked for costs it the microphone permission on every platform that has
-    // one. A side the machine doesn't have is left unset, and a config with neither
-    // is reported by start() as NO_DEVICES_FOUND rather than opened.
+    /// One per direction rather than one that guesses: claiming a capture side an app
+    /// never asked for costs it the microphone permission on every platform that has
+    /// one. A side the machine doesn't have is left unset, and a config with neither
+    /// is reported by start() as NO_DEVICES_FOUND rather than opened.
     StreamConfig getDefaultOutputConfig() const;
     StreamConfig getDefaultInputConfig() const;
     StreamConfig getDefaultDuplexConfig() const;
 
-    // Legacy: getDefaultDuplexConfig() under its old name, kept for existing
-    // callers. New code asks for a direction.
+    /// Legacy: getDefaultDuplexConfig() under its old name, kept for existing
+    /// callers. New code asks for a direction.
     StreamConfig getDefaultConfig() const;
 
-    // What the platform's audio session should be while a stream is open. Applied by
-    // every open, so setting it after start() takes effect on the next one. Has no
-    // effect where hasAudioSession() is false. See AudioSession.h.
+    /// What the platform's audio session should be while a stream is open. Applied by
+    /// every open, so setting it after start() takes effect on the next one. Has no
+    /// effect where hasAudioSession() is false. See AudioSession.h.
     void setSessionConfig(const SessionConfig& sessionConfigToUse) const;
     SessionConfig getSessionConfig() const;
 
-    // A failure leaves no stream running and the manager usable. A config naming a
-    // device that is merely busy comes back on its own once it frees up.
+    /// A failure leaves no stream running and the manager usable. A config naming a
+    /// device that is merely busy comes back on its own once it frees up.
     Error setConfig(const StreamConfig& configToUse);
+    /// `cb` runs on the OS audio thread.
     Error start(const StreamConfig& configToUse, const Callback& cb);
     void stop() const;
 
     bool isRunning() const;
     Error getLastError() const;
 
-    // Runs on an OS audio thread — on macOS from a Core Audio property listener,
-    // and sometimes while recovery holds the device, so calling any DeviceManager
-    // method from it can deadlock. Set it before start(). Prefer
-    // drainNotifications() unless the delivery has to be immediate.
+    /// Runs on an OS audio thread — on macOS from a Core Audio property listener,
+    /// and sometimes while recovery holds the device, so calling any DeviceManager
+    /// method from it can deadlock. Set it before start(). Prefer
+    /// drainNotifications() unless the delivery has to be immediate.
     void setNotificationCallback(const NotificationCallback& cb) const;
 
-    // The same notifications, queued instead of delivered: call this from wherever a
-    // host can act on one — a UI timer, an idle callback — and the marshalling every
-    // host would otherwise write is already done. Everything since the last call, in
-    // order; past 64 undrained the newest are dropped.
+    /// The same notifications, queued instead of delivered: call this from wherever a
+    /// host can act on one — a UI timer, an idle callback — and the marshalling every
+    /// host would otherwise write is already done. Everything since the last call, in
+    /// order; past 64 undrained the newest are dropped.
     Vector<DeviceNotification> drainNotifications() const;
 
-    // On by default: a device stopped by the OS (sample-rate change, unplug,
-    // reclaim) is re-opened automatically. Turn it off to own that decision, e.g.
-    // to show "device lost" rather than silently re-opening.
+    /// On by default: a device stopped by the OS (sample-rate change, unplug,
+    /// reclaim) is re-opened automatically. Turn it off to own that decision, e.g.
+    /// to show "device lost" rather than silently re-opening.
     void setAutoRecover(bool shouldRecover) const;
 
-    // What the device actually runs, which is not always what was asked for. All 0
-    // while no stream is open. The latency is in frames and counts the route's own
-    // delay as well as the stream's buffering, where the platform will say what that
-    // is — see getRouteLatency in DeviceQueries.h.
+    /// What the device actually runs, which is not always what was asked for. All 0
+    /// while no stream is open. The latency is in frames and counts the route's own
+    /// delay as well as the stream's buffering, where the platform will say what that
+    /// is — see getRouteLatency in DeviceQueries.h.
     int getStreamLatency() const;
     int getStreamSampleRate() const;
     int getStreamBlockSize() const;

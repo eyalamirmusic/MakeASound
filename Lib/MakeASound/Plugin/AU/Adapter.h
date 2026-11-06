@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The Audio Unit (version 2) class that runs every MakeASound plugin. */
+
 #include "AUCommon.h"
 #include "HostParameters.h"
 #include "../Core/Description.h"
@@ -16,38 +18,38 @@
 namespace MakeASound::AU
 {
 
-// The one AU class every plugin ships as: a MusicDeviceBase, so one class answers
-// the effect, music-effect, instrument and MIDI-processor selectors, over a
-// PluginWrapper. The instance finds its plugin by its own component's subtype.
+/// The one AU class every plugin ships as: a MusicDeviceBase, so one class answers
+/// the effect, music-effect, instrument and MIDI-processor selectors, over a
+/// PluginWrapper. The instance finds its plugin by its own component's subtype.
 class Adapter
     : public au::MusicDeviceBase
     , public HostEditListener
 {
 public:
-    // Throws when the component's subtype names no plugin of this module; the
-    // SDK's Open catches it and fails the instantiation.
+    /// Throws when the component's subtype names no plugin of this module; the
+    /// SDK's Open catches it and fails the instantiation.
     explicit Adapter(AudioComponentInstance instance);
 
-    // Over the plugin `description` names rather than the one the component's
-    // subtype finds in this module; its IdScheme says how the host addresses the
-    // parameters. Throws when it creates no plugin. `description` must outlive
-    // the adapter.
+    /// Over the plugin `description` names rather than the one the component's
+    /// subtype finds in this module; its IdScheme says how the host addresses the
+    /// parameters. Throws when it creates no plugin. `description` must outlive
+    /// the adapter.
     Adapter(AudioComponentInstance instance, const PluginDescription& description);
     ~Adapter() override;
 
-    // The plugin this module ships with that subtype, or null.
+    /// The plugin this module ships with that subtype, or null.
     static const PluginDescription* describe(OSType subtype) noexcept;
     static OSType manufacturer() noexcept;
 
     Plugin& plugin() noexcept;
     PluginWrapper& wrapper() noexcept;
 
-    // A view the host owns past the unit closes itself through these, which the
-    // destructor runs while the wrapper still lives. Message thread.
+    /// A view the host owns past the unit closes itself through these, which the
+    /// destructor runs while the wrapper still lives. Message thread.
     void addViewCloser(void* key, std::function<void()> closer);
     void removeViewCloser(void* key);
 
-    // AUBase
+    /// AUBase
     void PostConstructor() override;
     OSStatus Initialize() override;
     OSStatus Reset(AudioUnitScope scope, AudioUnitElement element) override;
@@ -75,8 +77,8 @@ public:
                                       AudioUnitParameterID id,
                                       CFArrayRef* outStrings) override;
 
-    // kAudioUnitProperty_ParameterClumpName: the name of the group whose clump
-    // GetParameterInfo gave (ParameterSpace::addClump), +1 for the host.
+    /// kAudioUnitProperty_ParameterClumpName: the name of the group whose clump
+    /// GetParameterInfo gave (ParameterSpace::addClump), +1 for the host.
     OSStatus CopyClumpName(AudioUnitScope scope,
                            UInt32 clumpId,
                            UInt32 desiredNameLength,
@@ -97,8 +99,8 @@ public:
                          const void* inData,
                          UInt32 inDataSize) override;
 
-    // After the base's: a new kAudioUnitProperty_ContextName, which the base
-    // stores without calling SetProperty, becomes the plugin's track name.
+    /// After the base's: a new kAudioUnitProperty_ContextName, which the base
+    /// stores without calling SetProperty, becomes the plugin's track name.
     void PropertyChanged(AudioUnitPropertyID id,
                          AudioUnitScope scope,
                          AudioUnitElement element) override;
@@ -114,9 +116,9 @@ public:
                     const AudioTimeStamp& timestamp,
                     UInt32 frames) noexcept override;
 
-    // AUMIDIBase, from any host thread: staged under a spin lock for the next
-    // render, which hands every event to MIDI-in bus 0 at its frame, since AU
-    // delivers one MIDI stream.
+    /// AUMIDIBase, from any host thread: staged under a spin lock for the next
+    /// render, which hands every event to MIDI-in bus 0 at its frame, since AU
+    /// delivers one MIDI stream.
     OSStatus HandleNoteOn(UInt8 channel,
                           UInt8 note,
                           UInt8 velocity,
@@ -143,15 +145,15 @@ public:
     OSStatus HandleProgramChange(UInt8 channel, UInt8 program) noexcept override;
     OSStatus HandleSysEx(const UInt8* data, UInt32 length) noexcept override;
 
-    // The base diverts CC 120, 121 and 123 and program changes to handlers with
-    // no frame; this puts them back on the MIDI-in bus at their offset.
+    /// The base diverts CC 120, 121 and 123 and program changes to handlers with
+    /// no frame; this puts them back on the MIDI-in bus at their offset.
     OSStatus HandleNonNoteEvent(UInt8 status,
                                 UInt8 channel,
                                 UInt8 data1,
                                 UInt8 data2,
                                 UInt32 frame) noexcept override;
 
-    // HostEditListener, message thread
+    /// HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
     void performParameterEdit(int index, float normalized) noexcept override;
     void endParameterEdit(int index) noexcept override;
@@ -160,8 +162,8 @@ public:
     void parameterValuesChanged() noexcept override;
     void stateChanged() noexcept override;
 
-    // Message thread: a value event for each parameter the render thread found
-    // the plugin had moved on its own. The value timer runs it at 30 Hz.
+    /// Message thread: a value event for each parameter the render thread found
+    /// the plugin had moved on its own. The value timer runs it at 30 Hz.
     void postMovedParameters() noexcept;
 
 private:

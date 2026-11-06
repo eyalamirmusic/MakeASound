@@ -1,23 +1,25 @@
 #pragma once
 
+/** @file MemorySource and MemorySink, a ByteSource and a ByteSink over bytes in memory. */
+
 #include "ByteStreams.h"
 
 #include <vector>
 
 namespace MakeASound::Files
 {
-// A ByteSource over bytes in memory: either a vector it owns, or a view of bytes
-// someone else keeps alive for as long as the source is used (a memory-mapped
-// file, an embedded binary).
+/// A ByteSource over bytes in memory: either a vector it owns, or a view of bytes
+/// someone else keeps alive for as long as the source is used (a memory-mapped
+/// file, an embedded binary).
 class MemorySource : public ByteSource
 {
 public:
     MemorySource() = default;
 
-    // Takes the bytes.
+    /// Takes the bytes.
     explicit MemorySource(std::vector<std::uint8_t> bytesToOwn);
 
-    // Views the bytes without copying them.
+    /// Views the bytes without copying them.
     explicit MemorySource(Span<const std::uint8_t> bytesToView) noexcept;
 
     MemorySource(const MemorySource&) = delete;
@@ -31,7 +33,7 @@ private:
     Span<const std::uint8_t> view;
 };
 
-// A ByteSink that grows a vector it owns.
+/// A ByteSink that grows a vector it owns.
 class MemorySink : public ByteSink
 {
 public:
@@ -41,10 +43,10 @@ public:
     bool seek(std::int64_t newPosition) override;
     std::int64_t position() const noexcept override;
 
-    // Everything written so far, of length the furthest position ever reached.
+    /// Everything written so far, of length the furthest position ever reached.
     const std::vector<std::uint8_t>& getData() const noexcept;
 
-    // Moves the bytes out; the sink is then empty, at position 0.
+    /// Moves the bytes out; the sink is then empty, at position 0.
     std::vector<std::uint8_t> takeData() noexcept;
 
 private:

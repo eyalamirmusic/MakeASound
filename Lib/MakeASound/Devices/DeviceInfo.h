@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Device, stream and callback descriptions shared by DeviceManager and every backend, and the Error values its calls return. */
+
 #include <Miro/Miro.h>
 
 #include "../Common/Common.h"
@@ -13,9 +15,9 @@
 namespace MakeASound
 {
 
-// The system audio API a device is reached through. The same hardware appears
-// under each API the machine offers, with different latency and channel counts;
-// Unknown means "let the backend pick".
+/// The system audio API a device is reached through. The same hardware appears
+/// under each API the machine offers, with different latency and channel counts;
+/// Unknown means "let the backend pick".
 enum class Backend
 {
     Unknown,
@@ -35,28 +37,29 @@ enum class Backend
     Null
 };
 
-// Display spelling — "Core Audio", not "CoreAudio". Empty for Backend::Unknown.
+/// Display spelling — "Core Audio", not "CoreAudio". Empty for Backend::Unknown.
 std::string getBackendName(Backend backend);
 
-// Matches both spellings — getBackendName's and the enumerator's — ignoring case,
-// spaces and punctuation: "Core Audio", "coreaudio" and "core-audio" all match.
+/// Matches both spellings — getBackendName's and the enumerator's — ignoring case,
+/// spaces and punctuation: "Core Audio", "coreaudio" and "core-audio" all match.
 std::optional<Backend> getBackendFromName(std::string_view name);
 
+/// One device as one backend enumerated it.
 struct DeviceInfo
 {
-    // Enumeration hands back a blank DeviceInfo when the machine has nothing to
-    // offer, so anything building a config out of a default device has to ask first.
+    /// Enumeration hands back a blank DeviceInfo when the machine has nothing to
+    /// offer, so anything building a config out of a default device has to ask first.
     bool isValid() const;
 
-    // Asking a machine with speakers but no microphone for a duplex stream opens
-    // neither side — the whole open fails on the half that isn't there.
+    /// Asking a machine with speakers but no microphone for a duplex stream opens
+    /// neither side — the whole open fails on the half that isn't there.
     bool hasChannels(bool input) const;
 
     int id {};
     std::string name;
 
-    // Ids are handed out per-API, so a DeviceInfo only means anything to the manager
-    // that enumerated it — see DeviceManager::setBackend.
+    /// Ids are handed out per-API, so a DeviceInfo only means anything to the manager
+    /// that enumerated it — see DeviceManager::setBackend.
     Backend backend {Backend::Unknown};
 
     int outputChannels {};
@@ -66,9 +69,9 @@ struct DeviceInfo
     bool isDefaultInput {false};
     Vector<int> sampleRates;
 
-    // What the device runs at now, not what it can run (sampleRates) or what we
-    // would open it at (preferredSampleRate). A shared device moves whenever another
-    // app moves it, so this is a snapshot from enumeration; falls back to preferred.
+    /// What the device runs at now, not what it can run (sampleRates) or what we
+    /// would open it at (preferredSampleRate). A shared device moves whenever another
+    /// app moves it, so this is a snapshot from enumeration; falls back to preferred.
     int currentSampleRate {};
     int preferredSampleRate {};
 
@@ -85,8 +88,8 @@ struct DeviceInfo
                  preferredSampleRate)
 };
 
-// Returned rather than thrown: a machine with no audio device, or one whose device
-// is busy, is an ordinary desktop state, not something a host should have to catch.
+/// Returned rather than thrown: a machine with no audio device, or one whose device
+/// is busy, is an ordinary desktop state, not something a host should have to catch.
 enum class Error
 {
     NoError,
@@ -102,16 +105,17 @@ enum class Error
     THREAD_ERROR
 };
 
-// A message fit to put in front of a user. Empty for NoError.
+/// A message fit to put in front of a user. Empty for NoError.
 std::string getErrorMessage(Error error);
 
 int getDefaultNumChannels(const DeviceInfo& info, bool input);
 bool deviceSupportsSampleRate(const DeviceInfo& device, int rate);
 
-// Prefers the output's preferred rate, then the input's, then the highest common
-// rate, then output-only and input-only fallbacks.
+/// Prefers the output's preferred rate, then the input's, then the highest common
+/// rate, then output-only and input-only fallbacks.
 int pickCompatibleSampleRate(const DeviceInfo& output, const DeviceInfo& input);
 
+/// Which device, and which of its channels, one direction of a stream uses.
 struct StreamParameters
 {
     StreamParameters() = default;
@@ -122,8 +126,8 @@ struct StreamParameters
 
     DeviceInfo device;
 
-    // Uses the device's channels [firstChannel, firstChannel + nChannels), which is
-    // how a stereo pair is picked out of a multi-channel interface.
+    /// Uses the device's channels [firstChannel, firstChannel + nChannels), which is
+    /// how a stereo pair is picked out of a multi-channel interface.
     int nChannels {};
     int firstChannel {};
 
@@ -149,10 +153,10 @@ struct StreamOptions
     MIRO_REFLECT(flags, numberOfBuffers, streamName, priority)
 };
 
-// What the block that just arrived cost. miniaudio's data callback carries no status
-// of its own, so this is measured: a block that arrives a whole period late means the
-// deadline was missed and the OS filled the gap — with silence on the way out, or by
-// dropping what it could not hand over on the way in.
+/// What the block that just arrived cost. miniaudio's data callback carries no status
+/// of its own, so this is measured: a block that arrives a whole period late means the
+/// deadline was missed and the OS filled the gap — with silence on the way out, or by
+/// dropping what it could not hand over on the way in.
 enum class AudioCallbackStatus
 {
     OK,
@@ -160,9 +164,9 @@ enum class AudioCallbackStatus
     OutputUnderflow
 };
 
-// Something the device did on its own; stops made through this library are not
-// reported. Informational only — a Stopped device is re-opened automatically (see
-// setAutoRecover), and nothing else reveals one: it still reports itself started.
+/// Something the device did on its own; stops made through this library are not
+/// reported. Informational only — a Stopped device is re-opened automatically (see
+/// setAutoRecover), and nothing else reveals one: it still reports itself started.
 enum class DeviceNotification
 {
     Started,
@@ -175,6 +179,7 @@ enum class DeviceNotification
 
 int getNumChannels(const std::optional<StreamParameters>& params);
 
+/// Either side may be left unset; a config with neither fails to start with NO_DEVICES_FOUND.
 struct StreamConfig
 {
     int getInputChannels() const;
@@ -190,12 +195,13 @@ struct StreamConfig
     MIRO_REFLECT(input, output, sampleRate, maxBlockSize, options)
 };
 
+/// Handed to the Callback on the OS audio thread once per block.
 struct AudioCallbackInfo
 {
-    // Referring Buffers over the backend's planar scratch, built per call, so
-    // `auto out = info.getOutput()` costs nothing and allocates nothing. The
-    // backend owns the interleaved<->planar conversion; callers only ever see
-    // planar data.
+    /// Referring Buffers over the backend's planar scratch, built per call, so
+    /// `auto out = info.getOutput()` costs nothing and allocates nothing. The
+    /// backend owns the interleaved<->planar conversion; callers only ever see
+    /// planar data.
     Buffer getInput() const noexcept;
     Buffer getOutput() const noexcept;
 
@@ -205,8 +211,8 @@ struct AudioCallbackInfo
     int numInputs = 0;
     int numOutputs = 0;
 
-    // Per-channel pointer tables the backend owns; what getInput()/getOutput()
-    // read through.
+    /// Per-channel pointer tables the backend owns; what getInput()/getOutput()
+    /// read through.
     float* const* inputChannels = nullptr;
     float* const* outputChannels = nullptr;
     int numSamples {};
@@ -217,12 +223,14 @@ struct AudioCallbackInfo
     int maxBlockSize = 0;
     int latency = 0;
 
-    // "Re-derive whatever you cached about this stream." Raised when the shape
-    // (channels, sample rate, block size) differs from the previous callback, and on
-    // the first callback after a reroute or interruption, which leave it unchanged.
+    /// "Re-derive whatever you cached about this stream." Raised when the shape
+    /// (channels, sample rate, block size) differs from the previous callback, and on
+    /// the first callback after a reroute or interruption, which leave it unchanged.
     bool dirty = false;
 };
 
+/// Runs on the OS audio thread: no allocation, locks or logging.
 using Callback = std::function<void(AudioCallbackInfo&)>;
+/// Runs on an OS thread; see DeviceManager::setNotificationCallback.
 using NotificationCallback = std::function<void(DeviceNotification)>;
 } // namespace MakeASound

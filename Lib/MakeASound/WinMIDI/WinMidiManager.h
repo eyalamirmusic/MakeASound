@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The Windows MIDI backend over WinMM; use it through MidiManager. */
+
 #include "WinMIDI-Backend.h"
 #include "../MIDI/MidiBackend.h"
 #include "../MIDI/MidiParser.h"
@@ -19,11 +21,11 @@ namespace MakeASound::WinMIDI
 constexpr auto ignoreClockFlag = std::uint8_t {1};
 constexpr auto ignoreActiveSenseFlag = std::uint8_t {2};
 
-// The only place WinMM's callback thread and the host's meet. notifyHost takes a
-// mutex and WinMM allows almost nothing to be called from inside its callback,
-// so the callback raises a flag and the enumeration sweeps it; the mask goes the
-// other way, read once per callback so a setIgnoredTypes() reaches ports that
-// are already open.
+/// The only place WinMM's callback thread and the host's meet. notifyHost takes a
+/// mutex and WinMM allows almost nothing to be called from inside its callback,
+/// so the callback raises a flag and the enumeration sweeps it; the mask goes the
+/// other way, read once per callback so a setIgnoredTypes() reaches ports that
+/// are already open.
 struct SharedState
 {
     std::atomic<bool> overflowed {false};
@@ -31,9 +33,9 @@ struct SharedState
     std::atomic<std::uint8_t> ignoredTypes {ignoreClockFlag | ignoreActiveSenseFlag};
 };
 
-// One slot of an input's SysEx ring. WinMM fills the storage, hands the header
-// back through MIM_LONGDATA, and the callback re-arms it on the spot — a dump
-// longer than one slot simply spills into the next, so the parser sees it whole.
+/// One slot of an input's SysEx ring. WinMM fills the storage, hands the header
+/// back through MIM_LONGDATA, and the callback re-arms it on the spot — a dump
+/// longer than one slot simply spills into the next, so the parser sees it whole.
 struct SysExBuffer
 {
     static constexpr auto bytes = 1024;
@@ -43,12 +45,12 @@ struct SysExBuffer
     bool prepared {false};
 };
 
-// One open input: the WinMM handle and its buffer ring, the parser that turns
-// the bytes into whole messages, and the two ways a message leaves — straight to
-// a callback on WinMM's thread, or into the queue drainMessages() empties on the
-// host's. Everything that thread touches is sized at open time, and only for the
-// mode the port is in: queue mode gets the queue, callback mode a scratch message
-// as large as the SysEx cap, and neither pays for the other.
+/// One open input: the WinMM handle and its buffer ring, the parser that turns
+/// the bytes into whole messages, and the two ways a message leaves — straight to
+/// a callback on WinMM's thread, or into the queue drainMessages() empties on the
+/// host's. Everything that thread touches is sized at open time, and only for the
+/// mode the port is in: queue mode gets the queue, callback mode a scratch message
+/// as large as the SysEx cap, and neither pays for the other.
 struct InputPort
 {
     static constexpr auto queueCapacity = 2048;
@@ -63,7 +65,7 @@ struct InputPort
                MidiTimePoint epochToUse,
                SharedState& state);
 
-    // Both run on WinMM's callback thread.
+    /// Both run on WinMM's callback thread.
     void handleShortMessage(DWORD_PTR packed, DWORD_PTR timestamp);
     void handleLongMessage(MIDIHDR* midiHeader, DWORD_PTR timestamp, bool failed);
 
@@ -76,13 +78,13 @@ struct InputPort
     std::vector<std::uint8_t> sysExStorage;
     MidiMessage scratch;
 
-    // MidiMessage::timestamp is seconds from here; WinMM's own milliseconds are
-    // counted from startTime, which is steady_clock as of midiInStart.
+    /// MidiMessage::timestamp is seconds from here; WinMM's own milliseconds are
+    /// counted from startTime, which is steady_clock as of midiInStart.
     MidiTimePoint epoch {};
     MidiTimePoint startTime {};
     SharedState* shared {};
 
-    // Queue mode only; null where `callback` took the other path.
+    /// Queue mode only; null where `callback` took the other path.
     OwningPointer<Queue> queue;
 
 private:
@@ -101,9 +103,9 @@ private:
     bool running {false};
 };
 
-// WinMM has no virtual ports, no hotplug notification and no loop thread of its
-// own: openVirtual* refuse, and PortAdded/PortRemoved are diffed out of the
-// enumeration, which is what a UI polling the list would have seen anyway.
+/// WinMM has no virtual ports, no hotplug notification and no loop thread of its
+/// own: openVirtual* refuse, and PortAdded/PortRemoved are diffed out of the
+/// enumeration, which is what a UI polling the list would have seen anyway.
 struct MidiManager : MidiBackend
 {
     MidiManager();

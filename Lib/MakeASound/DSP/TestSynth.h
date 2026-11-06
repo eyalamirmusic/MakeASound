@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file TestSynth, a monophonic instrument for checking that an audio and MIDI path makes sound. */
+
 #include "../Audio/Processor.h"
 #include "../Realtime/Smoother.h"
 
@@ -15,13 +17,14 @@ enum class Waveform
     Square
 };
 
-// A monophonic test instrument with last-note priority: releasing a note falls
-// back to the newest one still held. One oscillator, a linear attack/release
-// envelope and a smoothed output level. The whole block is process(); a host
-// that wants to see each event drives render() and handleEvent() itself.
+/// A monophonic test instrument with last-note priority: releasing a note falls
+/// back to the newest one still held. One oscillator, a linear attack/release
+/// envelope and a smoothed output level. The whole block is process(); a host
+/// that wants to see each event drives render() and handleEvent() itself.
 class TestSynth : public Processor
 {
 public:
+    /// Times in seconds; gain is linear.
     struct Settings
     {
         Waveform waveform = Waveform::Sine;
@@ -37,7 +40,7 @@ public:
     void reset() noexcept override;
     void process(ProcessContext& context) noexcept override;
 
-    // Audio thread, before the block they apply to. The gain is ramped.
+    /// Audio thread, before the block they apply to. The gain is ramped.
     void setSettings(const Settings& settingsToUse) noexcept;
     const Settings& getSettings() const noexcept { return settings; }
 
@@ -49,6 +52,7 @@ public:
     float getVelocity() const noexcept { return velocity; }
     bool isPlaying() const noexcept { return currentNote >= 0; }
 
+    /// Equal temperament, note 69 (A4) at 440 Hz.
     static float noteToFrequency(int note) noexcept;
 
 private:

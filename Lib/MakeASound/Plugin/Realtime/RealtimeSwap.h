@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file RealtimeSwap, which hands a new object to the audio thread without allocating or freeing there. */
+
 #include "MessageThread.h"
 #include "../../Common/Common.h"
 
@@ -9,9 +11,9 @@
 namespace MakeASound
 {
 
-// Hands an object to the audio thread, which never allocates or frees: it takes
-// `pending` per block and retires its old one for the message thread's sweep. A
-// full `retired` slot delays a publish a block. Destroy once audio has stopped.
+/// Hands an object to the audio thread, which never allocates or frees: it takes
+/// `pending` per block and retires its old one for the message thread's sweep. A
+/// full `retired` slot delays a publish a block. Destroy once audio has stopped.
 template <typename T>
 class RealtimeSwap final : Reclaimable
 {
@@ -30,7 +32,7 @@ public:
     RealtimeSwap(const RealtimeSwap&) = delete;
     RealtimeSwap& operator=(const RealtimeSwap&) = delete;
 
-    // Builds a T from `args`. One the audio thread never took is freed here.
+    /// Builds a T from `args`. One the audio thread never took is freed here.
     template <typename... Args>
     void publish(Args&&... args)
     {
@@ -38,7 +40,7 @@ public:
         destroy(pending.exchange(next.release(), std::memory_order_acq_rel));
     }
 
-    // Audio thread, once per block: the latest object, valid until the next call.
+    /// Audio thread, once per block: the latest object, valid until the next call.
     T* currentForBlock() noexcept
     {
         if (retired.load(std::memory_order_acquire) != nullptr)
