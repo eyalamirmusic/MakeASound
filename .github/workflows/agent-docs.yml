@@ -2,7 +2,7 @@ name: Agent Docs
 
 on:
   push:
-    branches: [main, develop, jp/agent-docs]
+    branches: [main, develop]
     tags: ["v*"]
 
 concurrency:
