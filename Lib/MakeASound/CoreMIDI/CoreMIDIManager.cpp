@@ -1,5 +1,4 @@
 #include "CoreMIDIManager.h"
-#include "../MIDI/MIDI.h"
 
 #include <mach/mach_time.h>
 
@@ -37,24 +36,6 @@ struct ScopedCFString
 
     CFStringRef value {};
 };
-
-// SysEx is the one thing convertMidi does not carry, and the queue tier only
-// takes a dump that fits an Event. Anything longer belongs in callback mode.
-std::optional<MIDI::Event> toEvent(Span<const std::uint8_t> bytes)
-{
-    if (bytes.empty())
-        return std::nullopt;
-
-    if (bytes[0] == 0xF0)
-    {
-        if (bytes.size() > MIDI::SysEx::maxBytes)
-            return std::nullopt;
-
-        return MIDI::Event::sysEx(bytes.data(), bytes.size());
-    }
-
-    return MIDI::convertMidi(bytes.data(), bytes.size());
-}
 } // namespace
 
 InputPort::~InputPort()
@@ -68,67 +49,14 @@ InputPort::~InputPort()
         MIDIPortDisconnectSource(sharedInputPort, source);
 }
 
-void InputPort::open(int bytesForSysEx, MidiTimePoint epochToUse, SharedState& state)
-{
-    shared = &state;
-    epoch = epochToUse;
-
-    sysExStorage.resize(static_cast<std::size_t>(bytesForSysEx));
-    parser.setSysExBuffer(Span<std::uint8_t>(sysExStorage));
-
-    // One mode's storage, never both. The callback's message never outgrows the
-    // dump the parser can assemble, so reserving here is what keeps assign() off
-    // the heap on the MIDI thread; queue mode has no use for it, and callback
-    // mode none for the queue.
-    if (callback)
-        scratch.bytes.reserve(sysExStorage.size());
-    else
-        queue.create();
-}
-
 void InputPort::receive(const MIDIPacketList* list)
 {
-    auto flags = shared->ignoredTypes.load(std::memory_order_relaxed);
-    parser.setIgnoredTypes((flags & ignoreClockFlag) != 0,
-                           (flags & ignoreActiveSenseFlag) != 0);
+    pipe.loadIgnoredTypes();
 
-    auto onMessage = [this](const MidiMessageView& message) { deliver(message); };
-
-    auto onDropped = [this](int)
-    { shared->droppedSysEx.store(true, std::memory_order_relaxed); };
-
-    auto onPacket = [&](Span<const std::uint8_t> bytes, MidiTimePoint timestamp)
-    { parser.feed(bytes, timestamp, onMessage, onDropped); };
+    auto onPacket = [this](Span<const std::uint8_t> bytes, MidiTimePoint timestamp)
+    { pipe.parse(bytes, timestamp); };
 
     forEachPacket(list, onPacket);
-}
-
-void InputPort::deliver(const MidiMessageView& message)
-{
-    if (callback)
-    {
-        scratch.timestamp =
-            std::chrono::duration<double>(message.timestamp - epoch).count();
-
-        scratch.bytes.assign(message.bytes.begin(), message.bytes.end());
-        callback(scratch);
-        return;
-    }
-
-    auto typed = toEvent(message.bytes);
-
-    if (!typed)
-    {
-        if (!message.bytes.empty() && message.bytes[0] == 0xF0)
-            shared->droppedSysEx.store(true, std::memory_order_relaxed);
-
-        return;
-    }
-
-    auto event = MidiInputEvent {portId, *typed, message.timestamp};
-
-    if (!queue->push(event))
-        shared->overflowed.store(true, std::memory_order_relaxed);
 }
 
 NotifyLoop& NotifyLoop::get()
@@ -204,7 +132,6 @@ void NotifyLoop::call(const std::function<void()>& work)
 
 MidiManager::MidiManager()
     : gate(std::make_shared<NotifyGate>())
-    , epoch(std::chrono::steady_clock::now())
 {
     gate->owner = this;
     NotifyLoop::get().call([this] { start(); });
@@ -265,7 +192,7 @@ void MidiManager::start()
         0,
         0,
         [](CFRunLoopTimerRef, void* info)
-        { static_cast<MidiManager*>(info)->publishFlags(); },
+        { static_cast<MidiManager*>(info)->publishInputFlags(); },
         &context);
 
     CFRunLoopAddTimer(CFRunLoopGetCurrent(), sweepTimer, kCFRunLoopDefaultMode);
@@ -318,29 +245,9 @@ void MidiManager::handleNotification(const MIDINotification* message)
     notifyHost(added ? MidiNotification::PortAdded : MidiNotification::PortRemoved);
 }
 
-void MidiManager::publishFlags()
-{
-    if (shared.overflowed.exchange(false))
-        notifyHost(MidiNotification::QueueOverflow);
-
-    if (shared.droppedSysEx.exchange(false))
-        notifyHost(MidiNotification::SysExDropped);
-}
-
 Error MidiManager::record(OSStatus status)
 {
     return record(getError(status));
-}
-
-Error MidiManager::record(Error error)
-{
-    lastError.store(error, std::memory_order_relaxed);
-    return error;
-}
-
-Error MidiManager::getLastError() const
-{
-    return lastError.load(std::memory_order_relaxed);
 }
 
 bool MidiManager::isAvailable() const
@@ -376,32 +283,9 @@ int MidiManager::resolveOutput(int portId)
     return outputRegistry.portNumberForId(portId);
 }
 
-void MidiManager::setIgnoredTypes(bool clock, bool activeSense)
-{
-    MidiBackend::setIgnoredTypes(clock, activeSense);
-
-    auto flags = static_cast<std::uint8_t>(
-        (clock ? ignoreClockFlag : 0) | (activeSense ? ignoreActiveSenseFlag : 0));
-
-    shared.ignoredTypes.store(flags, std::memory_order_relaxed);
-}
-
 InputPort* MidiManager::createInput(int portId, const MidiInputCallback& cb)
 {
-    // Built before the lock is taken: open() sizes the port's buffers, and the
-    // drain has better things to do than wait behind that.
-    auto port = EA::makeOwned<InputPort>();
-
-    port->portId = portId;
-    port->callback = cb;
-    port->open(getMaxSysExBytes(), epoch, shared);
-
-    auto* created = port.get();
-
-    auto lock = ScopedSpinLock(inputsLock);
-    inputs.add(std::move(port));
-
-    return created;
+    return addInput(makeInput(portId, cb));
 }
 
 Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
@@ -475,59 +359,6 @@ std::optional<int> MidiManager::openVirtualInput(const std::string& name,
     record(noErr);
 
     return portId;
-}
-
-void MidiManager::closeInput(int portId)
-{
-    auto lock = ScopedSpinLock(inputsLock);
-    inputs.eraseIf([portId](auto& p) { return p->portId == portId; });
-}
-
-void MidiManager::closeAllInputs()
-{
-    auto lock = ScopedSpinLock(inputsLock);
-    inputs.clear();
-}
-
-bool MidiManager::isInputOpen(int portId) const
-{
-    for (auto& p: inputs)
-        if (p->portId == portId)
-            return true;
-
-    return false;
-}
-
-Vector<int> MidiManager::getOpenInputPorts() const
-{
-    auto result = Vector<int> {};
-    result.reserve(inputs.size());
-
-    for (auto& p: inputs)
-        result.add(p->portId);
-
-    return result;
-}
-
-void MidiManager::drainMessages(Vector<MidiInputEvent>& out)
-{
-    // Contended only while a port is opening or closing, and this is the audio
-    // thread: the events keep, so the block gives up its turn instead.
-    auto lock = ScopedTryLock(inputsLock);
-
-    if (!lock.held)
-        return;
-
-    auto event = MidiInputEvent {};
-
-    for (auto& port: inputs)
-    {
-        if (port->callback)
-            continue;
-
-        while (port->queue->pop(event))
-            out.add(event);
-    }
 }
 
 Error MidiManager::openOutput(int portId)
