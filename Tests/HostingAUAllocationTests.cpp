@@ -12,6 +12,9 @@
 
 #include <NanoTest/NanoTest.h>
 
+#include <array>
+#include <cstdint>
+
 namespace HostingAUAllocationTests
 {
 using namespace nano;
@@ -63,22 +66,33 @@ auto tInstrument = test("Allocations/aHostedAudioUnitsMidiTouchesNothing") = []
     auto context = contextFor(*unit, blockSize);
     warmUp(*unit, context);
 
+    // Every kind of event the host encodes for the unit, SysEx included.
+    constexpr auto sysEx =
+        std::array<std::uint8_t, 6> {0xf0, 0x7e, 0x7f, 0x06, 0x01, 0xf7};
+
     auto count = allocationsOverBlocks(
         *unit,
         context,
         [&](int block)
         {
             auto pitch = 60 + block % 12;
+            auto bend = static_cast<float>(block % 9) / 4.f - 1.f;
             context.clearMidi();
             context.midiIn[0].add(MIDI::Event::noteOn(0, pitch, 0.7f, 3));
-            context.midiIn[0].add(MIDI::Event::pitchBend(0, 0.25f, 4));
+            context.midiIn[0].add(MIDI::Event::pitchBend(0, bend, 4));
+            context.midiIn[0].add(MIDI::Event::controlChange(0, 1, 0.5f, 5));
+            context.midiIn[0].add(MIDI::Event::channelAftertouch(0, 0.3f, 6));
+            context.midiIn[0].add(MIDI::Event::polyAftertouch(0, pitch, 0.4f, 7));
+            context.midiIn[0].add(MIDI::Event::programChange(0, 5, 8));
+            context.midiIn[0].add(
+                MIDI::Event::sysEx(sysEx.data(), static_cast<int>(sysEx.size())));
             context.midiIn[0].add(MIDI::Event::noteOff(0, pitch, 0.f, 9));
         });
 
     check(count == 0);
 
     // The unit's MIDI out came back through the callback, inside the ban.
-    check(context.midiOut.size() == 1 && context.midiOut[0].size() == 3);
+    check(context.midiOut.size() == 1 && context.midiOut[0].size() == 8);
 };
 
 // A unit that pulls its input with no memory of its own, and tells its latency
