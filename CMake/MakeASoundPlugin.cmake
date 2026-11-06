@@ -457,6 +457,22 @@ function(_makeasound_ios_shape name)
     set(ARG_IOS_DEVICE_FAMILY "${families}" PARENT_SCOPE)
 endfunction()
 
+# Copies <bundle> into <dest_dir> after every build of <target>, through
+# InstallPluginBundle.cmake, when the caller's install_bundles is on: off under
+# NO_INSTALL or with MAKEASOUND_INSTALL_PLUGINS off. Every format installs through
+# this, last, after its signing. The tests reach it in script mode
+# (Tests/InstallBundles/Install.cmake).
+function(_makeasound_install_bundle target bundle dest_dir)
+    if (NOT install_bundles)
+        return()
+    endif ()
+
+    add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${dest_dir}"
+                    -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
+            VERBATIM)
+endfunction()
+
 # <Name>-VST3: the module, the SDK's platform entry and our GetPluginFactory, laid
 # out as the VST3 bundle every host scans for. Reads the caller's ARG_* variables.
 function(_makeasound_add_vst3 name)
@@ -562,12 +578,7 @@ function(_makeasound_add_vst3 name)
         set(install_dir "$ENV{HOME}/.vst3")
     endif ()
 
-    if (install_bundles)
-        add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${install_dir}"
-                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
-                VERBATIM)
-    endif ()
+    _makeasound_install_bundle(${target} "${bundle}" "${install_dir}")
 endfunction()
 
 # <Name>-AU: the module, our MakeASoundAUFactory and MakeASoundAUWritePlist and the
@@ -636,13 +647,8 @@ function(_makeasound_add_au name)
             COMMAND codesign --force --sign - "${bundle}"
             VERBATIM)
 
-    if (install_bundles)
-        add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
-                        -D "DEST_DIR=$ENV{HOME}/Library/Audio/Plug-Ins/Components"
-                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
-                VERBATIM)
-    endif ()
+    _makeasound_install_bundle(${target} "${bundle}"
+            "$ENV{HOME}/Library/Audio/Plug-Ins/Components")
 endfunction()
 
 # The simulator or a device, from the sysroot the iOS tree was configured with:
@@ -1061,13 +1067,8 @@ function(_makeasound_add_aax_macos name target bundle)
                 "(needs wraptool and MAKEASOUND_PACE_SIGN_ID)")
     endif ()
 
-    if (install_bundles)
-        add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}"
-                        -D "DEST_DIR=/Library/Application Support/Avid/Audio/Plug-Ins"
-                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
-                VERBATIM)
-    endif ()
+    _makeasound_install_bundle(${target} "${bundle}"
+            "/Library/Application Support/Avid/Audio/Plug-Ins")
 endfunction()
 
 # The Windows half of <Name>-AAX: the DLL, itself named <OUTPUT_NAME>.aaxplugin,
@@ -1093,18 +1094,13 @@ function(_makeasound_add_aax_windows name target bundle)
                 "(PACE signing is not wired up on Windows yet)")
     endif ()
 
-    if (MAKEASOUND_INSTALL_PLUGINS)
-        set(common_files "$ENV{CommonProgramFiles}")
+    set(common_files "$ENV{CommonProgramFiles}")
 
-        if (NOT common_files)
-            set(common_files "C:/Program Files/Common Files")
-        endif ()
-
-        file(TO_CMAKE_PATH "${common_files}/Avid/Audio/Plug-Ins" install_dir)
-
-        add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -D "SOURCE=${bundle}" -D "DEST_DIR=${install_dir}"
-                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/InstallPluginBundle.cmake"
-                VERBATIM)
+    if (NOT common_files)
+        set(common_files "C:/Program Files/Common Files")
     endif ()
+
+    file(TO_CMAKE_PATH "${common_files}/Avid/Audio/Plug-Ins" install_dir)
+
+    _makeasound_install_bundle(${target} "${bundle}" "${install_dir}")
 endfunction()
