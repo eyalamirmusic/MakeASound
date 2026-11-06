@@ -275,7 +275,8 @@ if (MAKEASOUND_BUILD_PLUGIN)
         endif ()
 
         list(APPEND MAKEASOUND_TEST_SOURCES
-                HostingCacheTests.cpp HostingJuceCompatTests.cpp HostingScanTests.cpp)
+                HostingCacheTests.cpp HostingJuceCompatTests.cpp HostingScanTests.cpp
+                HostingVST3StringsTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting MakeASoundScanProtocol)
 
         # A stand-in scan worker whose misbehaviour the command line picks

@@ -1,7 +1,6 @@
 #include "../../Plugin/VST3/VST3Common.h"
 #include "VST3HostedParameter.h"
-
-#include <public.sdk/source/vst/utility/stringconvert.h>
+#include "VST3Strings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,9 +13,11 @@ namespace
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 
-std::string text(const String128 value)
+// By reference, so the read stops at the array's end when the plugin left no
+// terminator.
+std::string text(const String128& value)
 {
-    return StringConvert::convert(value);
+    return VST3Strings::toUtf8(value);
 }
 
 ParameterOptions optionsFor(const ParameterInfo& info, const std::string& id)
@@ -82,11 +83,12 @@ std::string VST3HostedParameter::valueToText(float normalized) const
 
 float VST3HostedParameter::textToValue(std::string_view input) const
 {
-    auto wide = StringConvert::convert(std::string(input));
+    // Typed by a user, so possibly not UTF-8 at all: a broken byte reaches the
+    // plugin as U+FFFD rather than throwing.
+    auto wide = VST3Strings::toUtf16(input);
     auto normalized = ParamValue {};
 
-    if (controller.getParamValueByString(
-            vstId, const_cast<TChar*>(wide.data()), normalized)
+    if (controller.getParamValueByString(vstId, wide.data(), normalized)
         == kResultOk)
         return clampUnit(static_cast<float>(normalized));
 
