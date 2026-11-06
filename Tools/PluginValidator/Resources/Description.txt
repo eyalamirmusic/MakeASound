@@ -1,0 +1,1 @@
+Validates each bundle named, and every .vst3, .component and .aaxplugin in each folder named: a .vst3 through Tracktion's pluginval, a .component through auval -strict after installing it into the user's Components folder, an .aaxplugin through every aaxval test in the AAX Validator folder (both macOS only).

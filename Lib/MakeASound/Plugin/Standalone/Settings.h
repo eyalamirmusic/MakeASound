@@ -1,0 +1,114 @@
+#pragma once
+
+#include "../../Devices/DeviceInfo.h"
+#include "../../MIDI/MidiInfo.h"
+
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace MakeASound::Standalone
+{
+
+// Where an app's main window was: its top-left corner in eacp screen points,
+// the space of eacp's WindowOptions::initialPosition and Window::getPosition.
+struct WindowPosition
+{
+    bool operator==(const WindowPosition&) const = default;
+
+    float x = 0.f;
+    float y = 0.f;
+
+    MIRO_REFLECT(x, y)
+};
+
+// Every field has a default, and a key missing from the file loads as that
+// default: a file from before a field was added reads as it always did.
+struct Settings
+{
+    int version = 1;
+    StreamConfig audio;
+
+    // Names, not ids: ids are handed out per launch. The ports the user picked,
+    // whether or not they are plugged in now (StandaloneHost::poll()).
+    Vector<std::string> midiInputPorts;
+    std::string midiOutputPort;
+
+    // A virtual output the host opened under this name, in place of
+    // midiOutputPort (StandaloneHost::setVirtualMidiOutput). A file from before
+    // it has no key, and loads as none.
+    std::string midiVirtualOutput;
+
+    // The plugin's Session document.
+    std::string pluginState;
+
+    // Whether the plugin hears silence in place of the input device
+    // (StandaloneHost::setInputMuted), against a feedback loop from the
+    // speakers into the microphone.
+    bool inputMuted = false;
+
+    // The app's main window (StandaloneHost::setWindowPosition); none until an
+    // app saves one.
+    std::optional<WindowPosition> window;
+
+    // Keys an app keeps for itself (StandaloneHost::setAppSetting). The host
+    // only stores them.
+    std::map<std::string, std::string> app;
+
+    // True only while StandaloneHost::start() opens the saved stream: a file
+    // that still says so is from a launch that never got past the open (a
+    // driver that hung), and the next launch starts on the fallback instead.
+    bool audioOpenPending = false;
+
+    MIRO_REFLECT(version,
+                 audio,
+                 midiInputPorts,
+                 midiOutputPort,
+                 midiVirtualOutput,
+                 pluginState,
+                 inputMuted,
+                 window,
+                 app,
+                 audioOpenPending)
+};
+
+// <app support>/<vendor>/<plugin>/settings.json
+std::string settingsPath(std::string_view vendor, std::string_view pluginName);
+
+// Where a JUCE build's standalone named `juceName` (its JucePlugin_Name) kept its
+// settings, a PropertiesFile whose `filterState` is the plugin's state
+// (juce_audio_plugin_client_Standalone.cpp): `~/Library/Application
+// Support/<Name>.settings` on macOS and iOS, `%APPDATA%\<Name>\<Name>.settings`
+// on Windows, `~/.config/<Name>.settings` on Linux. Empty for an empty name and
+// on any other platform.
+std::string juceSettingsPath(std::string_view juceName);
+
+// Nullopt when the file is missing, blank or not a JSON object.
+//
+// A file outlives the build that wrote it, so a key this build cannot read (an
+// unknown one, one of another type, one a later build reshaped) costs at most
+// its own field: the others, the plugin's state among them, load as they
+// would without it (StandaloneTests pins this). A file this build saves has
+// the keys and shape an earlier one wrote, so that build reads it back.
+std::optional<Settings> loadSettings(const std::string& path);
+
+// Atomic, creating the directory; false on failure, never throws.
+bool saveSettings(const std::string& path, const Settings& settings);
+
+// A saved config names devices from an earlier launch. Each side is re-pointed at
+// the device of that name present now, keeping its channel span clamped to what
+// the device has; a side whose device is gone takes the fallback's side. The
+// sample rate is kept when every device lists it, and otherwise chosen as
+// DeviceManager chooses a default one. The block size is kept. A config with
+// neither side is the fallback.
+StreamConfig resolveConfig(const StreamConfig& saved,
+                           const Vector<DeviceInfo>& devices,
+                           const StreamConfig& fallback);
+
+// The ports present now under the saved names, in order; a missing name is
+// skipped.
+Vector<int> resolvePortIds(const Vector<std::string>& names,
+                           const Vector<MidiPortInfo>& ports);
+
+} // namespace MakeASound::Standalone

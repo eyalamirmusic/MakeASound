@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <vector>
 
+namespace ALSABackendTests
+{
 using namespace nano;
 
 using MakeASound::Error;
@@ -93,9 +95,8 @@ std::vector<std::uint8_t> roundTrip(const std::vector<std::uint8_t>& bytes)
         if (taken <= 0)
             break;
 
-        auto decoded = ALSA::getEventBytes(decoder.handle,
-                                           event,
-                                           Span<std::uint8_t>(storage));
+        auto decoded =
+            ALSA::getEventBytes(decoder.handle, event, Span<std::uint8_t>(storage));
 
         result.insert(result.end(), decoded.begin(), decoded.end());
         sent += taken;
@@ -204,8 +205,7 @@ auto tNames = test("Alsa/portNamesCarryTheClientAndPortNumbers") = []
     snd_seq_port_info_set_client(port.handle, 24);
     snd_seq_port_info_set_port(port.handle, 3);
 
-    check(ALSA::getPortName(client.handle, port.handle)
-          == "Some Synth:MIDI 1 24:3");
+    check(ALSA::getPortName(client.handle, port.handle) == "Some Synth:MIDI 1 24:3");
 
     check(ALSA::getPortIdentity(ALSA::Address {24, 3}) == "24:3");
 };
@@ -223,3 +223,4 @@ auto tFilter = test("Alsa/ourOwnPlumbingIsNotAPortAHostCanOpen") = []
     check(!filter.shouldSkip(ALSA::Address {24, 0}));
 };
 } // namespace
+} // namespace ALSABackendTests

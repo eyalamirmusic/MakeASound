@@ -25,6 +25,7 @@ endif ()
 
 add_library(miniaudio STATIC ${MINIAUDIO_IMPL_FILE})
 target_include_directories(miniaudio SYSTEM PUBLIC ${miniaudio_SOURCE_DIR})
+set_target_properties(miniaudio PROPERTIES FOLDER External/miniaudio)
 
 if (APPLE)
     target_link_libraries(miniaudio PRIVATE

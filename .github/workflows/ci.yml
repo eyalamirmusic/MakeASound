@@ -2,17 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
   workflow_dispatch:
 
-# Every job configures the same dependency set more than once (Debug then
-# Release, device then simulator). Pointing CPM at one cache directory means
-# each archive is fetched once per job instead of once per configure, which
-# keeps a flaky download from taking out the second half of a job that has
-# already downloaded everything it needs.
+# A newer push to the same PR cancels the superseded run; pushes to develop and
+# main are never cancelled, only queued behind each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# RelWithDebInfo only, everywhere: a Debug build of the same tree doubles a job
+# for a configuration nothing ships, and the checks that need a Debug CRT or
+# assertions are the local developer's. RelWithDebInfo rather than Release
+# because it is the same NDEBUG optimized code without the LTO links that
+# INTERPROCEDURAL_OPTIMIZATION_RELEASE adds to every target, which were most of
+# the Windows build step (eacp's CI does the same). The shipped Release + LTO
+# configuration is therefore no longer linked here.
+#
+# The iOS job still configures twice (device then simulator); pointing CPM at
+# one cache directory means each archive is fetched once per job instead of
+# once per configure, which keeps a flaky download from taking out the second
+# half of a job that has already downloaded everything it needs.
+#
+# CCACHE_DEPEND: ccache hashes the source and the include files the compiler's
+# own dependency output names (-MD, /showIncludes) instead of running the
+# preprocessor a second time, so a miss costs the compile and nothing more. What
+# it gives up - a hit after a change the preprocessor would have erased - never
+# happens on a runner. eacp's CI runs the same way.
 env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+  CCACHE_DEPEND: '1'
 
 jobs:
   build:
@@ -24,55 +44,103 @@ jobs:
         include:
           - name: macOS Universal (arm64 + x86_64, min 11.0)
             os: macos-latest
+            cache_key: macos-universal
             osx_archs: "arm64;x86_64"
             deployment_target: "11.0"
+            pluginval: true
+            # Fetches the AAX SDK (the audiosdk/aax fork) and builds both
+            # .aaxplugin bundles and the AAX/ cases. Never validated or signed
+            # here: aaxval and PACE's tools are the user's NDA copies.
+            aax: true
 
           - name: Windows MSVC (x64)
             os: windows-latest
+            cache_key: windows-msvc-x64
             cc: cl
             cxx: cl
             msvc_arch: x64
+            pluginval: true
+            # The AAX bundles and cases on Windows, x64 only: the SDK has no
+            # Windows ARM64 build. Neither validated nor signed here either.
+            aax: true
 
           - name: Windows Clang (x64)
             os: windows-latest
+            cache_key: windows-clang-x64
             cc: clang-cl
             cxx: clang-cl
             msvc_arch: x64
+            pluginval: true
+            aax: true
 
           # Native ARM64 runners, so the tests below run on real hardware
           # rather than being cross-compiled and skipped.
           - name: Windows MSVC (ARM64)
             os: windows-11-arm
+            cache_key: windows-msvc-arm64
             cc: cl
             cxx: cl
             msvc_arch: arm64
 
           - name: Windows Clang (ARM64)
             os: windows-11-arm
+            cache_key: windows-clang-arm64
             cc: clang-cl
             cxx: clang-cl
             msvc_arch: arm64
 
           - name: Linux GCC
             os: ubuntu-latest
+            cache_key: linux-gcc
             cc: gcc
             cxx: g++
+            pluginval: true
 
           - name: Linux Clang
             os: ubuntu-latest
+            cache_key: linux-clang
             cc: clang
             cxx: clang++
 
     steps:
       - uses: actions/checkout@v4
 
+      # A ccache per compiler and architecture, kept in the Actions cache. A
+      # translation unit (a unity chunk, mostly) whose source, includes,
+      # compiler and flags match an earlier run is restored rather than
+      # compiled: every eacp, VST3 SDK, AudioUnitSDK and AAX SDK object on a run
+      # that changed none of them, which is most of a cold build. The eviction
+      # keeps each saved cache to what this build touched, so the nine caches
+      # at 1 GB apiece stay inside the repository's 10 GB. The Windows x64 image
+      # carries Strawberry Perl's old ccache on PATH, which the default
+      # detection would take; the binary install is ccache's own current
+      # release on every Windows lane instead.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: ${{ matrix.cache_key }}
+          max-size: 1G
+          evict-old-files: job
+          install: ${{ runner.os == 'Windows' && 'binary' || 'detect' }}
+
       # The library's own ALSA sequencer MIDI backend needs the ALSA dev headers.
       # (miniaudio's other Linux deps — pthread, dl, m — ship with the toolchain.)
-      - name: Install Linux audio dev packages
+      # The plugin core links eacp, whose Linux graphics tier links Wayland,
+      # xkbcommon, libdecor, xcb, FreeType, HarfBuzz and fontconfig and generates
+      # its protocol bindings with wayland-scanner: eacp's own CI list. libcurl
+      # is eacp-network's transport, which PluginValidator fetches with, and xvfb
+      # is for pluginval, whose JUCE host wants an X server even headless.
+      - name: Install Linux dev packages
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y libasound2-dev libcurl4-openssl-dev xvfb \
+            libwayland-dev wayland-protocols libwayland-bin libxkbcommon-dev \
+            libdecor-0-dev pkg-config \
+            libxcb1-dev libxcb-xkb-dev libxkbcommon-x11-dev \
+            libxcb-randr0-dev libxcb-xfixes0-dev libxcb-cursor-dev \
+            libxcb-icccm4-dev libxcb-xinput-dev libxcb-xtest0-dev \
+            libfreetype-dev libharfbuzz-dev libfontconfig-dev
 
       # Puts cl.exe / clang-cl.exe and the matching Windows SDK on
       # PATH/INCLUDE/LIB for the target architecture.
@@ -87,51 +155,174 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Build & test (Debug & Release, unity ON)
+      - name: Configure (RelWithDebInfo, CI build)
         shell: bash
         env:
           CC_COMPILER: ${{ matrix.cc }}
           CXX_COMPILER: ${{ matrix.cxx }}
           OSX_ARCHS: ${{ matrix.osx_archs }}
           DEPLOY: ${{ matrix.deployment_target }}
+          AAX: ${{ matrix.aax }}
         run: |
           set -euo pipefail
-          for bt in Debug Release; do
-            args=( -S . -B "build-$bt" -G Ninja
-                   -DCMAKE_BUILD_TYPE="$bt"
-                   -DMAKEASOUND_UNITY_BUILD=ON
-                   -DMAKEASOUND_BUILD_APPS=OFF
-                   -DMAKEASOUND_BUILD_TESTS=ON )
+          # ccache launches every compile, Objective-C++ included on macOS.
+          # Windows embeds any debug info in each object (/Z7), since the /Zi
+          # default's one PDB per target is something no per-object cache can
+          # restore.
+          args=( -S . -B build -G Ninja
+                 -DCMAKE_BUILD_TYPE=RelWithDebInfo
+                 -DMAKEASOUND_CI_BUILD=ON
+                 -DMAKEASOUND_BUILD_APPS=OFF
+                 -DMAKEASOUND_BUILD_TESTS=ON
+                 -DCMAKE_C_COMPILER_LAUNCHER=ccache
+                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache )
 
-            # Compiler selection (empty for macOS -> default AppleClang).
-            if [ -n "$CC_COMPILER" ]; then
-              args+=( -DCMAKE_C_COMPILER="$CC_COMPILER"
-                      -DCMAKE_CXX_COMPILER="$CXX_COMPILER" )
-            fi
+          case "$RUNNER_OS" in
+            macOS)   args+=( -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache ) ;;
+            Windows) args+=( -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded ) ;;
+          esac
 
-            # macOS universal slices + deployment target. Passing the arch list
-            # as a single array element keeps the embedded ';' intact.
-            if [ -n "$OSX_ARCHS" ]; then
-              args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
-                      -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
-            fi
+          # Compiler selection (empty for macOS -> default AppleClang).
+          if [ -n "$CC_COMPILER" ]; then
+            args+=( -DCMAKE_C_COMPILER="$CC_COMPILER"
+                    -DCMAKE_CXX_COMPILER="$CXX_COMPILER" )
+          fi
 
-            echo "::group::Configure $bt"
-            cmake "${args[@]}"
-            echo "::endgroup::"
+          # macOS universal slices + deployment target. Passing the arch list
+          # as a single array element keeps the embedded ';' intact.
+          if [ -n "$OSX_ARCHS" ]; then
+            args+=( -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHS"
+                    -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY" )
+          fi
 
-            # Default target: the library plus the test executable (apps are off).
-            echo "::group::Build $bt"
-            cmake --build "build-$bt"
-            echo "::endgroup::"
+          # The AAX bundles' install into Avid's system folder fails on a
+          # runner (no write access) and is only a warning, like every
+          # format's best-effort install.
+          if [ "$AAX" = "true" ]; then
+            args+=( -DMAKEASOUND_BUILD_AAX=ON )
+          fi
 
-            # --no-tests=error so a job that stops producing tests fails loudly
-            # instead of passing vacuously.
-            echo "::group::Test $bt"
-            ctest --test-dir "build-$bt" --build-config "$bt" \
-                  --output-on-failure --no-tests=error
-            echo "::endgroup::"
+          cmake "${args[@]}"
+
+      # Default target: the library plus the test executable (apps are off).
+      - name: Build
+        shell: bash
+        run: cmake --build build
+
+      # --no-tests=error so a job that stops producing tests fails loudly instead
+      # of passing vacuously; --timeout so a case that hangs (a Windows assertion
+      # dialog, a wait that never ends) fails in two minutes rather than ctest's
+      # default twenty-five. -j 4: each case is its own process with its own
+      # temp folder, and the ones sharing a virtual MIDI port hold a
+      # RESOURCE_LOCK (Tests/VirtualMidiPortLock.cmake).
+      - name: Test
+        shell: bash
+        run: |
+          ctest --test-dir build --build-config RelWithDebInfo \
+                --output-on-failure --no-tests=error --timeout 120 -j 4
+
+      # Both example bundles at strictness 10, built by the default target above
+      # and handed over as the folder they land in, every editor opened.
+      # PluginValidator downloads pluginval on its first run and exits with the
+      # number of failures. Linux skips the editor tests: the runner has no
+      # display and no Vulkan device for them.
+      - name: pluginval
+        if: matrix.pluginval
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=build/Tools/PluginValidator/PluginValidator
+          args=(--logs build/pluginval/logs build/VST3)
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a "$validator" --skip-gui-tests "${args[@]}"
+          else
+            "$validator" "${args[@]}"
+          fi
+
+      # Both example components through auval -strict, Gain's bypass property
+      # answered: PluginValidator installs each into the runner's
+      # ~/Library/Audio/Plug-Ins/Components first. Its logs land beside
+      # pluginval's, so the upload below covers them.
+      - name: auval
+        if: matrix.pluginval && runner.os == 'macOS'
+        shell: bash
+        run: |
+          build/Tools/PluginValidator/PluginValidator \
+            --logs build/pluginval/logs build/AU
+
+      - name: Upload pluginval logs
+        if: failure() && matrix.pluginval
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-logs-${{ matrix.name }}
+          path: build/pluginval/logs/
+          if-no-files-found: ignore
+
+      # What a host checks before it loads one: every slice of the universal
+      # build, exactly the seven ACF entry points exported, PkgInfo TDMwPTul and
+      # the ad-hoc signature over the bundle.
+      - name: Verify AAX bundles (macOS)
+        if: matrix.aax && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(sort Lib/MakeASound/Plugin/AAX/AAXExports.txt)
+          found=0
+          for bundle in build/AAX/*.aaxplugin; do
+            found=$((found + 1))
+            name=$(basename "$bundle" .aaxplugin)
+            binary="$bundle/Contents/MacOS/$name"
+            echo "$bundle: $(lipo -archs "$binary")"
+            lipo -archs "$binary" | grep -q x86_64
+            lipo -archs "$binary" | grep -q arm64
+            for arch in $(lipo -archs "$binary"); do
+              exported=$(nm -gUj -arch "$arch" "$binary" | sort -u)
+              if [ "$exported" != "$expected" ]; then
+                echo "ERROR: $name ($arch) exports:"; echo "$exported"; exit 1
+              fi
+            done
+            [ "$(cat "$bundle/Contents/PkgInfo")" = "TDMwPTul" ]
+            plutil -lint "$bundle/Contents/Info.plist"
+            codesign --verify --strict "$bundle"
           done
+          [ "$found" -eq 2 ] || { echo "ERROR: expected 2 bundles, found $found"; exit 1; }
+
+      # The same on Windows, where the bundle is a folder around one x64 DLL:
+      # Contents/x64/<name>.aaxplugin, exporting exactly the seven ACF entry
+      # points, which carry no leading underscore there. The image's LLVM reads
+      # the export table; dumpbin, which the MSVC environment above puts on
+      # PATH, is the fallback (-exports, since Git Bash would rewrite /exports
+      # as a path).
+      - name: Verify AAX bundles (Windows)
+        if: matrix.aax && runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          exports() {
+            if command -v llvm-readobj > /dev/null; then
+              llvm-readobj --coff-exports "$1" | sed -n 's/^ *Name: *//p'
+            else
+              dumpbin -nologo -exports "$1" | awk '
+                /ordinal +hint +RVA +name/ { table = 1; next }
+                /Summary/ { table = 0 }
+                table && $1 ~ /^[0-9]+$/ && NF >= 4 { print $4 }'
+            fi | tr -d '\r' | sort -u
+          }
+          expected=$(sed 's/^_//' Lib/MakeASound/Plugin/AAX/AAXExports.txt \
+                     | tr -d '\r' | sort -u)
+          found=0
+          for bundle in build/AAX/*.aaxplugin; do
+            found=$((found + 1))
+            name=$(basename "$bundle" .aaxplugin)
+            binary="$bundle/Contents/x64/$name.aaxplugin"
+            [ -f "$binary" ] || { echo "ERROR: $binary is missing"; exit 1; }
+            exported=$(exports "$binary")
+            if [ "$exported" != "$expected" ]; then
+              echo "ERROR: $name exports:"; echo "$exported"; exit 1
+            fi
+            echo "$bundle: ok"
+          done
+          [ "$found" -eq 2 ] || { echo "ERROR: expected 2 bundles, found $found"; exit 1; }
 
       # Prove requirement #1: the archive is a real fat binary and every slice
       # is built against the macOS 11.0 minimum.
@@ -140,7 +331,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          lib=build-Release/Lib/libMakeASound.a
+          lib=build/Lib/libMakeASound.a
           echo "Architectures:"
           lipo -info "$lib"
           lipo -info "$lib" | grep -q "x86_64" && lipo -info "$lib" | grep -q "arm64"
@@ -150,6 +341,39 @@ jobs:
           if otool -l "$lib" | grep -A3 LC_BUILD_VERSION | grep 'minos' | grep -vq '11.0'; then
             echo "ERROR: found objects with a minos != 11.0"; exit 1
           fi
+
+  # MakeASoundCore on its own, as a consumer that wants only the vocabulary builds
+  # it: no device library, so no miniaudio fetch and no ALSA package, and no plugin
+  # core. The configure fails if the core's link closure names a backend, and
+  # MakeASoundCoreTests is an executable linking the core alone.
+  core:
+    name: Core only (Linux, no devices)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DMAKEASOUND_BUILD_DEVICES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF
+          -DMAKEASOUND_BUILD_HOSTING=OFF -DMAKEASOUND_BUILD_EXAMPLES=OFF
+
+      - name: No backend fetched
+        run: |
+          set -euo pipefail
+          if grep '^CPM_PACKAGES:' build-core/CMakeCache.txt | grep -qi miniaudio; then
+            echo "ERROR: a core-only configure fetched miniaudio"; exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build-core
+
+      - name: Test
+        run: ctest --test-dir build-core --output-on-failure --no-tests=error -j 4
 
   # iOS is cross-compiled, so it gets its own job rather than another matrix
   # entry: the configure needs a sysroot/architecture pair, and the suite can
@@ -164,49 +388,18 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      # Device slices can't be executed in CI, so this half is build-only. It is
-      # still the half that catches iOS-specific compile breakage: miniaudio's
-      # Objective-C implementation TU and the macOS-only CoreAudio HAL that
-      # BlockSizes.mm uses.
-      - name: Build for iOS device (Debug & Release, unity ON)
-        shell: bash
-        run: |
-          set -euo pipefail
-          for bt in Debug Release; do
-            echo "::group::Configure $bt (device)"
-            cmake -S . -B "build-ios-$bt" -G Ninja \
-                  -DCMAKE_BUILD_TYPE="$bt" \
-                  -DCMAKE_SYSTEM_NAME=iOS \
-                  -DCMAKE_OSX_SYSROOT=iphoneos \
-                  -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
-                  -DMAKEASOUND_UNITY_BUILD=ON \
-                  -DMAKEASOUND_BUILD_APPS=OFF \
-                  -DMAKEASOUND_BUILD_TESTS=OFF
-            echo "::endgroup::"
+      # One cache for both configures: the device and simulator objects differ
+      # in sysroot and architecture, so they sit beside each other in it.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          # Not `ios`: the action restores by key prefix, which matched ios-xcode.
+          key: ios-ninja
+          max-size: 1G
+          evict-old-files: job
 
-            echo "::group::Build $bt (device)"
-            cmake --build "build-ios-$bt"
-            echo "::endgroup::"
-          done
-
-      - name: Verify the device slice really is iOS
-        shell: bash
-        run: |
-          set -euo pipefail
-          lib=build-ios-Release/Lib/libMakeASound.a
-          echo "Architectures:"
-          lipo -info "$lib"
-          echo "Platform / minimum OS per build object:"
-          otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -E 'platform|minos' | sort -u
-          # LC_BUILD_VERSION platform 2 is iOS. Catches a build that silently
-          # fell back to the host (macOS) toolchain and would then "pass"
-          # without ever having compiled the iOS code paths.
-          if otool -l "$lib" | grep -A4 LC_BUILD_VERSION \
-             | grep 'platform' | grep -vqE 'platform 2$'; then
-            echo "ERROR: found objects not built for iOS (platform != 2)"; exit 1
-          fi
-
+      # Started first so it boots while the device half builds: `boot` returns
+      # at once, and "Wait for the simulator" below waits for it.
       - name: Boot an iOS simulator
         id: sim
         shell: bash
@@ -229,38 +422,197 @@ jobs:
           echo "Booting simulator $udid"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           # `boot` errors out if the device is already booted, which is a
-          # perfectly fine state to be in; bootstatus below is the real gate.
+          # perfectly fine state to be in; the bootstatus wait is the real gate.
           xcrun simctl boot "$udid" || true
-          xcrun simctl bootstatus "$udid" -b
 
-      # The simulator is the only place the suite can actually execute for iOS.
-      # Left non-unity on purpose: between this and the device build above, both
-      # the unity and per-TU compile paths get exercised on iOS.
-      - name: Build & test on the iOS simulator
+      # Device slices can't be executed in CI, so this half is build-only. It is
+      # still the half that catches iOS-specific compile breakage: miniaudio's
+      # Objective-C implementation TU and the macOS-only CoreAudio HAL that
+      # BlockSizes.mm uses. The examples' apps come out unsigned, each with its
+      # AUv3 extension inside, whose plist a macOS sub-build of the plugin cores
+      # writes (MakeASoundDescribeBuild).
+      - name: Configure (device)
+        shell: bash
+        run: |
+          cmake -S . -B build-ios -G Ninja \
+                -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DCMAKE_SYSTEM_NAME=iOS \
+                -DCMAKE_OSX_SYSROOT=iphoneos \
+                -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
+                -DMAKEASOUND_BUILD_APPS=OFF \
+                -DMAKEASOUND_BUILD_TESTS=OFF
+
+      - name: Build (device)
+        shell: bash
+        run: cmake --build build-ios
+
+      - name: Verify the device slice really is iOS
         shell: bash
         run: |
           set -euo pipefail
-          echo "::group::Configure (simulator)"
+          lib=build-ios/Lib/libMakeASound.a
+          echo "Architectures:"
+          lipo -info "$lib"
+          echo "Platform / minimum OS per build object:"
+          otool -l "$lib" | grep -A4 LC_BUILD_VERSION | grep -E 'platform|minos' | sort -u
+          # LC_BUILD_VERSION platform 2 is iOS. Catches a build that silently
+          # fell back to the host (macOS) toolchain and would then "pass"
+          # without ever having compiled the iOS code paths.
+          if otool -l "$lib" | grep -A4 LC_BUILD_VERSION \
+             | grep 'platform' | grep -vqE 'platform 2$'; then
+            echo "ERROR: found objects not built for iOS (platform != 2)"; exit 1
+          fi
+
+      # Booted since the start of the job; this only waits for it to finish.
+      - name: Wait for the simulator
+        shell: bash
+        run: xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+
+      # The simulator is the only place the suite can actually execute for iOS.
+      # Both configures build the examples' -Standalone apps too (the default
+      # app's iOS shell), and the suite includes the standalone ones.
+      # A CI build like the device one above, so the library, the plugin cores and
+      # the test executables all compile as unity builds here too.
+      - name: Configure (simulator)
+        shell: bash
+        run: |
           # The simulator slice has to match the runner's own architecture,
           # otherwise the built binary can't be spawned on it.
           cmake -S . -B build-ios-sim -G Ninja \
-                -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_BUILD_TYPE=RelWithDebInfo \
                 -DCMAKE_SYSTEM_NAME=iOS \
                 -DCMAKE_OSX_SYSROOT=iphonesimulator \
                 -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
                 -DMAKEASOUND_BUILD_APPS=OFF \
                 -DMAKEASOUND_BUILD_TESTS=ON \
                 -DCMAKE_CROSSCOMPILING_EMULATOR="xcrun;simctl;spawn;${{ steps.sim.outputs.udid }}"
-          echo "::endgroup::"
 
-          echo "::group::Build (simulator)"
-          cmake --build build-ios-sim
-          echo "::endgroup::"
+      - name: Build (simulator)
+        shell: bash
+        run: cmake --build build-ios-sim
 
-          # NanoTest can't enumerate cases while cross-compiling, so this is a
-          # single ctest entry that runs the whole binary through the simulator.
-          # A failing case still propagates out as a non-zero exit.
-          echo "::group::Test (simulator)"
-          ctest --test-dir build-ios-sim --output-on-failure --no-tests=error
-          echo "::endgroup::"
+      # NanoTest can't enumerate cases while cross-compiling, so this is a single
+      # ctest entry that runs the whole binary through the simulator. A failing
+      # case still propagates out as a non-zero exit.
+      - name: Test (simulator)
+        shell: bash
+        run: ctest --test-dir build-ios-sim --output-on-failure --no-tests=error --timeout 600
+
+      # Each example's standalone app installed and launched in the simulator, and
+      # still running a few seconds later: the scene, the window, the editor and
+      # the stream all came up.
+      - name: Launch the standalone apps on the iOS simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            bundle="build-ios-sim/Plugins/${app}.app"
+            id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$bundle/Info.plist")
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$bundle/Info.plist" | grep -qx audio
+
+            xcrun simctl install "$udid" "$bundle"
+            pid=$(xcrun simctl launch "$udid" "$id" | awk '{print $NF}')
+            sleep 5
+
+            # A live app is listed with its pid; a crashed one with "-" or not at all.
+            if ! xcrun simctl spawn "$udid" launchctl list \
+                 | awk -v id="$id" '$1 != "-" && index($3, id)' | grep -q .; then
+              echo "ERROR: $id (pid $pid) did not stay up"; exit 1
+            fi
+
+            xcrun simctl terminate "$udid" "$id"
+            echo "$id launched and stayed up"
+          done
+
+      # What a host does with each example's AUv3, the apps installed above: the
+      # system has registered the extension, instantiates it out of process, it
+      # renders sound (Gain fed a sine, the Synth a note) and hands back a view
+      # controller. AUv3Probe reads the components from each app's PlugIns and
+      # exits with the number that failed.
+      - name: AUv3 on the iOS simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+          root="$PWD/build-ios-sim"
+
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            test -f "$root/Plugins/${app}.app/PlugIns/${app#*/}.appex/Info.plist"
+            xcrun simctl install "$udid" "$root/Plugins/${app}.app"
+          done
+
+          xcrun simctl spawn "$udid" "$root/Tools/AUv3Probe/AUv3Probe" \
+            "$root/Plugins/Gain/MakeASound Gain.app" \
+            "$root/Plugins/Synth/MakeASound Synth.app"
+
+  # The same iOS tree under the Xcode generator, which is how a signed device
+  # build is made (MAKEASOUND_IOS_TEAM): each app embeds its AUv3 extension with
+  # XCODE_EMBED_APP_EXTENSIONS rather than having it laid out by hand. Build only
+  # and unsigned, for a device; the Ninja job above is the one that runs things.
+  ios-xcode:
+    name: iOS (Xcode generator, device, unsigned)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ninja too: the AUv3 plists' macOS sub-build uses it when it finds it.
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      # For the AUv3 plists' macOS sub-build, which the launchers below are
+      # forwarded to; the Xcode generator itself takes no compiler launcher.
+      - name: Set up the compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: ios-xcode
+          max-size: 1G
+          evict-old-files: job
+
+      - name: Configure (Xcode)
+        shell: bash
+        run: |
+          cmake -S . -B build-ios-xcode -G Xcode \
+                -DCMAKE_SYSTEM_NAME=iOS \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+                -DMAKEASOUND_CI_BUILD=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
+                -DMAKEASOUND_BUILD_APPS=OFF \
+                -DMAKEASOUND_BUILD_TESTS=OFF
+
+      # RelWithDebInfo, CI build, unsigned.
+      - name: Build (Xcode, iphoneos)
+        shell: bash
+        run: |
+          cmake --build build-ios-xcode --config RelWithDebInfo -- \
+                -sdk iphoneos CODE_SIGNING_ALLOWED=NO
+
+      # Each app carries its extension, and the extension's plist is the one the
+      # host tool wrote, processed by Xcode for the device.
+      - name: Verify the embedded AUv3 extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for app in "Gain/MakeASound Gain" "Synth/MakeASound Synth"; do
+            appex="build-ios-xcode/Plugins/${app%%/*}/RelWithDebInfo-iphoneos/${app#*/}.app/PlugIns/${app#*/}.appex"
+            plist="$appex/Info.plist"
+            /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" "$plist"
+            /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionAttributes:AudioComponents:0:subtype" "$plist"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleSupportedPlatforms:0" "$plist" | grep -qx iPhoneOS
+            otool -l "$appex/${app#*/}" | grep -A4 LC_BUILD_VERSION | grep -qE 'platform 2$'
+            echo "$appex: ok"
+          done

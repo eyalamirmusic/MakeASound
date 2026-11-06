@@ -11,6 +11,8 @@
 #include <atomic>
 #include <thread>
 
+namespace SPSCQueueTests
+{
 using namespace nano;
 using MakeASound::SPSCQueue;
 
@@ -124,7 +126,8 @@ auto tWrapAround = test("SPSCQueue/wrapsAroundTheRingWithoutLosingOrder") = []
 // elements pushed through a modest queue so both the "full" and "empty" paths are
 // hit constantly. The consumer records any violation into `ok` rather than
 // calling check() off the main thread; we assert once, after the join.
-auto tConcurrent = test("SPSCQueue/concurrentProducerConsumerDeliversEverythingInOrder") = []
+auto tConcurrent =
+    test("SPSCQueue/concurrentProducerConsumerDeliversEverythingInOrder") = []
 {
     constexpr auto total = 1'000'000;
     auto queue = SPSCQueue<Payload, 1024> {};
@@ -173,7 +176,8 @@ auto tConcurrent = test("SPSCQueue/concurrentProducerConsumerDeliversEverythingI
 // The extreme of the same idea: capacity 1 means at most one element is ever in
 // flight, so almost every element is handed over right at the full/empty
 // boundary - maximum contention on exactly the indices that tell full from empty.
-auto tConcurrentTiny = test("SPSCQueue/concurrentWithCapacityOneStillOrdersEverything") = []
+auto tConcurrentTiny =
+    test("SPSCQueue/concurrentWithCapacityOneStillOrdersEverything") = []
 {
     constexpr auto total = 200'000;
     auto queue = SPSCQueue<Payload, 1> {};
@@ -214,3 +218,4 @@ auto tConcurrentTiny = test("SPSCQueue/concurrentWithCapacityOneStillOrdersEvery
     check(receivedCount.load(std::memory_order_relaxed) == total);
 };
 } // namespace
+} // namespace SPSCQueueTests

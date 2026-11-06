@@ -10,13 +10,19 @@ namespace
 constexpr auto padding = 12.f;
 
 bool onPhone()
-{ return eacp::Platform::isIOS(); }
+{
+    return eacp::Platform::isIOS();
+}
 
 float rowHeight()
-{ return onPhone() ? 58.f : 46.f; }
+{
+    return onPhone() ? 58.f : 46.f;
+}
 
 float smallText()
-{ return onPhone() ? 12.f : 11.f; }
+{
+    return onPhone() ? 12.f : 11.f;
+}
 
 UI::Color statusColour(ProbeStatus status)
 {
@@ -29,18 +35,24 @@ UI::Color statusColour(ProbeStatus status)
         case ProbeStatus::NotApplicable:
         case ProbeStatus::Pending:
         default:
-            return UI::defaultTheme().dimText;
+            return UI::defaultTheme().get(UI::ThemeKeys::dimText);
     }
 }
 
 float toneToHertz(float knob)
-{ return 40.f * std::pow(2.f, knob * 7.f); }
+{
+    return 40.f * std::pow(2.f, knob * 7.f);
+}
 
 float hertzToTone(float hertz)
-{ return std::log2(std::max(hertz, 40.f) / 40.f) / 7.f; }
+{
+    return std::log2(std::max(hertz, 40.f) / 40.f) / 7.f;
+}
 
 std::string wholeNumber(float value)
-{ return std::to_string(static_cast<int>(std::lround(value))); }
+{
+    return std::to_string(static_cast<int>(std::lround(value)));
+}
 } // namespace
 
 ProbeRoot::ProbeRoot(AudioEngine& engineToUse, ProbeSet& probesToUse)
@@ -59,7 +71,7 @@ ProbeRoot::ProbeRoot(AudioEngine& engineToUse, ProbeSet& probesToUse)
                        &rateCaption,
                        &blockCaption})
     {
-        label->setColour(UI::defaultTheme().dimText);
+        label->setThemeColour(UI::ThemeKeys::dimText);
         label->setFontSize(smallText());
     }
 
@@ -232,24 +244,26 @@ void ProbeRoot::refresh(bool rebuildDevices)
 }
 
 int ProbeRoot::getNumRows()
-{ return probes.all().size(); }
+{
+    return probes.all().size();
+}
 
 void ProbeRoot::paintRow(UI::Graphics& g,
                          int row,
                          const UI::Rect& bounds,
                          bool selected)
 {
-    const auto& theme = UI::defaultTheme();
+    const auto& theme = getHostTheme();
     const auto& probe = probes.all()[row];
 
     if (selected)
     {
-        g.setColour(theme.accentDim);
+        g.setColour(theme.get(UI::ThemeKeys::accentDim));
         g.fillRect(bounds);
     }
     else if (row % 2 == 1)
     {
-        g.setColour(theme.panel);
+        g.setColour(theme.get(UI::ThemeKeys::panel));
         g.fillRect(bounds);
     }
 
@@ -260,12 +274,12 @@ void ProbeRoot::paintRow(UI::Graphics& g,
     g.setColour(statusColour(probe.status));
     g.drawText(toString(probe.status), statusArea, UI::Justification::Right);
 
-    g.setColour(theme.text);
+    g.setColour(theme.get(UI::ThemeKeys::text));
     g.drawText(elide(probe.id, top.w, getHostFontSize()), top);
 
     auto detailText = probe.actual.empty() ? probe.expected : probe.actual;
 
-    g.setColour(theme.dimText);
+    g.setColour(theme.get(UI::ThemeKeys::dimText));
     g.setFontSize(smallText());
     g.drawText(elide(detailText, area.w, smallText()), area);
 }
@@ -305,7 +319,9 @@ std::string
 }
 
 void ProbeRoot::selectedRowChanged(int row)
-{ showDetail(row); }
+{
+    showDetail(row);
+}
 
 void ProbeRoot::showDetail(int row)
 {
@@ -321,7 +337,9 @@ void ProbeRoot::showDetail(int row)
 }
 
 void ProbeRoot::paint(UI::Graphics& g)
-{ g.fillAll(UI::defaultTheme().background); }
+{
+    g.fillAll(getHostTheme().get(UI::ThemeKeys::background));
+}
 
 void ProbeRoot::resized()
 {
@@ -381,7 +399,6 @@ ProbePanel::ProbePanel(AudioEngine& engine, ProbeSet& probes)
     : root(engine, probes)
 {
     setFontPointSize(onPhone() ? 14.f : 13.f);
-    setBackgroundColour(UI::defaultTheme().background);
     setRootComponent(root);
 
     // On iOS a component tier's on-demand repaint does not reach the screen, so

@@ -8,21 +8,33 @@
 #include "AllocationProbe.h"
 
 #include <MakeASound/MakeASound.h>
+#include <MakeASound/DSP/MakeASoundDSP.h>
 #include <MakeASound/Common/Algorithms.h>
 #include <MakeASound/MIDI/MidiParser.h>
+#include <MakeASound/MiniAudio/MiniAudioDeviceManager.h>
 
 #include <NanoTest/NanoTest.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <optional>
+#include <string>
+#include <vector>
 
+namespace AllocationTests
+{
 using namespace nano;
 using Probe::allocationsIn;
 
 using MakeASound::AudioCallbackInfo;
+using MakeASound::Buffer;
+using MakeASound::BusLayout;
+using MakeASound::DeviceManager;
+using MakeASound::Engine;
 using MakeASound::MidiBlockSync;
 using MakeASound::MidiEvents;
 using MakeASound::MidiInputEvent;
@@ -30,6 +42,9 @@ using MakeASound::MidiManager;
 using MakeASound::MidiMessageView;
 using MakeASound::MidiParser;
 using MakeASound::MidiTimePoint;
+using MakeASound::ProcessContext;
+using MakeASound::Processor;
+using MakeASound::ProcessSpec;
 using MakeASound::Span;
 using MakeASound::SPSCQueue;
 using MakeASound::MIDI::Event;
@@ -243,11 +258,11 @@ auto tParserShortMessages =
 
     // Running status, a two-byte message, system common, and a realtime byte in
     // the middle of a channel message: every branch except SysEx.
-    auto voice = std::array<std::uint8_t, 7> {
-        0x90, 0x3C, 0x64, 0x3E, 0x64, 0xC0, 0x01};
+    auto voice =
+        std::array<std::uint8_t, 7> {0x90, 0x3C, 0x64, 0x3E, 0x64, 0xC0, 0x01};
 
-    auto system = std::array<std::uint8_t, 7> {
-        0xF2, 0x10, 0x20, 0x90, 0x40, 0xF8, 0x64};
+    auto system =
+        std::array<std::uint8_t, 7> {0xF2, 0x10, 0x20, 0x90, 0x40, 0xF8, 0x64};
 
     auto delivered = 0;
     auto onMessage = [&delivered](const MidiMessageView&) { ++delivered; };
@@ -285,9 +300,8 @@ auto tParserSysEx = test("Allocations/theMidiParserAssemblesSysExOffTheHeap") = 
             parser.feed(Span<const std::uint8_t>(opening.data(), 1), now, onMessage);
 
             for (auto i = 0; i < 6; ++i)
-                parser.feed(Span<const std::uint8_t>(chunk.data(), 128),
-                            now,
-                            onMessage);
+                parser.feed(
+                    Span<const std::uint8_t>(chunk.data(), 128), now, onMessage);
 
             parser.feed(Span<const std::uint8_t>(closing.data(), 1), now, onMessage);
         });
@@ -429,8 +443,8 @@ auto tSendClosed = test("Allocations/sendingToAClosedOutputTouchesNothing") = []
     auto midi = MidiManager {};
     auto error = MakeASound::Error::NoError;
 
-    auto count = allocationsIn(
-        [&] { error = midi.sendMessage(Event::noteOn(0, 60, 1.f)); });
+    auto count =
+        allocationsIn([&] { error = midi.sendMessage(Event::noteOn(0, 60, 1.f)); });
 
     check(count == 0);
     check(error == MakeASound::Error::INVALID_USE);
@@ -439,12 +453,13 @@ auto tSendClosed = test("Allocations/sendingToAClosedOutputTouchesNothing") = []
 auto tCallbackInfo = test("Allocations/audioCallbackInfoIsAllViewsAndInts") = []
 {
     // What the facade does around every user callback: compare the shape against the
-    // previous block, then hand out planar views over the backend's scratch.
+    // previous block, then hand out referring Buffers over the backend's scratch.
     auto samples = std::array<float, 2 * 128> {};
+    float* table[] = {samples.data(), samples.data() + 128};
 
     auto info = AudioCallbackInfo {};
     info.numOutputs = 2;
-    info.outputBuffer = samples.data();
+    info.outputChannels = table;
     info.numSamples = 128;
     info.sampleRate = 48000;
     info.maxBlockSize = 128;
@@ -461,7 +476,7 @@ auto tCallbackInfo = test("Allocations/audioCallbackInfoIsAllViewsAndInts") = []
 
             auto output = info.getOutput();
 
-            for (auto channel: output.channels())
+            for (auto channel: output)
             {
                 channel.fill(0.25f);
                 written += channel[0];
@@ -471,6 +486,57 @@ auto tCallbackInfo = test("Allocations/audioCallbackInfoIsAllViewsAndInts") = []
     check(count == 0);
     check(changed);
     check(written == 0.5f);
+};
+
+auto tBufferViews = test("Allocations/bufferSlicesAndOperationsStayOffTheHeap") = []
+{
+    // Everything a process callback does with a Buffer short of giving it
+    // storage: refer, slice, subset, iterate, mix, move.
+    auto owner = Buffer {4, 128};
+    auto source = Buffer {4, 128};
+    auto sum = 0.f;
+
+    auto count = allocationsIn(
+        [&]
+        {
+            auto referring = Buffer {owner.getChannelPointers(), 4, 128};
+            auto tail = referring.getSubBuffer(64);
+            auto pair = tail.getChannelSubset(2, 2);
+            auto single = pair.getSingleChannel(1);
+
+            pair.copyFrom(source);
+            pair.addFrom(source, 0.5f);
+            single.applyGain(2.f);
+            tail.fill(0.25f);
+            referring.getSubBuffer(0, 64).clear();
+
+            for (auto channel: referring)
+                sum += channel[64];
+
+            auto moved = std::move(single);
+            sum += moved[0][0];
+        });
+
+    check(count == 0);
+    check(sum == 4 * 0.25f + 0.25f);
+};
+
+auto tBufferSetSizeReuses = test("Allocations/bufferSetSizeReusesItsCapacity") = []
+{
+    // The prepare-then-process pattern: size once at the largest shape, then every
+    // equal-or-smaller setSize is free.
+    auto buffer = Buffer {2, 512};
+
+    auto count = allocationsIn(
+        [&]
+        {
+            buffer.setSize(2, 256);
+            buffer.setSize(1, 512);
+            buffer.setSize(2, 512);
+        });
+
+    check(count == 0);
+    check(buffer.getNumSamples() == 512);
 };
 
 auto tInsertionSort = test("Allocations/theBlockSortIsInPlace") = []
@@ -512,4 +578,389 @@ auto tSpscQueue = test("Allocations/theSpscQueueNeverGrows") = []
     check(count == 0);
     check(moved == 200);
 };
+
+auto tProcessContext =
+    test("Allocations/aPreparedProcessContextStaysOffTheHeap") = []
+{
+    // What a host does to the context every block, on a layout with every bus and
+    // on one with none, where the accessors hand back the stand-ins.
+    auto layout = BusLayout::instrument();
+    layout.inputs.add({"Input", 2});
+    layout.midiOutputs.add({"MIDI Out"});
+
+    auto full = ProcessContext {};
+    full.prepare(layout);
+
+    auto bare = ProcessContext {};
+    bare.prepare(BusLayout {});
+
+    auto samples = std::array<float, 2 * 64> {};
+    float* table[] = {samples.data(), samples.data() + 64};
+
+    auto inputChannels = 0;
+    auto outputChannels = 0;
+    auto bareChannels = 0;
+
+    auto count = allocationsIn(
+        [&]
+        {
+            full.clearMidi();
+            bare.clearMidi();
+
+            for (auto i = 0; i < 300; ++i)
+            {
+                full.mainMidiIn().add(Event::noteOn(0, 60, 1.f, 300 - i));
+                full.mainMidiOut().add(Event::noteOff(0, 60, 0.f, i));
+                bare.mainMidiIn().add(Event::noteOn(0, 60, 1.f, 300 - i));
+            }
+
+            full.mainMidiIn().sortByOffset();
+            bare.mainMidiIn().sortByOffset();
+
+            full.inputs[0].referTo(table, 2, 64);
+            full.outputs[0].referTo(table, 2, 64);
+            full.mainOutput().fill(0.5f);
+
+            inputChannels = full.mainInput().getNumChannels();
+            outputChannels = full.mainOutput().getNumChannels();
+            bareChannels = bare.mainInput().getNumChannels()
+                           + bare.mainOutput().getNumChannels();
+            bare.mainOutput().clear();
+        });
+
+    check(count == 0);
+    check(inputChannels == 2);
+    check(outputChannels == 2);
+    check(bareChannels == 0);
+    check(full.mainMidiIn().size() == 300);
+    check(full.mainMidiIn()[0].sampleOffset == 1);
+    check(samples[0] == 0.5f);
+};
+
+struct WritingProcessor : Processor
+{
+    BusLayout getBusLayout() const override { return BusLayout::instrument(); }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        for (auto channel: context.mainOutput())
+            channel.fill(0.25f);
+
+        midiEvents += context.mainMidiIn().size();
+    }
+
+    int midiEvents = 0;
+};
+
+auto tEngineSteadyState = test("Allocations/engineProcessStaysOffTheHeap") = []
+{
+    // The first block is dirty and resets; every one after it is the audio
+    // thread's steady state, MidiBlockSync's drain included.
+    auto devices = DeviceManager {};
+    auto midi = MidiManager {};
+    auto engine = Engine {devices, midi};
+    auto processor = WritingProcessor {};
+
+    auto samples = std::array<float, 3 * 256> {};
+    float* table[] = {samples.data(), samples.data() + 256, samples.data() + 512};
+
+    auto info = AudioCallbackInfo {};
+    info.numOutputs = 3;
+    info.outputChannels = table;
+    info.numSamples = 256;
+    info.sampleRate = 48000;
+    info.maxBlockSize = 256;
+    info.dirty = true;
+
+    engine.prepare(processor, 48000, 256);
+    engine.process(info);
+
+    info.dirty = false;
+    samples.fill(1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            engine.process(info);
+            engine.process(info);
+        });
+
+    check(count == 0);
+    check(samples[0] == 0.25f);
+    check(samples[256 + 255] == 0.25f);
+    check(samples[512] == 0.f);
+    check(processor.midiEvents == 0);
+};
+
+auto tEngineMisShaped =
+    test("Allocations/engineSilencesAMisShapedBlockOffTheHeap") = []
+{
+    // A device that re-opened at a new rate and a larger period than the spec:
+    // the block is silenced and a restart requested, nothing prepared or grown.
+    auto devices = DeviceManager {};
+    auto midi = MidiManager {};
+    auto engine = Engine {devices, midi};
+    auto processor = WritingProcessor {};
+
+    auto samples = std::array<float, 2 * 1024> {};
+    float* table[] = {samples.data(), samples.data() + 1024};
+
+    auto info = AudioCallbackInfo {};
+    info.numOutputs = 2;
+    info.outputChannels = table;
+    info.numSamples = 1024;
+    info.sampleRate = 44100;
+    info.maxBlockSize = 1024;
+    info.dirty = true;
+
+    engine.prepare(processor, 48000, 256);
+    samples.fill(1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            engine.process(info);
+            info.dirty = false;
+            engine.process(info);
+        });
+
+    check(count == 0);
+    check(samples[0] == 0.f);
+    check(samples[1024 + 1023] == 0.f);
+    check(engine.getSpec().maxBlockSize == 256);
+    check(engine.takeRestartRequest());
+};
+
+auto tSmootherSteps = test("Allocations/smootherStepsOffTheHeap") = []
+{
+    auto smoother = MakeASound::Smoother();
+    smoother.setSampleRate(48000);
+    smoother.setRampTime(0.02f);
+    smoother.setTarget(1.f);
+
+    auto buffer = Buffer(2, 256);
+    buffer.fill(1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            smoother.next();
+            smoother.fill(buffer[0]);
+            smoother.setTarget(0.5f);
+            smoother.applyGain(buffer);
+        });
+
+    check(count == 0);
+    check(smoother.isSmoothing());
+};
+
+auto tTestSynthBlock = test("Allocations/testSynthBlockStaysOffTheHeap") = []
+{
+    auto synth = MakeASound::DSP::TestSynth();
+    auto spec = ProcessSpec {48000, 256, synth.getBusLayout()};
+    synth.prepare(spec);
+
+    auto output = Buffer(2, 256);
+    auto context = ProcessContext();
+    context.prepare(spec.layout);
+    context.mainOutput().referTo(output.getChannelPointers(), 2, 256);
+
+    auto& midi = context.mainMidiIn();
+    midi.add(Event::noteOn(0, 60, 1.f, 0));
+    midi.add(Event::noteOn(0, 64, 1.f, 64));
+    midi.add(Event::noteOff(0, 60, 0.f, 128));
+    midi.add(Event::controlChange(0, 123, 0.f, 192));
+
+    auto settings = MakeASound::DSP::TestSynth::Settings {};
+    settings.waveform = MakeASound::DSP::Waveform::Saw;
+    settings.gain = 0.5f;
+
+    auto count = allocationsIn(
+        [&]
+        {
+            synth.setSettings(settings);
+            synth.process(context);
+            synth.reset();
+        });
+
+    check(count == 0);
+};
+
+// The miniaudio backend's own callback, reached by opening a duplex stream on
+// miniaudio's null backend and stopping it again: what the open sized (the
+// channel slices, the scratch, config.maxBlockSize) stays, and onCallback is
+// then called directly, from this thread only, with what a backend might hand
+// it.
+struct NullBackendStream
+{
+    NullBackendStream()
+    {
+        manager.autoRecover = false;
+        manager.setBackend(MakeASound::Backend::Null);
+
+        // The null devices take any channel count and so report none: two each
+        // way is asked for here.
+        auto input = std::optional<MakeASound::DeviceInfo> {};
+        auto output = std::optional<MakeASound::DeviceInfo> {};
+
+        for (const auto& device: manager.getDevices())
+        {
+            if (!input && device.name.find("Capture") != std::string::npos)
+            {
+                input = device;
+                input->inputChannels = 2;
+            }
+
+            if (!output && device.name.find("Playback") != std::string::npos)
+            {
+                output = device;
+                output->outputChannels = 2;
+            }
+        }
+
+        if (!input || !output)
+            return;
+
+        auto config = MakeASound::StreamConfig {};
+        config.input = MakeASound::StreamParameters(*input, true, 2, 0);
+        config.output = MakeASound::StreamParameters(*output, false, 2, 0);
+        config.sampleRate = 48000;
+        config.maxBlockSize = 64;
+
+        manager.callback = [this](AudioCallbackInfo& info)
+        {
+            ++calls;
+            sawStaleInput = false;
+            largestCall = std::max(largestCall, info.numSamples);
+            reportedMaxBlock = info.maxBlockSize;
+            sampleRate = info.sampleRate;
+            numOutputs = info.numOutputs;
+
+            for (auto ch = 0; ch < info.numInputs; ++ch)
+                for (auto s = 0; s < info.numSamples; ++s)
+                    if (info.inputChannels[ch][s] != 0.f)
+                        sawStaleInput = true;
+
+            for (auto ch = 0; ch < info.numOutputs; ++ch)
+                for (auto s = 0; s < info.numSamples; ++s)
+                    info.outputChannels[ch][s] = written;
+        };
+
+        opened = manager.start(config) == MakeASound::Error::NoError;
+        manager.stop();
+
+        // Whatever the null device's own thread delivered before the stop.
+        calls = 0;
+        sawStaleInput = false;
+        largestCall = 0;
+        maxBlock = manager.config.maxBlockSize;
+    }
+
+    MakeASound::MiniAudio::DeviceManager manager;
+    bool opened = false;
+    int maxBlock = 0;
+
+    // Room for however many channels miniaudio negotiated on either side: the
+    // interleaved buffers are the device's, wider than the selected slice.
+    int channels = 64;
+    int calls = 0;
+    bool sawStaleInput = false;
+    int largestCall = 0;
+    int reportedMaxBlock = 0;
+    int sampleRate = 0;
+    int numOutputs = 0;
+    static constexpr auto written = 0.25f;
+};
+
+// MAS-0020: a period longer than the stream's maxBlockSize is rejected without
+// the audio thread touching the heap (the scratch the open sized never grows):
+// the device plays silence for the whole period, and the callback, handed no
+// more than the scratch holds, is told the device's maximum is now the period,
+// a shape Engine silences and asks a restart for.
+auto tMiniAudioLongPeriod =
+    test("Allocations/miniaudioCallbackWithALongPeriodStaysOffTheHeap") = []
+{
+    auto stream = NullBackendStream {};
+    check(stream.opened);
+    check(stream.maxBlock > 0);
+
+    auto frames = stream.maxBlock * 4 + 1;
+    auto input = std::vector<float>(stream.channels * frames, 0.5f);
+    auto output = std::vector<float>(stream.channels * frames, 1.f);
+
+    auto count = allocationsIn(
+        [&]
+        {
+            stream.manager.onCallback(
+                output.data(), input.data(), static_cast<ma_uint32>(frames));
+        });
+
+    check(count == 0);
+    check(stream.calls == 1);
+    check(stream.largestCall <= stream.maxBlock);
+    check(stream.reportedMaxBlock == frames);
+    check(!stream.sawStaleInput);
+
+    // Whatever the callback wrote is not played: every selected channel of
+    // every frame is silent.
+    check(std::count(output.begin(), output.end(), stream.written) == 0);
+    check(stream.numOutputs > 0);
+    check(std::count(output.begin(), output.end(), 0.f)
+          >= stream.numOutputs * frames);
+
+    // Through an Engine prepared at the stream's block: a period of that
+    // length plays, and the long one is silenced with a restart requested.
+    auto devices = DeviceManager {};
+    auto midi = MidiManager {};
+    auto engine = Engine {devices, midi};
+    auto processor = WritingProcessor {};
+    engine.prepare(processor, stream.sampleRate, stream.maxBlock);
+    stream.manager.callback = [&](AudioCallbackInfo& info) { engine.process(info); };
+
+    stream.manager.onCallback(
+        output.data(), input.data(), static_cast<ma_uint32>(stream.maxBlock));
+    check(std::count(output.begin(), output.end(), 0.25f) > 0);
+    check(!engine.takeRestartRequest());
+
+    std::fill(output.begin(), output.end(), 1.f);
+
+    count = allocationsIn(
+        [&]
+        {
+            stream.manager.onCallback(
+                output.data(), input.data(), static_cast<ma_uint32>(frames));
+        });
+
+    check(count == 0);
+    check(engine.takeRestartRequest());
+    check(std::count(output.begin(), output.end(), 0.25f) == 0);
+    check(std::count(output.begin(), output.end(), 0.f)
+          >= stream.numOutputs * frames);
+};
+
+// MAS-0020: a callback with no input buffer hands the user silence on the
+// input channels, not the last block's samples left in the scratch.
+auto tMiniAudioNullInput =
+    test("Allocations/miniaudioCallbackWithNoInputIsSilent") = []
+{
+    auto stream = NullBackendStream {};
+    check(stream.opened);
+    check(stream.maxBlock > 0);
+
+    auto frames = stream.maxBlock;
+    auto input = std::vector<float>(stream.channels * frames, 0.5f);
+    auto output = std::vector<float>(stream.channels * frames, 0.f);
+
+    stream.manager.onCallback(
+        output.data(), input.data(), static_cast<ma_uint32>(frames));
+    check(stream.sawStaleInput);
+
+    stream.manager.onCallback(
+        output.data(), nullptr, static_cast<ma_uint32>(frames));
+    check(stream.calls == 2);
+    check(!stream.sawStaleInput);
+};
 } // namespace
+} // namespace AllocationTests

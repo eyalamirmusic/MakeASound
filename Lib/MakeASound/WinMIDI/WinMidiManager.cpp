@@ -53,11 +53,8 @@ void rememberIds(Vector<int>& known, const Vector<MidiPortInfo>& ports)
 
 // WinMM's own thread. Nothing here may call a multimedia function other than
 // midiInAddBuffer, which is the one the ring needs.
-void CALLBACK midiInputTrampoline(HMIDIIN,
-                                  UINT message,
-                                  DWORD_PTR instance,
-                                  DWORD_PTR param1,
-                                  DWORD_PTR param2)
+void CALLBACK midiInputTrampoline(
+    HMIDIIN, UINT message, DWORD_PTR instance, DWORD_PTR param1, DWORD_PTR param2)
 {
     auto* port = reinterpret_cast<InputPort*>(instance);
 
@@ -67,9 +64,8 @@ void CALLBACK midiInputTrampoline(HMIDIIN,
     if (message == MIM_DATA)
         port->handleShortMessage(param1, param2);
     else if (message == MIM_LONGDATA || message == MIM_LONGERROR)
-        port->handleLongMessage(reinterpret_cast<MIDIHDR*>(param1),
-                                param2,
-                                message == MIM_LONGERROR);
+        port->handleLongMessage(
+            reinterpret_cast<MIDIHDR*>(param1), param2, message == MIM_LONGERROR);
 }
 } // namespace
 
@@ -246,10 +242,8 @@ void InputPort::feed(const std::uint8_t* bytes, int size, MidiTimePoint timestam
     auto onDropped = [this](int)
     { shared->droppedSysEx.store(true, std::memory_order_relaxed); };
 
-    parser.feed(Span<const std::uint8_t>(bytes, size),
-                timestamp,
-                onMessage,
-                onDropped);
+    parser.feed(
+        Span<const std::uint8_t>(bytes, size), timestamp, onMessage, onDropped);
 }
 
 void InputPort::deliver(const MidiMessageView& message)
@@ -496,11 +490,8 @@ Error MidiManager::openOutput(int portId)
     if (deviceNumber < 0)
         return record(Error::INVALID_DEVICE);
 
-    auto result = midiOutOpen(&output,
-                              static_cast<UINT>(deviceNumber),
-                              0,
-                              0,
-                              CALLBACK_NULL);
+    auto result =
+        midiOutOpen(&output, static_cast<UINT>(deviceNumber), 0, 0, CALLBACK_NULL);
 
     if (result != MMSYSERR_NOERROR)
     {

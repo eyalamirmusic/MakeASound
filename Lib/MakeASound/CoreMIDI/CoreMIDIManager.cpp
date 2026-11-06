@@ -21,9 +21,8 @@ constexpr auto flagSweepSeconds = 0.1;
 struct ScopedCFString
 {
     explicit ScopedCFString(const std::string& text)
-        : value(CFStringCreateWithCString(nullptr,
-                                          text.c_str(),
-                                          kCFStringEncodingUTF8))
+        : value(CFStringCreateWithCString(
+              nullptr, text.c_str(), kCFStringEncodingUTF8))
     {
     }
 
@@ -159,6 +158,13 @@ NotifyLoop::NotifyLoop()
             auto* idle = CFRunLoopSourceCreate(nullptr, 0, &context);
             CFRunLoopAddSource(CFRunLoopGetCurrent(), idle, kCFRunLoopDefaultMode);
 
+            // Never disposed, so the MIDI server always has a client of ours (see
+            // the header). Created here, before any manager's, so the
+            // notification pin lands on this loop as before. A failure is the
+            // first manager's to report: its own create fails the same way.
+            MIDIClientCreate(
+                CFSTR("MakeASound Keep-Alive"), nullptr, nullptr, &keepAlive);
+
             signal->set_value();
 
             // Anything in the process can CFRunLoopStop this loop, and every
@@ -187,12 +193,10 @@ void NotifyLoop::call(const std::function<void()>& work)
     auto* task = &work;
     auto* signal = &done;
 
-    CFRunLoopPerformBlock(target,
-                          kCFRunLoopDefaultMode,
-                          ^{
-                              (*task)();
-                              signal->set_value();
-                          });
+    CFRunLoopPerformBlock(target, kCFRunLoopDefaultMode, ^{
+      (*task)();
+      signal->set_value();
+    });
 
     CFRunLoopWakeUp(target);
     waiting.wait();
@@ -226,14 +230,11 @@ void MidiManager::start()
     auto gateForBlock = gate;
 
     auto status = MIDIClientCreateWithBlock(
-        CFSTR("MakeASound"),
-        &client,
-        ^(const MIDINotification* message)
-        {
-            auto lock = std::lock_guard(gateForBlock->mutex);
+        CFSTR("MakeASound"), &client, ^(const MIDINotification* message) {
+          auto lock = std::lock_guard(gateForBlock->mutex);
 
-            if (gateForBlock->owner != nullptr)
-                gateForBlock->owner->handleNotification(message);
+          if (gateForBlock->owner != nullptr)
+              gateForBlock->owner->handleNotification(message);
         });
 
     if (status == noErr)
@@ -241,10 +242,9 @@ void MidiManager::start()
             client,
             CFSTR("MakeASound Input"),
             &inputPort,
-            ^(const MIDIPacketList* list, void* refCon)
-            {
-                if (refCon != nullptr)
-                    static_cast<InputPort*>(refCon)->receive(list);
+            ^(const MIDIPacketList* list, void* refCon) {
+              if (refCon != nullptr)
+                  static_cast<InputPort*>(refCon)->receive(list);
             });
 
     if (status == noErr)
@@ -275,9 +275,8 @@ void MidiManager::stop()
 {
     if (sweepTimer != nullptr)
     {
-        CFRunLoopRemoveTimer(CFRunLoopGetCurrent(),
-                             sweepTimer,
-                             kCFRunLoopDefaultMode);
+        CFRunLoopRemoveTimer(
+            CFRunLoopGetCurrent(), sweepTimer, kCFRunLoopDefaultMode);
         CFRelease(sweepTimer);
         sweepTimer = nullptr;
     }
@@ -461,10 +460,9 @@ std::optional<int> MidiManager::openVirtualInput(const std::string& name,
     // which is why openVirtualOutput below is the one that makes a source.
     auto endpoint = MIDIEndpointRef {};
     auto status = MIDIDestinationCreateWithBlock(
-        client,
-        cfName.value,
-        &endpoint,
-        ^(const MIDIPacketList* list, void*) { port->receive(list); });
+        client, cfName.value, &endpoint, ^(const MIDIPacketList* list, void*) {
+          port->receive(list);
+        });
 
     if (status != noErr)
     {

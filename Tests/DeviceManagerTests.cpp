@@ -7,6 +7,8 @@
 
 #include <NanoTest/NanoTest.h>
 
+namespace DeviceManagerTests
+{
 using namespace nano;
 using MakeASound::DeviceManager;
 using MakeASound::Error;
@@ -222,3 +224,4 @@ auto tMidiDoesNotThrow = test("MidiManager/reportsFailuresWithoutThrowing") = []
           == Error::INVALID_USE);
 };
 } // namespace
+} // namespace DeviceManagerTests

@@ -1,114 +1,117 @@
 # MakeASound
 
-A C++20 static library that gives platform-agnostic access to audio devices and MIDI ports.
+A C++20 library for platform-agnostic audio, MIDI and audio plugins.
 
-Two façades make up the whole public surface:
+## Features
 
-- **`MakeASound::DeviceManager`** — audio device enumeration and streaming, backed by [miniaudio](https://github.com/mackron/miniaudio).
-- **`MakeASound::MidiManager`** — MIDI input/output ports, backed by the platform's own MIDI API: Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux.
+**Audio devices** (`DeviceManager`, backed by [miniaudio](https://github.com/mackron/miniaudio))
 
-Each façade hides its backend behind a pimpl, so no backend type ever leaks into a header you include.
+- Every audio API the machine offers, selectable at runtime: Core Audio, WASAPI, DirectSound, WinMM, ALSA, PulseAudio, JACK, AAudio, OpenSL.
+- Device enumeration, channel selection, sample rate and block size, latency queries.
+- Automatic recovery when the OS stops a device (unplug, rate change), with a `dirty` flag on the callback.
+- iOS audio session handling that follows the stream, with overrides.
+- Errors are returned as values, never thrown.
 
-```cpp
-#include <MakeASound/MakeASound.h>
+**MIDI** (`MidiManager`)
 
-namespace MS = MakeASound;
+- Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux.
+- Input and output ports, plus virtual ports on Core MIDI and ALSA.
+- Typed events (note, CC, pitch bend, aftertouch, program change, SysEx) with allocation-free conversion to and from bytes.
+- Callback delivery, or a queue drained in the audio callback with sample-accurate offsets.
 
-auto manager = MS::DeviceManager {};
-manager.start(manager.getDefaultConfig(),
-              [](MS::AudioCallbackInfo& info)
-              {
-                  for (auto channel: info.getOutput())
-                      channel.fill(0.f);
-              });
-```
+**Processing** (`MakeASoundCore`)
 
-## What you get
+- A planar `Buffer` that owns or refers to memory, sliced by samples or channels without allocating.
+- A `Processor` interface with buses and MIDI, run on a device stream by `Engine`.
+- Real-time safe helpers: `SPSCQueue`, `Smoother`, `ScopedNoDenormals` and more.
+- The core links no device backend, so DSP and plugin code can use it alone.
 
-- **Device enumeration** across every audio API the machine offers (Core Audio, WASAPI, DirectSound, WinMM, ALSA, PulseAudio, JACK, AAudio, OpenSL, ...), with the API selectable at runtime.
-- **Planar audio buffers.** The backend de-interleaves on the way in and re-interleaves on the way out, so a callback only ever sees channel-major data.
-- **Errors, not exceptions.** A machine with no device, or with one that is busy, is an ordinary desktop state: `start`/`setConfig` return an `Error` and `getErrorMessage` turns it into something a user can read.
-- **Automatic recovery.** A device stopped by the OS — sample-rate change, unplug, reclaim — is re-opened on a worker thread; a `dirty` flag on the callback tells you when to re-derive anything you cached.
-- **Typed MIDI.** `MIDI::Event` is a variant over note on/off, CC, pitch bend, aftertouch, program change and short SysEx, with allocation-free conversion to and from raw bytes.
-- **Block-aligned MIDI.** `MidiBlockSync` resolves arrival times into sample offsets inside the current audio block.
-- **Real-time safe pieces.** `SPSCQueue`, `MidiManager::drainMessages`, `MIDI::Buffer::sortByOffset` and the `Algorithms` helpers neither allocate nor lock.
+**Plugins** (`MakeASoundPlugin`): write a plugin once and build it as:
+
+| Format | Platforms |
+| --- | --- |
+| Standalone app | macOS, Windows, iOS |
+| VST3 | macOS, Windows, Linux |
+| AU v2 | macOS |
+| AUv3 | iOS |
+| AAX (opt-in, `-DMAKEASOUND_BUILD_AAX=ON`) | macOS, Windows x64 |
+
+- Parameters declared in nested groups, with stable host ids and automation in every format.
+- Versioned JSON state for presets and sessions.
+- Sample-accurate MIDI in and out, host bypass.
+- Custom editors with a size policy (min, max, aspect ratio), or a generic parameter editor.
+- A standalone app with device and MIDI settings, a computer keyboard, and settings kept across launches, or a windowless host for an app of your own.
+- Compatibility profiles that keep the parameter ids and state of plugins ported from JUCE or Tamber Plug.
+- Example plugins pass pluginval at strictness 10, `auval -strict` and Avid's AAX Validator.
+
+**Hosting** (`MakeASoundHosting`, macOS and Windows)
+
+- Scans VST3 plugins and Audio Units out of process into a plugin database.
+- Loads and runs them, with their editors. See [Docs/Hosting.md](Docs/Hosting.md) and [Docs/PluginScanning.md](Docs/PluginScanning.md).
+
+**Tools**
+
+- `PluginValidator` runs pluginval, auval or your own copy of Avid's validator over built bundles.
+- `AUv3Probe` loads AUv3 extensions in the iOS simulator.
 
 ## Requirements
 
 - CMake 3.31+ and a C++20 compiler.
-- macOS 11+, iOS 15+, Windows (x64 and ARM64), or Linux. CI builds macOS universal (arm64 + x86_64), iOS device + simulator, Windows with MSVC and clang-cl on both architectures, and Linux with GCC and Clang.
-- Linux additionally needs the ALSA development headers: `sudo apt-get install libasound2-dev`. The library, tests and console demos build there; the GUI apps (`AudioProbe`, `Demo`, `Synth`) are skipped, since eacp draws on macOS, Windows and iOS only.
+- macOS 11+, iOS 15+, Windows (x64 and ARM64) or Linux.
+- Linux needs `libasound2-dev`, plus the graphics and libcurl dev packages listed in `.github/workflows/ci.yml`.
 
-Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) on the first configure — nothing to install by hand.
+Dependencies are fetched by [CPM.cmake](CMake/CPM.cmake) at configure time.
 
 ## Build
 
 ```bash
 cmake -S . -B build -G Ninja
 cmake --build build
+ctest --test-dir build --output-on-failure
 
 ./build/Apps/Example/Example      # streams white noise for 2 seconds
 ./build/Apps/MidiDemo/MidiDemo    # opens virtual MIDI ports and sends notes
-open ./build/Apps/AudioProbe/AudioProbe.app   # the GPU/UI probe, see below
+./build/Tools/PluginValidator/PluginValidator build/VST3 build/AU
 ```
 
-`Example` takes an optional driver name (`./Example "Core Audio"`, `./Example jack`) and prints what is available.
+Plug-in builds are copied into the user's plug-in folder; pass `-DMAKEASOUND_INSTALL_PLUGINS=OFF` to skip that.
 
-`Apps/Demo` and `Apps/Synth` build macOS `.app` bundles with React/Vite UIs hosted through [eacp](https://github.com/eyalamirmusic/eacp)'s webview; their web assets are bundled at build time.
-
-### Options
-
-| Option | Default | Effect |
-| --- | --- | --- |
-| `MAKEASOUND_BUILD_APPS` | `ON` | Build the example/demo apps (top-level builds only). |
-| `MAKEASOUND_BUILD_TESTS` | `ON` | Build the unit tests (top-level builds only). |
-| `MAKEASOUND_UNITY_BUILD` | `OFF` | Jumbo build of the library. |
-
-To develop against a local checkout of a dependency instead of the fetched copy, pass e.g. `-DCPM_Miniaudio_SOURCE=/path/to/miniaudio` at configure time. (No MIDI library is fetched at all — every backend is the platform's own.)
-
-### Tests
+For iOS:
 
 ```bash
-ctest --test-dir build --output-on-failure
+cmake -S . -B build-ios -G Ninja -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+cmake --build build-ios
 ```
 
-Two of the suites are about allocation rather than behaviour: they link
-[ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations),
-which interposes `malloc`/`free` and `new`/`delete` for the test binary only, and
-assert that the real-time paths never reach the allocator. `AllocationTests.cpp`
-covers what can be called directly — MIDI encode/decode, the block buffers, the
-planar views, the façade calls a host makes with nothing open.
-`RealtimeThreadAllocationTests.cpp` covers the threads we do not own: it raises the
-(thread-local) ban from inside a live audio callback and from inside the platform's MIDI input
-thread, so a steady-state block and a delivered MIDI message are measured end to
-end. Those need a playback device and a virtual MIDI port, and measure nothing
-rather than failing where the platform has neither.
-
-Interposition needs `dlsym(RTLD_NEXT, ...)`, so both files are added to the test
-target on Apple and Linux only, rather than reporting zero allocations elsewhere
-because nothing was watching.
+Main options: `MAKEASOUND_BUILD_DEVICES`, `MAKEASOUND_BUILD_PLUGIN`, `MAKEASOUND_BUILD_HOSTING`, `MAKEASOUND_BUILD_AAX`, `MAKEASOUND_INSTALL_PLUGINS`, `MAKEASOUND_IOS_TEAM`.
 
 ## Using it in your project
 
-With CPM:
-
 ```cmake
-CPMAddPackage("gh:eyalamirmusic/MakeASound#main")
+include(FetchContent)
+
+FetchContent_Declare(MakeASound
+        GIT_REPOSITORY https://github.com/eyalamirmusic/MakeASound.git
+        GIT_TAG main)
+FetchContent_MakeAvailable(MakeASound)
+
 target_link_libraries(MyApp PRIVATE MakeASound)
 ```
 
-Or as a subdirectory:
+Set options before `FetchContent_MakeAvailable`. For the core alone, with no device backend:
 
 ```cmake
-add_subdirectory(MakeASound)
-target_link_libraries(MyApp PRIVATE MakeASound)
+set(MAKEASOUND_BUILD_DEVICES OFF)
+FetchContent_MakeAvailable(MakeASound)
+
+target_link_libraries(MyDSP PRIVATE MakeASound::Core)   # <MakeASound/MakeASoundCore.h>
 ```
 
-Either way the apps and tests are skipped, since they only build for a top-level MakeASound. `Lib/` is the include root, and `<MakeASound/MakeASound.h>` is the single public header.
+For plugins, set `MAKEASOUND_BUILD_PLUGIN` on and link `MakeASoundPlugin`.
 
 ## Audio
-
-Ask for the direction you want: `getDefaultOutputConfig()`, `getDefaultInputConfig()` or `getDefaultDuplexConfig()`. There is no one call that guesses, because a config that claims a capture side an app never wanted costs it the microphone permission on macOS and iOS both. Each fills in only the sides the machine actually has — asking a mic-less desktop for a duplex stream fails the whole open, so the input stays unset rather than taking the output down with it.
 
 ```cpp
 #include <MakeASound/MakeASound.h>
@@ -145,7 +148,13 @@ if (error != MS::Error::NoError)
     std::cout << MS::getErrorMessage(error) << '\n';
 ```
 
-`Buffer` is a non-owning planar view and iterates over its channels; a `Channel` is an `EA::Span<float>`, so range-for, the standard algorithms and EA's own `fill`/`copyFrom`/`mixFrom` all work on it. Sizes and indices are `int` everywhere, so call sites never convert to `size_t`.
+Buffers slice without allocating:
+
+```cpp
+auto output = info.getOutput();
+output.getSubBuffer(0, event.sampleOffset).clear();
+output.getChannelSubset(2, 2).applyGain(0.5f);
+```
 
 ### Picking a device
 
@@ -162,10 +171,6 @@ config.maxBlockSize = 256;
 manager.setConfig(config);
 ```
 
-Device ids are handed out per audio API, so a `DeviceInfo` only means something to the manager that enumerated it. `setBackend` therefore stops the stream and drops the config; follow it with a fresh `getDefaultConfig()`.
-
-`getSupportedBlockSizes(device)`, `getCurrentSampleRate(device)`, `getRouteLatency(device, input)` and `getDefaultDeviceName(input)` answer what a device can do, does, costs and is chosen as, without opening it — from Core Audio on macOS, AVAudioSession on iOS, and conservative fallbacks elsewhere. `getStreamLatency()` already includes the route's own delay, so it is the number to compensate for.
-
 ### Reacting to the device
 
 ```cpp
@@ -175,23 +180,7 @@ for (auto notification: manager.drainNotifications())  // from a UI timer
 manager.setAutoRecover(false); // own the "device lost" decision yourself
 ```
 
-`drainNotifications()` hands back everything queued since the last call, on the thread that asks — so a UI reads it from a timer it already has instead of marshalling off an audio thread itself. Undrained notifications stop accumulating at 64.
-
-`setNotificationCallback` is the same news delivered immediately instead, and it runs wherever the OS raised it: on an OS audio thread, sometimes while recovery holds the device. Set it before `start()` and don't call back into `DeviceManager` from it.
-
-Inside the callback, `info.dirty` is raised whenever the stream shape (channels, sample rate, block size) differs from the previous block, and on the first callback after a reroute or interruption. It is the signal to reallocate working buffers and reset any state that depends on the rate.
-
 ### The audio session (iOS)
-
-iOS gates what an app may do behind an `AVAudioSession`, and MakeASound never
-configures one behind your back — constructing a `DeviceManager` leaves it exactly
-where it was. The session is applied on each open, and **follows the stream**: the
-category is `Playback` for an output-only config and `PlayAndRecord` for one with a
-capture side, and the rate and block size the `StreamConfig` asked for are what
-`setPreferredSampleRate:` and `setPreferredIOBufferDuration:` are asked for.
-
-That is usually all an app needs. `setSessionConfig` overrides any of it — most
-usefully the options that decide whether opening a stream stops the user's music:
 
 ```cpp
 auto session = MS::SessionConfig {};
@@ -202,14 +191,9 @@ manager.setSessionConfig(session);
 manager.start(manager.getDefaultOutputConfig(), callback);
 ```
 
-`getSessionState()` reports what the route actually granted — category, channels,
-rate, block size and the route's own latency. Off iOS `hasAudioSession()` is false,
-every call is a no-op and `getSessionState().available` is false, so the same code
-compiles and runs everywhere.
-
 ## MIDI
 
-Callback mode fires on the platform's own MIDI thread:
+Callback mode fires on the platform's MIDI thread:
 
 ```cpp
 namespace MIDI = MakeASound::MIDI;
@@ -231,7 +215,7 @@ midi.openInput(portId,
 midi.sendMessage(MIDI::Event::noteOn(0, 60, 100.f / 127.f));
 ```
 
-Queue mode accumulates events instead, so an audio callback can drain them with sample offsets already resolved:
+Queue mode lets an audio callback drain events with sample offsets resolved:
 
 ```cpp
 auto sync = MS::MidiBlockSync {};
@@ -250,87 +234,121 @@ manager.start(config,
               });
 ```
 
-Events land one block late — the only way to keep offsets non-negative when MIDI arrives on its own thread.
-
-`openVirtualInput` / `openVirtualOutput` create ports other apps can connect to; they exist on Core MIDI (iOS included) and ALSA. Where they do not — Windows, and the iOS simulator, which refuses them to a process with no bundle — `openVirtualOutput` returns an `Error` and `openVirtualInput` returns `nullopt`, as the audio side would. Nothing in the MIDI facade throws.
-
-## The probe app
-
-`Apps/AudioProbe` is the example that runs everywhere eacp draws — macOS,
-Windows and iOS — and it is deliberately two things at once.
-
-It is a **visualizer**: a tone generator feeding MakeASound's own `SPSCQueue`, an
-FFT on the render thread, and a spectrum drawn by a shader written in
-[eacp](https://github.com/eyalamirmusic/eacp)'s GPU EDSL. The controls beneath it
-are eacp's widget tier fed by `MakeASound::UIDeviceManager` — the device, rate and
-block-size dropdowns are the library's own `UI::DropdownInfo` values.
-
-It is also a **gap report**. Twelve probes ask what a caller should be able to
-expect of this library and record what it actually does on the machine it is
-running on. Each row shows what it expected, what it got, and whether that is a
-pass, a gap, or a question nothing has answered yet.
-
-```bash
-./build/Apps/AudioProbe/AudioProbe            # the window
-./build/Apps/AudioProbe/AudioProbe --strict   # log every gap, exit with the count
-./build/Apps/AudioProbe/AudioProbe --assert   # trip an assertion on the first gap
-```
-
-For iOS, configure for the simulator and install the bundle:
-
-```bash
-cmake -S . -B build-ios -G Ninja -DCMAKE_SYSTEM_NAME=iOS \
-      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
-cmake --build build-ios --target AudioProbe
-
-xcrun simctl boot "iPhone 17 Pro"
-xcrun simctl install booted build-ios/Apps/AudioProbe/AudioProbe.app
-xcrun simctl launch --console booted com.eyalamir.makeasound.audioprobe --strict
-```
-
-### What it finds today
-
-Nothing, on either platform — which is the point of having it. It found nine gaps
-when it was written; `gaps.md` records each one, what changed, and what is still
-open.
-
-```
-macOS   0 gaps, 7 pass, 3 waiting, 3 n/a
-iOS     0 gaps, 10 pass, 3 waiting, 0 n/a
-```
-
-Three rows stay `waiting` on both: an OS-initiated stop, a route change and a
-notification raised off the main thread are all still gaps, and all three need
-hardware no simulator provides.
-
-## Layout
-
-```
-Lib/MakeASound/
-  MakeASound.h      umbrella public header
-  Audio/            Buffer and Channel, non-owning planar views
-  Devices/          DeviceInfo data types, DeviceManager façade, device queries
-  MIDI/             typed events, port info, block sync, MidiManager façade
-  Realtime/         SPSCQueue
-  UI/               dropdown/toggle-list helpers for the demo apps
-  Common/           EA type re-exports and audio-thread-safe algorithms
-  MiniAudio/        audio backend (hidden)
-  CoreMIDI/         MIDI backend, Apple (hidden)
-  WinMIDI/          MIDI backend, Windows WinMM (hidden)
-  ALSA/             MIDI backend, Linux sequencer (hidden)
-Apps/               AudioProbe (GPU/UI, iOS too), Example, MidiDemo (CLI),
-                    Demo, Synth (web UI)
-Tests/              NanoTest suites
-gaps.md             what the probe found, what was fixed, what is open
-```
-
-Data structs opt into JSON reflection in place via `MIRO_REFLECT(...)`, so a `StreamConfig` round-trips through [Miro](https://github.com/eyalamirmusic/Miro) without any extra code:
+## Processors
 
 ```cpp
-Miro::logJSON(manager.getDefaultConfig());
+struct Gain : MS::Processor
+{
+    void prepare(const MS::ProcessSpec&) override {}
+
+    void process(MS::ProcessContext& ctx) noexcept override
+    {
+        auto& out = ctx.mainOutput();
+        out.copyFrom(ctx.mainInput());
+        out.applyGain(0.5f);
+    }
+};
+
+auto devices = MS::DeviceManager {};
+auto midi = MS::MidiManager {};
+auto engine = MS::Engine {devices, midi};
+auto gain = Gain {};
+
+engine.start(devices.getDefaultDuplexConfig(), gain);
 ```
 
-## Dependencies
+## Plugins
 
-Fetched automatically: [miniaudio](https://github.com/mackron/miniaudio), [Miro](https://github.com/eyalamirmusic/Miro), `ea_data_structures`, plus [eacp](https://github.com/eyalamirmusic/eacp) for the apps and [NanoTest](https://github.com/eyalamirmusic/NanoTest) + [ScopedMemoryAllocations](https://github.com/eyalamirmusic/ScopedMemoryAllocations) for the tests. No MIDI library is fetched: Core MIDI, WinMM and the ALSA sequencer come with the platform. Miro is linked `PUBLIC` (it leaks through the reflected data structs); miniaudio and whichever MIDI library the platform selected are `PRIVATE`, fully hidden behind the façades.
+```cpp
+#include <MakeASound/Plugin/MakeASoundPlugin.h>
+
+namespace MS = MakeASound;
+
+struct GainParams : MS::ParameterGroup
+{
+    GainParams() { add(gain, bypass); }
+
+    MS::DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
+    MS::BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+};
+
+struct GainPlugin : MS::StatePlugin<MS::State<GainParams>>
+{
+    std::string_view name() const override { return "Gain"; }
+
+    void prepare(const MS::ProcessSpec&) override {}
+
+    void process(MS::ProcessContext& ctx) noexcept override
+    {
+        if (!params.bypass.isOn())
+            ctx.mainOutput().applyGain(params.gain.gain());
+    }
+};
+
+namespace MakeASound
+{
+ModuleDescription describeModule()
+{
+    auto module = ModuleDescription {};
+    module.vendor = "Me";
+    module.manufacturerCode = "MeMe";
+    module.plugins.add({.name = "Gain",
+                        .pluginCode = "Gain",
+                        .create = [] { return EA::makeOwned<GainPlugin>(); }});
+    return module;
+}
+} // namespace MakeASound
+```
+
+One CMake call builds every format; a format the platform can't build is skipped:
+
+```cmake
+makeasound_add_plugin(Gain
+        FORMATS Standalone VST3 AU AUv3 AAX
+        OUTPUT_NAME "MakeASound Gain"
+        SOURCES GainPlugin.cpp)
+```
+
+`Plugins/Gain` and `Plugins/Synth` are complete examples.
+
+### Editors
+
+`createEditor()` returns a custom editor, or nothing for the generic one:
+
+```cpp
+struct MyEditor : MS::Editor
+{
+    eacp::Graphics::View& view() override;   // built on first call
+
+    MS::EditorSize initialSize() const override { return {600, 400}; }
+
+    MS::EditorConstraints constraints() const override
+    {
+        return {.resizable = true,
+                .minimum = {450, 300},
+                .maximum = {1200, 800},
+                .aspectRatio = {3, 2}};
+    }
+};
+
+MS::OwningPointer<MS::Editor> MyPlugin::createEditor()
+{
+    return EA::makeOwned<MyEditor>();
+}
+```
+
+### A standalone app of your own
+
+Replace the default standalone app with your own sources, built on the windowless `StandaloneHost` (see `Plugins/GainApp`):
+
+```cmake
+makeasound_add_plugin(GainApp
+        FORMATS Standalone
+        OUTPUT_NAME "MakeASound Gain App"
+        SOURCES ../Gain/GainPlugin.cpp
+        STANDALONE_SOURCES GainApp.cpp)
+```
+
+## License
+
+MIT; see [LICENSE](LICENSE). The vendored VST3 SDK is MIT, and Apple's AudioUnitSDK (fetched for AU on macOS) is Apache-2.0. Avid's AAX SDK is fetched only with `MAKEASOUND_BUILD_AAX` and is GPLv3 unless you hold Avid's license agreement, so an AAX binary built with it is too.

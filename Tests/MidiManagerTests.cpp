@@ -22,10 +22,12 @@
 // The Apple backend's timestamp conversion, reached directly: a loopback cannot
 // exercise it on its own, and the library's include root is already on the path.
 #if defined(__APPLE__)
-    #include <MakeASound/CoreMIDI/CoreMIDI-Backend.h>
-    #include <mach/mach_time.h>
+#include <MakeASound/CoreMIDI/CoreMIDI-Backend.h>
+#include <mach/mach_time.h>
 #endif
 
+namespace MidiManagerTests
+{
 using namespace nano;
 using namespace std::chrono_literals;
 
@@ -238,8 +240,8 @@ auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = [
             ++seen;
         }
 
-        std::this_thread::sleep_for(std::chrono::microseconds {
-            numSamples * 1000000 / sampleRate});
+        std::this_thread::sleep_for(
+            std::chrono::microseconds {numSamples * 1000000 / sampleRate});
     }
 
     midi.closeOutput();
@@ -397,3 +399,4 @@ auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
     check(removed > 0);
 };
 } // namespace
+} // namespace MidiManagerTests

@@ -82,6 +82,11 @@ private:
 //
 // Where another library got its client in first the pin is theirs, and the
 // notifications land on whatever loop that was; both paths still carry them.
+//
+// The loop also holds one client of its own for the life of the process. The iOS
+// simulator's MIDIServer exits a few seconds after its last client is disposed,
+// and the process's Core MIDI never reconnects: every later MIDIClientCreate
+// fails for good. With the keep-alive client a manager can come and go any time.
 class NotifyLoop
 {
 public:
@@ -96,6 +101,7 @@ private:
 
     std::thread thread;
     std::atomic<CFRunLoopRef> loop {nullptr};
+    MIDIClientRef keepAlive = 0;
 };
 
 struct MidiManager;

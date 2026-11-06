@@ -1,0 +1,807 @@
+// State<ParamsT>: the document a parameter group saves to and loads from, how tolerant loading is, the session-only tier, and the published
+// snapshot a host reads off the message thread.
+
+#include <MakeASound/Plugin/MakeASoundPlugin.h>
+
+#include <NanoTest/NanoTest.h>
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+namespace StateTests
+{
+using namespace nano;
+
+using MakeASound::BoolParam;
+using MakeASound::ChoiceParam;
+using MakeASound::FloatParam;
+using MakeASound::ParameterGroup;
+using MakeASound::ParameterList;
+using MakeASound::PercentParam;
+using MakeASound::State;
+using MakeASound::StateContext;
+
+// Tests live in an anonymous namespace: NanoTest registers a case by
+// constructing a namespace-scope variable, so two files naming one the same way
+// would otherwise collide at link time.
+namespace
+{
+bool near(float a, float b)
+{
+    return std::abs(a - b) < 1e-6f;
+}
+
+bool contains(const std::string& text, const std::string& part)
+{
+    return text.find(part) != std::string::npos;
+}
+
+struct ToneParams : ParameterGroup
+{
+    ToneParams() { add(gain, mode, bright, mix); }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f};
+    ChoiceParam mode {"Mode", {"Low", "Band", "High"}, 1};
+    BoolParam bright {"Bright", false};
+    PercentParam mix {"Mix", 1.f};
+};
+
+// A later release with a parameter inserted mid-list and the choice list
+// reshuffled: every original name survives, at a different index.
+struct NewerToneParams : ParameterGroup
+{
+    NewerToneParams() { add(gain, drive, mode, bright, mix); }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f};
+    FloatParam drive {"Drive", 0.f, 1.f, 0.2f};
+    ChoiceParam mode {"Mode", {"Notch", "High", "Band", "Low"}, 0};
+    BoolParam bright {"Bright", false};
+    PercentParam mix {"Mix", 1.f};
+};
+
+struct OscParams : ParameterGroup
+{
+    explicit OscParams(std::string_view name)
+        : ParameterGroup(name)
+    {
+        add(level);
+    }
+
+    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+};
+
+struct SynthParams : ParameterGroup
+{
+    SynthParams() { add(gain, osc1, hand); }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f};
+    OscParams osc1 {"Osc 1"};
+    ChoiceParam hand {"Hand", {"Off", "Left", "Right"}, 1, {.sessionOnly = true}};
+};
+
+struct ToneState : State<ToneParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        State::reflect(ref);
+        ref["preset"](preset);
+    }
+
+    std::string preset = "Init";
+};
+
+auto tRoundTrip = test("State/roundTripsEveryParameterType") = []
+{
+    auto saved = ToneState {};
+    saved.params.gain.setValue(0.73f);
+    saved.params.mode.setValue(2.f);
+    saved.params.bright.setOn(true);
+    saved.params.mix.setValue(0.25f);
+    saved.preset = "Bright lead";
+
+    auto loaded = ToneState {};
+    loaded.deserialize(saved.serialize());
+
+    check(near(loaded.params.gain.get(), 0.73f));
+    check(loaded.params.mode.getIndex() == 2);
+    check(loaded.params.bright.isOn());
+    check(near(loaded.params.mix.get(), 0.25f));
+    check(loaded.preset == "Bright lead");
+};
+
+auto tDocumentShape = test("State/savesChoicesByNameAndBoolsAsBools") = []
+{
+    auto state = State<ToneParams> {};
+    state.params.gain.setValue(0.73f);
+    auto json = state.serialize();
+
+    check(contains(json, R"("version":1)"));
+    check(contains(json, R"("Gain":0.73)"));
+    check(contains(json, R"("Mode":"Band")"));
+    check(contains(json, R"("Bright":false)"));
+};
+
+auto tChoiceByIndex = test("State/loadsAChoiceSavedAsItsIndex") = []
+{
+    auto state = State<ToneParams> {};
+    state.deserialize(R"({"params":{"Mode":2}})");
+
+    check(state.params.mode.getIndex() == 2);
+};
+
+// Saved as a JSON bool; a hand-written document may name a label instead.
+auto tBoolLabels = test("State/aBoolLoadsFromItsLabels") = []
+{
+    struct SwitchParams : ParameterGroup
+    {
+        SwitchParams() { add(retrigger); }
+
+        BoolParam retrigger {"Retrigger", false, "Free", "Retrig"};
+    };
+
+    for (const auto* document: {R"({"params":{"Retrigger":"Retrig"}})",
+                                R"({"params":{"Retrigger":" retrig "}})"})
+    {
+        auto state = State<SwitchParams> {};
+        state.deserialize(document);
+        check(state.params.retrigger.isOn(), document);
+    }
+
+    auto state = State<SwitchParams> {};
+    state.params.retrigger.setOn(true);
+    state.deserialize(R"({"params":{"Retrigger":"Free"}})");
+    check(!state.params.retrigger.isOn());
+};
+
+auto tUnknownChoice = test("State/anUnknownChoiceNameRestoresTheDefault") = []
+{
+    auto state = State<ToneParams> {};
+    state.params.mode.setValue(0.f);
+    state.deserialize(R"({"params":{"Mode":"Notch"}})");
+
+    check(state.params.mode.getIndex() == 1);
+};
+
+auto tMissingKey = test("State/aMissingKeyRestoresItsDefault") = []
+{
+    auto state = State<SynthParams> {};
+    state.params.gain.setValue(0.9f);
+    state.params.osc1.level.setValue(0.1f);
+    state.deserialize(R"({"params":{"Gain":0.25}})");
+
+    check(near(state.params.gain.get(), 0.25f));
+    check(near(state.params.osc1.level.get(), 0.8f));
+};
+
+auto tNoParams = test("State/aDocumentWithNoParamsMovesNothing") = []
+{
+    auto state = State<ToneParams> {};
+    state.params.gain.setValue(0.9f);
+    state.deserialize(R"({"version":3})");
+
+    check(near(state.params.gain.get(), 0.9f));
+    check(state.loadedVersion == 3);
+    check(state.version == 1);
+};
+
+struct SecondSchemaState : State<ToneParams>
+{
+    SecondSchemaState() { version = 2; }
+};
+
+auto tVersion = test("State/loadingReadsTheVersionWithoutAdoptingIt") = []
+{
+    auto state = SecondSchemaState {};
+    state.deserialize(R"({"version":1,"params":{"Gain":0.25}})");
+
+    check(state.loadedVersion == 1);
+    check(state.version == 2);
+    check(contains(state.serialize(), R"("version":2)"));
+};
+
+auto tMalformed = test("State/malformedJsonMovesNothing") = []
+{
+    auto state = State<ToneParams> {};
+    state.params.gain.setValue(0.4f);
+    state.deserialize("not json at all");
+    state.loadParams("{\"params\": [");
+
+    check(near(state.params.gain.get(), 0.4f));
+};
+
+auto tNested = test("State/nestedGroupsNestInsideParams") = []
+{
+    auto saved = State<SynthParams> {};
+    saved.params.osc1.level.setValue(0.3f);
+    auto json = saved.serialize();
+
+    check(contains(json, R"("Osc 1":{"Level":0.3})"));
+
+    auto loaded = State<SynthParams> {};
+    loaded.deserialize(json);
+    check(near(loaded.params.osc1.level.get(), 0.3f));
+};
+
+// A composite built out of other units' groups, the way a channel strip is
+// built out of a compressor and an EQ.
+struct StripParams : ParameterGroup
+{
+    StripParams()
+    {
+        add(level);
+        addChild("Tone", tone);
+        add(osc1);
+    }
+
+    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+    ToneParams tone;
+    OscParams osc1 {"Osc 1"};
+};
+
+void moveTone(ToneParams& params)
+{
+    params.gain.setValue(0.73f);
+    params.mode.setValue(2.f);
+    params.bright.setOn(true);
+    params.mix.setValue(0.25f);
+}
+
+// What lets a unit's preset drop into a composite's slot: the document around
+// them is each plugin's own, the tree inside is the unit's.
+auto tEmbeddedUnit = test("State/anEmbeddedGroupWritesTheStandaloneGroupsTree") = []
+{
+    auto standalone = State<ToneParams> {};
+    moveTone(standalone.params);
+
+    auto strip = State<StripParams> {};
+    moveTone(strip.params.tone);
+
+    auto aloneDocument = Miro::Json::getParsedValue(standalone.serialize());
+    auto stripDocument = Miro::Json::getParsedValue(strip.serialize());
+    const auto* aloneTree = Miro::Json::find(aloneDocument.asObject(), "params");
+    const auto* stripTree = Miro::Json::find(stripDocument.asObject(), "params");
+    check(aloneTree != nullptr && stripTree != nullptr);
+
+    if (aloneTree == nullptr || stripTree == nullptr)
+        return;
+
+    const auto* embedded = Miro::Json::find(stripTree->asObject(), "Tone");
+    check(embedded != nullptr);
+
+    if (embedded != nullptr)
+        check(Miro::Json::print(*embedded) == Miro::Json::print(*aloneTree));
+
+    auto loaded = State<StripParams> {};
+    loaded.deserialize(strip.serialize());
+    check(near(loaded.params.tone.gain.get(), 0.73f));
+    check(loaded.params.tone.mode.getIndex() == 2);
+    check(loaded.params.tone.bright.isOn());
+    check(near(loaded.params.tone.mix.get(), 0.25f));
+};
+
+auto tSessionOnly = test("State/aSessionOnlyParameterMovesOnlyInASession") = []
+{
+    auto saved = State<SynthParams> {};
+    saved.params.hand.setValue(2.f);
+
+    auto preset = saved.serialize(StateContext::Preset);
+    auto session = saved.serialize(StateContext::Session);
+
+    check(!contains(preset, "Hand"));
+    check(contains(session, R"("Hand":"Right")"));
+
+    auto loaded = State<SynthParams> {};
+    loaded.params.hand.setValue(0.f);
+
+    loaded.deserialize(session, StateContext::Preset);
+    check(loaded.params.hand.getIndex() == 0);
+
+    loaded.deserialize(preset, StateContext::Session);
+    check(loaded.params.hand.getIndex() == 1);
+
+    loaded.deserialize(session, StateContext::Session);
+    check(loaded.params.hand.getIndex() == 2);
+};
+
+// The half PluginWrapper applies on the host's thread follows the same rule.
+auto tSessionOnlyParams =
+    test("State/loadParamsLeavesASessionOnlyParameterOutOfAPreset") = []
+{
+    auto saved = State<SynthParams> {};
+    saved.params.hand.setValue(2.f);
+    saved.params.gain.setValue(0.25f);
+    auto session = saved.serialize(StateContext::Session);
+
+    auto loaded = State<SynthParams> {};
+    loaded.params.hand.setValue(0.f);
+
+    loaded.loadParams(session, StateContext::Preset);
+    check(loaded.params.gain.getValue() == 0.25f);
+    check(loaded.params.hand.getIndex() == 0);
+
+    loaded.loadParams(session, StateContext::Session);
+    check(loaded.params.hand.getIndex() == 2);
+};
+
+// Writes a key only into a session (a file path, say), the way a plugin keeps
+// session-only data that is not a parameter, and records what each half of a
+// round trip was told.
+struct SessionKeyState : State<ToneParams>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        State::reflect(ref);
+
+        if (ref.isSaving())
+            savedAsSession = MakeASound::isSession(ref);
+        else
+            loadedAsSession = MakeASound::isSession(ref);
+
+        if (MakeASound::isSession(ref))
+            ref["sample"](sample);
+    }
+
+    bool savedAsSession = false;
+    bool loadedAsSession = false;
+    std::string sample = "Kick.wav";
+};
+
+auto tSessionTag = test("State/aStatesOwnReflectSeesTheSessionOnBothHalves") = []
+{
+    auto saved = SessionKeyState {};
+    auto session = saved.serialize(StateContext::Session);
+
+    check(saved.savedAsSession);
+    check(contains(session, R"("sample":"Kick.wav")"));
+
+    auto loaded = SessionKeyState {};
+    loaded.sample.clear();
+    loaded.deserialize(session, StateContext::Session);
+
+    check(loaded.loadedAsSession);
+    check(loaded.sample == "Kick.wav");
+};
+
+auto tPresetSessionKey = test("State/aPresetNeitherCarriesNorMovesASessionKey") = []
+{
+    auto saved = SessionKeyState {};
+    saved.savedAsSession = true;
+    auto preset = saved.serialize(StateContext::Preset);
+
+    check(!saved.savedAsSession);
+    check(!contains(preset, "sample"));
+
+    auto loaded = SessionKeyState {};
+    loaded.loadedAsSession = true;
+    loaded.sample = "Snare.wav";
+    loaded.deserialize(saved.serialize(StateContext::Session), StateContext::Preset);
+
+    check(!loaded.loadedAsSession);
+    check(loaded.sample == "Snare.wav");
+};
+
+struct RetiredParams : ParameterGroup
+{
+    RetiredParams() { add(comp, drive); }
+
+    BoolParam comp {"Comp", false};
+    BoolParam drive {"Drive", false};
+};
+
+// Retired padding as a port keeps it: registered so every later index stays
+// where it was, saved nowhere.
+struct PaddedParams : ParameterGroup
+{
+    PaddedParams()
+    {
+        add(gain);
+        addChild("Retired", retired, {.persistent = false});
+        add(level, padding);
+        addChild(
+            "Retired", retiredSends, {.id = "RetiredSends", .persistent = false});
+    }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f};
+    RetiredParams retired;
+    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+    FloatParam padding {"Padding", 0.f, 1.f, 0.f, {.persistent = false}};
+    RetiredParams retiredSends;
+};
+
+void moveEveryUnpersisted(PaddedParams& params)
+{
+    params.retired.comp.setOn(true);
+    params.retired.drive.setOn(true);
+    params.padding.setValue(0.6f);
+    params.retiredSends.comp.setOn(true);
+}
+
+bool holdsEveryUnpersisted(const PaddedParams& params)
+{
+    return params.retired.comp.isOn() && params.retired.drive.isOn()
+           && near(params.padding.get(), 0.6f) && params.retiredSends.comp.isOn()
+           && !params.retiredSends.drive.isOn();
+}
+
+auto tUnpersistedList =
+    test("State/anUnpersistedGroupRegistersItsParametersAsAnyOther") = []
+{
+    auto params = PaddedParams {};
+    auto list = ParameterList {params};
+
+    check(list.size() == 7);
+    check(list.indexOf("Retired/Comp") == 1);
+    check(list.indexOf("Retired/Drive") == 2);
+    check(list.indexOf("Level") == 3);
+    check(list.indexOf("Padding") == 4);
+    check(list.indexOf("RetiredSends/Drive") == 6);
+    check(list.entry(1).displayName == "Retired Comp");
+    check(list.entry(5).displayName == "Retired Comp");
+
+    for (const auto& entry: list)
+        check(entry.automatable);
+
+    check(list.entry(0).persistent && list.entry(3).persistent);
+    check(!list.entry(1).persistent && !list.entry(2).persistent);
+    check(!list.entry(4).persistent && !list.entry(6).persistent);
+    check(list.isHostExposed(1) && list.isHostExposed(4));
+    check(list.identityProblems().empty());
+
+    // An index scheme counts them as it counts every leaf.
+    auto plug = MakeASound::policyFor(MakeASound::IdScheme::TamberPlug, {});
+    auto indexed = ParameterList {params, plug.parameters};
+
+    for (auto index = 0; index < indexed.size(); ++index)
+        check(indexed.entry(index).hostId == static_cast<uint32_t>(index));
+};
+
+auto tUnpersistedSave = test("State/anUnpersistedGroupIsInNoDocument") = []
+{
+    auto state = State<PaddedParams> {};
+    moveEveryUnpersisted(state.params);
+    state.params.level.setValue(0.25f);
+    state.publish();
+
+    for (auto context: {StateContext::Preset, StateContext::Session})
+    {
+        auto json = state.serialize(context);
+
+        check(contains(json, R"("Level":0.25)"));
+        check(!contains(json, "Retired"));
+        check(!contains(json, "Comp"));
+        check(!contains(json, "Padding"));
+
+        auto snapshot = state.snapshotDocument(context);
+        check(!contains(snapshot, "Retired") && !contains(snapshot, "Padding"));
+    }
+};
+
+auto tUnpersistedLoad = test("State/aLoadNeverMovesAnUnpersistedGroup") = []
+{
+    auto state = State<PaddedParams> {};
+    moveEveryUnpersisted(state.params);
+
+    auto stated = std::string {
+        R"({"params":{"Gain":0.25,"Retired":{"Comp":false,"Drive":false},)"
+        R"("Padding":0.1,"RetiredSends":{"Comp":false,"Drive":true}}})"};
+
+    for (auto context: {StateContext::Preset, StateContext::Session})
+    {
+        state.deserialize(stated, context);
+        check(near(state.params.gain.get(), 0.25f));
+        check(holdsEveryUnpersisted(state.params));
+
+        state.loadParams(stated, context);
+        check(holdsEveryUnpersisted(state.params));
+
+        // A document that omits them restores the defaults of the rest only.
+        state.deserialize(R"({"params":{"Gain":0.3}})", context);
+        check(near(state.params.level.get(), 0.8f));
+        check(holdsEveryUnpersisted(state.params));
+
+        state.deserialize(R"({"params":{"Retired":3,"RetiredSends":[1]}})", context);
+        check(holdsEveryUnpersisted(state.params));
+    }
+
+    auto other = State<PaddedParams> {};
+    other.deserialize(state.serialize());
+    check(!other.params.retired.comp.isOn()
+          && near(other.params.padding.get(), 0.f));
+};
+
+auto tInsertedParameter =
+    test("State/aParameterInsertedMidListKeepsOlderOnesWhole") = []
+{
+    auto older = State<ToneParams> {};
+    older.params.gain.setValue(0.7f);
+    older.params.mode.setValue(0.f);
+    older.params.mix.setValue(0.3f);
+
+    auto newer = State<NewerToneParams> {};
+    newer.params.drive.setValue(0.9f);
+    newer.deserialize(older.serialize());
+
+    check(near(newer.params.gain.get(), 0.7f));
+    check(near(newer.params.drive.get(), 0.2f));
+    check(newer.params.mode.choiceName(newer.params.mode.getIndex()) == "Low");
+    check(near(newer.params.mix.get(), 0.3f));
+
+    auto olderParams = ToneParams {};
+    auto newerParams = NewerToneParams {};
+    auto olderList = ParameterList {olderParams};
+    auto newerList = ParameterList {newerParams};
+
+    for (const auto& entry: olderList)
+    {
+        auto index = newerList.indexOf(entry.id);
+        check(index >= 0);
+        check(newerList.entry(index).hostId == entry.hostId);
+    }
+};
+
+// The other way: a document from the later release, restored by this one.
+auto tNewerDocument = test("State/aNewerReleasesDocumentLoadsWhatThisOneHas") = []
+{
+    auto newer = State<NewerToneParams> {};
+    newer.params.gain.setValue(0.7f);
+    newer.params.drive.setValue(0.9f);
+    newer.params.mode.setValue(0.f);
+    newer.params.bright.setOn(true);
+    newer.params.mix.setValue(0.3f);
+
+    auto older = State<ToneParams> {};
+    older.deserialize(newer.serialize());
+
+    check(near(older.params.gain.get(), 0.7f));
+    check(older.params.mode.getIndex() == 1);
+    check(older.params.bright.isOn());
+    check(near(older.params.mix.get(), 0.3f));
+    check(!contains(older.serialize(), "Drive"));
+};
+
+auto tLoadParams = test("State/loadParamsMovesParametersAndNothingElse") = []
+{
+    auto state = ToneState {};
+    state.loadParams(R"({"params":{"Gain":0.2},"preset":"Other"})");
+
+    check(near(state.params.gain.get(), 0.2f));
+    check(state.preset == "Init");
+    check(state.params.mode.getIndex() == 1);
+
+    state.loadParams(R"({"preset":"Other"})");
+    check(near(state.params.gain.get(), 0.2f));
+};
+
+auto tExceptParams = test("State/deserializeExceptParamsLeavesParameters") = []
+{
+    auto state = ToneState {};
+    state.params.gain.setValue(0.9f);
+    state.deserializeExceptParams(R"({"params":{"Gain":0.2},"preset":"Other"})");
+
+    check(near(state.params.gain.get(), 0.9f));
+    check(state.preset == "Other");
+
+    state.deserialize(R"({"params":{"Gain":0.2}})");
+    check(near(state.params.gain.get(), 0.2f));
+};
+
+auto tWrongType = test("State/aWrongTypedValueRestoresTheDefault") = []
+{
+    auto state = State<ToneParams> {};
+    state.params.gain.setValue(0.9f);
+    state.params.bright.setOn(true);
+    state.deserialize(R"({"params":{"Gain":[0.2],"Bright":{"on":true}}})");
+
+    check(near(state.params.gain.get(), 0.5f));
+    check(!state.params.bright.isOn());
+};
+
+auto tMissingGroup = test("State/aMissingGroupRestoresItsDefaults") = []
+{
+    auto state = State<SynthParams> {};
+    state.params.osc1.level.setValue(0.1f);
+    state.deserialize(R"({"params":{"Osc 1":3}})");
+
+    check(near(state.params.osc1.level.get(), 0.8f));
+};
+
+struct VoiceParams : ParameterGroup
+{
+    explicit VoiceParams(std::string_view name)
+        : ParameterGroup(name)
+    {
+        add(level);
+    }
+
+    FloatParam level {"Level", 0.f, 1.f, 0.8f};
+};
+
+struct VoicesParams : ParameterGroup
+{
+    VoicesParams()
+    {
+        voices.push_back(EA::makeOwned<VoiceParams>("Lead"));
+        voices.push_back(EA::makeOwned<VoiceParams>("Bass"));
+        add(voices);
+    }
+
+    std::vector<EA::OwningPointer<VoiceParams>> voices;
+};
+
+auto tVectorSurvivesLoad = test("State/aVectorOfGroupsSurvivesALoad") = []
+{
+    auto saved = State<VoicesParams> {};
+    saved.params.voices[1]->level.setValue(0.3f);
+    auto json = saved.serialize();
+
+    check(contains(json, R"("Bass":{"Level":0.3})"));
+
+    auto loaded = State<VoicesParams> {};
+    auto list = ParameterList {loaded.params};
+    auto* bass = loaded.params.voices[1].get();
+
+    loaded.deserialize(json);
+    loaded.loadParams(json);
+
+    check(loaded.params.voices.size() == 2);
+    check(loaded.params.voices[1].get() == bass);
+    check(&list[1] == &bass->level);
+    check(near(list[1].getValue(), 0.3f));
+};
+
+struct RenamedFilter : ParameterGroup
+{
+    RenamedFilter(std::string_view groupName, std::string_view cutoffName)
+        : ParameterGroup(groupName, {.id = "filter"})
+        , cutoff(cutoffName, 0.f, 1.f, 0.5f, {.id = "cutoff"})
+    {
+        add(cutoff);
+    }
+
+    FloatParam cutoff;
+};
+
+struct OldFilterParams : ParameterGroup
+{
+    OldFilterParams() { add(filter); }
+
+    RenamedFilter filter {"Filter", "Cutoff"};
+};
+
+struct NewFilterParams : ParameterGroup
+{
+    NewFilterParams() { add(filter); }
+
+    RenamedFilter filter {"Tone", "Frequency"};
+};
+
+auto tPinnedKeys = test("State/anExplicitIdKeepsTheKeyAcrossARename") = []
+{
+    auto older = State<OldFilterParams> {};
+    older.params.filter.cutoff.setValue(0.25f);
+    auto json = older.serialize();
+
+    check(contains(json, R"("filter":{"cutoff":0.25})"));
+
+    auto newer = State<NewFilterParams> {};
+    newer.deserialize(json);
+
+    check(near(newer.params.filter.cutoff.get(), 0.25f));
+    check(contains(newer.serialize(), R"("filter":{"cutoff":0.25})"));
+};
+
+// Reads differently every time, like a parameter under automation.
+struct MovingParam : MakeASound::Parameter
+{
+    MovingParam()
+        : Parameter("Moving", {})
+    {
+    }
+
+    float minValue() const noexcept override { return 0.f; }
+    float maxValue() const noexcept override { return 1000.f; }
+    float defaultValue() const noexcept override { return 0.f; }
+    void setValue(float) noexcept override {}
+    float getValue() const noexcept override { return static_cast<float>(++reads); }
+
+    mutable int reads = 0;
+};
+
+struct MovingParams : ParameterGroup
+{
+    MovingParams() { add(moving); }
+
+    MovingParam moving;
+};
+
+auto tMovingParams =
+    test("State/parametersMovingBetweenReadsKeepTheSnapshotCurrent") = []
+{
+    auto state = State<MovingParams> {};
+    state.publish();
+
+    check(state.isPublishedDocumentCurrent());
+};
+
+auto tPresetSnapshot = test("State/thePresetSnapshotLeavesOutSessionParameters") = []
+{
+    auto state = State<SynthParams> {};
+    state.params.hand.setValue(2.f);
+    state.publish();
+    state.params.gain.setValue(0.125f);
+
+    auto preset = state.snapshotDocument(StateContext::Preset);
+    auto session = state.snapshotDocument(StateContext::Session);
+
+    check(!contains(preset, "Hand"));
+    check(contains(preset, R"("Gain":0.125)"));
+    check(contains(session, R"("Hand":"Right")"));
+    check(contains(session, R"("Gain":0.125)"));
+};
+
+// What a host saving off the message thread gets is what it would get on it.
+auto tSnapshotIsTheDocument =
+    test("State/aCurrentSnapshotIsTheMessageThreadDocument") = []
+{
+    struct SynthTone : State<SynthParams>
+    {
+        void reflect(Miro::Reflector& ref) override
+        {
+            State::reflect(ref);
+            ref["preset"](preset);
+        }
+
+        std::string preset = "Init";
+    };
+
+    auto state = SynthTone {};
+    state.preset = "Pad";
+    state.params.hand.setValue(2.f);
+    state.publish();
+    state.params.gain.setValue(0.125f);
+    state.params.osc1.level.setValue(0.3f);
+
+    for (auto context: {StateContext::Preset, StateContext::Session})
+        check(state.snapshotDocument(context)
+              == Miro::Json::print(
+                  Miro::Json::getParsedValue(state.serialize(context))));
+};
+
+auto tPublish = test("State/publishedSnapshotReadsParametersLive") = []
+{
+    auto state = ToneState {};
+    check(!state.isPublishedDocumentCurrent());
+
+    state.publish();
+    check(state.isPublishedDocumentCurrent());
+
+    state.params.gain.setValue(0.1f);
+    check(state.isPublishedDocumentCurrent());
+    check(contains(state.snapshotDocument(), R"("Gain":0.1)"));
+    check(!contains(state.publishedDocument(), R"("Gain":0.1)"));
+
+    state.preset = "Changed";
+    check(!state.isPublishedDocumentCurrent());
+
+    state.publish();
+    check(state.isPublishedDocumentCurrent());
+    check(contains(state.snapshotDocument(), R"("preset":"Changed")"));
+};
+
+auto tMarkChanged = test("State/deserializeBroadcastsAChange") = []
+{
+    auto state = State<ToneParams> {};
+    auto changes = 0;
+    auto listener = EA::Listener {state.stateChanged(),
+                                  [&] { ++changes; },
+                                  EA::Listener::Modes::TriggerOnEvent};
+
+    state.deserialize(R"({"params":{}})");
+    check(changes == 1);
+
+    state.markChanged();
+    check(changes == 2);
+};
+} // namespace
+} // namespace StateTests

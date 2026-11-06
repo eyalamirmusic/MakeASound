@@ -28,8 +28,8 @@ int main()
     if (auto error = midi.openVirtualOutput("MakeASound Demo Out");
         error != MS::Error::NoError)
     {
-        std::cout << "No virtual MIDI output here: "
-                  << MS::getErrorMessage(error) << '\n';
+        std::cout << "No virtual MIDI output here: " << MS::getErrorMessage(error)
+                  << '\n';
         return 1;
     }
 

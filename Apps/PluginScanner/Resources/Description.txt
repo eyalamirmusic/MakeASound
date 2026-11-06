@@ -1,0 +1,10 @@
+Describes the audio plugins installed on this machine.
+
+A sweep finds every VST3 module in the platform's VST3 folders and, on macOS,
+every hostable Audio Unit, then loads each one in a WORKER PROCESS: this binary
+relaunched with --makeasound-scan, several at a time. A plugin that crashes or
+hangs takes down only its own worker and is recorded as crashed.
+
+A sweep is incremental: only plugins that are new or changed since the last one
+are loaded. A plugin that failed stays blacklisted until it changes, and one no
+longer installed is dropped. --force starts from nothing.

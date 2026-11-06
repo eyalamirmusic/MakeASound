@@ -1,0 +1,21 @@
+name: Branch policy
+
+# main takes pull requests from develop alone; the rulesets on GitHub require
+# this check on main, so a pull request from anywhere else cannot be merged.
+# `edited` covers a pull request retargeted at main after it was opened.
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, edited ]
+
+jobs:
+  source:
+    name: Source branch is develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse anything but develop
+        if: github.head_ref != 'develop' || github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::main takes pull requests from develop only; this one is from ${{ github.event.pull_request.head.label }}"
+          exit 1
+      - run: echo "Source branch is develop"

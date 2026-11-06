@@ -5,11 +5,11 @@
 // them is what leaves min/max as macros. Kept here as well so the file still
 // compiles on its own.
 #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 
 #ifndef NOMINMAX
-    #define NOMINMAX
+#define NOMINMAX
 #endif
 
 #include <windows.h>

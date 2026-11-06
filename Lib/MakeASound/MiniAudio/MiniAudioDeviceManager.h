@@ -139,8 +139,11 @@ private:
 
     Vector<CachedDevice> deviceCache;
 
-    Vector<float> inputScratch;
-    Vector<float> outputScratch;
+    // Planar scratch the callback's Buffers refer to, sized at open for the
+    // negotiated block and never grown: a longer period is rejected (silence,
+    // and a maxBlockSize in the callback's info past the stream's).
+    Buffer inputScratch;
+    Buffer outputScratch;
 
     // Native strides of the interleaved buffers miniaudio passes the callback: the
     // device is opened at full native width and only a slice reaches the user.

@@ -1,0 +1,561 @@
+#pragma once
+
+// The two plugins the wrapper suites drive: a gain effect over a StatePlugin and
+// an instrument that echoes its MIDI. Each records what process() was handed into
+// fixed storage, so the allocation suite can run them under the ban.
+
+#include <MakeASound/Plugin/MakeASoundPlugin.h>
+
+#include <array>
+#include <functional>
+#include <string>
+
+namespace TestPlugins
+{
+using namespace MakeASound;
+
+constexpr auto blockSize = 64;
+
+using Block = std::array<float, blockSize>;
+
+namespace Module
+{
+// What the test plugins' createEditor() returns when set, so a format suite can
+// show an editor of its own through the real path.
+inline std::function<OwningPointer<Editor>(Plugin&)> editorFactory;
+} // namespace Module
+
+inline OwningPointer<Editor> createTestEditor(Plugin& plugin)
+{
+    if (Module::editorFactory)
+        return Module::editorFactory(plugin);
+
+    return {};
+}
+
+struct FilterParams : ParameterGroup
+{
+    FilterParams()
+        : ParameterGroup("Filter")
+    {
+        add(cutoff);
+    }
+
+    // Skewed about √(20·20000), so an AU publishes it as 0..1.
+    HzParam cutoff {"Cutoff", 20.f, 20000.f, 1000.f, {.versionHint = 1}};
+};
+
+struct GainParams : ParameterGroup
+{
+    GainParams() { add(gain, filter, mode, bypass, width); }
+
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
+    FilterParams filter;
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+    FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
+};
+
+// A later release: `drive` inserted mid-list, with that release's hint.
+struct NewerGainParams : ParameterGroup
+{
+    NewerGainParams() { add(gain, drive, filter, mode, bypass, width); }
+
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
+    FloatParam drive {"Drive", 0.f, 1.f, 0.25f, {.versionHint = 2}};
+    FilterParams filter;
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+    FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
+};
+
+template <typename ParamsT>
+struct GainStateOf : State<ParamsT>
+{
+    void reflect(Miro::Reflector& ref) override
+    {
+        State<ParamsT>::reflect(ref);
+        ref["preset"](preset);
+    }
+
+    std::string preset = "Init";
+};
+
+// Main buses of matching width, one or two channels, plus an optional mono
+// sidechain input.
+template <typename ParamsT>
+struct GainPluginOf : StatePlugin<GainStateOf<ParamsT>>
+{
+    GainPluginOf() { formatAtConstruction = this->format(); }
+
+    std::string_view name() const override { return "Gain"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    OwningPointer<Editor> createEditor() override { return createTestEditor(*this); }
+
+    bool acceptsLayout(const BusLayout& proposed) const override
+    {
+        auto inputs = proposed.inputs.size();
+        auto width = proposed.getMainInputChannels();
+
+        return (inputs == 1 || (inputs == 2 && proposed.inputs[1].numChannels == 1))
+               && proposed.outputs.size() == 1
+               && proposed.getMainOutputChannels() == width && width >= 1
+               && width <= 2 && proposed.midiInputs.empty()
+               && proposed.midiOutputs.empty();
+    }
+
+    void prepare(const ProcessSpec& specToUse) override
+    {
+        spec = specToUse;
+        formatAtPrepare = this->format();
+    }
+
+    void reset() noexcept override { ++resets; }
+
+    void process(ProcessContext& context) noexcept override
+    {
+        ++processed;
+        inputBuses = context.inputs.size();
+        playhead = context.playhead;
+        offline = context.isOffline;
+
+        record(context.mainInput(), seenInput);
+        record(context.mainOutput(), seenOutput);
+
+        boundSamples = 0;
+
+        for (const auto& buffer: context.inputs)
+            boundSamples += buffer.getNumChannels() * buffer.getNumSamples();
+
+        for (const auto& buffer: context.outputs)
+            boundSamples += buffer.getNumChannels() * buffer.getNumSamples();
+
+        auto gain = this->params.gain.gain();
+
+        for (auto channel: context.mainOutput())
+            for (auto& sample: channel)
+                sample *= gain;
+    }
+
+    void onTrackInfoChanged(const TrackInfo& info) override
+    {
+        ++trackInfoChanges;
+        trackInfoHeard = info;
+    }
+
+    static void record(const Buffer& buffer, std::array<Block, 2>& into) noexcept
+    {
+        for (auto& block: into)
+            block.fill(-1.f);
+
+        for (auto ch = 0; ch < buffer.getNumChannels() && ch < 2; ++ch)
+            for (auto s = 0; s < buffer.getNumSamples() && s < blockSize; ++s)
+                into[ch][s] = buffer[ch][s];
+    }
+
+    PluginFormat formatAtConstruction = PluginFormat::Unknown;
+    PluginFormat formatAtPrepare = PluginFormat::Unknown;
+    ProcessSpec spec;
+    Playhead playhead;
+
+    // The last block's ProcessContext::isOffline.
+    bool offline = false;
+    int processed = 0;
+    int resets = 0;
+    int inputBuses = 0;
+    int trackInfoChanges = 0;
+    TrackInfo trackInfoHeard;
+
+    // Channels times samples across every audio bus the block was handed.
+    int boundSamples = -1;
+    std::array<Block, 2> seenInput {};
+    std::array<Block, 2> seenOutput {};
+};
+
+using GainPlugin = GainPluginOf<GainParams>;
+using NewerGainPlugin = GainPluginOf<NewerGainParams>;
+
+// The gain with no editor at all, which every format reports as no view; a
+// format suite stands it in under the gain's codes. Its createEditor() still
+// goes through Module::editorFactory, so a suite can tell it is never asked.
+struct NoEditorGainPlugin : GainPlugin
+{
+    bool hasEditor() const override { return false; }
+};
+
+// The gain effect with no bypass parameter, which PluginWrapper gives one of its
+// own; a format suite stands it in under the gain's codes.
+struct UnbypassedGainParams : ParameterGroup
+{
+    UnbypassedGainParams() { add(gain, filter, mode, width); }
+
+    DecibelParam gain {"Gain", -60.f, 12.f, 0.f, {.versionHint = 1}};
+    FilterParams filter;
+    ChoiceParam mode {"Mode", {"Clean", "Warm", "Hot"}, 0, {.versionHint = 1}};
+    FloatParam width {
+        "Width", 0.f, 1.f, 0.5f, {.sessionOnly = true, .versionHint = 1}};
+};
+
+using UnbypassedGainPlugin = GainPluginOf<UnbypassedGainParams>;
+
+struct LatentParams : ParameterGroup
+{
+    LatentParams() { add(gain); }
+
+    FloatParam gain {"Gain", 0.f, 4.f, 2.f, {.versionHint = 1}};
+};
+
+// An effect with no bypass parameter and everything the added bypass must
+// handle: a settable latency, a second output bus and a MIDI bus each way. Its
+// main output is the input times `gain`, its aux output 7, and it sends no MIDI.
+struct LatentEffect : StatePlugin<State<LatentParams>>
+{
+    std::string_view name() const override { return "Latent"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+        layout.outputs.add({"Aux", 2, false});
+        layout.midiInputs.add({"MIDI In"});
+        layout.midiOutputs.add({"MIDI Out"});
+        return layout;
+    }
+
+    int latencySamples() const noexcept override { return latency; }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        ++processed;
+        context.mainOutput().applyGain(params.gain.get());
+
+        for (auto bus = 1; bus < context.outputs.size(); ++bus)
+            context.outputs[bus].fill(7.f);
+    }
+
+    void processBypassed(ProcessContext& context) noexcept override
+    {
+        ++bypassed;
+        Plugin::processBypassed(context);
+    }
+
+    int latency = 0;
+    int processed = 0;
+    int bypassed = 0;
+};
+
+// The shape of a multi-out instrument with most buses off: a main stereo pair
+// each way, a mono sidechain and two stereo aux outputs a host leaves inactive,
+// which JUCE hosts pass as null channel pointers. Its main output is the main
+// input plus the sidechain, every aux channel 3, and it notes whatever the host
+// would have broken: a null channel, a bus narrower than declared, or an input
+// sample that was not silence on the sidechain.
+struct AbsentChannelsPlugin : StatePlugin<State<LatentParams>>
+{
+    std::string_view name() const override { return "AbsentChannels"; }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::stereoInOut();
+        layout.inputs.add({.name = "Sidechain",
+                           .numChannels = 1,
+                           .isMain = false,
+                           .activeByDefault = false});
+
+        for (auto* name: {"Aux 1", "Aux 2"})
+            layout.outputs.add({.name = name,
+                                .numChannels = 2,
+                                .isMain = false,
+                                .activeByDefault = false});
+
+        return layout;
+    }
+
+    bool acceptsLayout(const BusLayout&) const override { return true; }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        ++processed;
+
+        auto checkBus = [this](const Buffer& buffer, int declared)
+        {
+            if (buffer.getNumChannels() != declared)
+                ++narrowBuses;
+
+            for (auto ch = 0; ch < buffer.getNumChannels(); ++ch)
+                if (buffer.getChannelPointers()[ch] == nullptr)
+                    ++nullChannels;
+        };
+
+        // getBusLayout()'s widths, without its allocations.
+        constexpr int inputWidths[] = {2, 1};
+        constexpr int outputWidths[] = {2, 2, 2};
+
+        if (context.inputs.size() != 2 || context.outputs.size() != 3)
+        {
+            ++narrowBuses;
+            return;
+        }
+
+        for (auto bus = 0; bus < 2; ++bus)
+            checkBus(context.inputs[bus], inputWidths[bus]);
+
+        for (auto bus = 0; bus < 3; ++bus)
+            checkBus(context.outputs[bus], outputWidths[bus]);
+
+        if (nullChannels > 0 || narrowBuses > 0)
+            return;
+
+        const auto& sidechain = context.inputs[1];
+        auto& main = context.outputs[0];
+
+        for (auto i = 0; i < sidechain.getNumSamples(); ++i)
+        {
+            auto sample = sidechain.getChannelPointer(0)[i];
+
+            if (sample != 0.f)
+                ++loudSidechainSamples;
+
+            for (auto ch = 0; ch < main.getNumChannels(); ++ch)
+                main.getChannelPointer(ch)[i] += sample;
+        }
+
+        for (auto bus = 1; bus < context.outputs.size(); ++bus)
+            context.outputs[bus].fill(3.f);
+    }
+
+    int processed = 0;
+    int nullChannels = 0;
+    int narrowBuses = 0;
+    int loudSidechainSamples = 0;
+};
+
+// A JUCE port's nested groups, whose ids its JUCE build prefixed with every
+// enclosing group's id: "Low" in "EQ" in "Drive-Filter" was "Drive-Filter-EQ-Low"
+// (IdentityOverrides::juceKeyGroupSeparator). Its bypass is declared, as a JUCE
+// plugin's getBypassParameter() is (IdentityOverrides::declaredBypassInAU).
+struct GroupedEQParams : ParameterGroup
+{
+    GroupedEQParams()
+        : ParameterGroup("EQ")
+    {
+        add(low);
+    }
+
+    FloatParam low {"Low", -12.f, 12.f, 0.f, {.versionHint = 1}};
+};
+
+struct GroupedDriveParams : ParameterGroup
+{
+    GroupedDriveParams()
+        : ParameterGroup("Drive-Filter")
+    {
+        add(amount, eq);
+    }
+
+    FloatParam amount {"Amount", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    GroupedEQParams eq;
+};
+
+struct GroupedKeyParams : ParameterGroup
+{
+    GroupedKeyParams() { add(gain, drive, bypass); }
+
+    FloatParam gain {"Gain", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    GroupedDriveParams drive;
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+};
+
+struct GroupedKeyPlugin : StatePlugin<State<GroupedKeyParams>>
+{
+    std::string_view name() const override { return "Grouped"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+// Modalics BitFuzzer's groups, which its JUCE build published: two filters
+// whose nested groups share the own id "EQ", legal in JUCE because each JUCE
+// group id carried its parents' ("DriveFilter-EQ", "MasterFilter-EQ") under
+// IdentityOverrides::juceKeyGroupSeparator '-'. Without the separator the two
+// "EQ" ids clash, as they would in JUCE.
+struct TwinEQParams : ParameterGroup
+{
+    TwinEQParams()
+        : ParameterGroup("EQ")
+    {
+        add(low, high);
+    }
+
+    FloatParam low {"Low", -12.f, 12.f, 0.f, {.versionHint = 1}};
+    FloatParam high {"High", -12.f, 12.f, 0.f, {.versionHint = 1}};
+};
+
+struct TwinFilterParams : ParameterGroup
+{
+    explicit TwinFilterParams(std::string_view name)
+        : ParameterGroup(name)
+    {
+        add(cutoff, reso, eq);
+    }
+
+    FloatParam cutoff {"Cutoff", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    FloatParam reso {"Reso", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    TwinEQParams eq;
+};
+
+struct TwinGroupParams : ParameterGroup
+{
+    TwinGroupParams() { add(in, drive, master, bypass); }
+
+    FloatParam in {"In", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+    TwinFilterParams drive {"DriveFilter"};
+    TwinFilterParams master {"MasterFilter"};
+    BoolParam bypass {"Bypass", false, {.bypass = true, .versionHint = 1}};
+};
+
+struct TwinGroupPlugin : StatePlugin<State<TwinGroupParams>>
+{
+    std::string_view name() const override { return "Twin Groups"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+// Each choice over whether a value the plugin moves on its own reaches the host
+// (ParameterOptions::reportsPluginMoves): none, so the IdScheme's; its own
+// either way; and a nameless group's, which a member's own choice overrides.
+struct UnreportedMoveParams : ParameterGroup
+{
+    UnreportedMoveParams()
+        : ParameterGroup({}, {.reportsPluginMoves = false})
+    {
+        add(muted, loud);
+    }
+
+    FloatParam muted {"Muted", 0.f, 1.f, 0.f, {.versionHint = 1}};
+    FloatParam loud {
+        "Loud", 0.f, 1.f, 0.f, {.reportsPluginMoves = true, .versionHint = 1}};
+};
+
+struct MoveReportParams : ParameterGroup
+{
+    MoveReportParams() { add(plain, reported, unreported, quiet); }
+
+    FloatParam plain {"Plain", 0.f, 1.f, 0.f, {.versionHint = 1}};
+    FloatParam reported {
+        "Reported", 0.f, 1.f, 0.f, {.reportsPluginMoves = true, .versionHint = 1}};
+    FloatParam unreported {"Unreported",
+                           0.f,
+                           1.f,
+                           0.f,
+                           {.reportsPluginMoves = false, .versionHint = 1}};
+    UnreportedMoveParams quiet;
+};
+
+struct MoveReportPlugin : StatePlugin<State<MoveReportParams>>
+{
+    std::string_view name() const override { return "Move Reports"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+    void process(ProcessContext&) noexcept override {}
+};
+
+struct SynthParams : ParameterGroup
+{
+    SynthParams() { add(level); }
+
+    FloatParam level {"Level", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+};
+
+// Writes `level` into every output sample and echoes each MIDI event it is
+// handed to its MIDI output.
+struct SynthPlugin : StatePlugin<State<SynthParams>>
+{
+    static constexpr int maxEvents = 16;
+
+    std::string_view name() const override { return "Synth"; }
+
+    OwningPointer<Editor> createEditor() override { return createTestEditor(*this); }
+
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::instrument();
+        layout.midiOutputs.add({"MIDI Out"});
+        return layout;
+    }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        midiOutWasEmpty = context.mainMidiOut().empty();
+        numEvents = 0;
+
+        for (const auto& event: context.mainMidiIn())
+        {
+            if (numEvents < maxEvents)
+                events[numEvents++] = event;
+
+            context.mainMidiOut().add(event);
+        }
+
+        context.mainOutput().fill(params.level.get());
+    }
+
+    bool midiOutWasEmpty = false;
+    int numEvents = 0;
+    std::array<MIDI::Event, maxEvents> events {};
+};
+
+// What the test module (describeModule() in PluginTests.cpp) creates. A suite
+// hosting the module through a format's C API reaches the plugin behind a unit
+// through `lastCreated`, and hosts another plugin under an entry's codes by
+// setting that entry's stand-in.
+namespace Module
+{
+inline Plugin* lastCreated = nullptr;
+inline PluginCreateFn gainStandIn;
+inline PluginCreateFn echoStandIn;
+
+template <typename P>
+OwningPointer<Plugin> create(const PluginCreateFn& standIn)
+{
+    auto plugin = standIn ? standIn() : OwningPointer<Plugin>(EA::makeOwned<P>());
+    lastCreated = plugin.get();
+    return plugin;
+}
+
+// Stands P in for an entry while it lives.
+template <typename P>
+struct ScopedStandIn
+{
+    explicit ScopedStandIn(PluginCreateFn& slotToUse)
+        : slot(slotToUse)
+    {
+        slot = [] { return OwningPointer<Plugin>(EA::makeOwned<P>()); };
+    }
+
+    ~ScopedStandIn() { slot = nullptr; }
+
+    ScopedStandIn(const ScopedStandIn&) = delete;
+    ScopedStandIn& operator=(const ScopedStandIn&) = delete;
+
+    PluginCreateFn& slot;
+};
+} // namespace Module
+
+} // namespace TestPlugins

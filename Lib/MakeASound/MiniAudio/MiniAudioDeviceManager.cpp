@@ -59,8 +59,7 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     {
         config.playback.pDeviceID = playbackId;
         config.playback.format = ma_format_f32;
-        config.playback.channels =
-            static_cast<ma_uint32>(nativePlaybackChannels);
+        config.playback.channels = static_cast<ma_uint32>(nativePlaybackChannels);
     }
 
     if (wantsCapture)
@@ -93,30 +92,28 @@ ma_device_config makeDeviceConfig(const StreamConfig& streamConfig,
     return config;
 }
 
-void deinterleaveSlice(const float* src,
-                       float* dst,
-                       int srcChannels,
-                       int firstChannel,
-                       int count,
-                       int frames)
+void deinterleaveSlice(
+    const float* src, Buffer& dst, int srcChannels, int firstChannel, int frames)
 {
-    for (auto frame = 0; frame < frames; ++frame)
-        for (auto ch = 0; ch < count; ++ch)
-            dst[ch * frames + frame] =
-                src[frame * srcChannels + (firstChannel + ch)];
+    for (auto ch = 0; ch < dst.getNumChannels(); ++ch)
+    {
+        auto* channel = dst.getChannelPointer(ch);
+
+        for (auto frame = 0; frame < frames; ++frame)
+            channel[frame] = src[frame * srcChannels + (firstChannel + ch)];
+    }
 }
 
-void interleaveSlice(const float* src,
-                     float* dst,
-                     int dstChannels,
-                     int firstChannel,
-                     int count,
-                     int frames)
+void interleaveSlice(
+    const Buffer& src, float* dst, int dstChannels, int firstChannel, int frames)
 {
-    for (auto frame = 0; frame < frames; ++frame)
-        for (auto ch = 0; ch < count; ++ch)
-            dst[frame * dstChannels + (firstChannel + ch)] =
-                src[ch * frames + frame];
+    for (auto ch = 0; ch < src.getNumChannels(); ++ch)
+    {
+        auto* channel = src.getChannelPointer(ch);
+
+        for (auto frame = 0; frame < frames; ++frame)
+            dst[frame * dstChannels + (firstChannel + ch)] = channel[frame];
+    }
 }
 } // namespace
 
@@ -147,10 +144,8 @@ Error DeviceManager::initContext(Backend backendToUse)
 
     // A null list means miniaudio's own priority order; a list of exactly one fails
     // rather than being quietly answered by the next backend down.
-    auto result = ma_context_init(named ? &requested : nullptr,
-                                  named ? 1 : 0,
-                                  &contextConfig,
-                                  &context);
+    auto result = ma_context_init(
+        named ? &requested : nullptr, named ? 1 : 0, &contextConfig, &context);
 
     // A backend that won't initialise leaves the manager alive but empty rather than
     // taking down an application over a machine with no working audio.
@@ -325,11 +320,8 @@ Error DeviceManager::refreshDeviceCache()
     ma_device_info* captureInfos = nullptr;
     auto captureCount = ma_uint32 {0};
 
-    auto result = ma_context_get_devices(&context,
-                                         &playbackInfos,
-                                         &playbackCount,
-                                         &captureInfos,
-                                         &captureCount);
+    auto result = ma_context_get_devices(
+        &context, &playbackInfos, &playbackCount, &captureInfos, &captureCount);
 
     if (result != MA_SUCCESS)
         return setError(getError(result));
@@ -362,13 +354,13 @@ Error DeviceManager::refreshDeviceCache()
                 cached.captureId = captureInfos[i].id;
                 cached.hasCapture = true;
 
-                auto captureInfo =
-                    buildDeviceInfo(captureInfos[i], ma_device_type_capture, cached.id);
+                auto captureInfo = buildDeviceInfo(
+                    captureInfos[i], ma_device_type_capture, cached.id);
 
                 cached.info.inputChannels = captureInfo.inputChannels;
                 cached.info.isDefaultInput = captureInfo.isDefaultInput;
-                cached.info.duplexChannels = std::min(cached.info.outputChannels,
-                                                     cached.info.inputChannels);
+                cached.info.duplexChannels =
+                    std::min(cached.info.outputChannels, cached.info.inputChannels);
 
                 for (auto rate: captureInfo.sampleRates)
                     cached.info.sampleRates.addIfNotThere(rate);
@@ -647,11 +639,8 @@ Error DeviceManager::openStreamLocked()
         sessionError != Error::NoError)
         return setError(sessionError);
 
-    auto deviceConfig = makeDeviceConfig(config,
-                                         playbackId,
-                                         captureId,
-                                         nativePlayback,
-                                         nativeCapture);
+    auto deviceConfig = makeDeviceConfig(
+        config, playbackId, captureId, nativePlayback, nativeCapture);
     deviceConfig.dataCallback = audioCallback;
     deviceConfig.notificationCallback = deviceNotificationCallback;
     deviceConfig.pUserData = this;
@@ -664,9 +653,20 @@ Error DeviceManager::openStreamLocked()
     deviceInitialised = true;
     framesElapsed = 0;
 
-    config.maxBlockSize = static_cast<int>(
-        std::max(device.playback.internalPeriodSizeInFrames,
-                 device.capture.internalPeriodSizeInFrames));
+    // What the callback is handed, which is not the backend's period: with fixed
+    // size callbacks (noFixedSizedCallback left false) miniaudio buffers the
+    // backend's periods into an intermediary of the requested period's size and
+    // calls back with exactly that many frames. The internal period is whatever
+    // the device allowed, smaller than a large request, and reporting it had
+    // every block arrive longer than the block size the stream claimed.
+    config.maxBlockSize =
+        static_cast<int>(std::max(device.playback.intermediaryBufferCap,
+                                  device.capture.intermediaryBufferCap));
+
+    if (config.maxBlockSize == 0)
+        config.maxBlockSize =
+            static_cast<int>(std::max(device.playback.internalPeriodSizeInFrames,
+                                      device.capture.internalPeriodSizeInFrames));
 
     if (config.maxBlockSize == 0)
         config.maxBlockSize = static_cast<int>(deviceConfig.periodSizeInFrames);
@@ -675,7 +675,8 @@ Error DeviceManager::openStreamLocked()
     captureChannels = static_cast<int>(device.capture.channels);
     playbackChannels = static_cast<int>(device.playback.channels);
 
-    auto clampSlice = [](int available, int first, int count, int& outFirst, int& outCount)
+    auto clampSlice =
+        [](int available, int first, int count, int& outFirst, int& outCount)
     {
         outCount = std::clamp(count, 0, available);
         outFirst = std::clamp(first, 0, std::max(0, available - outCount));
@@ -693,8 +694,8 @@ Error DeviceManager::openStreamLocked()
                outputFirstChannel,
                outputChannelCount);
 
-    inputScratch.assign(inputChannelCount * config.maxBlockSize, 0.0f);
-    outputScratch.assign(outputChannelCount * config.maxBlockSize, 0.0f);
+    inputScratch.setSize(inputChannelCount, config.maxBlockSize);
+    outputScratch.setSize(outputChannelCount, config.maxBlockSize);
 
     routeLatencyFrames = 0;
 
@@ -702,8 +703,8 @@ Error DeviceManager::openStreamLocked()
         routeLatencyFrames = getRouteLatency(config.output->device, false);
 
     if (config.input.has_value())
-        routeLatencyFrames =
-            std::max(routeLatencyFrames, getRouteLatency(config.input->device, true));
+        routeLatencyFrames = std::max(routeLatencyFrames,
+                                      getRouteLatency(config.input->device, true));
 
     return setError(Error::NoError);
 }
@@ -713,8 +714,9 @@ int DeviceManager::getStreamLatency() const
     if (!deviceInitialised)
         return 0;
 
-    auto playbackLatency = static_cast<int>(device.playback.internalPeriodSizeInFrames)
-                           * static_cast<int>(device.playback.internalPeriods);
+    auto playbackLatency =
+        static_cast<int>(device.playback.internalPeriodSizeInFrames)
+        * static_cast<int>(device.playback.internalPeriods);
     auto captureLatency = static_cast<int>(device.capture.internalPeriodSizeInFrames)
                           * static_cast<int>(device.capture.internalPeriods);
 
@@ -750,39 +752,50 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
         return;
 
     auto frames = static_cast<int>(frameCount);
-    auto inChannels = inputChannelCount;
-    auto outChannels = outputChannelCount;
+    auto* in = static_cast<const float*>(input);
+    auto* out = static_cast<float*>(output);
 
-    auto neededInput = inChannels * frames;
-    auto neededOutput = outChannels * frames;
+    // The open sized the scratch for exactly these; nothing here resizes it.
+    auto inChannels = std::min(inputChannelCount, inputScratch.getNumChannels());
+    auto outChannels = std::min(outputChannelCount, outputScratch.getNumChannels());
 
-    if (static_cast<int>(inputScratch.size()) < neededInput)
-        inputScratch.assign(neededInput, 0.0f);
+    // What the scratch holds, which is what the open promised the callback.
+    auto capacity = config.maxBlockSize;
 
-    if (static_cast<int>(outputScratch.size()) < neededOutput)
-        outputScratch.assign(neededOutput, 0.0f);
-
-    if (inChannels > 0 && input != nullptr)
-        deinterleaveSlice(static_cast<const float*>(input),
-                          inputScratch.data(),
-                          captureChannels,
-                          inputFirstChannel,
-                          inChannels,
-                          frames);
+    if (inChannels > 0)
+        capacity = std::min(capacity, inputScratch.getNumSamples());
 
     if (outChannels > 0)
-        std::fill(outputScratch.begin(),
-                  outputScratch.begin() + neededOutput,
-                  0.0f);
+        capacity = std::min(capacity, outputScratch.getNumSamples());
+
+    // A period past that is not supported, and growing the scratch would
+    // allocate on the audio thread. It is rejected: the callback gets a block
+    // the scratch holds, of silence, whose maxBlockSize is the period (a device
+    // maximum past the stream's, which Engine silences and restarts for), and
+    // the device plays silence for the whole period.
+    auto fits = frames <= capacity;
+    auto delivered = fits ? frames : std::max(capacity, 0);
+
+    // No capture buffer is silence, not whatever the last block left here.
+    if (inChannels > 0)
+    {
+        if (fits && in != nullptr)
+            deinterleaveSlice(
+                in, inputScratch, captureChannels, inputFirstChannel, frames);
+        else
+            inputScratch.getSubBuffer(0, delivered).clear();
+    }
+
+    outputScratch.getSubBuffer(0, delivered).clear();
 
     auto info = AudioCallbackInfo {};
-    info.inputBuffer = inputScratch.data();
-    info.outputBuffer = outputScratch.data();
-    info.numSamples = frames;
+    info.inputChannels = inputScratch.getChannelPointers();
+    info.outputChannels = outputScratch.getChannelPointers();
+    info.numSamples = delivered;
     info.numInputs = inChannels;
     info.numOutputs = outChannels;
     info.sampleRate = static_cast<int>(device.sampleRate);
-    info.maxBlockSize = config.maxBlockSize;
+    info.maxBlockSize = fits ? config.maxBlockSize : frames;
     info.latency = getStreamLatency();
     info.streamTime =
         static_cast<double>(framesElapsed) / static_cast<double>(device.sampleRate);
@@ -795,18 +808,13 @@ void DeviceManager::onCallback(void* output, const void* input, ma_uint32 frameC
 
     // The device owns every native output channel but we fill only the selected
     // slice, so clear the whole buffer first to keep the rest silent.
-    if (playbackChannels > 0 && output != nullptr)
+    if (playbackChannels > 0 && out != nullptr)
     {
-        auto* out = static_cast<float*>(output);
         std::fill(out, out + playbackChannels * frames, 0.0f);
 
-        if (outChannels > 0)
-            interleaveSlice(outputScratch.data(),
-                            out,
-                            playbackChannels,
-                            outputFirstChannel,
-                            outChannels,
-                            frames);
+        if (fits && outChannels > 0)
+            interleaveSlice(
+                outputScratch, out, playbackChannels, outputFirstChannel, frames);
     }
 
     framesElapsed += frameCount;
@@ -955,9 +963,8 @@ void DeviceManager::runRecovery()
                 break;
 
             // Interruptible so teardown never waits on a device that is truly gone.
-            recoveryCv.wait_for(lock,
-                                kRecoveryRetryInterval,
-                                [this] { return recoveryQuit; });
+            recoveryCv.wait_for(
+                lock, kRecoveryRetryInterval, [this] { return recoveryQuit; });
         }
     }
 }

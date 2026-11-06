@@ -87,8 +87,7 @@ Error getError(int result)
 
 MidiTimePoint toTimePoint(const snd_seq_event_t& event, MidiTimePoint queueEpoch)
 {
-    auto real =
-        (event.flags & SND_SEQ_TIME_STAMP_MASK) == SND_SEQ_TIME_STAMP_REAL;
+    auto real = (event.flags & SND_SEQ_TIME_STAMP_MASK) == SND_SEQ_TIME_STAMP_REAL;
 
     const auto& time = event.time.time;
 
@@ -97,8 +96,8 @@ MidiTimePoint toTimePoint(const snd_seq_event_t& event, MidiTimePoint queueEpoch
     if (!real || (time.tv_sec == 0 && time.tv_nsec == 0))
         return std::chrono::steady_clock::now();
 
-    auto nanos = std::chrono::seconds {time.tv_sec}
-                 + std::chrono::nanoseconds {time.tv_nsec};
+    auto nanos =
+        std::chrono::seconds {time.tv_sec} + std::chrono::nanoseconds {time.tv_nsec};
 
     return queueEpoch + std::chrono::duration_cast<MidiTimePoint::duration>(nanos);
 }
@@ -196,10 +195,8 @@ Span<const std::uint8_t> getEventBytes(snd_midi_event_t* coder,
     if (coder == nullptr || buffer.empty())
         return {};
 
-    auto written = snd_midi_event_decode(coder,
-                                         buffer.data(),
-                                         static_cast<long>(buffer.getSize()),
-                                         &event);
+    auto written = snd_midi_event_decode(
+        coder, buffer.data(), static_cast<long>(buffer.getSize()), &event);
 
     if (written <= 0)
         return {};

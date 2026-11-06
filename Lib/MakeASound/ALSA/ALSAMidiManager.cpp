@@ -272,10 +272,8 @@ void MidiManager::start()
 
     // Hotplug is a subscription like any other: the system client announces
     // every port that comes and goes on this one.
-    snd_seq_connect_from(seq,
-                         inputPort,
-                         SND_SEQ_CLIENT_SYSTEM,
-                         SND_SEQ_PORT_SYSTEM_ANNOUNCE);
+    snd_seq_connect_from(
+        seq, inputPort, SND_SEQ_CLIENT_SYSTEM, SND_SEQ_PORT_SYSTEM_ANNOUNCE);
 
     running.store(true);
 
@@ -378,9 +376,8 @@ int MidiManager::createPort(const std::string& name,
 
     snd_seq_port_info_set_name(info, name.c_str());
     snd_seq_port_info_set_capability(info, caps);
-    snd_seq_port_info_set_type(info,
-                               SND_SEQ_PORT_TYPE_MIDI_GENERIC
-                                   | SND_SEQ_PORT_TYPE_APPLICATION);
+    snd_seq_port_info_set_type(
+        info, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
     snd_seq_port_info_set_midi_channels(info, 16);
     snd_seq_port_info_set_port_specified(info, 0);
 
@@ -407,10 +404,8 @@ void MidiManager::runInput()
     sequencerCount =
         std::clamp(sequencerCount, 0, static_cast<int>(descriptors.size()) - 1);
 
-    snd_seq_poll_descriptors(seq,
-                             descriptors.data(),
-                             static_cast<unsigned int>(sequencerCount),
-                             POLLIN);
+    snd_seq_poll_descriptors(
+        seq, descriptors.data(), static_cast<unsigned int>(sequencerCount), POLLIN);
 
     descriptors[sequencerCount].fd = wake.get();
     descriptors[sequencerCount].events = POLLIN;
@@ -522,9 +517,8 @@ void MidiManager::runSweeper()
     {
         {
             auto lock = std::unique_lock(sweepMutex);
-            sweepSignal.wait_for(lock,
-                                 sweepInterval,
-                                 [this] { return !running.load(); });
+            sweepSignal.wait_for(
+                lock, sweepInterval, [this] { return !running.load(); });
         }
 
         publishFlags();
@@ -688,8 +682,7 @@ Error MidiManager::openInput(int portId, const MidiInputCallback& cb)
 
     // Opening a port here is subscribing to it: what it reads reaches everyone
     // who asked, us included, until the subscription goes away.
-    auto result =
-        snd_seq_connect_from(seq, inputPort, address.client, address.port);
+    auto result = snd_seq_connect_from(seq, inputPort, address.client, address.port);
 
     if (result < 0)
     {
@@ -715,9 +708,8 @@ std::optional<int> MidiManager::openVirtualInput(const std::string& name,
 
     // A virtual input is a port of ours that anything in the system may send to,
     // which is what makes it the loopback a machine with no hardware still has.
-    auto seqPort = createPort(name,
-                              SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
-                              true);
+    auto seqPort =
+        createPort(name, SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, true);
 
     if (seqPort < 0)
     {
@@ -818,9 +810,8 @@ Error MidiManager::openVirtualOutput(const std::string& name)
     if (!isAvailable())
         return record(Error::SYSTEM_ERROR);
 
-    auto seqPort = createPort(name,
-                              SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
-                              false);
+    auto seqPort =
+        createPort(name, SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ, false);
 
     if (seqPort < 0)
         return record(seqPort);
@@ -837,10 +828,7 @@ void MidiManager::closeOutput()
 
     if (destination.isValid())
     {
-        snd_seq_disconnect_to(seq,
-                              outputPort,
-                              destination.client,
-                              destination.port);
+        snd_seq_disconnect_to(seq, outputPort, destination.client, destination.port);
 
         destination = {};
     }

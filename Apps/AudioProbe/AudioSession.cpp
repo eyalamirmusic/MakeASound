@@ -4,6 +4,8 @@ namespace AudioProbe
 {
 
 bool hasMicUsageDescription()
-{ return false; }
+{
+    return false;
+}
 
 } // namespace AudioProbe
