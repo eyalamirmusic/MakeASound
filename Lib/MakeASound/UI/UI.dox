@@ -1,0 +1,10 @@
+/** @dir Lib/MakeASound/UI
+    Plain, reflectable data for device and MIDI settings screens (namespace
+    MakeASound), included through MakeASound.h. Nothing here draws: a UI
+    toolkit renders it.
+
+    - UIDeviceManager builds the backend, device, sample rate, block size and channel
+      dropdowns from a DeviceManager.
+    - UIMidiManager builds the MIDI input port toggle list from a MidiManager.
+    - Dropdown.h holds DropdownInfo and ToggleListInfo, the data shapes they return.
+*/

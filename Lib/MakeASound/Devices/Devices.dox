@@ -1,0 +1,13 @@
+/** @dir Lib/MakeASound/Devices
+    Audio devices and streams (namespace MakeASound), included through
+    MakeASound.h.
+
+    - DeviceManager enumerates devices on every backend miniaudio offers and
+      runs at most one stream. Its errors come back as values, never thrown.
+    - The stream callback runs on an OS audio thread: no allocation, locks or
+      logging there.
+    - Engine runs a Processor on that stream with MidiManager's queued inputs
+      feeding its MIDI bus.
+    - DeviceQueries answers questions about a device that need no open stream.
+      AudioSession is the iOS audio session and does nothing elsewhere.
+*/
