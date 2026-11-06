@@ -844,20 +844,42 @@ AudioCallbackStatus DeviceManager::getCallbackStatus(std::int64_t previousUs,
                                 : AudioCallbackStatus::InputOverflow;
 }
 
+void DeviceManager::setNotificationCallback(const NotificationCallback& cb)
+{
+    // Built before the lock and dropped after it, so a notifying thread never waits
+    // on the allocation or on the old callback's destruction.
+    auto replacement = std::shared_ptr<const NotificationCallback> {};
+
+    if (cb)
+        replacement = std::make_shared<const NotificationCallback>(cb);
+
+    {
+        auto lock = std::lock_guard(notificationMutex);
+        notificationCallback.swap(replacement);
+    }
+}
+
 void DeviceManager::notifyHost(DeviceNotification notification)
 {
     // Set even with no callback registered — the next audio callback consumes it.
     notificationPending = true;
+
+    auto callback = std::shared_ptr<const NotificationCallback> {};
 
     {
         auto lock = std::lock_guard(notificationMutex);
 
         if (pendingNotifications.size() < kMaxPendingNotifications)
             pendingNotifications.add(notification);
+
+        // A copy, so the host's callback runs with nothing held: it is free to call
+        // back into the manager from inside it, and to replace or clear itself,
+        // which this copy outlives.
+        callback = notificationCallback;
     }
 
-    if (notificationCallback)
-        notificationCallback(notification);
+    if (callback)
+        (*callback)(notification);
 }
 
 Vector<DeviceNotification> DeviceManager::takeNotifications()

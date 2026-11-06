@@ -63,9 +63,14 @@ public:
     Error getLastError() const;
 
     // Runs on an OS audio thread — on macOS from a Core Audio property listener,
-    // and sometimes while recovery holds the device, so calling any DeviceManager
-    // method from it can deadlock. Set it before start(). Prefer
-    // drainNotifications() unless the delivery has to be immediate.
+    // and sometimes while recovery holds the device, so calling any other
+    // DeviceManager method from it than this one or drainNotifications() can
+    // deadlock. Prefer drainNotifications() unless the delivery has to be
+    // immediate.
+    //
+    // Safe to set, replace or clear from any thread at any time. A notification
+    // already being delivered may still reach the previous callback, once, after
+    // this returns, so keep whatever it captures alive for as long as the manager.
     void setNotificationCallback(const NotificationCallback& cb) const;
 
     // The same notifications, queued instead of delivered: call this from wherever a
