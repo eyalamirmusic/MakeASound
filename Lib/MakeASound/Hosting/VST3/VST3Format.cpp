@@ -2,11 +2,11 @@
 #include "VST3Format.h"
 #include "VST3Classes.h"
 #include "VST3HostedPlugin.h"
+#include "VST3Strings.h"
 #include "../Scan/Scanner.h"
 
 #include <public.sdk/source/common/memorystream.h>
 #include <public.sdk/source/vst/hosting/hostclasses.h>
-#include <public.sdk/source/vst/utility/stringconvert.h>
 #include <pluginterfaces/gui/iplugview.h>
 #include <pluginterfaces/vst/ivstcomponent.h>
 #include <pluginterfaces/vst/ivsteditcontroller.h>
@@ -106,9 +106,15 @@ public:
     {
     }
 
+    // Truncated to fit rather than refused, and a name that is not UTF-8 reads
+    // with U+FFFD in it rather than throwing into the plugin.
     tresult PLUGIN_API getName(String128 out) override
     {
-        return StringConvert::convert(name, out) ? kResultTrue : kInternalError;
+        if (out == nullptr)
+            return kInvalidArgument;
+
+        VST3Strings::copyTo(out, VST3Strings::string128Size, name);
+        return kResultTrue;
     }
 
 private:

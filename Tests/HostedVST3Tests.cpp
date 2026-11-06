@@ -2,12 +2,14 @@
 // id through the FormatManager, their buses and parameters (ids, text through the
 // controller, renames, latency), the begin/perform/end of the plugin's own GUI
 // reaching the listener, output parameters, MIDI both ways, the state round trip,
-// the fallback playhead and buses the caller does not supply.
+// the fallback playhead and buses the caller does not supply. Malformed text, from
+// a plugin (its classes, buses and parameters) or typed by a user, never throws.
 
 #include <MakeASound/Plugin/VST3/VST3Common.h>
 
 #include <MakeASound/Hosting/MakeASoundHosting.h>
 #include <MakeASound/Hosting/VST3/VST3HostedPlugin.h>
+#include <MakeASound/Hosting/VST3/VST3Classes.h>
 
 #include <base/source/fobject.h>
 #include <pluginterfaces/base/ibstream.h>
@@ -322,6 +324,205 @@ struct Loaded
     IPtr<Component> component;
     IPtr<Controller> controller;
     VST3HostedPlugin plugin;
+};
+
+// Text a plugin can hand a host that the SDK's StringConvert cannot read: a lone
+// surrogate throws std::range_error there, a character past U+FFFF throws where it
+// converts one unit at a time (a class's PClassInfoW), and a full String128 with no
+// terminator reads past its end.
+constexpr auto high = char16_t {0xd83d};
+constexpr auto low = char16_t {0xde00};
+
+// U+FFFD, what each broken sequence reads as, and U+1F600, the pair above.
+const auto replacement = std::string {"\xEF\xBF\xBD"};
+const auto smile = std::string {"\xF0\x9F\x98\x80"};
+
+// Exactly these units, terminated only when they leave room for it.
+template <size_t Size>
+void setUnits(TChar (&target)[Size], const std::u16string& units)
+{
+    std::fill(std::begin(target), std::end(target), TChar {0});
+    std::copy_n(units.data(), std::min(units.size(), Size), target);
+}
+
+template <size_t Size>
+void setBytes(char8 (&target)[Size], std::string_view bytes)
+{
+    std::fill(std::begin(target), std::end(target), char8 {0});
+    std::copy_n(bytes.data(), std::min(bytes.size(), Size), target);
+}
+
+// An audio bus each way and a MIDI input, each name broken its own way.
+struct BadTextComponent : Component
+{
+    int32 PLUGIN_API getBusCount(MediaType type, BusDirection direction) override
+    {
+        return type == kAudio || direction == kInput ? 1 : 0;
+    }
+
+    tresult PLUGIN_API getBusInfo(MediaType type,
+                                  BusDirection direction,
+                                  int32 index,
+                                  BusInfo& info) override
+    {
+        if (index != 0)
+            return kInvalidArgument;
+
+        info = BusInfo {};
+        info.mediaType = type;
+        info.direction = direction;
+        info.channelCount = type == kAudio ? 2 : 16;
+        info.busType = kMain;
+        info.flags = BusInfo::kDefaultActive;
+
+        if (type == kEvent)
+            setUnits(info.name, {low, u'M'});
+        else if (direction == kInput)
+            setUnits(info.name, {u'I', u'n', high});
+        else
+            setUnits(info.name, std::u16string(128, u'o'));
+
+        return kResultOk;
+    }
+};
+
+// One parameter, its title, short title and text broken, and every string it
+// is asked to parse kept.
+struct BadTextController : EditController
+{
+    int32 PLUGIN_API getParameterCount() override { return 1; }
+
+    tresult PLUGIN_API getParameterInfo(int32 index, ParameterInfo& info) override
+    {
+        if (index != 0)
+            return kInvalidArgument;
+
+        info = ParameterInfo {};
+        info.id = 7;
+        info.defaultNormalizedValue = 0.5;
+        info.flags = ParameterInfo::kCanAutomate;
+        setUnits(info.title, {u'G', u'a', u'i', u'n', high});
+        setUnits(info.shortTitle, std::u16string(127, u's') + high);
+        setUnits(info.units, {high, low});
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API getParamStringByValue(ParamID,
+                                             ParamValue,
+                                             String128 text) override
+    {
+        const auto units = std::u16string {u'5', low, u'%'};
+        std::copy(units.begin(), units.end(), text);
+        text[units.size()] = 0;
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API getParamValueByString(ParamID,
+                                             TChar* text,
+                                             ParamValue& normalized) override
+    {
+        parsed.add(std::u16string(text));
+        normalized = 0.25;
+        return kResultOk;
+    }
+
+    Vector<std::u16string> parsed;
+};
+
+struct BadTextLoaded
+{
+    BadTextLoaded()
+        : component(owned(new BadTextComponent()))
+        , controller(owned(new BadTextController()))
+        , plugin(MakeASound::Hosting::PluginDescription {},
+                 nullptr,
+                 nullptr,
+                 IPtr<IComponent>(component.get()),
+                 IPtr<IEditController>(controller.get()),
+                 true)
+    {
+    }
+
+    IPtr<BadTextComponent> component;
+    IPtr<BadTextController> controller;
+    VST3HostedPlugin plugin;
+};
+
+// A module's factory: class 0 is unicode (IPluginFactory3) with a name past
+// U+FFFF, a vendor ending in a lone surrogate and a version with no terminator;
+// class 1 is plain (PClassInfo2) with no vendor of its own; class 2 it cannot
+// describe at all.
+struct BadTextFactory
+    : public FObject
+    , public IPluginFactory3
+{
+    static constexpr TUID unicodeId = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    static constexpr TUID plainId = {2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24};
+
+    tresult PLUGIN_API getFactoryInfo(PFactoryInfo* info) override
+    {
+        *info = PFactoryInfo("Stub Vendor", "", "", PFactoryInfo::kUnicode);
+        return kResultOk;
+    }
+
+    int32 PLUGIN_API countClasses() override { return 3; }
+
+    tresult PLUGIN_API getClassInfo(int32, PClassInfo*) override
+    {
+        return kResultFalse;
+    }
+
+    tresult PLUGIN_API createInstance(FIDString, FIDString, void** object) override
+    {
+        *object = nullptr;
+        return kNotImplemented;
+    }
+
+    tresult PLUGIN_API getClassInfo2(int32 index, PClassInfo2* info) override
+    {
+        if (index != 1)
+            return kResultFalse;
+
+        *info = PClassInfo2(plainId,
+                            PClassInfo::kManyInstances,
+                            kVstAudioEffectClass,
+                            "Plain",
+                            0,
+                            "Fx",
+                            "",
+                            "1.0",
+                            "VST 3.7");
+        return kResultTrue;
+    }
+
+    tresult PLUGIN_API getClassInfoUnicode(int32 index, PClassInfoW* info) override
+    {
+        if (index != 0)
+            return kResultFalse;
+
+        *info = PClassInfoW {};
+        std::copy_n(unicodeId, sizeof(TUID), info->cid);
+        info->cardinality = PClassInfo::kManyInstances;
+        setBytes(info->category, kVstAudioEffectClass);
+        setUnits(info->name, {u'S', u'm', u'i', u'l', u'e', u' ', high, low});
+        setUnits(info->vendor, {u'V', high});
+        setUnits(info->version, std::u16string(PClassInfo2::kVersionSize, u'1'));
+        setUnits(info->sdkVersion, u"VST 3.7");
+        setBytes(info->subCategories, "Fx|Delay");
+        return kResultTrue;
+    }
+
+    tresult PLUGIN_API setHostContext(FUnknown*) override { return kResultOk; }
+
+    // clang-format off
+    OBJ_METHODS(BadTextFactory, FObject)
+    REFCOUNT_METHODS(FObject)
+    DEFINE_INTERFACES
+        DEF_INTERFACE(IPluginFactory)
+        DEF_INTERFACE(IPluginFactory2)
+        DEF_INTERFACE(IPluginFactory3)
+    END_DEFINE_INTERFACES(FObject)
+    // clang-format on
 };
 } // namespace Stub
 
@@ -835,6 +1036,112 @@ auto tFixtureControllerState =
     check(plugin->saveControllerState().empty());
     plugin->loadControllerState("anything");
     check(near(plugin->parameters()[cutoff].getValue(), 0.3f));
+};
+
+auto tTypedText = test("HostedVST3/malformedTextAUserTypesNeverThrows") = []
+{
+    const auto formats = DefaultFormats();
+    auto plugin = load(formats, "HostFixtureEffect");
+    const auto& cutoff = plugin->parameters()[indexNamed(*plugin, "Cutoff")];
+
+    // A lone lead byte, bytes no UTF-8 has, a cut-off four-byte sequence, an
+    // encoded surrogate, and a broken byte inside text the plugin would parse.
+    for (auto typed: {std::string {"\xC3"},
+                      std::string {"\xFF\xFE"},
+                      std::string {"\xF0\x9F\x98"},
+                      std::string {"\xED\xA0\x80"},
+                      std::string {"1000\xC3 Hz"}})
+    {
+        auto value = cutoff.textToValue(typed);
+        check(std::isfinite(value) && value >= 0.f && value <= 1.f);
+    }
+
+    // Well-formed text still reaches the plugin's own parse.
+    auto value = cutoff.getValue();
+    check(near(cutoff.textToValue(cutoff.valueToText(value)), value, 1e-3f));
+};
+
+auto tHostName = test("HostedVST3/anyHostNameLoads") = []
+{
+    // The fixture asks the host's name as it initializes: one that is not UTF-8
+    // reads with U+FFFD in it, and one past a String128 is cut to fit.
+    const auto formats = DefaultFormats();
+    const auto description = describe(formats, "HostFixtureEffect");
+
+    for (auto name: {std::string {"Host \xFF\xFE"},
+                     std::string {"\xC3"},
+                     std::string(300, 'h'),
+                     std::string(126, 'h') + Stub::smile})
+    {
+        auto result = formats.load(description, {.name = name});
+        check(result.error.empty());
+        check(result.plugin != nullptr);
+    }
+};
+
+auto tPluginText = test("HostedVST3/malformedTextFromAPluginReadsAsReplacement") = []
+{
+    // Every broken sequence is one U+FFFD and the rest is kept; a String128 with
+    // no terminator is read to its 128th unit and no further.
+    auto loaded = Stub::BadTextLoaded();
+    const auto layout = loaded.plugin.getBusLayout();
+
+    check(layout.inputs.size() == 1 && layout.outputs.size() == 1);
+    check(layout.inputs[0].name == "In" + Stub::replacement);
+    check(layout.outputs[0].name == std::string(128, 'o'));
+    check(layout.midiInputs.size() == 1);
+    check(layout.midiInputs[0].name == Stub::replacement + "M");
+
+    const auto& list = loaded.plugin.parameters();
+    check(list.size() == 1);
+    check(list[0].name() == "Gain" + Stub::replacement);
+    check(list[0].shortName() == std::string(127, 's') + Stub::replacement);
+    check(list[0].label() == Stub::smile);
+    check(list[0].valueToText(0.5f) == "5" + Stub::replacement + "%");
+
+    // Typed text reaches the plugin terminated, its broken bytes U+FFFD.
+    const auto& parsed = loaded.controller->parsed;
+    check(near(list[0].textToValue("\xC3"), 0.25f));
+    check(near(list[0].textToValue(std::string {"a\xFF"} + "b"), 0.25f));
+    const auto fffd = char16_t {0xfffd};
+    check(parsed.size() == 2 && parsed[0] == std::u16string {fffd});
+    check(parsed.size() == 2 && parsed[1] == std::u16string {u'a', fffd, u'b'});
+};
+
+auto tClassText = test("HostedVST3/classesWithBrokenOrWideNamesScanWhole") = []
+{
+    // The SDK's PluginFactory::classInfos() converts a PClassInfoW a unit at a
+    // time, so a pair, let alone a lone surrogate, threw from a noexcept
+    // constructor there and ended the process.
+    auto stub = Steinberg::owned(new Stub::BadTextFactory());
+    const auto factory = ::VST3::Hosting::PluginFactory(
+        Steinberg::IPtr<Steinberg::IPluginFactory>(stub.get()));
+    const auto classes = audioClassesOf(factory);
+
+    check(classes.size() == 2);
+
+    if (classes.size() != 2)
+        return;
+
+    const auto& wide = classes[0];
+    check(classIdOf(wide)
+          == ::VST3::UID::fromTUID(Stub::BadTextFactory::unicodeId).toString());
+    check(wide.category() == kVstAudioEffectClass);
+    check(wide.name() == "Smile " + Stub::smile);
+    check(wide.vendor() == "V" + Stub::replacement);
+    check(wide.version() == std::string(64, '1'));
+    check(wide.sdkVersion() == "VST 3.7");
+    check(wide.subCategoriesString() == "Fx|Delay");
+    check(wide.cardinality() == Steinberg::PClassInfo::kManyInstances);
+
+    // A class with no vendor of its own takes the factory's.
+    const auto& plain = classes[1];
+    check(classIdOf(plain)
+          == ::VST3::UID::fromTUID(Stub::BadTextFactory::plainId).toString());
+    check(plain.name() == "Plain");
+    check(plain.vendor() == "Stub Vendor");
+    check(plain.version() == "1.0");
+    check(plain.subCategoriesString() == "Fx");
 };
 } // namespace
 } // namespace HostedVST3Tests

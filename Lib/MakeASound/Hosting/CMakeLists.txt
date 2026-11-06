@@ -30,7 +30,8 @@ add_library(MakeASoundHosting STATIC
         Scan/ScanSession.cpp
         VST3/VST3Format.cpp
         VST3/VST3HostedParameter.cpp
-        VST3/VST3HostedPlugin.cpp)
+        VST3/VST3HostedPlugin.cpp
+        VST3/VST3Strings.cpp)
 
 # One TU per platform for what differs; CMake picks it, no #if does.
 if (APPLE)

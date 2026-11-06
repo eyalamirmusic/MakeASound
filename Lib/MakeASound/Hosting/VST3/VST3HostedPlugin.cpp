@@ -1,10 +1,10 @@
 #include "../../Plugin/VST3/VST3Common.h"
 #include "VST3HostedPlugin.h"
 #include "../JuceHostCompat.h"
+#include "VST3Strings.h"
 
 #include <base/source/fobject.h>
 #include <public.sdk/source/common/memorystream.h>
-#include <public.sdk/source/vst/utility/stringconvert.h>
 #include <pluginterfaces/vst/ivstunits.h>
 #include <pluginterfaces/vst/vstspeaker.h>
 
@@ -268,7 +268,7 @@ void VST3HostedPlugin::readBusLayout()
                 continue;
 
             auto bus = Bus();
-            bus.name = StringConvert::convert(info.name);
+            bus.name = VST3Strings::toUtf8(info.name);
             bus.numChannels = info.channelCount;
             bus.isMain = info.busType == kMain;
             bus.activeByDefault = (info.flags & BusInfo::kDefaultActive) != 0;
@@ -286,7 +286,7 @@ void VST3HostedPlugin::readBusLayout()
                 continue;
 
             auto bus = MidiBus();
-            bus.name = StringConvert::convert(info.name);
+            bus.name = VST3Strings::toUtf8(info.name);
             bus.activeByDefault = (info.flags & BusInfo::kDefaultActive) != 0;
             target.add(bus);
         }
