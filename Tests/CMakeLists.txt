@@ -348,6 +348,9 @@ if (MAKEASOUND_BUILD_PLUGIN)
 
     # makeasound_add_plugin's iOS orientation and device families.
     add_subdirectory(IOSShape)
+
+    # makeasound_add_plugin's copy of each bundle into the user's plug-in folder.
+    add_subdirectory(InstallBundles)
 endif ()
 
 # The ALSA backend's conversions are the one half of a platform backend that can
