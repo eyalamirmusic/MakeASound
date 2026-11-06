@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file ChoiceParam, a parameter that picks one of a list of named choices. */
+
 #include "Parameter.h"
 #include "../../Common/Common.h"
 
@@ -8,9 +10,9 @@
 namespace MakeASound
 {
 
-// A list of named choices. The plain value is the index, but saved state stores
-// the name, so reordering or extending the list in a later release leaves a
-// preset on the choice the user picked.
+/// A list of named choices. The plain value is the index, but saved state stores
+/// the name, so reordering or extending the list in a later release leaves a
+/// preset on the choice the user picked.
 class ChoiceParam : public Parameter
 {
 public:
@@ -25,7 +27,7 @@ public:
     int numSteps() const noexcept override { return numChoices() - 1; }
     bool isDiscrete() const noexcept override { return true; }
 
-    // JUCE's AudioParameterChoice mapping, rounding half to even.
+    /// JUCE's AudioParameterChoice mapping, rounding half to even.
     float toNormalized(float plain) const noexcept override
     {
         return indexToNormalized(plain);
@@ -50,7 +52,7 @@ public:
     int numChoices() const noexcept { return choices.size(); }
     const std::string& choiceName(int choice) const noexcept;
 
-    // Exact match first, then ignoring case and surrounding space; -1 if none.
+    /// Exact match first, then ignoring case and surrounding space; -1 if none.
     int indexOfChoice(std::string_view text) const noexcept;
 
 private:

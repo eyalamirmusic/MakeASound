@@ -1,5 +1,10 @@
 #pragma once
 
+/** @file
+    The Audio Unit component type, subtype and buses for one plugin, without the
+    SDK.
+*/
+
 #include "../Core/Description.h"
 
 #include <AudioToolbox/AudioToolbox.h>
@@ -10,8 +15,8 @@
 namespace MakeASound::AU
 {
 
-// What the bundle's plist and the factory say about one plugin class. SDK-free,
-// so the plist generator links it without the AudioUnitSDK.
+/// What the bundle's plist and the factory say about one plugin class. SDK-free,
+/// so the plist generator links it without the AudioUnitSDK.
 struct ComponentInfo
 {
     OSType type = kAudioUnitType_Effect;
@@ -21,25 +26,26 @@ struct ComponentInfo
     int numOutputBuses = 0;
 };
 
-// Constructs the plugin once to read its layout: the description's auType when
-// set (a port keeping its JUCE build's JucePlugin_AUMainType), otherwise an
-// instrument is 'aumu', a MIDI effect 'aumi', an effect with a MIDI input 'aumf',
-// any other effect 'aufx'.
+/// Constructs the plugin once to read its layout: the description's auType when
+/// set (a port keeping its JUCE build's JucePlugin_AUMainType), otherwise an
+/// instrument is 'aumu', a MIDI effect 'aumi', an effect with a MIDI input 'aumf',
+/// any other effect 'aufx'.
 ComponentInfo componentInfoFor(const ModuleDescription& module,
                                const PluginDescription& plugin);
 
-// Null when no plugin of the module has that subtype.
+/// Null when no plugin of the module has that subtype.
 const PluginDescription* findPlugin(const ModuleDescription& module,
                                     OSType subtype) noexcept;
 
+/// The code's four bytes as four characters, most significant first.
 std::string fourCCString(OSType code);
 
-// The standard AudioComponents tag an app extension lists for the category:
-// "Synthesizer", "MIDI" or "Effects".
+/// The standard AudioComponents tag an app extension lists for the category:
+/// "Synthesizer", "MIDI" or "Effects".
 std::string_view componentTag(Category category) noexcept;
 
-// "major.minor.patch" as AudioComponents wants it: major << 16 | minor << 8 |
-// patch, a missing or unreadable part counting as 0.
+/// "major.minor.patch" as AudioComponents wants it: major << 16 | minor << 8 |
+/// patch, a missing or unreadable part counting as 0.
 UInt32 versionNumber(std::string_view version) noexcept;
 
 } // namespace MakeASound::AU

@@ -1,5 +1,9 @@
 #pragma once
 
+/** @file
+    The AAX effect parameters class that runs every MakeASound plugin in Pro Tools.
+*/
+
 #include "AAXCommon.h"
 #include "AlgorithmContext.h"
 #include "Parameters.h"
@@ -18,37 +22,37 @@
 namespace MakeASound::AAX
 {
 
-// The data model every plugin ships as, over a PluginWrapper. The instance finds
-// its plugin by the effect id the host created it for, and the process procedure
-// reaches it through the private data ResetFieldData fills.
+/// The data model every plugin ships as, over a PluginWrapper. The instance finds
+/// its plugin by the effect id the host created it for, and the process procedure
+/// reaches it through the private data ResetFieldData fills.
 class Adapter
     : public AAX_CEffectParameters
     , public HostEditListener
 {
 public:
-    // Over module() under moduleBundleId(), as the host creates one.
+    /// Over module() under moduleBundleId(), as the host creates one.
     Adapter();
 
-    // Over another module and bundle id: the plugin is the one whose effect id
-    // (aaxEffectIdFor) the controller names. The module must outlive the adapter.
+    /// Over another module and bundle id: the plugin is the one whose effect id
+    /// (aaxEffectIdFor) the controller names. The module must outlive the adapter.
     Adapter(const ModuleDescription& moduleToUse, std::string_view bundleIdToUse);
 
     ~Adapter() override;
 
-    // kAAX_ProcPtrID_Create_EffectParameters
+    /// kAAX_ProcPtrID_Create_EffectParameters
     static AAX_IEffectParameters* AAX_CALLBACK create();
 
-    // The module this binary ships, described once.
+    /// The module this binary ships, described once.
     static const ModuleDescription& module();
 
-    // Null until EffectInit found the plugin.
+    /// Null until EffectInit found the plugin.
     PluginWrapper* wrapper() noexcept { return pluginWrapper.get(); }
 
-    // The plugin index an AAX parameter id names, -1 unless the adapter
-    // registered it (isRegistered). A binary search: allocation-free.
+    /// The plugin index an AAX parameter id names, -1 unless the adapter
+    /// registered it (isRegistered). A binary search: allocation-free.
     int indexOf(AAX_CParamID id) const noexcept;
 
-    // AAX_CEffectParameters
+    /// AAX_CEffectParameters
     AAX_Result Initialize(IACFUnknown* controller) override;
     AAX_Result Uninitialize() override;
     AAX_Result EffectInit() override;
@@ -58,7 +62,7 @@ public:
 
     AAX_Result GetMasterBypassParameter(AAX_IString* id) const override;
 
-    // A host write lands in the wrapper unless a gesture holds the parameter.
+    /// A host write lands in the wrapper unless a gesture holds the parameter.
     AAX_Result UpdateParameterNormalizedValue(AAX_CParamID id,
                                               double value,
                                               AAX_EUpdateSource source) override;
@@ -71,24 +75,24 @@ public:
     AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* chunk,
                                   AAX_CBoolean* isEqual) const override;
 
-    // The base's parameter changes plus every stateChanged(), so Pro Tools marks
-    // the session modified for state that is not a parameter.
+    /// The base's parameter changes plus every stateChanged(), so Pro Tools marks
+    /// the session modified for state that is not a parameter.
     AAX_Result GetNumberOfChanges(int32_t* numChanges) const override;
 
-    // Message thread: the latency and the values the plugin moved on its own.
+    /// Message thread: the latency and the values the plugin moved on its own.
     AAX_Result TimerWakeup() override;
 
-    // After the base's: AAX_eNotificationEvent_TrackNameChanged becomes the
-    // plugin's track name, the one thing about the track Pro Tools tells, and
-    // Entering/ExitingOfflineMode every later block's isOffline.
+    /// After the base's: AAX_eNotificationEvent_TrackNameChanged becomes the
+    /// plugin's track name, the one thing about the track Pro Tools tells, and
+    /// Entering/ExitingOfflineMode every later block's isOffline.
     AAX_Result NotificationReceived(AAX_CTypeID type,
                                     const void* data,
                                     uint32_t size) override;
 
-    // One instance's block, from the process procedure. Audio thread.
+    /// One instance's block, from the process procedure. Audio thread.
     void render(AlgorithmContext& context) noexcept;
 
-    // HostEditListener, message thread
+    /// HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
     void performParameterEdit(int index, float normalized) noexcept override;
     void endParameterEdit(int index) noexcept override;

@@ -1,9 +1,11 @@
 #pragma once
 
-// VST3-only: the hosted plugin's SDK side, for code that has to reach the plugin
-// itself (a hosted editor, a host nested in another host, a test standing in for
-// the plugin's GUI). Include after VST3Common.h; everything else goes through
-// HostedPlugin.
+/** @file
+    VST3-only: the hosted plugin's SDK side, for code that has to reach the plugin
+    itself (a hosted editor, a host nested in another host, a test standing in for
+    the plugin's GUI). Include after VST3Common.h; everything else goes through
+    HostedPlugin.
+*/
 
 #include "../HostedPlugin.h"
 #include "../../Realtime/SPSCQueue.h"
@@ -26,9 +28,9 @@
 namespace MakeASound::Hosting
 {
 
-// A loaded VST3 plugin: single-component or dual (its controller a class of its
-// own, the two connected and the controller given the component's state before
-// anything else asks it). The module stays loaded while the plugin lives.
+/// A loaded VST3 plugin: single-component or dual (its controller a class of its
+/// own, the two connected and the controller given the component's state before
+/// anything else asks it). The module stays loaded while the plugin lives.
 class VST3HostedPlugin
     : public HostedPlugin
     , private VST3ParameterSink

@@ -1,7 +1,9 @@
 #pragma once
 
-// Internal to the hosted editors: the eacp view a plugin's native view is
-// parented into, which reports its own resizes.
+/** @file
+    Internal to the hosted editors: the eacp view a plugin's native view is
+    parented into, which reports its own resizes.
+*/
 
 #include <eacp/Graphics/Window/NativeChildSurface.h>
 
@@ -10,10 +12,11 @@
 namespace MakeASound::Hosting
 {
 
+/// Fires onResized after each resize, with the new size in points.
 class NativeViewContainer : public eacp::Graphics::NativeChildSurface
 {
 public:
-    // After the native child was placed over the new bounds.
+    /// After the native child was placed over the new bounds.
     std::function<void(int width, int height)> onResized;
 
     void resized() override

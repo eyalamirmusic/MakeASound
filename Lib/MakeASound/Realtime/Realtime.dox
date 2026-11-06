@@ -1,0 +1,11 @@
+/** @dir Lib/MakeASound/Realtime
+    Helpers for code on the audio thread (namespace MakeASound); part of
+    MakeASoundCore.
+
+    - SPSCQueue is a bounded wait-free queue between exactly one producer and
+      one consumer thread, for passing data to and from the audio callback.
+    - Smoother ramps a parameter towards its target one sample at a time.
+    - ScopedNoDenormals flushes denormal floats to zero on the current thread
+      while it lives.
+    - SpinLock guards small state the audio thread shares with a host thread.
+*/

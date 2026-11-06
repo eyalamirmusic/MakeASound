@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Audio and MIDI bus descriptions a Processor declares. */
+
 #include "../Common/Common.h"
 #include <Miro/Miro.h>
 
@@ -8,6 +10,7 @@
 namespace MakeASound
 {
 
+/// One audio bus: a named group of channels.
 struct Bus
 {
     bool operator==(const Bus&) const = default;
@@ -16,9 +19,9 @@ struct Bus
     int numChannels = 2;
     bool isMain = true;
 
-    // Whether a host turns the bus on without being asked (VST3's
-    // kDefaultActive). False for an aux bus that should stay off until the user
-    // routes something to it; a hosted plugin's buses carry what the plugin said.
+    /// Whether a host turns the bus on without being asked (VST3's
+    /// kDefaultActive). False for an aux bus that should stay off until the user
+    /// routes something to it; a hosted plugin's buses carry what the plugin said.
     bool activeByDefault = true;
 
     MIRO_REFLECT(name, numChannels, isMain, activeByDefault)
@@ -30,14 +33,14 @@ struct MidiBus
 
     std::string name = "MIDI";
 
-    // As for Bus.
+    /// As for Bus.
     bool activeByDefault = true;
 
     MIRO_REFLECT(name, activeByDefault)
 };
 
-// What a Processor reads and writes: bus 0 on each side is the main one by
-// convention, and what nearly every process() is written against.
+/// What a Processor reads and writes: bus 0 on each side is the main one by
+/// convention, and what nearly every process() is written against.
 struct BusLayout
 {
     bool operator==(const BusLayout&) const = default;
@@ -57,7 +60,7 @@ struct BusLayout
         return layout;
     }
 
-    // An output bus fed by a MIDI input bus.
+    /// An output bus fed by a MIDI input bus.
     static BusLayout instrument(int numChannels = 2)
     {
         auto layout = stereoOut(numChannels);
@@ -65,8 +68,8 @@ struct BusLayout
         return layout;
     }
 
-    // Same bus count on every side and the same channel count on every audio
-    // bus; names are not compared.
+    /// Same bus count on every side and the same channel count on every audio
+    /// bus; names are not compared.
     bool acceptsExactly(const BusLayout& proposed) const noexcept
     {
         auto sameChannels = [](const Vector<Bus>& a, const Vector<Bus>& b)

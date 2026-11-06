@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The Linux MIDI backend over the ALSA sequencer; use it through MidiManager. */
+
 #include "ALSA-Backend.h"
 #include "../MIDI/MidiBackend.h"
 #include "../MIDI/MidiParser.h"
@@ -19,12 +21,12 @@ namespace MakeASound::ALSA
 constexpr auto ignoreClockFlag = std::uint8_t {1};
 constexpr auto ignoreActiveSenseFlag = std::uint8_t {2};
 
-// The only place the input thread and the host's meet. notifyHost takes a lock,
-// which that thread may not, so it leaves what it saw here and the sweeper turns
-// it into notifications: a coalescing flag for the drops and overflows a stalled
-// host could otherwise raise per message, a queue for the hotplug pair, where
-// the order is the news. The mask goes the other way, read once per event so a
-// setIgnoredTypes() reaches ports that are already open.
+/// The only place the input thread and the host's meet. notifyHost takes a lock,
+/// which that thread may not, so it leaves what it saw here and the sweeper turns
+/// it into notifications: a coalescing flag for the drops and overflows a stalled
+/// host could otherwise raise per message, a queue for the hotplug pair, where
+/// the order is the news. The mask goes the other way, read once per event so a
+/// setIgnoredTypes() reaches ports that are already open.
 struct SharedState
 {
     static constexpr auto hotplugCapacity = 64;
@@ -36,8 +38,8 @@ struct SharedState
     SPSCQueue<MidiNotification, hotplugCapacity> hotplug;
 };
 
-// The descriptor the poll loop watches alongside the sequencer's, so parking the
-// input thread or shutting it down costs a write rather than the poll's timeout.
+/// The descriptor the poll loop watches alongside the sequencer's, so parking the
+/// input thread or shutting it down costs a write rather than the poll's timeout.
 class WakeFd
 {
 public:
@@ -56,12 +58,12 @@ private:
     int fd {-1};
 };
 
-// One open input: what it listens to, the parser that turns what arrives into
-// whole messages, and the two ways a message leaves - straight to a callback on
-// the input thread, or into the queue drainMessages() empties on the host's.
-// Everything that thread touches is sized when the port opens, and only for the
-// mode the port is in: queue mode gets the queue, callback mode a scratch message
-// as large as the SysEx cap, and neither pays for the other.
+/// One open input: what it listens to, the parser that turns what arrives into
+/// whole messages, and the two ways a message leaves - straight to a callback on
+/// the input thread, or into the queue drainMessages() empties on the host's.
+/// Everything that thread touches is sized when the port opens, and only for the
+/// mode the port is in: queue mode gets the queue, callback mode a scratch message
+/// as large as the SysEx cap, and neither pays for the other.
 struct InputPort
 {
     static constexpr auto queueCapacity = 2048;
@@ -73,8 +75,8 @@ struct InputPort
     void open(int bytesForSysEx, MidiTimePoint epochToUse, SharedState& state);
     void receive(Span<const std::uint8_t> bytes, MidiTimePoint timestamp);
 
-    // Runs the SysEx timeout against a dump nothing is adding to any more, which
-    // is what the input thread does with a poll that timed out.
+    /// Runs the SysEx timeout against a dump nothing is adding to any more, which
+    /// is what the input thread does with a poll that timed out.
     void tick(MidiTimePoint timestamp);
 
     int portId {};
@@ -82,9 +84,9 @@ struct InputPort
 
     snd_seq_t* seq {};
 
-    // One shape or the other: a subscription from `source` into the
-    // `sharedInputPort` every opened input shares, or `seqPort`, a port of our
-    // own that anything in the system can send to.
+    /// One shape or the other: a subscription from `source` into the
+    /// `sharedInputPort` every opened input shares, or `seqPort`, a port of our
+    /// own that anything in the system can send to.
     Address source;
     int sharedInputPort {-1};
     int seqPort {-1};
@@ -95,13 +97,14 @@ struct InputPort
     MidiTimePoint epoch {};
     SharedState* shared {};
 
-    // Queue mode only; null where `callback` took the other path.
+    /// Queue mode only; null where `callback` took the other path.
     OwningPointer<Queue> queue;
 
 private:
     void deliver(const MidiMessageView& message);
 };
 
+/// Polls the sequencer on an input thread of its own; a second sweeper thread raises notifications.
 struct MidiManager : MidiBackend
 {
     MidiManager();

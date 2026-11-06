@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Building and splitting the '/'-separated id paths that key grouped parameters. */
+
 #include "../../Common/Common.h"
 
 #include <string>
@@ -22,18 +24,18 @@ namespace MakeASound
 // the id, or pin `id` to one without the edge '/' and keep the old key for a
 // document with a state migration.
 
-// The id as a segment of a path: every '/' doubled.
+/// The id as a segment of a path: every '/' doubled.
 std::string escapeIdSegment(std::string_view id);
 
-// Appends the id's segment to the path, with a separator unless either is empty.
+/// Appends the id's segment to the path, with a separator unless either is empty.
 void appendIdSegment(std::string& path, std::string_view id);
 
-// The ids a path joins, outermost first, each as written: what
-// escapeIdSegment() and appendIdSegment() built, read back.
+/// The ids a path joins, outermost first, each as written: what
+/// escapeIdSegment() and appendIdSegment() built, read back.
 Vector<std::string> splitIdPath(std::string_view path);
 
-// False for an id whose segment a path cannot delimit: one that begins or ends
-// with '/'.
+/// False for an id whose segment a path cannot delimit: one that begins or ends
+/// with '/'.
 bool isDelimitableId(std::string_view id) noexcept;
 
 } // namespace MakeASound

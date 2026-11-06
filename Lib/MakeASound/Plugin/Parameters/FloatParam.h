@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file FloatParam, a continuous parameter over a FloatRange. */
+
 #include "Parameter.h"
 #include "FloatRange.h"
 
@@ -8,9 +10,9 @@
 namespace MakeASound
 {
 
-// A value in a FloatRange: writes outside it are clamped, and onto its interval
-// when it has one. Normalizes through the range's curve, so a skewed range moves
-// a host lane and an editor's slider the way JUCE's NormalisableRange would.
+/// A value in a FloatRange: writes outside it are clamped, and onto its interval
+/// when it has one. Normalizes through the range's curve, so a skewed range moves
+/// a host lane and an editor's slider the way JUCE's NormalisableRange would.
 class FloatParam : public Parameter
 {
 public:
@@ -29,7 +31,7 @@ public:
     float maxValue() const noexcept override { return valueRange.max; }
     float defaultValue() const noexcept override { return initial; }
 
-    // The interval's grid when snapped and linear; 0 otherwise.
+    /// The interval's grid when snapped and linear; 0 otherwise.
     int numSteps() const noexcept override { return valueRange.numSteps(); }
 
     void setValue(float plain) noexcept override;

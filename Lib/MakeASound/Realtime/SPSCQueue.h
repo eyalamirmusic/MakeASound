@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file SPSCQueue, a wait-free single-producer single-consumer queue for crossing to and from the audio thread. */
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -7,17 +9,17 @@
 namespace MakeASound
 {
 
-// Bounded FIFO: exactly one thread pushes, one other pops. That contract is
-// what keeps both ends wait-free and allocation-free (safe on an audio thread)
-// with plain acquire/release and no CAS loop. T is assigned across the fence,
-// so keep it a small POD. One slot is held back to tell full from empty.
+/// Bounded FIFO: exactly one thread pushes, one other pops. That contract is
+/// what keeps both ends wait-free and allocation-free (safe on an audio thread)
+/// with plain acquire/release and no CAS loop. T is assigned across the fence,
+/// so keep it a small POD. One slot is held back to tell full from empty.
 template <typename T, std::size_t Capacity>
 class SPSCQueue
 {
 public:
     static_assert(Capacity >= 1, "SPSCQueue needs room for at least one element");
 
-    // Producer thread only. Returns false and drops the item when full.
+    /// Producer thread only. Returns false and drops the item when full.
     bool push(const T& item) noexcept
     {
         const auto write = writeIndex.load(std::memory_order_relaxed);
@@ -34,7 +36,7 @@ public:
         return true;
     }
 
-    // Consumer thread only. Leaves `out` untouched when empty.
+    /// Consumer thread only. Leaves `out` untouched when empty.
     bool pop(T& out) noexcept
     {
         const auto read = readIndex.load(std::memory_order_relaxed);

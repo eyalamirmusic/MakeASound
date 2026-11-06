@@ -1,7 +1,20 @@
 #pragma once
 
-// The SDK-free plugin core. A plugin TU includes this and nothing else from the
-// framework; the per-format adapters include it too and add their SDK.
+/** @file
+    The SDK-free plugin core. A plugin derives from Plugin (or StatePlugin, which
+    saves and loads through a reflected State), declares its parameters as
+    Parameter members of a ParameterGroup, and implements describeModule() once
+    per module. The VST3, AU, AUv3, AAX and standalone adapters each include this
+    header, add their SDK, and drive the plugin through PluginWrapper.
+
+    - A plugin source file includes this header and nothing else from the
+      framework.
+    - process() runs on the audio thread; parameters are relaxed atomics read
+      there. Editors, state loads and host notifications are message thread.
+    - A parameter's host id and state key come from its id path: pin `id` or
+      `hostId` before renaming or regrouping a shipped parameter.
+    - Hand objects to the audio thread through RealtimeSwap, never a lock.
+*/
 
 #include "../MakeASound.h"
 #include "Core/Description.h"

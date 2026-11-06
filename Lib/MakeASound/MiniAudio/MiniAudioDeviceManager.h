@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The miniaudio backend behind DeviceManager: device ids, the stream and automatic recovery; use it through DeviceManager. */
+
 #include "MiniAudio-Backend.h"
 
 #include <atomic>
@@ -19,6 +21,7 @@ void audioCallback(ma_device* device,
 
 void deviceNotificationCallback(const ma_device_notification* notification);
 
+/// What DeviceManager forwards to; its callbacks run on miniaudio's audio and notification threads.
 struct DeviceManager
 {
     DeviceManager();
@@ -28,18 +31,18 @@ struct DeviceManager
     DeviceInfo getDefaultInputDevice();
     DeviceInfo getDefaultOutputDevice();
 
-    // Probed once and remembered: each candidate costs a real connection attempt (a
-    // PulseAudio socket, a JACK handshake), and the set is far more stable than the
-    // device list.
+    /// Probed once and remembered: each candidate costs a real connection attempt (a
+    /// PulseAudio socket, a JACK handshake), and the set is far more stable than the
+    /// device list.
     const Vector<Backend>& getAvailableBackends();
     Backend getBackend() const;
 
-    // Whatever was running stops: the device and the device cache belong to the old
-    // context.
+    /// Whatever was running stops: the device and the device cache belong to the old
+    /// context.
     Error setBackend(Backend backendToUse);
 
-    // On failure the recovery worker keeps retrying in the background, unless the
-    // config names no device at all — retrying that would change nothing.
+    /// On failure the recovery worker keeps retrying in the background, unless the
+    /// config names no device at all — retrying that would change nothing.
     Error start(const StreamConfig& configToUse);
     void stop();
 
@@ -53,15 +56,15 @@ struct DeviceManager
     void onCallback(void* output, const void* input, ma_uint32 frameCount);
     void onNotification(ma_device_notification_type type);
 
-    // Everything queued since the last call, in order, for whatever thread asks.
+    /// Everything queued since the last call, in order, for whatever thread asks.
     Vector<DeviceNotification> takeNotifications();
 
     Callback callback;
     NotificationCallback notificationCallback;
     StreamConfig config;
 
-    // Applied by every open, recovery's included, so an interruption that hands the
-    // session back deactivated cannot leave it configured for someone else.
+    /// Applied by every open, recovery's included, so an interruption that hands the
+    /// session back deactivated cannot leave it configured for someone else.
     SessionConfig sessionConfig;
 
     std::atomic<bool> autoRecover {true};

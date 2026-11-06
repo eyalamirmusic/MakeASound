@@ -1,7 +1,9 @@
 #pragma once
 
-// Internal: the float/int32 rules of SampleConversion.h as inline functions, so
-// the per-sample loops of the readers and the writer can inline them.
+/** @file
+    Internal: the float/int32 rules of SampleConversion.h as inline functions, so
+    the per-sample loops of the readers and the writer can inline them.
+*/
 
 #include <cmath>
 #include <cstdint>
@@ -9,6 +11,7 @@
 
 namespace MakeASound::Files::Detail
 {
+/// floatToInt32 inlined: NaN gives 0, the ends clamp, the rest rounds ties to even.
 inline std::int32_t toFullScale(double sample) noexcept
 {
     if (std::isnan(sample))
@@ -26,6 +29,7 @@ inline std::int32_t toFullScale(double sample) noexcept
     return (std::int32_t) std::nearbyint(product);
 }
 
+/// int32ToFloat inlined: sample / 2^31, rounded once to float.
 inline float fromFullScale(std::int32_t sample) noexcept
 {
     // Exact in double; the only rounding is the conversion to float.

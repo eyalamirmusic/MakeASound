@@ -1,0 +1,13 @@
+/** @dir Lib/MakeASound/Audio
+    Audio buffers and the processing interface (namespace MakeASound), with no
+    device behind them; part of MakeASoundCore.
+
+    - Buffer is a planar float block that owns or refers to memory; Channel and
+      ConstChannel are views of one channel. Slicing by samples or channels
+      never allocates.
+    - Processor is the unit of audio work that Engine and every plugin format
+      run. It declares its buses (BusLayout), is prepared with a ProcessSpec
+      and handed a ProcessContext each block, with the Playhead when a host
+      has one.
+    - process() runs on the audio thread: no allocation, locks or logging.
+*/

@@ -1,9 +1,11 @@
 #pragma once
 
-// macOS only: an Audio Unit loaded and running in this process, over the
-// AudioUnit C API, for a v2 component or a v3 extension through it. Everything
-// format-neutral goes through HostedPlugin; this header is for code that must
-// reach the unit itself (a hosted editor, a test).
+/** @file
+    macOS only: an Audio Unit loaded and running in this process, over the
+    AudioUnit C API, for a v2 component or a v3 extension through it. Everything
+    format-neutral goes through HostedPlugin; this header is for code that must
+    reach the unit itself (a hosted editor, a test).
+*/
 
 #include "../HostedPlugin.h"
 #include "../../Plugin/Parameters/ParameterGroup.h"
@@ -22,9 +24,9 @@ namespace MakeASound::Hosting
 
 class HostedAudioUnit;
 
-// One parameter of a hosted Audio Unit, in the unit's own plain range, with its
-// value strings for an indexed one. Its id is the AudioUnitParameterID in decimal
-// and its host id that id itself (Global scope, element 0).
+/// One parameter of a hosted Audio Unit, in the unit's own plain range, with its
+/// value strings for an indexed one. Its id is the AudioUnitParameterID in decimal
+/// and its host id that id itself (Global scope, element 0).
 class HostedAudioUnitParameter : public Parameter
 {
 public:
@@ -44,23 +46,23 @@ public:
     bool isDiscrete() const noexcept override { return !valueStrings.empty(); }
     bool isBoolean() const noexcept override { return boolean; }
 
-    // A host-side edit, off the audio thread: kept, then set on the unit through
-    // the event listener, so the unit's own view hears it.
+    /// A host-side edit, off the audio thread: kept, then set on the unit through
+    /// the event listener, so the unit's own view hears it.
     void setValue(float plain) noexcept override;
     float getValue() const noexcept override;
 
     std::string valueToText(float plain) const override;
     float textToValue(std::string_view text) const override;
 
-    // A value the unit reported, kept and sent nowhere. Any thread.
+    /// A value the unit reported, kept and sent nowhere. Any thread.
     void store(float plain) noexcept;
 
-    // Re-reads the value from the unit, which its own view can move without
-    // telling anyone. Message thread.
+    /// Re-reads the value from the unit, which its own view can move without
+    /// telling anyone. Message thread.
     void refreshFromUnit() noexcept;
 
-    // Re-reads the name, units and value strings after a ParameterInfo change.
-    // True when one moved. Message thread.
+    /// Re-reads the name, units and value strings after a ParameterInfo change.
+    /// True when one moved. Message thread.
     bool updateInfo(std::string nameToUse,
                     std::string unitsToUse,
                     std::vector<std::string> valueStringsToUse);
@@ -83,10 +85,11 @@ private:
     std::atomic<bool> scheduled {false};
 };
 
+/// A loaded Audio Unit; reach it through HostedPlugin unless you need the AudioUnit itself.
 class HostedAudioUnit : public HostedPlugin
 {
 public:
-    // Takes the instance, which it disposes.
+    /// Takes the instance, which it disposes.
     HostedAudioUnit(PluginDescription description,
                     AudioComponentInstance instanceToUse,
                     AudioComponentDescription componentToUse);
@@ -102,7 +105,7 @@ public:
     int latencySamples() const noexcept override;
     int tailSamples() const noexcept override;
 
-    // kAudioUnitProperty_ClassInfo as a binary property list.
+    /// kAudioUnitProperty_ClassInfo as a binary property list.
     std::string saveState(StateContext context) override;
     void loadState(std::string_view data, StateContext context) override;
 
@@ -110,23 +113,23 @@ public:
     void syncEditorWithProcessor() override;
     void refreshParameterValue(int index) override;
 
-    // JUCE's AU host listed every parameter whose info reads, the ones neither
-    // readable nor writable included (parameters() leaves those out), with a
-    // clump's gathered where the clump first appears. -1 for one left out here,
-    // or past the end.
+    /// JUCE's AU host listed every parameter whose info reads, the ones neither
+    /// readable nor writable included (parameters() leaves those out), with a
+    /// clump's gathered where the clump first appears. -1 for one left out here,
+    /// or past the end.
     int indexForControllerIndex(int32_t controllerIndex) const noexcept override;
 
-    // At most this many audio-thread values per block; past it, false.
+    /// At most this many audio-thread values per block; past it, false.
     static constexpr int scheduledCapacity = 256;
 
     AudioUnit audioUnit() const noexcept { return instance; }
     const AudioComponentDescription& component() const noexcept { return described; }
     bool isInitialized() const noexcept { return initialized; }
 
-    // The parameter carrying `id`, or -1.
+    /// The parameter carrying `id`, or -1.
     int indexOfParameterId(AudioUnitParameterID id) const noexcept;
 
-    // Message thread, from the parameters.
+    /// Message thread, from the parameters.
     void parameterEdited(AudioUnitParameterID id, float plain);
 
 private:
@@ -179,8 +182,8 @@ private:
                              AudioUnitParameterValue value);
     static void onMainLoop(void* self);
 
-    // The unit's MIDI out, called from inside AudioUnitRender: each packet's
-    // time stamp is its sample offset in the block.
+    /// The unit's MIDI out, called from inside AudioUnitRender: each packet's
+    /// time stamp is its sample offset in the block.
     static OSStatus midiOutput(void* self,
                                const AudioTimeStamp* time,
                                UInt32 bus,
@@ -218,30 +221,30 @@ private:
     HostedGroup group;
     Vector<HostedAudioUnitParameter*> byId;
 
-    // Every id the unit listed when loaded, and again once prepare() initialized
-    // it, sorted, the ones left out of parameters() included: a list that
-    // differs is a changed set.
+    /// Every id the unit listed when loaded, and again once prepare() initialized
+    /// it, sorted, the ones left out of parameters() included: a list that
+    /// differs is a changed set.
     std::vector<AudioUnitParameterID> listedIds;
 
-    // The unit listed nothing until initialized, so loading initialized it
-    // once to read the list: while it is uninitialized, an empty list is that
-    // set still, not a changed one.
+    /// The unit listed nothing until initialized, so loading initialized it
+    /// once to read the list: while it is uninitialized, an empty list is that
+    /// set still, not a changed one.
     bool listsOnlyOnceInitialized = false;
 
-    // Per parameter in JUCE's order, its storage index or -1.
+    /// Per parameter in JUCE's order, its storage index or -1.
     Vector<int> juceIndices;
 
     AUEventListenerRef eventListener = nullptr;
     bool listening = false;
 
-    // What the property listeners are registered with in place of this unit's
-    // address: it reaches the unit only until the destructor closes it, and the
-    // close waits for a listener still running (see ListenerTickets).
+    /// What the property listeners are registered with in place of this unit's
+    /// address: it reaches the unit only until the destructor closes it, and the
+    /// close waits for a listener still running (see ListenerTickets).
     void* listenerTicket = nullptr;
 
-    // A main-run-loop source a property listener signals from any thread, so a
-    // rename, a latency or a tail is read back on the message thread, never from
-    // inside the unit's own notification.
+    /// A main-run-loop source a property listener signals from any thread, so a
+    /// rename, a latency or a tail is read back on the message thread, never from
+    /// inside the unit's own notification.
     CFRunLoopRef mainRunLoop = nullptr;
     std::atomic<CFRunLoopSourceRef> mainLoopSource {nullptr};
     std::atomic<bool> infoDirty {false};
@@ -249,18 +252,18 @@ private:
     std::atomic<bool> tailTold {false};
     std::atomic<bool> latencyMoved {false};
 
-    // A unit that lists only once initialized is initialized briefly to refresh
-    // its names; what it tells about them meanwhile is that refresh's.
+    /// A unit that lists only once initialized is initialized briefly to refresh
+    /// its names; what it tells about them meanwhile is that refresh's.
     std::atomic<bool> initializingBriefly {false};
 
-    // Sized in prepare(): one AudioBufferList per output bus, the stand-ins for
-    // channels the caller did not supply, and per input bus the memory handed
-    // to a unit that pulls its input with none of its own.
+    /// Sized in prepare(): one AudioBufferList per output bus, the stand-ins for
+    /// channels the caller did not supply, and per input bus the memory handed
+    /// to a unit that pulls its input with none of its own.
     std::vector<std::vector<std::uint64_t>> outputLists;
     std::vector<float> scratch;
     std::vector<std::vector<float>> inputScratch;
 
-    // The block being rendered, for the input pull and the MIDI the unit sends.
+    /// The block being rendered, for the input pull and the MIDI the unit sends.
     ProcessContext* currentContext = nullptr;
     Playhead blockPlayhead;
 
@@ -268,28 +271,28 @@ private:
     int scheduledCount = 0;
     std::atomic<bool> anyScheduled {false};
 
-    // Set by prepare() on the message thread, and read on the unit's own thread
-    // too, where it announces its latency or tail.
+    /// Set by prepare() on the message thread, and read on the unit's own thread
+    /// too, where it announces its latency or tail.
     std::atomic<double> sampleRate {44100.0};
     int maxBlockSize = 0;
     int64_t renderSampleTime = 0;
 
-    // The unit's latency and tail as it reports them, in seconds, read on the
-    // message thread and converted at the rate prepared when asked, so a figure
-    // read before a prepare() never lands in the old rate.
+    /// The unit's latency and tail as it reports them, in seconds, read on the
+    /// message thread and converted at the rate prepared when asked, so a figure
+    /// read before a prepare() never lands in the old rate.
     std::atomic<double> latencySeconds {0.0};
     std::atomic<double> tail {0.0};
 
-    // The latency in samples when it was last read, what a notification
-    // compares with to tell whether it moved.
+    /// The latency in samples when it was last read, what a notification
+    /// compares with to tell whether it moved.
     std::atomic<int> latency {0};
     bool initialized = false;
 };
 
-// Loads `component`, already found or registered, as the plugin `description`
-// names: a v2 instantiated directly, a v3 out of process first and in process if
-// that fails, each with a timeout. What AUFormat::load does once it has found the
-// component; public so a test can hand over a component it registered itself.
+/// Loads `component`, already found or registered, as the plugin `description`
+/// names: a v2 instantiated directly, a v3 out of process first and in process if
+/// that fails, each with a timeout. What AUFormat::load does once it has found the
+/// component; public so a test can hand over a component it registered itself.
 LoadResult loadAudioUnit(AudioComponent component,
                          PluginDescription description,
                          const HostInfo& host);

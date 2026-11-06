@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file ParameterGroup, a nested set of parameters that becomes one object in saved state. */
+
 #include "Parameter.h"
 #include "../../Common/Common.h"
 
@@ -17,37 +19,38 @@
 namespace MakeASound
 {
 
+/// A group's id and flags, given to its constructor or to addChild().
 struct GroupOptions
 {
-    // The group's key in saved state and its segment of every id below it; the
-    // name when empty.
+    /// The group's key in saved state and its segment of every id below it; the
+    /// name when empty.
     std::string_view id = {};
 
-    // False hides every parameter below from the host, whatever its own flag.
+    /// False hides every parameter below from the host, whatever its own flag.
     bool automatable = true;
 
-    // False keeps every parameter below out of saved state, whatever its own
-    // flag: no key for the group is written in any context, and a load never
-    // reads one or resets anything below, so a document holding its key moves
-    // nothing. The parameters stay registered as in any other group (ids,
-    // index, host visibility), which is what keeps retired padding holding the
-    // ids of the parameters after it.
+    /// False keeps every parameter below out of saved state, whatever its own
+    /// flag: no key for the group is written in any context, and a load never
+    /// reads one or resets anything below, so a document holding its key moves
+    /// nothing. The parameters stay registered as in any other group (ids,
+    /// index, host visibility), which is what keeps retired padding holding the
+    /// ids of the parameters after it.
     bool persistent = true;
 
-    // ParameterOptions::reportsPluginMoves for every parameter below that makes
-    // no choice of its own, unless a nested group makes another. Unset passes
-    // the enclosing group's down.
+    /// ParameterOptions::reportsPluginMoves for every parameter below that makes
+    /// no choice of its own, unless a nested group makes another. Unset passes
+    /// the enclosing group's down.
     std::optional<bool> reportsPluginMoves = {};
 };
 
-// A set of parameters and nested groups, registered with add() in the
-// constructor. Registration order is declaration order and automation order. It
-// holds pointers to its members, so it neither copies nor moves.
+/// A set of parameters and nested groups, registered with add() in the
+/// constructor. Registration order is declaration order and automation order. It
+/// holds pointers to its members, so it neither copies nor moves.
 class ParameterGroup
 {
 public:
-    // `groups` are the named groups enclosing the parameter, outermost first.
-    // `automatable` and `persistent` are the AND of its flag and its groups'.
+    /// `groups` are the named groups enclosing the parameter, outermost first.
+    /// `automatable` and `persistent` are the AND of its flag and its groups'.
     using Visitor =
         std::function<void(Parameter& param,
                            std::string_view id,
@@ -56,9 +59,9 @@ public:
                            bool persistent,
                            std::span<const ParameterGroup* const> groups)>;
 
-    // What a Visitor is given, and the parameter's resolved
-    // ParameterOptions::reportsPluginMoves: its own, else the innermost
-    // enclosing group's, nameless ones included; unset when none chose.
+    /// What a Visitor is given, and the parameter's resolved
+    /// ParameterOptions::reportsPluginMoves: its own, else the innermost
+    /// enclosing group's, nameless ones included; unset when none chose.
     struct Member
     {
         Parameter& param;
@@ -84,38 +87,38 @@ public:
     bool isAutomatable() const noexcept { return automatable; }
     bool isPersistent() const noexcept { return persistent; }
 
-    // Its own choice, unset when it made none.
+    /// Its own choice, unset when it made none.
     std::optional<bool> reportsPluginMoves() const noexcept { return moveReports; }
 
-    // Every parameter below, depth-first, with its id path ("Osc 1/Attack", a
-    // '/' inside one id doubled: see IdPath.h),
-    // display path ("Osc 1 Attack") and the AND of its flags and its groups'.
+    /// Every parameter below, depth-first, with its id path ("Osc 1/Attack", a
+    /// '/' inside one id doubled: see IdPath.h),
+    /// display path ("Osc 1 Attack") and the AND of its flags and its groups'.
     void forEach(const Visitor& visitor) const;
 
-    // The same walk, every resolved flag in one Member.
+    /// The same walk, every resolved flag in one Member.
     void forEachMember(const MemberVisitor& visitor) const;
 
-    // Each parameter under its id, each named group as a sub-object. A load
-    // assigns into the registered parameters and restores the default of one
-    // whose key is missing or holds nothing it can read. A group or parameter
-    // that is not persistent is neither written nor read.
+    /// Each parameter under its id, each named group as a sub-object. A load
+    /// assigns into the registered parameters and restores the default of one
+    /// whose key is missing or holds nothing it can read. A group or parameter
+    /// that is not persistent is neither written nor read.
     void reflect(Miro::Reflector& ref);
 
 protected:
-    // Constructor-time only: a ParameterList built earlier would not see it.
-    // Takes parameters, groups, pointers to either, and ranges of any of those.
+    /// Constructor-time only: a ParameterList built earlier would not see it.
+    /// Takes parameters, groups, pointers to either, and ranges of any of those.
     template <typename... Items>
     void add(Items&... items)
     {
         (addItem(items), ...);
     }
 
-    // Adds `group` under a name the parent gives it, replacing the one it gave
-    // itself: how one group type is mounted more than once, an array of them
-    // included ("Osc 1", "Osc 2"). `options.id` is its key and id segment, the
-    // name when empty, and `options.automatable` and `options.persistent` AND
-    // with the group's own; `options.reportsPluginMoves`, when set, replaces the
-    // group's own. Constructor-time only, as add().
+    /// Adds `group` under a name the parent gives it, replacing the one it gave
+    /// itself: how one group type is mounted more than once, an array of them
+    /// included ("Osc 1", "Osc 2"). `options.id` is its key and id segment, the
+    /// name when empty, and `options.automatable` and `options.persistent` AND
+    /// with the group's own; `options.reportsPluginMoves`, when set, replaces the
+    /// group's own. Constructor-time only, as add().
     void addChild(std::string_view nameToUse,
                   ParameterGroup& group,
                   GroupOptions options = {});

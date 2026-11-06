@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Smoother, a one-pole parameter smoother for the audio thread. */
+
 #include "../Audio/Buffer.h"
 
 #include <cmath>
@@ -7,9 +9,9 @@
 namespace MakeASound
 {
 
-// One-pole exponential smoother that removes the zipper of block-rate parameter
-// steps. The ramp time is when it arrives: the coefficient covers all but
-// arrivalLevel of the distance by then, and the last step snaps onto the target.
+/// One-pole exponential smoother that removes the zipper of block-rate parameter
+/// steps. The ramp time is when it arrives: the coefficient covers all but
+/// arrivalLevel of the distance by then, and the last step snaps onto the target.
 class Smoother
 {
 public:
@@ -19,13 +21,14 @@ public:
         updateRamp();
     }
 
+    /// Seconds. Zero jumps straight to each new target.
     void setRampTime(float secondsToUse) noexcept
     {
         rampSeconds = secondsToUse;
         updateRamp();
     }
 
-    // Lands on `value` with no glide, for prepare or a preset load.
+    /// Lands on `value` with no glide, for prepare or a preset load.
     void reset(float value) noexcept
     {
         current = value;
@@ -46,6 +49,7 @@ public:
     float getCurrent() const noexcept { return current; }
     bool isSmoothing() const noexcept { return current != target; }
 
+    /// Advances one sample.
     float next() noexcept
     {
         if (current == target)
@@ -68,7 +72,7 @@ public:
             sample = next();
     }
 
-    // Advances once per sample, so every channel shares the gain at each sample.
+    /// Advances once per sample, so every channel shares the gain at each sample.
     void applyGain(Buffer& buffer) noexcept
     {
         if (!isSmoothing())

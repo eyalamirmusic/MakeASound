@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file MidiSender, the thread that sends the standalone plugin's MIDI output. */
+
 #include "../../MIDI/MidiManager.h"
 #include "../../Realtime/SPSCQueue.h"
 
@@ -9,9 +11,9 @@
 namespace MakeASound::Standalone
 {
 
-// Takes the plugin's MIDI out off the audio thread, where sending is not safe,
-// and sends it from a thread of its own every millisecond. Events that arrive
-// while no output is open are dropped.
+/// Takes the plugin's MIDI out off the audio thread, where sending is not safe,
+/// and sends it from a thread of its own every millisecond. Events that arrive
+/// while no output is open are dropped.
 class MidiSender
 {
 public:
@@ -21,11 +23,11 @@ public:
     MidiSender(const MidiSender&) = delete;
     MidiSender& operator=(const MidiSender&) = delete;
 
-    // Audio thread. False when the queue is full.
+    /// Audio thread. False when the queue is full.
     bool push(const MIDI::Event& event) noexcept;
 
-    // Host thread; both idempotent. Stop around opening or closing the output,
-    // since MidiManager does not guard a send against either.
+    /// Host thread; both idempotent. Stop around opening or closing the output,
+    /// since MidiManager does not guard a send against either.
     void start();
     void stop();
     bool isRunning() const noexcept { return thread.joinable(); }

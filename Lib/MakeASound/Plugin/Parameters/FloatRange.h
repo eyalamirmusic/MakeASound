@@ -1,18 +1,20 @@
 #pragma once
 
+/** @file FloatRange, a value range with a skew and optional interval that maps to and from 0..1 as JUCE's NormalisableRange. */
+
 #include <cmath>
 
 namespace MakeASound
 {
 
-// A plain range and the curve that maps it onto 0..1: JUCE's NormalisableRange
-// without the custom functions, the arithmetic kept step for step in float so a
-// value normalizes and denormalizes to the same bits, which is what a plugin
-// ported from JUCE needs to keep its users' automation.
-//
-// `skew` below 1 gives the low end more of the travel, above 1 the high end;
-// `symmetricSkew` applies it from the middle out to both ends. `interval` above
-// 0 snaps every value onto `min + k * interval`.
+/// A plain range and the curve that maps it onto 0..1: JUCE's NormalisableRange
+/// without the custom functions, the arithmetic kept step for step in float so a
+/// value normalizes and denormalizes to the same bits, which is what a plugin
+/// ported from JUCE needs to keep its users' automation.
+///
+/// `skew` below 1 gives the low end more of the travel, above 1 the high end;
+/// `symmetricSkew` applies it from the middle out to both ends. `interval` above
+/// 0 snaps every value onto `min + k * interval`.
 struct FloatRange
 {
     float min = 0.f;
@@ -21,8 +23,8 @@ struct FloatRange
     float skew = 1.f;
     bool symmetricSkew = false;
 
-    // The skew that puts `centre` at the middle of the travel (JUCE's
-    // setSkewForCentre); `centre` must lie strictly inside the range.
+    /// The skew that puts `centre` at the middle of the travel (JUCE's
+    /// setSkewForCentre); `centre` must lie strictly inside the range.
     static FloatRange withCentre(float minToUse,
                                  float maxToUse,
                                  float centre,
@@ -36,9 +38,9 @@ struct FloatRange
 
     bool isLinear() const noexcept { return skew == 1.f; }
 
-    // The step count a host sees: the grid's when the range is snapped and its
-    // curve linear, so evenly spaced normalized steps land on it; 0 otherwise,
-    // the values still snapping, as a JUCE float parameter's do.
+    /// The step count a host sees: the grid's when the range is snapped and its
+    /// curve linear, so evenly spaced normalized steps land on it; 0 otherwise,
+    /// the values still snapping, as a JUCE float parameter's do.
     int numSteps() const noexcept
     {
         if (interval <= 0.f || !isLinear() || max <= min)
@@ -90,7 +92,7 @@ struct FloatRange
         return min + (max - min) / 2.f * (1.f + distanceFromMiddle);
     }
 
-    // Onto the interval's grid, then into the range.
+    /// Onto the interval's grid, then into the range.
     float snap(float plain) const noexcept
     {
         if (interval > 0.f)

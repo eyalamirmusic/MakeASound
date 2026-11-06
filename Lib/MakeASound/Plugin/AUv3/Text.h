@@ -1,6 +1,8 @@
 #pragma once
 
-// Objective-C++ only.
+/** @file
+    UTF-8 conversions to and from NSString for the AUv3 format. Objective-C++ only.
+*/
 
 #import <Foundation/Foundation.h>
 

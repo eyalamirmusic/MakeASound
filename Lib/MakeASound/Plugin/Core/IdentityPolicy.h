@@ -1,54 +1,56 @@
 #pragma once
 
+/** @file The rules a plugin's id scheme resolves to, which every format adapter reads. */
+
 #include "Description.h"
 
 namespace MakeASound
 {
 
-// The VST3 component class id.
+/// The VST3 component class id.
 enum class Vst3ClassRule
 {
-    // FUID(manufacturer, plugin, 'VST3', 0) (makeASoundVst3ClassId).
+    /// FUID(manufacturer, plugin, 'VST3', 0) (makeASoundVst3ClassId).
     Native,
 
-    // JUCE's own (Compat::juceVst3ClassId).
+    /// JUCE's own (Compat::juceVst3ClassId).
     JuceVst3,
 
-    // JUCE's VST2-compatible one, under JUCE_VST3_CAN_REPLACE_VST2
-    // (Compat::juceVst2ClassId).
+    /// JUCE's VST2-compatible one, under JUCE_VST3_CAN_REPLACE_VST2
+    /// (Compat::juceVst2ClassId).
     JuceVst2
 };
 
-// AAX_eProperty_PlugInID_Native and the effect id.
+/// AAX_eProperty_PlugInID_Native and the effect id.
 enum class AAXPluginRule
 {
-    // The plugin code plus the stem pair's index, and "<bundle id>.<code>".
+    /// The plugin code plus the stem pair's index, and "<bundle id>.<code>".
     Native,
 
-    // JUCE's 'jcaa' derivation from the stems' channel sets, and the bundle id.
+    /// JUCE's 'jcaa' derivation from the stems' channel sets, and the bundle id.
     Juce
 };
 
-// Every rule by which a host addresses a plugin and its parameters, resolved
-// from its description's IdScheme profile (policyFor) and overrides
-// (identityPolicyFor). Format adapters read only this, never the profile.
+/// Every rule by which a host addresses a plugin and its parameters, resolved
+/// from its description's IdScheme profile (policyFor) and overrides
+/// (identityPolicyFor). Format adapters read only this, never the profile.
 struct IdentityPolicy
 {
-    // What the ParameterList computes and the AU and AUv3 adapters publish.
+    /// What the ParameterList computes and the AU and AUv3 adapters publish.
     ParameterIdentity parameters;
 
     Vst3ClassRule vst3Class = Vst3ClassRule::Native;
     AAXPluginRule aaxPlugin = AAXPluginRule::Native;
 
-    // Not an id, but a JUCE build's all the same: whether the standalone, with
-    // no settings of its own, imports a JUCE build's settings file
-    // (StandaloneHost::juceImportPath).
+    /// Not an id, but a JUCE build's all the same: whether the standalone, with
+    /// no settings of its own, imports a JUCE build's settings file
+    /// (StandaloneHost::juceImportPath).
     bool juceStandaloneImport = false;
 
     constexpr bool operator==(const IdentityPolicy&) const = default;
 };
 
-// The profile's rules, with JUCE's settings where it is one of JUCE's.
+/// The profile's rules, with JUCE's settings where it is one of JUCE's.
 constexpr IdentityPolicy policyFor(IdScheme scheme,
                                    const JuceSettings& juce) noexcept
 {
@@ -98,7 +100,7 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     return policy;
 }
 
-// The description's profile and settings resolved, then its overrides applied.
+/// The description's profile and settings resolved, then its overrides applied.
 IdentityPolicy identityPolicyFor(const PluginDescription& plugin) noexcept;
 
 } // namespace MakeASound

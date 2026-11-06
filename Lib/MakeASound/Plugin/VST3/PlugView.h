@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The VST3 IPlugView that embeds a plugin's Editor in the host's window. */
+
 #include "VST3Common.h"
 #include "HostRunLoop.h"
 #include "../Core/Editor.h"
@@ -16,12 +18,12 @@ class EmbeddedView;
 namespace MakeASound::VST3
 {
 
-// The host's window onto a plugin's Editor, embedded through eacp, and the
-// editor's EditorHost: a resize request goes to the host's IPlugFrame. The editor
-// lives as long as the view, the embedding only while the host has it attached.
-// The platform's half is in PlugView-<platform>.cpp: the view type the host hands
-// attached(), the currency of a ViewRect and how the content scale reaches the
-// embedded view.
+/// The host's window onto a plugin's Editor, embedded through eacp, and the
+/// editor's EditorHost: a resize request goes to the host's IPlugFrame. The editor
+/// lives as long as the view, the embedding only while the host has it attached.
+/// The platform's half is in `PlugView-<platform>.cpp`: the view type the host hands
+/// attached(), the currency of a ViewRect and how the content scale reaches the
+/// embedded view.
 class PlugView
     : public Steinberg::CPluginView
     , public Steinberg::IPlugViewContentScaleSupport
@@ -46,8 +48,8 @@ public:
     bool resizeEditor(EditorSize size) override;
     bool drawsResizeHandle() const override { return true; }
 
-    // On Windows, posted to the host's window while attached; elsewhere left to
-    // the view (PlugView-<platform>.cpp).
+    /// On Windows, posted to the host's window while attached; elsewhere left to
+    /// the view (`PlugView-<platform>.cpp`).
     bool unhandledKey(const eacp::Graphics::KeyEvent& key) override;
 
     OBJ_METHODS(PlugView, Steinberg::CPluginView)

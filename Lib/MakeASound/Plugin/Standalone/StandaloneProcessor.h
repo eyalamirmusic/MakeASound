@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The Processor that drives a plugin's wrapper inside the standalone's audio engine. */
+
 #include "MidiSender.h"
 #include "../Host/PluginWrapper.h"
 #include "../../Realtime/SPSCQueue.h"
@@ -9,9 +11,9 @@
 namespace MakeASound::Standalone
 {
 
-// The Processor Engine runs for the standalone format: each block is handed to
-// the wrapper through its per-block steps, the way any other format adapter
-// drives it, and the plugin's MIDI out goes to the sender thread.
+/// The Processor Engine runs for the standalone format: each block is handed to
+/// the wrapper through its per-block steps, the way any other format adapter
+/// drives it, and the plugin's MIDI out goes to the sender thread.
 class StandaloneProcessor : public Processor
 {
 public:
@@ -22,22 +24,22 @@ public:
     void process(ProcessContext& context) noexcept override;
     void reset() noexcept override;
 
-    // Message thread (any single non-audio thread): lands at offset 0 of the next
-    // block, after the hardware events of the same offset. False when the queue
-    // is full.
+    /// Message thread (any single non-audio thread): lands at offset 0 of the next
+    /// block, after the hardware events of the same offset. False when the queue
+    /// is full.
     bool injectMidi(const MIDI::Event& event) noexcept;
 
-    // Any thread: while set, each block binds silence in place of the device's
-    // input channels, so the plugin (and the dry signal an effect passes on)
-    // hears nothing of the microphone. Takes effect from the next block.
+    /// Any thread: while set, each block binds silence in place of the device's
+    /// input channels, so the plugin (and the dry signal an effect passes on)
+    /// hears nothing of the microphone. Takes effect from the next block.
     void setInputMuted(bool muted) noexcept;
     bool isInputMuted() const noexcept;
 
-    // Any thread: from the next block, one second of a 440 Hz sine at half
-    // scale, faded in over its first tenth and out over its last quarter, is
-    // added to every output channel after the plugin has written them -- what
-    // an audio settings dialog's Test button plays. Asked again while it
-    // sounds, it starts over.
+    /// Any thread: from the next block, one second of a 440 Hz sine at half
+    /// scale, faded in over its first tenth and out over its last quarter, is
+    /// added to every output channel after the plugin has written them -- what
+    /// an audio settings dialog's Test button plays. Asked again while it
+    /// sounds, it starts over.
     void playTestTone() noexcept;
 
 private:

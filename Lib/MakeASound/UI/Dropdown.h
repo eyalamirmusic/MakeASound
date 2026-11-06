@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file Plain, reflectable data for device, rate, channel and MIDI port pickers. */
+
 #include "../Common/Common.h"
 #include "../Devices/DeviceInfo.h"
 #include "../MIDI/MidiInfo.h"
@@ -43,7 +45,7 @@ struct ToggleListInfo
     MIRO_REFLECT(items)
 };
 
-// Item ids are the Backend enumerator's value, so a selected id casts back.
+/// Item ids are the Backend enumerator's value, so a selected id casts back.
 DropdownInfo makeBackendDropdown(const Vector<Backend>& backends, Backend current);
 
 DropdownInfo makeOutputDeviceDropdown(const Vector<DeviceInfo>& devices,
@@ -56,8 +58,8 @@ DropdownInfo makeSampleRateDropdown(const DeviceInfo& device, int currentRate);
 
 DropdownInfo makeBlockSizeDropdown(const Vector<int>& sizes, int currentSize);
 
-// Channel dropdowns pack (firstChannel, count) into a single int id so they
-// ride the existing DropdownInfo.
+/// Channel dropdowns pack (firstChannel, count) into a single int id so they
+/// ride the existing DropdownInfo.
 struct ChannelSelection
 {
     int firstChannel {};
@@ -67,7 +69,7 @@ struct ChannelSelection
 int encodeChannelSelection(int firstChannel, int count);
 ChannelSelection decodeChannelSelection(int encoded);
 
-// Lists single channels and stereo pairs: 1, 2, 1/2, 3, 4, 3/4, ...
+/// Lists single channels and stereo pairs: 1, 2, 1/2, 3, 4, 3/4, ...
 DropdownInfo
     makeInputChannelDropdown(const DeviceInfo& device, int firstChannel, int count);
 

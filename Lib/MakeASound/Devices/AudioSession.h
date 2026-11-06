@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file The iOS audio session: category, routing options and what the route granted; a no-op on every other platform. */
+
 #include <Miro/Miro.h>
 
 #include "../Common/Common.h"
@@ -11,34 +13,35 @@
 namespace MakeASound
 {
 
-// What the platform's audio session lets an app be. Only iOS has one; everywhere
-// else hasAudioSession() is false and the calls below do nothing.
+/// What the platform's audio session lets an app be. Only iOS has one; everywhere
+/// else hasAudioSession() is false and the calls below do nothing.
 enum class SessionCategory
 {
-    // Output only, still audible with the ring switch silent. No microphone, so no
-    // usage description and no recording indicator.
+    /// Output only, still audible with the ring switch silent. No microphone, so no
+    /// usage description and no recording indicator.
     Playback,
 
     Record,
 
-    // The only category that can capture, and the reason a duplex app needs
-    // NSMicrophoneUsageDescription.
+    /// The only category that can capture, and the reason a duplex app needs
+    /// NSMicrophoneUsageDescription.
     PlayAndRecord,
 
-    // Output only, mixed with whatever else is playing and silenced by the switch.
+    /// Output only, mixed with whatever else is playing and silenced by the switch.
     Ambient
 };
 
 std::string getSessionCategoryName(SessionCategory category);
 
+/// How the session shares output with other apps and which routes it allows.
 struct SessionOptions
 {
-    // Leave other apps playing. Off, opening a stream stops the user's music.
+    /// Leave other apps playing. Off, opening a stream stops the user's music.
     bool mixWithOthers = false;
     bool duckOthers = false;
 
-    // PlayAndRecord routes to the receiver unless this is set, which sounds like a
-    // broken phone.
+    /// PlayAndRecord routes to the receiver unless this is set, which sounds like a
+    /// broken phone.
     bool defaultToSpeaker = true;
 
     bool allowBluetooth = true;
@@ -48,23 +51,24 @@ struct SessionOptions
         mixWithOthers, duckOthers, defaultToSpeaker, allowBluetooth, allowAirPlay)
 };
 
+/// What DeviceManager::setSessionConfig applies on every stream open.
 struct SessionConfig
 {
-    // Unset follows the stream: Playback with no input side, PlayAndRecord with one.
+    /// Unset follows the stream: Playback with no input side, PlayAndRecord with one.
     std::optional<SessionCategory> category;
 
     SessionOptions options;
 
-    // What to ask the route for. 0 follows the stream — the rate and block size the
-    // StreamConfig asked for. The route grants what it can either way, and
-    // getSessionState() says what that was.
+    /// What to ask the route for. 0 follows the stream — the rate and block size the
+    /// StreamConfig asked for. The route grants what it can either way, and
+    /// getSessionState() says what that was.
     int preferredSampleRate = 0;
     int preferredBlockSize = 0;
 
     MIRO_REFLECT(category, options, preferredSampleRate, preferredBlockSize)
 };
 
-// What the session is doing now, as opposed to what was asked of it.
+/// What the session is doing now, as opposed to what was asked of it.
 struct SessionState
 {
     bool available = false;
@@ -77,7 +81,7 @@ struct SessionState
     int sampleRate = 0;
     int blockSize = 0;
 
-    // The route's own latency, on top of whatever the stream reports.
+    /// The route's own latency, on top of whatever the stream reports.
     double outputLatencySeconds = 0.0;
     double inputLatencySeconds = 0.0;
 
@@ -92,10 +96,11 @@ struct SessionState
                  inputLatencySeconds)
 };
 
+/// True on iOS only.
 bool hasAudioSession();
 
-// Resolves an unset category from `wantsInput`, applies the rest and activates.
-// NoError where there is no session to apply it to.
+/// Resolves an unset category from `wantsInput`, applies the rest and activates.
+/// NoError where there is no session to apply it to.
 Error applySessionConfig(const SessionConfig& config, bool wantsInput);
 
 Error deactivateSession();

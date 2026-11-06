@@ -1,5 +1,7 @@
 #pragma once
 
+/** @file ResizeGrip, the corner handle an editor draws when its host's window has none. */
+
 #include "../Core/Editor.h"
 
 #include <eacp/Graphics/View/View.h>
@@ -7,10 +9,10 @@
 namespace MakeASound
 {
 
-// The bottom-right corner handle an editor draws for a host whose window has
-// none. Add it as the editor view's last child, so it sits above everything,
-// and place it at cornerOf(bounds) in the editor's layout. It draws and takes
-// the mouse only while editor.canRequestResize(). Message thread.
+/// The bottom-right corner handle an editor draws for a host whose window has
+/// none. Add it as the editor view's last child, so it sits above everything,
+/// and place it at cornerOf(bounds) in the editor's layout. It draws and takes
+/// the mouse only while editor.canRequestResize(). Message thread.
 class ResizeGrip final : public eacp::Graphics::View
 {
 public:
@@ -20,8 +22,8 @@ public:
 
     static eacp::Graphics::Rect cornerOf(const eacp::Graphics::Rect& area);
 
-    // Whether an editor should show one: it can ask for a size, and its host
-    // has no grip of its own.
+    /// Whether an editor should show one: it can ask for a size, and its host
+    /// has no grip of its own.
     static bool isWantedBy(const Editor& editor);
 
     void paint(eacp::Graphics::Context& context) override;

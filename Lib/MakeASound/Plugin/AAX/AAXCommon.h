@@ -1,7 +1,11 @@
 #pragma once
 
-// The SDK headers every adapter TU takes first. Nothing in MakeASoundPlugin ever
-// includes them, so no Avid type reaches the plugin core.
+/** @file
+    The Avid AAX SDK headers the AAX adapter includes. The SDK headers every adapter
+    source file takes first. Nothing in MakeASoundPlugin ever includes them, so no
+    Avid type reaches the plugin core.
+*/
+
 #include <AAX.h>
 #include <AAX_Enums.h>
 #include <AAX_Errors.h>

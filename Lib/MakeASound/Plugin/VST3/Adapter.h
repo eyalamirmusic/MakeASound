@@ -1,5 +1,9 @@
 #pragma once
 
+/** @file
+    The VST3 component and controller class that runs every MakeASound plugin.
+*/
+
 #include "VST3Common.h"
 #include "../Host/PluginWrapper.h"
 
@@ -14,14 +18,14 @@
 namespace MakeASound::VST3
 {
 
-// The one VST3 class every plugin ships as: component and controller in one
-// object over a PluginWrapper, turning host calls into the wrapper's per-block
-// steps. MIDI controllers arrive through IMidiMapping on hidden shadow
-// parameters when the description asks for them (vst3MidiControllersFor()); the
-// plugin's own edits leave through HostEditListener, the host's channel
-// context reaches the plugin's trackInfo() through IInfoListener, and the name
-// initialize()'s IHostApplication gives reaches its hostName(). The parameter
-// groups are IUnitInfo units (unitsFor()), which EditControllerEx1 answers.
+/// The one VST3 class every plugin ships as: component and controller in one
+/// object over a PluginWrapper, turning host calls into the wrapper's per-block
+/// steps. MIDI controllers arrive through IMidiMapping on hidden shadow
+/// parameters when the description asks for them (vst3MidiControllersFor()); the
+/// plugin's own edits leave through HostEditListener, the host's channel
+/// context reaches the plugin's trackInfo() through IInfoListener, and the name
+/// initialize()'s IHostApplication gives reaches its hostName(). The parameter
+/// groups are IUnitInfo units (unitsFor()), which EditControllerEx1 answers.
 class Adapter
     : public Vst::SingleComponentEffect
     , public Vst::IMidiMapping
@@ -29,13 +33,13 @@ class Adapter
     , public HostEditListener
 {
 public:
-    // Installs itself as the plugin's HostEditListener; the destructor removes it.
-    // `identity` is the description's (parameterIdentityFor), which names every
-    // ParamID; under a JUCE scheme every parameter is registered, a
-    // non-automatable one without kCanAutomate, as JUCE's wrapper does.
-    // `midiControllers` is vst3MidiControllersFor(description): whether the
-    // shadow parameters exist and IMidiMapping maps onto them. Off, the
-    // interface is still answered, but every assignment is kResultFalse.
+    /// Installs itself as the plugin's HostEditListener; the destructor removes it.
+    /// `identity` is the description's (parameterIdentityFor), which names every
+    /// ParamID; under a JUCE scheme every parameter is registered, a
+    /// non-automatable one without kCanAutomate, as JUCE's wrapper does.
+    /// `midiControllers` is vst3MidiControllersFor(description): whether the
+    /// shadow parameters exist and IMidiMapping maps onto them. Off, the
+    /// interface is still answered, but every assignment is kResultFalse.
     explicit Adapter(OwningPointer<Plugin> plugin,
                      ParameterIdentity identity = {},
                      bool midiControllers = false);
@@ -44,16 +48,16 @@ public:
     Plugin& plugin() noexcept;
     PluginWrapper& wrapper() noexcept;
 
-    // IPluginBase
+    /// IPluginBase
     tresult PLUGIN_API initialize(FUnknown* context) override;
     tresult PLUGIN_API terminate() override;
 
-    // IComponent
+    /// IComponent
     tresult PLUGIN_API setActive(TBool state) override;
     tresult PLUGIN_API setState(IBStream* state) override;
     tresult PLUGIN_API getState(IBStream* state) override;
 
-    // IAudioProcessor
+    /// IAudioProcessor
     tresult PLUGIN_API setBusArrangements(Vst::SpeakerArrangement* inputs,
                                           int32 numIns,
                                           Vst::SpeakerArrangement* outputs,
@@ -64,23 +68,23 @@ public:
     uint32 PLUGIN_API getTailSamples() override;
     tresult PLUGIN_API process(Vst::ProcessData& data) noexcept override;
 
-    // IEditController
+    /// IEditController
     tresult PLUGIN_API setComponentState(IBStream* state) override;
     Vst::ParamValue PLUGIN_API getParamNormalized(Vst::ParamID id) override;
     tresult PLUGIN_API setParamNormalized(Vst::ParamID id,
                                           Vst::ParamValue value) override;
     Steinberg::IPlugView* PLUGIN_API createView(FIDString name) override;
 
-    // IMidiMapping
+    /// IMidiMapping
     tresult PLUGIN_API getMidiControllerAssignment(int32 busIndex,
                                                    Steinberg::int16 channel,
                                                    Vst::CtrlNumber controller,
                                                    Vst::ParamID& id) override;
 
-    // IInfoListener, UI thread
+    /// IInfoListener, UI thread
     tresult PLUGIN_API setChannelContextInfos(Vst::IAttributeList* list) override;
 
-    // HostEditListener, message thread
+    /// HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
     void performParameterEdit(int index, float normalized) noexcept override;
     void endParameterEdit(int index) noexcept override;

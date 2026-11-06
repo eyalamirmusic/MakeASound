@@ -1,8 +1,12 @@
 #pragma once
 
-// First in every TU of the VST3 target: this header renames IEditController's
-// setState/getState while it includes ivsteditcontroller.h, and any earlier
-// include of that header defeats the rename.
+/** @file
+    The VST3 SDK headers every VST3 adapter source includes first. First in every
+    source file of the VST3 target: this header renames IEditController's
+    setState/getState while it includes ivsteditcontroller.h, and any earlier
+    include of that header defeats the rename.
+*/
+
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 
 namespace MakeASound::VST3

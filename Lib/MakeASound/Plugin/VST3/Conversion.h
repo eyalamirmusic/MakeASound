@@ -1,5 +1,9 @@
 #pragma once
 
+/** @file
+    Conversions between VST3 process data and MakeASound's playhead and MIDI events.
+*/
+
 #include "VST3Common.h"
 #include "HostParameters.h"
 #include "../Core/TrackInfo.h"
@@ -16,10 +20,10 @@ namespace MakeASound::VST3
 
 Playhead toPlayhead(const Vst::ProcessContext& context) noexcept;
 
-// False for an event with no MIDI 1.0 meaning here.
+/// False for an event with no MIDI 1.0 meaning here.
 bool fromVst3(const Vst::Event& in, MIDI::Event& out) noexcept;
 
-// A SysEx's bytes point into `in`, which must outlive `out`.
+/// A SysEx's bytes point into `in`, which must outlive `out`.
 bool toVst3(const MIDI::Event& in, int bus, Vst::Event& out) noexcept;
 
 MIDI::Event
@@ -27,8 +31,8 @@ MIDI::Event
 
 Vst::SpeakerArrangement arrangementFor(int numChannels) noexcept;
 
-// The channel context IInfoListener receives, valid: a key the host left out
-// keeps its default.
+/// The channel context IInfoListener receives, valid: a key the host left out
+/// keeps its default.
 TrackInfo toTrackInfo(Vst::IAttributeList& list);
 
 } // namespace MakeASound::VST3
