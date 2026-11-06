@@ -77,13 +77,17 @@ set(MAKEASOUND_TEST_SOURCES
         EngineTests.cpp
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
+        MiniAudioNotificationTests.cpp
         MidiParserTests.cpp
         MidiFileTests.cpp
         MidiManagerTests.cpp
         RealtimeTests.cpp
         TestSynthTests.cpp)
 
-set(MAKEASOUND_TEST_TARGETS MakeASound MakeASoundDSP)
+# MiniAudioNotificationTests.cpp (and AllocationTests.cpp, below) drive the miniaudio
+# backend behind DeviceManager's pimpl directly, so they include the backend's header
+# and need miniaudio's.
+set(MAKEASOUND_TEST_TARGETS MakeASound MakeASoundDSP miniaudio)
 
 # A Debug assertion on Windows otherwise opens a dialog, which a CI runner never
 # dismisses; this TU routes it to stderr and aborts, so a case fails instead.
@@ -384,11 +388,6 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
             RealtimeThreadAllocationTests.cpp)
 
     list(APPEND MAKEASOUND_TEST_TARGETS AllocationsChecker)
-
-    # AllocationTests.cpp drives the miniaudio backend's own callback (behind
-    # DeviceManager's pimpl) on a stream opened on miniaudio's null backend, so
-    # it includes the backend's header and needs miniaudio's.
-    list(APPEND MAKEASOUND_TEST_TARGETS miniaudio)
 
     if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_SOURCES PluginAllocationTests.cpp)

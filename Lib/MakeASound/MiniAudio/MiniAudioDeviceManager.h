@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -53,11 +54,18 @@ struct DeviceManager
     void onCallback(void* output, const void* input, ma_uint32 frameCount);
     void onNotification(ma_device_notification_type type);
 
+    // Delivered on whatever OS thread raised the notification, so it is installed
+    // under the same lock that guards the queue: a host swapping it races a hotplug
+    // otherwise. Callable from any thread, the callback itself included. A
+    // notification already past that lock when this is called still goes to the
+    // callback it found there, once, possibly after this returns; every later one
+    // sees the new callback.
+    void setNotificationCallback(const NotificationCallback& cb);
+
     // Everything queued since the last call, in order, for whatever thread asks.
     Vector<DeviceNotification> takeNotifications();
 
     Callback callback;
-    NotificationCallback notificationCallback;
     StreamConfig config;
 
     // Applied by every open, recovery's included, so an interruption that hands the
@@ -190,6 +198,13 @@ private:
     // queued here for a host thread that would rather not be that thread.
     std::mutex notificationMutex;
     Vector<DeviceNotification> pendingNotifications;
+
+    // Guarded by notificationMutex. Shared rather than held by value so notifyHost
+    // takes its copy without allocating: copying a std::function can, and a
+    // notification can come from the audio thread (see the constructor). The last
+    // holder destroys it, which is a notifying thread only when the callback was
+    // replaced while that thread was delivering to it.
+    std::shared_ptr<const NotificationCallback> notificationCallback;
 
     std::thread recoveryThread;
     std::mutex recoveryMutex;

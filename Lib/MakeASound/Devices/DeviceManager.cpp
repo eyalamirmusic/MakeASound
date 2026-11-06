@@ -130,7 +130,7 @@ void DeviceManager::setNotificationCallback(const NotificationCallback& cb) cons
 {
     // Straight onto the backend rather than forwarded at openStream, so it survives
     // every re-open and is in place before the first one.
-    pimpl->notificationCallback = cb;
+    pimpl->setNotificationCallback(cb);
 }
 
 Vector<DeviceNotification> DeviceManager::drainNotifications() const
