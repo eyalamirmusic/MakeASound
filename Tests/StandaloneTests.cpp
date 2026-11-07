@@ -4,6 +4,7 @@
 
 #include "TestPlugins.h"
 #include "JuceFixtures.h"
+#include "MidiRequirement.h"
 
 #include <MakeASound/Plugin/Standalone/StandaloneProcessor.h>
 #include <MakeASound/Plugin/Standalone/MidiSender.h>
@@ -304,6 +305,14 @@ auto tInjectedFull = test("Standalone/injectionRefusesPastTheQueue") = []
 
 const std::string loopbackName = "MakeASound Standalone Test";
 
+// Where a case below finds no virtual port or hears nothing back: a skip, or a
+// failure when MAKEASOUND_REQUIRE_MIDI=1 (see MidiRequirement.h).
+using MidiRequirement::measured;
+using MidiRequirement::unavailable;
+
+constexpr auto noVirtualPorts = "no virtual MIDI ports";
+constexpr auto portNeverSeen = "the other client's virtual port never appeared";
+
 bool openOutputTo(MidiManager& midi, const std::string& name)
 {
     for (const auto& port: midi.getOutputPorts())
@@ -319,10 +328,10 @@ auto tHardwareAndInjected =
     auto rig = Rig<SynthPlugin> {};
 
     if (!rig.midi.isAvailable() || !rig.midi.openVirtualInput(loopbackName))
-        return;
+        return unavailable(noVirtualPorts);
 
     if (!openOutputTo(rig.midi, loopbackName))
-        return;
+        return unavailable(portNeverSeen);
 
     auto stream = FakeStream {0, 2};
 
@@ -371,8 +380,11 @@ auto tHardwareAndInjected =
     check(injectedAtZero);
     check(sorted);
 
-    if (sent == Error::NoError && hardware > 0)
-        check(hardware == 1);
+    if (sent != Error::NoError || hardware == 0)
+        return unavailable("the loopback note never arrived");
+
+    measured();
+    check(hardware == 1);
 };
 
 auto tMidiOut = test("Standalone/theEchoedMidiOutLeavesThroughTheSender") = []
@@ -382,7 +394,7 @@ auto tMidiOut = test("Standalone/theEchoedMidiOutLeavesThroughTheSender") = []
     auto receiverName = loopbackName + " Receiver";
 
     if (!receiver.isAvailable())
-        return;
+        return unavailable(noVirtualPorts);
 
     auto opened = receiver.openVirtualInput(
         receiverName,
@@ -393,12 +405,12 @@ auto tMidiOut = test("Standalone/theEchoedMidiOutLeavesThroughTheSender") = []
         });
 
     if (!opened)
-        return;
+        return unavailable(noVirtualPorts);
 
     auto rig = Rig<SynthPlugin> {};
 
     if (!openOutputTo(rig.midi, receiverName))
-        return;
+        return unavailable(portNeverSeen);
 
     auto stream = FakeStream {0, 2};
 
@@ -422,6 +434,7 @@ auto tMidiOut = test("Standalone/theEchoedMidiOutLeavesThroughTheSender") = []
     rig.midi.closeOutput();
     receiver.closeAllInputs();
 
+    measured();
     check(noteOns == 1);
 };
 
@@ -1081,7 +1094,7 @@ auto tHostVirtualOut =
     {
         check(host.virtualMidiOutput().empty());
         check(!host.midi().isOutputOpen());
-        return;
+        return unavailable(noVirtualPorts);
     }
 
     check(host.virtualMidiOutput() == name);
@@ -1092,7 +1105,7 @@ auto tHostVirtualOut =
     auto noteOns = std::atomic<int> {0};
 
     if (!subscribeTo(receiver, name, noteOns))
-        return;
+        return unavailable(portNeverSeen);
 
     // The stream: the device's own when there is one, else blocks driven here.
     host.start();
@@ -1113,6 +1126,7 @@ auto tHostVirtualOut =
         std::this_thread::sleep_for(5ms);
     }
 
+    measured();
     check(noteOns == 1);
 
     // A picked port replaces it.
@@ -1133,8 +1147,10 @@ auto tHostVirtualSaved = test("Standalone/hostReopensTheVirtualOutputItSaved") =
         host.start();
 
         if (host.setVirtualMidiOutput(name) != Error::NoError)
-            return;
+            return unavailable(noVirtualPorts);
     }
+
+    measured();
 
     auto loaded = loadSettings(file.path);
     check(loaded.has_value());
@@ -1563,7 +1579,7 @@ auto tHostReplugInput = test("Standalone/pollReopensAPickedInputPluggedBackIn") 
 
     if (!keyboard.isAvailable()
         || keyboard.openVirtualOutput(name) != Error::NoError)
-        return;
+        return unavailable(noVirtualPorts);
 
     auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), file.path};
     host.start();
@@ -1572,7 +1588,9 @@ auto tHostReplugInput = test("Standalone/pollReopensAPickedInputPluggedBackIn") 
     auto inputs = [&] { return host.midi().getInputPorts(); };
 
     if (!eventually([&] { return (port = portNamed(inputs(), name)).has_value(); }))
-        return;
+        return unavailable(portNeverSeen);
+
+    measured();
 
     check(host.setMidiInputOpen(port->id, true) == Error::NoError);
     check(host.wantedMidiInputs() == Vector<std::string> {port->name});
@@ -1629,7 +1647,7 @@ auto tHostReplugOutput =
     auto synth = MidiManager {};
 
     if (!synth.isAvailable() || !synth.openVirtualInput(name, countNoteOns))
-        return;
+        return unavailable(noVirtualPorts);
 
     auto host = StandaloneHost {EA::makeOwned<SynthPlugin>(), {}};
     host.start();
@@ -1638,7 +1656,9 @@ auto tHostReplugOutput =
     auto outputs = [&] { return host.midi().getOutputPorts(); };
 
     if (!eventually([&] { return (port = portNamed(outputs(), name)).has_value(); }))
-        return;
+        return unavailable(portNeverSeen);
+
+    measured();
 
     check(host.setMidiOutput(port->id) == Error::NoError);
     check(host.wantedMidiOutput() == port->name);

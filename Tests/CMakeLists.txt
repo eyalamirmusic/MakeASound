@@ -383,7 +383,9 @@ endif ()
 # ports, so there its input path is covered by the parser tests alone and every
 # loopback case returns without asserting. A Linux box with no sequencer -
 # a container with no /dev/snd/seq - is in the same position, and skips the same
-# way rather than failing.
+# way rather than failing. Linux CI loads snd-seq-dummy and sets
+# MAKEASOUND_REQUIRE_MIDI=1, which turns those skips into failures
+# (MidiRequirement.h).
 if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(ScopedMemoryAllocations REQUIRED)
 

@@ -209,6 +209,38 @@ jobs:
         shell: bash
         run: cmake --build build
 
+      # The ALSA backend's loopback cases need a sequencer, which a runner has
+      # only once snd-seq is loaded: snd-seq-dummy brings it in (its module lives
+      # in linux-modules-extra on the Azure kernels), the device is opened to the
+      # runner's user, and MAKEASOUND_REQUIRE_MIDI=1 turns every case that would
+      # otherwise return early for want of a loopback into a failure. A runner
+      # that cannot provide one fails here rather than passing on skips.
+      - name: Load the ALSA sequencer (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Kernel: $(uname -r)"
+          if ! sudo modprobe snd-seq-dummy; then
+            echo "snd-seq-dummy is not in the base modules; installing the extras"
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe snd-seq-dummy
+          fi
+          for attempt in $(seq 1 50); do
+            [ -e /dev/snd/seq ] && break
+            sleep 0.1
+          done
+          if [ ! -e /dev/snd/seq ]; then
+            echo "ERROR: /dev/snd/seq did not appear"; exit 1
+          fi
+          sudo chmod a+rw /dev/snd/seq
+          if [ ! -r /dev/snd/seq ] || [ ! -w /dev/snd/seq ]; then
+            echo "ERROR: /dev/snd/seq is not readable and writable"; exit 1
+          fi
+          ls -l /dev/snd/
+          cat /proc/asound/seq/clients || true
+          echo "MAKEASOUND_REQUIRE_MIDI=1" >> "$GITHUB_ENV"
+
       # --no-tests=error so a job that stops producing tests fails loudly instead
       # of passing vacuously; --timeout so a case that hangs (a Windows assertion
       # dialog, a wait that never ends) fails in two minutes rather than ctest's
@@ -220,6 +252,23 @@ jobs:
         run: |
           ctest --test-dir build --build-config RelWithDebInfo \
                 --output-on-failure --no-tests=error --timeout 120 -j 4
+
+      # Which MIDI cases reached what they measure against the sequencer: each
+      # prints a midi-required line on the way (Tests/MidiRequirement.h), which
+      # ctest keeps in LastTest.log even for a case that passed. None at all
+      # would mean the requirement never reached the tests.
+      - name: MIDI cases that ran against the sequencer (Linux)
+        if: runner.os == 'Linux' && !cancelled()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ran=$(awk '/^midi-required: measured/ { pending = 1; next }
+                     pending && /^ *(PASS|FAIL) / { print $1, $2; pending = 0 }' \
+                build/Testing/Temporary/LastTest*.log | sort)
+          echo "$ran"
+          count=$(printf '%s\n' "$ran" | grep -c . || true)
+          echo "$count MIDI cases measured against the ALSA sequencer"
+          [ "$count" -gt 0 ] || { echo "ERROR: no MIDI case measured anything"; exit 1; }
 
       # Both example bundles at strictness 10, built by the default target above
       # and handed over as the folder they land in, every editor opened.
