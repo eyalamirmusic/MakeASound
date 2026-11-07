@@ -1,40 +1,17 @@
 #pragma once
 
 #include "ALSA-Backend.h"
-#include "../MIDI/MidiBackend.h"
-#include "../MIDI/MidiParser.h"
+#include "../MIDI/MidiBackendWithInputs.h"
 #include "../Realtime/SPSCQueue.h"
-#include "../Realtime/SpinLock.h"
 
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <thread>
-#include <vector>
 
 namespace MakeASound::ALSA
 {
-
-constexpr auto ignoreClockFlag = std::uint8_t {1};
-constexpr auto ignoreActiveSenseFlag = std::uint8_t {2};
-
-// The only place the input thread and the host's meet. notifyHost takes a lock,
-// which that thread may not, so it leaves what it saw here and the sweeper turns
-// it into notifications: a coalescing flag for the drops and overflows a stalled
-// host could otherwise raise per message, a queue for the hotplug pair, where
-// the order is the news. The mask goes the other way, read once per event so a
-// setIgnoredTypes() reaches ports that are already open.
-struct SharedState
-{
-    static constexpr auto hotplugCapacity = 64;
-
-    std::atomic<bool> overflowed {false};
-    std::atomic<bool> droppedSysEx {false};
-    std::atomic<std::uint8_t> ignoredTypes {ignoreClockFlag | ignoreActiveSenseFlag};
-
-    SPSCQueue<MidiNotification, hotplugCapacity> hotplug;
-};
 
 // The descriptor the poll loop watches alongside the sequencer's, so parking the
 // input thread or shutting it down costs a write rather than the poll's timeout.
@@ -56,29 +33,13 @@ private:
     int fd {-1};
 };
 
-// One open input: what it listens to, the parser that turns what arrives into
-// whole messages, and the two ways a message leaves - straight to a callback on
-// the input thread, or into the queue drainMessages() empties on the host's.
-// Everything that thread touches is sized when the port opens, and only for the
-// mode the port is in: queue mode gets the queue, callback mode a scratch message
-// as large as the SysEx cap, and neither pays for the other.
+// One open input: what it listens to, and the pipe what arrives goes through on
+// the input thread.
 struct InputPort
 {
-    static constexpr auto queueCapacity = 2048;
-
-    using Queue = SPSCQueue<MidiInputEvent, queueCapacity>;
-
     ~InputPort();
 
-    void open(int bytesForSysEx, MidiTimePoint epochToUse, SharedState& state);
-    void receive(Span<const std::uint8_t> bytes, MidiTimePoint timestamp);
-
-    // Runs the SysEx timeout against a dump nothing is adding to any more, which
-    // is what the input thread does with a poll that timed out.
-    void tick(MidiTimePoint timestamp);
-
-    int portId {};
-    MidiInputCallback callback;
+    MidiInputPipe pipe;
 
     snd_seq_t* seq {};
 
@@ -88,26 +49,13 @@ struct InputPort
     Address source;
     int sharedInputPort {-1};
     int seqPort {-1};
-
-    MidiParser parser;
-    std::vector<std::uint8_t> sysExStorage;
-    MidiMessage scratch;
-    MidiTimePoint epoch {};
-    SharedState* shared {};
-
-    // Queue mode only; null where `callback` took the other path.
-    OwningPointer<Queue> queue;
-
-private:
-    void deliver(const MidiMessageView& message);
 };
 
-struct MidiManager : MidiBackend
+struct MidiManager : MidiBackendWithInputs<InputPort>
 {
     MidiManager();
     ~MidiManager() override;
 
-    Error getLastError() const override;
     bool isAvailable() const override;
 
     Vector<MidiPortInfo> getInputPorts() override;
@@ -116,11 +64,10 @@ struct MidiManager : MidiBackend
     Error openInput(int portId, const MidiInputCallback& cb) override;
     std::optional<int> openVirtualInput(const std::string& name,
                                         const MidiInputCallback& cb) override;
+
+    // The shared close, with the input thread parked around it.
     void closeInput(int portId) override;
     void closeAllInputs() override;
-    bool isInputOpen(int portId) const override;
-    Vector<int> getOpenInputPorts() const override;
-    void drainMessages(Vector<MidiInputEvent>& out) override;
 
     Error openOutput(int portId) override;
     Error openVirtualOutput(const std::string& name) override;
@@ -128,8 +75,6 @@ struct MidiManager : MidiBackend
     bool isOutputOpen() const override;
 
     Error sendMessage(const std::uint8_t* bytes, std::size_t size) override;
-
-    void setIgnoredTypes(bool clock, bool activeSense) override;
 
 private:
     // The open-port list belongs to the input thread while it runs, and a lock is
@@ -163,20 +108,21 @@ private:
     InputPort* findPort(const snd_seq_event_t& event);
 
     void runSweeper();
+
+    // The hotplug pair first, in the order it arrived, then the input flags.
     void publishFlags();
 
     void park();
     void resume();
 
     InputPort* createInput(int portId, const MidiInputCallback& cb);
-    void removeInput(int portId);
 
     Address resolveInput(int portId);
     Address resolveOutput(int portId);
     int getSendPort() const;
 
+    using MidiBackendWithInputs::record;
     Error record(int result);
-    Error record(Error error);
 
     snd_seq_t* seq {};
     int clientId {-1};
@@ -195,13 +141,6 @@ private:
     // virtual one of ours.
     Address destination;
 
-    EA::OwnedVector<InputPort> inputs;
-
-    // Guards `inputs` against the thread draining it, which parking the input
-    // thread does nothing for. An open or close holds it; drainMessages() only
-    // ever tries for it, so the audio thread never waits.
-    EA::Locks::PrimitiveSpinLock inputsLock;
-
     MidiPortRegistry inputRegistry;
     MidiPortRegistry outputRegistry;
 
@@ -210,7 +149,12 @@ private:
     Vector<Address> inputAddresses;
     Vector<Address> outputAddresses;
 
-    SharedState shared;
+    static constexpr auto hotplugCapacity = 64;
+
+    // What the input thread saw come and go, for the sweeper to raise: a queue
+    // rather than a coalescing flag like the input ones, since for the hotplug
+    // pair the order is the news.
+    SPSCQueue<MidiNotification, hotplugCapacity> hotplug;
 
     WakeFd wake;
     std::thread inputThread;
@@ -225,15 +169,8 @@ private:
     std::mutex sweepMutex;
     std::condition_variable sweepSignal;
 
-    // MidiMessage::timestamp is seconds from here, on MidiManager::now()'s clock.
-    MidiTimePoint epoch;
-
-    // Where the queue's own clock reads zero, on that same clock.
+    // Where the queue's own clock reads zero, on the clock `epoch` is on.
     MidiTimePoint queueEpoch;
-
-    // sendMessage() is callable from an audio thread and getLastError() from the
-    // host's, so this is read and written across threads.
-    std::atomic<Error> lastError {Error::NoError};
 
     // Virtual inputs have no system port, so they get negative ids that cannot
     // collide with the registry slots getInputPorts() hands out.

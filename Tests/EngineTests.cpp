@@ -6,6 +6,8 @@
 // to whatever channels the device has, what gets cleared, and that MIDI from the
 // manager lands in the block it belongs to.
 
+#include "MidiRequirement.h"
+
 #include <MakeASound/MakeASound.h>
 
 #include <NanoTest/NanoTest.h>
@@ -809,7 +811,7 @@ auto tMidiAlignment = test("Engine/loopbackMidiLandsInsideTheBlock") = []
     auto rig = Rig {};
 
     if (!openLoopback(rig.midi))
-        return;
+        return MidiRequirement::unavailable("no virtual-port MIDI loopback");
 
     auto processor = FakeProcessor {};
     processor.layout = BusLayout::instrument();
@@ -852,7 +854,9 @@ auto tMidiAlignment = test("Engine/loopbackMidiLandsInsideTheBlock") = []
     rig.midi.closeAllInputs();
 
     if (sent != Error::NoError || noteOns == 0)
-        return;
+        return MidiRequirement::unavailable("the loopback note never arrived");
+
+    MidiRequirement::measured();
 
     check(noteOns == 1);
     check(others == 0);
