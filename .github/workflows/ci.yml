@@ -220,12 +220,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Kernel: $(uname -r)"
+          kernel=$(uname -r)
+          echo "Kernel: $kernel"
+          grep -E '^(# )?CONFIG_SND(_SEQUENCER|_SEQ_DUMMY|_TIMER)?[= ]' \
+            "/boot/config-$kernel" || echo "(no CONFIG_SND lines in /boot/config-$kernel)"
+          grep -E 'sound/' "/lib/modules/$kernel/modules.builtin" | head -5 || true
+
           if ! sudo modprobe snd-seq-dummy; then
-            echo "snd-seq-dummy is not in the base modules; installing the extras"
-            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
-            sudo modprobe snd-seq-dummy
+            extras="linux-modules-extra-$kernel"
+            if apt-cache show "$extras" > /dev/null 2>&1; then
+              sudo apt-get install -y "$extras"
+            else
+              echo "No $extras in the runner's apt sources. What there is:"
+              apt-cache search --names-only '^linux-modules-extra-.*azure' \
+                | sort -V | tail -10 || true
+              apt-cache policy "linux-image-$kernel" "linux-modules-$kernel" || true
+              find "/lib/modules/$kernel" -path '*sound*' -name '*.ko*' | head -10 || true
+            fi
+            sudo modprobe snd-seq-dummy \
+              || { echo "ERROR: snd-seq-dummy cannot be loaded on $kernel"; exit 1; }
           fi
+
           for attempt in $(seq 1 50); do
             [ -e /dev/snd/seq ] && break
             sleep 0.1
@@ -258,7 +273,7 @@ jobs:
       # ctest keeps in LastTest.log even for a case that passed. None at all
       # would mean the requirement never reached the tests.
       - name: MIDI cases that ran against the sequencer (Linux)
-        if: runner.os == 'Linux' && !cancelled()
+        if: runner.os == 'Linux' && !cancelled() && env.MAKEASOUND_REQUIRE_MIDI == '1'
         shell: bash
         run: |
           set -euo pipefail
