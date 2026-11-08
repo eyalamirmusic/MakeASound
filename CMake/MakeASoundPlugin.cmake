@@ -111,7 +111,10 @@
 # ORIENTATION, which shape the app (FATAL_ERROR otherwise). The extension's code
 # and class names are still this plugin's own.
 
-# The Apple development team an iOS tree signs with under the Xcode generator.
+# The Apple development team an iOS tree signs with under the Xcode generator. A
+# consumer must set it for a signed device build or an archive to export: empty,
+# a device build is not signed, whatever CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM
+# says, since the targets' own signing settings override the project's.
 set(MAKEASOUND_IOS_TEAM "" CACHE STRING
         "Apple development team id for signing iOS apps and their AUv3 under Xcode")
 set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
@@ -272,7 +275,15 @@ function(makeasound_add_plugin name)
                         MACOSX_BUNDLE_GUI_IDENTIFIER "${ARG_BUNDLE_ID}"
                         MACOSX_BUNDLE_BUNDLE_VERSION "${ARG_VERSION}"
                         MACOSX_BUNDLE_SHORT_VERSION_STRING "${ARG_VERSION}"
-                        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${ARG_BUNDLE_ID}")
+                        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${ARG_BUNDLE_ID}"
+                        # Installed, so that `xcodebuild archive` keeps it: the
+                        # archive holds only installed products, and CMake leaves
+                        # an app's INSTALL_PATH empty, which Xcode reads as
+                        # SKIP_INSTALL, archiving nothing it could export. On
+                        # macOS too, for a Developer ID or App Store archive. The
+                        # extensions an iOS app embeds stay SKIP_INSTALL.
+                        XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
+                        XCODE_ATTRIBUTE_SKIP_INSTALL NO)
             endif ()
 
             eacp_set_gui_subsystem(${target})
