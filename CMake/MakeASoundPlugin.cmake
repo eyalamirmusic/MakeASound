@@ -262,9 +262,17 @@ function(makeasound_add_plugin name)
                     MakeASoundStandalone ${ARG_STANDALONE_LIBRARIES} ${name})
 
             # Set before eacp_set_gui_subsystem, which reads both into AppInfo.
+            # The program database and import library are named apart, as the
+            # VST3's are: the app is built in the core's folder, so when
+            # OUTPUT_NAME is the plugin's own name they would be <name>.pdb, the
+            # core's TARGET_PDB, and <name>.lib, the core archive the app links,
+            # which link.exe refuses to write over (LNK1149) should the app ever
+            # export a symbol.
             set_target_properties(${target} PROPERTIES
                     FOLDER "${ARG_FOLDER}"
                     OUTPUT_NAME "${ARG_OUTPUT_NAME}"
+                    ARCHIVE_OUTPUT_NAME "${ARG_OUTPUT_NAME}-Standalone"
+                    PDB_NAME "${ARG_OUTPUT_NAME}-Standalone"
                     MACOSX_BUNDLE_BUNDLE_NAME "${ARG_OUTPUT_NAME}"
                     EACP_COMPANY_NAME "${ARG_COMPANY}"
                     EACP_APP_VERSION "${ARG_VERSION}")
