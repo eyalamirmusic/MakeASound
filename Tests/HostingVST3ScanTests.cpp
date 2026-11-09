@@ -6,6 +6,8 @@
 
 #include <ScanProtocol/ScanWorker.h>
 
+#include <eacp/Core/Utils/FilePath.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <chrono>
@@ -29,11 +31,12 @@ namespace
 {
 namespace fs = std::filesystem;
 
+// Spelled as the module walk spells what it finds: UTF-8 with '/'.
 std::string fixture(const char* name)
 {
     const auto folder = fs::path(MAKEASOUND_HOST_FIXTURE_VST3_DIR);
 
-    return (folder / (std::string(name) + ".vst3")).string();
+    return eacp::FilePath(folder / (std::string(name) + ".vst3")).str();
 }
 
 fs::path freshFolder(const char* name)

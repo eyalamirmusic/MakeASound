@@ -31,7 +31,9 @@ ModuleStamp moduleStamp(std::string_view path);
 // visited. A module is never descended into, since a bundle can hold helper
 // bundles that are not loadable on their own. Missing or unreadable folders are
 // skipped, and a search path that is itself a module counts as one. The result
-// is deduplicated and sorted, so the same tree gives the same list every time.
+// is deduplicated by pathKey and sorted, so the same tree gives the same list
+// every time, and each module is spelled as pathText spells it: UTF-8 with '/'
+// separators on every platform.
 Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPaths,
                                              std::string_view extension);
 

@@ -3,6 +3,7 @@
 #include "VST3Classes.h"
 #include "VST3HostedPlugin.h"
 #include "VST3Strings.h"
+#include "../PathText.h"
 #include "../Scan/Scanner.h"
 
 #include <public.sdk/source/common/memorystream.h>
@@ -130,7 +131,7 @@ public:
     {
         namespace fs = std::filesystem;
 
-        auto path = fs::path(bundle);
+        auto path = stdPath(bundle);
         auto error = std::error_code();
         previous = fs::current_path(error);
 
