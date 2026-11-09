@@ -1,4 +1,5 @@
 #include "FormatManager.h"
+#include "PathText.h"
 #include "Scan/Scanner.h"
 
 #include <filesystem>
@@ -10,9 +11,7 @@ bool HostFormat::targetExists(std::string_view target) const
 {
     auto ec = std::error_code();
 
-    return !target.empty()
-           && std::filesystem::exists(std::filesystem::path(std::string(target)), ec)
-           && !ec;
+    return !target.empty() && std::filesystem::exists(stdPath(target), ec) && !ec;
 }
 
 ModuleStamp HostFormat::stamp(std::string_view target) const

@@ -8,6 +8,9 @@
 
 #include <Miro/Reflection/Serialize.h>
 
+#include <eacp/Core/Utils/FilePath.h>
+#include <eacp/Core/Utils/StdPath.h>
+
 #include <NanoTest/NanoTest.h>
 
 #include <filesystem>
@@ -44,6 +47,12 @@ fs::path freshFolder(const char* name)
     removeFolder(folder);
     fs::create_directories(folder);
     return folder;
+}
+
+// How the module walk spells what it finds: UTF-8 with '/' on every platform.
+std::string walkText(const fs::path& path)
+{
+    return eacp::FilePath(path).str();
 }
 
 // A bundle-shaped module with a binary of `bytes` bytes. The size is what a
@@ -241,6 +250,88 @@ auto tRoundTrip = test("HostingCache/aCacheRoundTripsThroughItsFile") = []
     check(plugins[0].classId == "ABCD");
     check(plugins[0].isInstrument());
     check(reloaded.modulesNeedingScan({module}).empty());
+
+    removeFolder(folder);
+};
+
+// A cache holds one entry per module (per pathKey, PathText.h). A file an older
+// build wrote with a module twice loads with one entry for it, so the module
+// is listed, found and evicted once, and the next save writes it once.
+auto tDuplicates = test("HostingCache/aModuleListedTwiceInTheFileLoadsOnce") = []
+{
+    const auto folder = freshFolder("duplicates");
+    const auto cachePath = (folder / "Plugins.json").string();
+    const auto twice = walkText(folder / "Twice.vst3");
+    const auto once = walkText(folder / "Once.vst3");
+
+    {
+        auto old = PluginCacheDocument();
+        old.modules.add(makeScan(twice, makeDescription("Twice", twice, "T1")));
+        old.modules.add(makeScan(once, makeDescription("Once", once, "O1")));
+        old.modules.add(makeFailure(twice, false));
+        old.modules.add(makeScan(twice, makeDescription("Twice", twice, "T2")));
+
+        auto out = std::ofstream(cachePath, std::ios::binary);
+        out << Miro::toJSONString(old, 2);
+    }
+
+    auto cache = PluginCache(cachePath);
+    check(cache.load());
+    check(cache.document().modules.size() == 2);
+    check(cache.plugins().size() == 2);
+
+    const auto* entry = cache.find(twice);
+    check(entry != nullptr && entry->succeeded());
+    check(entry != nullptr && entry->classes[0].classId == "T1");
+    check(!cache.isBlacklisted(twice));
+
+    check(cache.save());
+
+    auto reloaded = PluginCache(cachePath);
+    check(reloaded.load());
+    check(reloaded.document().modules.size() == 2);
+
+    reloaded.removeMissing({once});
+    check(reloaded.document().modules.size() == 1);
+    check(reloaded.plugins().size() == 1);
+
+    removeFolder(folder);
+};
+
+// Of a module's entries, the one that scanned survives, even when a failure came
+// first: the old cache listed its classes, and the loaded one must too.
+auto tDuplicateFailureFirst =
+    test("HostingCache/aModuleListedTwiceKeepsTheEntryThatScanned") = []
+{
+    const auto folder = freshFolder("duplicateFailureFirst");
+    const auto cachePath = (folder / "Plugins.json").string();
+    const auto twice = walkText(folder / "Twice.vst3");
+    const auto once = walkText(folder / "Once.vst3");
+
+    {
+        auto old = PluginCacheDocument();
+        old.modules.add(makeFailure(twice, true));
+        old.modules.add(makeScan(once, makeDescription("Once", once, "O1")));
+        old.modules.add(makeScan(twice, makeDescription("Twice", twice, "T1")));
+        old.modules.add(makeScan(twice, makeDescription("Twice", twice, "T2")));
+
+        auto out = std::ofstream(cachePath, std::ios::binary);
+        out << Miro::toJSONString(old, 2);
+    }
+
+    auto cache = PluginCache(cachePath);
+    check(cache.load());
+    check(cache.document().modules.size() == 2);
+    check(cache.plugins().size() == 2);
+
+    // In the first entry's place, and the first that scanned.
+    check(cache.document().modules[0].path == twice);
+    check(cache.document().modules[0].succeeded());
+
+    const auto* entry = cache.find(twice);
+    check(entry != nullptr && entry->classes.size() == 1
+          && entry->classes[0].classId == "T1");
+    check(!cache.isBlacklisted(twice));
 
     removeFolder(folder);
 };
@@ -573,9 +664,9 @@ auto tWalkDepth = test("HostingCache/theWalkFindsModulesAtAnyDepthButNotInside")
     const auto modules = findModulesWithExtension({root.string()}, ".vst3");
 
     check(modules.size() == 3);
-    check(modules.contains((root / "Top.vst3").string()));
-    check(modules.contains((root / "Vendor" / "Deep" / "Nested.vst3").string()));
-    check(modules.contains((root / "Bare.VST3").string()));
+    check(modules.contains(walkText(root / "Top.vst3")));
+    check(modules.contains(walkText(root / "Vendor" / "Deep" / "Nested.vst3")));
+    check(modules.contains(walkText(root / "Bare.VST3")));
 
     removeFolder(root);
 };
@@ -591,7 +682,7 @@ auto tWalkPaths = test("HostingCache/theWalkTakesModulesAndSkipsMissingPaths") =
 
     // Found twice (named, and under its folder): reported once, sorted.
     check(modules.size() == 1);
-    check(modules[0] == module.string());
+    check(modules[0] == walkText(module));
 
     removeFolder(root);
 };
@@ -640,6 +731,50 @@ auto tStamp = test("HostingCache/aBundleStampsFromItsBinary") = []
     check(moduleStamp("") == ModuleStamp());
 
     removeFolder(root);
+};
+
+// A folder and a module named outside every ANSI code page: accented Latin,
+// Hebrew and an emoji, as a user name or a vendor folder can be. Every path
+// crosses into the filesystem through eacp, as UTF-8, so on Windows nothing
+// may decode it in the ANSI code page or encode a found path back into it.
+auto tNonAscii = test("HostingCache/aNonAsciiPathIsWalkedStampedAndCached") = []
+{
+    constexpr auto folderName = "Caf\xc3\xa9 \xd7\xa9\xd7\x9c \xf0\x9f\x8e\xb5";
+    constexpr auto moduleName = "Synth\xc3\xa9.vst3";
+
+    const auto base = freshFolder("nonAscii");
+    const auto root = base / eacp::toStdPath(eacp::FilePath(folderName));
+    makeBundle(root / eacp::toStdPath(eacp::FilePath(moduleName)), 100);
+
+    const auto rootText = eacp::FilePath(root).str();
+    const auto moduleText = rootText + "/" + moduleName;
+
+    const auto modules = findModulesWithExtension({rootText}, ".vst3");
+    check(modules.size() == 1);
+    check(!modules.empty() && modules[0] == moduleText);
+
+    check(moduleStamp(moduleText).fileSize == 100);
+
+    const auto cachePath = rootText + "/Plugins.json";
+
+    {
+        auto cache = PluginCache(cachePath);
+        cache.setSearchPaths({rootText});
+        cache.apply(
+            makeScan(moduleText, makeDescription("Accented", moduleText, "ACC1")));
+        check(cache.save());
+    }
+
+    auto reloaded = PluginCache(cachePath);
+    check(reloaded.load());
+    check(reloaded.find(moduleText) != nullptr);
+    check(reloaded.modulesNeedingScan({moduleText}).empty());
+    check(reloaded.plugins().size() == 1);
+
+    check(reloaded.clear());
+    check(!fs::exists(root / "Plugins.json"));
+
+    removeFolder(base);
 };
 } // namespace
 } // namespace HostingCacheTests

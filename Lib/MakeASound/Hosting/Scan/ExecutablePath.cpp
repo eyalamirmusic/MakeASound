@@ -1,4 +1,5 @@
 #include "ExecutablePath.h"
+#include "../PathText.h"
 
 #include <eacp/Core/App/AppEnvironment.h>
 
@@ -17,7 +18,7 @@ std::string currentExecutablePath()
                          ? arguments[0]
                          : executablePathFromPlatform();
 
-    const auto asGiven = fs::path(own);
+    const auto asGiven = stdPath(own);
 
     // A bare name came off PATH; see the header for why it stays bare.
     if (!asGiven.has_parent_path())
@@ -26,7 +27,7 @@ std::string currentExecutablePath()
     auto ec = std::error_code();
     const auto absolute = fs::absolute(asGiven, ec);
 
-    return ec ? own : absolute.string();
+    return ec ? own : pathText(absolute);
 }
 
 } // namespace MakeASound::Hosting

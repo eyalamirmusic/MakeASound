@@ -1,4 +1,5 @@
 #include "PluginCache.h"
+#include "PathText.h"
 #include "Scan/Scanner.h"
 
 #include <Miro/Reflection/Serialize.h>
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <set>
 
 namespace MakeASound::Hosting
@@ -24,17 +26,42 @@ std::string cachePathIn(eacp::FilePath folder)
     // No application-data root: keep persistence working in the temp folder
     // rather than failing outright.
     if (folder.empty())
-        folder = eacp::FilePath(fs::temp_directory_path().string());
+        folder = eacp::FilePath(fs::temp_directory_path());
 
     return (folder / cacheFileName).str();
 }
 
-std::set<std::string> asSet(const Vector<std::string>& paths)
+// Every path an entry is matched against goes through pathKey, so a cache an
+// older build wrote with '\' (or a mix) on Windows still finds, replaces and
+// keeps its entries when the walk now spells them with '/'.
+std::set<std::string> keysOf(const Vector<std::string>& paths)
 {
     auto result = std::set<std::string>();
 
     for (const auto& path: paths)
-        result.insert(path);
+        result.insert(pathKey(path));
+
+    return result;
+}
+
+// One entry for each pathKey, where the key first appears: the first entry that
+// scanned, or the first entry when none did. A plugin that crashed the worker
+// under one spelling and described fine under another stays listed.
+Vector<ModuleScan> oneEntryPerKey(const Vector<ModuleScan>& modules)
+{
+    auto indexOfKey = std::map<std::string, int>();
+    auto result = Vector<ModuleScan>();
+
+    for (const auto& module: modules)
+    {
+        const auto [at, isNew] = indexOfKey.emplace(pathKey(module.path),
+                                                    static_cast<int>(result.size()));
+
+        if (isNew)
+            result.add(module);
+        else if (module.succeeded() && !result[at->second].succeeded())
+            result[at->second] = module;
+    }
 
     return result;
 }
@@ -103,6 +130,12 @@ bool PluginCache::load()
         return false;
     }
 
+    // An older build matched entries by their exact text, so a module can be in
+    // the file twice: on Windows the walk spelled it "C:/.../VST3\X.vst3" and a
+    // host "C:\...\X.vst3". apply() and removeMissing() keep one entry per key
+    // from here on.
+    doc.modules = oneEntryPerKey(doc.modules);
+
     changed();
     return true;
 }
@@ -114,7 +147,7 @@ bool PluginCache::save() const
     try
     {
         auto ec = std::error_code();
-        fs::create_directories(fs::path(filePath).parent_path(), ec);
+        fs::create_directories(stdPath(filePath).parent_path(), ec);
 
         // Atomic: a reader, or a crash, sees the whole old file or the whole new
         // one, never a half-written file that would read as corrupt.
@@ -136,7 +169,7 @@ bool PluginCache::clear()
 
     // remove() answers false for a file that was not there, which is fine; only
     // a file that survives the call is a failure.
-    fs::remove(fs::path(filePath), ec);
+    fs::remove(stdPath(filePath), ec);
 
     const auto hadContent = !doc.modules.empty() || !doc.searchPaths.empty();
 
@@ -161,8 +194,10 @@ void PluginCache::setSearchPaths(Vector<std::string> pathsToUse)
 
 const ModuleScan* PluginCache::find(std::string_view path) const
 {
+    const auto key = pathKey(path);
+
     for (const auto& module: doc.modules)
-        if (module.path == path)
+        if (pathKey(module.path) == key)
             return &module;
 
     return nullptr;
@@ -210,9 +245,11 @@ Vector<std::string>
 
 void PluginCache::apply(const ModuleScan& scan)
 {
+    const auto key = pathKey(scan.path);
+
     for (auto& module: doc.modules)
     {
-        if (module.path != scan.path)
+        if (pathKey(module.path) != key)
             continue;
 
         module = scan;
@@ -226,11 +263,11 @@ void PluginCache::apply(const ModuleScan& scan)
 
 void PluginCache::removeMissing(const Vector<std::string>& foundTargets)
 {
-    const auto present = asSet(foundTargets);
+    const auto present = keysOf(foundTargets);
     auto kept = Vector<ModuleScan>();
 
     for (const auto& module: doc.modules)
-        if (present.count(module.path) != 0)
+        if (present.count(pathKey(module.path)) != 0)
             kept.add(module);
 
     if (kept.size() == doc.modules.size())
@@ -243,11 +280,11 @@ void PluginCache::removeMissing(const Vector<std::string>& foundTargets)
 void PluginCache::removeMissing(const Vector<std::string>& foundTargets,
                                 PluginFormat format)
 {
-    const auto present = asSet(foundTargets);
+    const auto present = keysOf(foundTargets);
     auto kept = Vector<ModuleScan>();
 
     for (const auto& module: doc.modules)
-        if (module.format != format || present.count(module.path) != 0)
+        if (module.format != format || present.count(pathKey(module.path)) != 0)
             kept.add(module);
 
     if (kept.size() == doc.modules.size())
