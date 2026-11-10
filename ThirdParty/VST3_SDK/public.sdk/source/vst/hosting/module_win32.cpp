@@ -126,6 +126,26 @@ private:
 #endif // USE_OLE
 
 //------------------------------------------------------------------------
+// Local patch (ThirdParty/README.md): a module path is UTF-8, but under C++20
+// the path constructor reads a std::string in the ANSI code page, so a path
+// with a character outside it loaded nothing. These read and write it as UTF-8.
+filesystem::path pathFromUTF8 (const std::string& utf8)
+{
+#if SMTG_CPP20
+	return filesystem::path (std::u8string (utf8.begin (), utf8.end ()));
+#else
+	return filesystem::u8path (utf8);
+#endif // SMTG_CPP20
+}
+
+//------------------------------------------------------------------------
+std::string toUTF8 (const filesystem::path& p)
+{
+	auto text = p.u8string ();
+	return {text.begin (), text.end ()};
+}
+
+//------------------------------------------------------------------------
 class Win32Module : public Module
 {
 public:
@@ -155,7 +175,7 @@ public:
 	{
 		namespace StringConvert = Steinberg::Vst::StringConvert;
 
-		filesystem::path p (inPath);
+		filesystem::path p = pathFromUTF8 (inPath);
 
 		auto filename = p.filename ();
 		p /= "Contents";
@@ -170,7 +190,7 @@ public:
 			instance = loadAsPackage (inPath, errorDescription, architectureX64String);
 #endif // SMTG_CPU_ARM_64EC
 		if (instance == nullptr)
-			getLastError (p.string (), errorDescription);
+			getLastError (toUTF8 (p), errorDescription);
 		return instance;
 	}
 
@@ -195,12 +215,16 @@ public:
 	//--- -----------------------------------------------------------------------
 	bool load (const std::string& inPath, std::string& errorDescription) override
 	{
-		// filesystem::u8path is deprecated in C++20
-#if SMTG_CPP20
-		const filesystem::path tmp (inPath);
-#else
-		const filesystem::path tmp = filesystem::u8path (inPath);
-#endif // SMTG_CPP20
+		filesystem::path tmp;
+		try
+		{
+			tmp = pathFromUTF8 (inPath);
+		}
+		catch (const std::exception&)
+		{
+			errorDescription = "The module path is not valid UTF-8";
+			return false;
+		}
 		std::error_code ec;
 		if (filesystem::is_directory (tmp, ec))
 		{

@@ -11,6 +11,8 @@
 #include <MakeASound/Hosting/VST3/VST3HostedPlugin.h>
 #include <MakeASound/Hosting/VST3/VST3Classes.h>
 
+#include "HostFixtureCopies.h"
+
 #include <base/source/fobject.h>
 #include <pluginterfaces/base/ibstream.h>
 
@@ -542,6 +544,37 @@ auto tLoad = test("HostedVST3/aPluginLoadsByItsClassId") = []
     check(!vst3->hasSeparateController());
     check(vst3->editController() != nullptr);
     check(vst3->componentHandlerInterface() != nullptr);
+};
+
+auto tNonAsciiFolder = test("HostedVST3/aPluginInANonAsciiFolderScansAndLoads") = []
+{
+    const auto formats = DefaultFormats();
+    const auto path = HostFixtureCopies::copyIntoNonAsciiFolder(
+        MAKEASOUND_HOST_FIXTURE_VST3_DIR,
+        "HostFixtureEffect",
+        fs::temp_directory_path() / "MakeASoundHostedVST3Tests" / "nonAsciiFolder");
+
+    const auto scanned = formats.scanTarget(path);
+    check(scanned.request == TargetRequest::ok);
+    check(scanned.scan.error.empty());
+    check(scanned.scan.classes.size() == 1);
+
+    if (scanned.scan.classes.empty())
+        return;
+
+    auto result = formats.load(scanned.scan.classes[0], {.name = "Hosting Tests"});
+    check(result.error.empty());
+    check(result.plugin != nullptr);
+
+    if (result.plugin == nullptr)
+        return;
+
+    check(result.plugin->name() == "HostFixtureEffect");
+
+    auto block = Block(*result.plugin);
+    block.fillInput(0, 0.5f);
+    block.run();
+    check(near(block.context.outputs[0][0][0], 0.5f));
 };
 
 auto tLoadErrors = test("HostedVST3/aLoadThatCannotHappenSaysWhy") = []

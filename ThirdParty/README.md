@@ -37,7 +37,8 @@ target as `MAKEASOUND_VST3_SDK_MAIN` (and the export list on macOS as
 archive would let the linker drop them. The hosting files build separately as the
 static target `vst3sdk-hosting`, with the one loader for the platform added in
 CMake (`module_mac.mm` as Objective-C++ under ARC), so no plugin links them;
-`MakeASoundHosting` and the tests do. No SDK file is edited. Under MSVC the
+`MakeASoundHosting` and the tests do. One SDK file is edited (see "Local
+changes" below). Under MSVC the
 target compiles with `/Zc:__cplusplus`, because `module_win32.cpp` chooses its
 C++20 path by `SMTG_CPP20`, which reads `__cplusplus`, and MSVC otherwise
 reports `199711L` and compiles the pre-C++20 path, which does not build under
@@ -52,6 +53,28 @@ pluginterfacesupport,parameterchanges,eventlist}.{h,cpp}` and the three
 commit it pins, `586dc5e` for 3.8.1), bump this note and rebuild
 `MakeASoundTests`, whose `VST3SDKTests.cpp` links the target, whose `VST3/`
 suites link `vst3sdk-hosting`, and whose hosting suites load modules through it.
+Then apply the local changes below again, unless the new tag has its own fix.
+
+### Local changes
+
+- `public.sdk/source/vst/hosting/module_win32.cpp`: `Win32Module::load` and
+  `loadAsPackage` build their `filesystem::path` from the UTF-8 module path
+  with a new `pathFromUTF8` (`std::u8string` under C++20, `u8path` before),
+  and the load error names the path with `toUTF8`. Under C++20 the SDK builds
+  the path with the narrow `std::string` constructor, which reads the ANSI code
+  page on Windows, so a VST3 whose path has a character outside it was taken
+  for a single DLL and failed to load ("Access is denied" from `LoadLibraryW`
+  on the bundle folder), and one whose UTF-8 bytes the code page leaves
+  undefined could make the constructor throw. A path that is not valid UTF-8
+  makes `pathFromUTF8` throw, as `u8path` does, so `load` catches that and
+  fails with a reason instead of letting it out of `Module::create`.
+  `HostedVST3/aPluginInANonAsciiFolderScansAndLoads`, the `HostingScannerApp`
+  non-ASCII cases and `VST3SDK/aPathThatIsNotUtf8FailsToLoadWithAReason` cover
+  it. The other narrow path
+  constructions in that file (`getModulePaths`' known folders,
+  `getModuleInfoPath`, `validateBundleStructure`, `getSnapshots`) are left as
+  they are: MakeASound never calls them. Steinberg's `master` (3.8.0 and the
+  3.8.1 here) still has the narrow constructor.
 
 ## AudioUnitSDK (not in this tree)
 
