@@ -17,6 +17,32 @@ namespace
 // few notifications a second rather than one per dropped message.
 constexpr auto flagSweepSeconds = 0.1;
 
+// The MIDI server is launched on demand and quits once its last client is gone,
+// so a client that arrives while it is going down or coming back up is refused.
+// Relaunching takes under a second, so a client is asked for again for two before
+// the failure stands; a machine with no server at all pays that wait per client.
+constexpr auto clientAttempts = 20;
+constexpr auto clientRetryDelay = std::chrono::milliseconds(100);
+
+template <typename Create>
+OSStatus createClient(MIDIClientRef& client, Create&& create)
+{
+    auto status = create(&client);
+
+    for (auto attempt = 1; status != noErr && attempt < clientAttempts; ++attempt)
+    {
+        std::this_thread::sleep_for(clientRetryDelay);
+
+        client = 0;
+        status = create(&client);
+    }
+
+    if (status != noErr)
+        client = 0;
+
+    return status;
+}
+
 // A name Core MIDI can hold, or null for one it cannot encode.
 struct ScopedCFString
 {
@@ -162,8 +188,14 @@ NotifyLoop::NotifyLoop()
             // the header). Created here, before any manager's, so the
             // notification pin lands on this loop as before. A failure is the
             // first manager's to report: its own create fails the same way.
-            MIDIClientCreate(
-                CFSTR("MakeASound Keep-Alive"), nullptr, nullptr, &keepAlive);
+            createClient(keepAlive,
+                         [](MIDIClientRef* out)
+                         {
+                             return MIDIClientCreate(CFSTR("MakeASound Keep-Alive"),
+                                                     nullptr,
+                                                     nullptr,
+                                                     out);
+                         });
 
             signal->set_value();
 
@@ -229,13 +261,17 @@ void MidiManager::start()
 {
     auto gateForBlock = gate;
 
-    auto status = MIDIClientCreateWithBlock(
-        CFSTR("MakeASound"), &client, ^(const MIDINotification* message) {
-          auto lock = std::lock_guard(gateForBlock->mutex);
+    auto notify = ^(const MIDINotification* message) {
+      auto lock = std::lock_guard(gateForBlock->mutex);
 
-          if (gateForBlock->owner != nullptr)
-              gateForBlock->owner->handleNotification(message);
-        });
+      if (gateForBlock->owner != nullptr)
+          gateForBlock->owner->handleNotification(message);
+    };
+
+    auto status = createClient(
+        client,
+        [notify](MIDIClientRef* out)
+        { return MIDIClientCreateWithBlock(CFSTR("MakeASound"), out, notify); });
 
     if (status == noErr)
         status = MIDIInputPortCreateWithBlock(
