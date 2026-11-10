@@ -69,8 +69,8 @@ Then apply the local changes below again, unless the new tag has its own fix.
   makes `pathFromUTF8` throw, as `u8path` does, so `load` catches that and
   fails with a reason instead of letting it out of `Module::create`.
   `HostedVST3/aPluginInANonAsciiFolderScansAndLoads`, the `HostingScannerApp`
-  non-ASCII cases and `VST3SDK/aPathThatIsNotUtf8FailsToLoadWithAReason` cover
-  it. The other narrow path
+  non-ASCII cases and `VST3SDK/aPathThatIsNotUtf8FailsToLoadWithAReason`
+  (Windows only) cover it. The other narrow path
   constructions in that file (`getModulePaths`' known folders,
   `getModuleInfoPath`, `validateBundleStructure`, `getSnapshots`) are left as
   they are: MakeASound never calls them. Steinberg's `master` (3.8.0 and the
