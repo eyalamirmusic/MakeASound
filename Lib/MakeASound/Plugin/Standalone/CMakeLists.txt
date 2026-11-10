@@ -5,7 +5,6 @@
 # Where a JUCE build of the plugin kept its standalone settings, one TU per
 # platform JUCE's PropertiesFile names a folder for.
 if (NOT TARGET MakeASound)
-    message(STATUS "MakeASoundStandaloneCore skipped (needs MAKEASOUND_BUILD_DEVICES)")
     return()
 endif ()
 
@@ -55,7 +54,6 @@ set_makeasound_target_settings(MakeASoundStandaloneCore)
 # Apps/PluginHost does for SettingsPanel alone.
 if (NOT TARGET MakeASoundPluginUI OR NOT TARGET eacp-graphics
         OR NOT (APPLE OR WIN32))
-    message(STATUS "MakeASoundStandalone skipped (needs eacp graphics on Apple or Windows)")
     return()
 endif ()
 
