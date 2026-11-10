@@ -66,7 +66,7 @@ public:
         // juceKeyGroupSeparator the enclosing groups' own ids and its own
         // joined by it ("DriveFilter-EQ"). The AUv3 group identifier and what
         // JUCE's duplicate group id check compares.
-        std::string identifier;
+        std::string identifier {};
 
         // The enclosing group's index in groups(), -1 at the root.
         int parent = -1;
@@ -79,7 +79,7 @@ public:
         // The AU kAudioUnitProperty_ParameterClumpName, by GroupIdRule: the
         // names from the outermost group down, joined by spaces, or by JUCE's
         // separator ("DriveFilter-EQ"). Its clump id is its index + 1.
-        std::string clumpName;
+        std::string clumpName {};
     };
 
     struct Entry

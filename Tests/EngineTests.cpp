@@ -7,7 +7,7 @@
 // manager lands in the block it belongs to.
 
 #include <MakeASound/MakeASound.h>
-
+#include <eacp/Core/Utils/Environment.h>
 #include <NanoTest/NanoTest.h>
 
 #include <atomic>
@@ -897,7 +897,7 @@ auto tDevice = test("Engine/aRealDeviceDeliversTheBlockSizeItReports") = []
     // pins needs a real backend: the block size the stream reports is the one
     // its callback delivers, so Engine never meets a block it did not prepare
     // for, and prepare() never leaves this thread.
-    if (std::getenv("MAKEASOUND_DEVICE_TESTS") == nullptr)
+    if (!eacp::getEnv("MAKEASOUND_DEVICE_TESTS"))
         return;
 
     auto rig = Rig {};

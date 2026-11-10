@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <eacp/Core/Utils/Environment.h>
 
 namespace IdentityManifest
 {
@@ -360,7 +361,7 @@ bool matchesGolden(const Case& golden)
     auto actual = describeModuleIdentity(golden.module);
     auto path = goldenPath(golden.file);
 
-    if (std::getenv("MAKEASOUND_UPDATE_IDENTITY") != nullptr)
+    if (eacp::getEnv("MAKEASOUND_UPDATE_IDENTITY"))
     {
         std::ofstream(path, std::ios::binary | std::ios::trunc) << actual;
         return true;
