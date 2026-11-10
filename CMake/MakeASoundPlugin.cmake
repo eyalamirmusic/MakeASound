@@ -30,7 +30,7 @@
 # instead, and the AU bundle takes ModuleDescription::version. Every target
 # goes in the IDE folder <Name>, nested under CMAKE_FOLDER when the caller set
 # one, unless FOLDER names another. A format whose library was not built is
-# skipped with a status line; targets are global, so this works from a CPM
+# skipped silently; targets are global, so this works from a CPM
 # consumer's directory too. With MAKEASOUND_INSTALL_PLUGINS on, each plug-in
 # bundle is also copied into the user's plug-in folder after every build, unless
 # NO_INSTALL keeps this plugin's bundles in the build tree whatever the option
@@ -87,9 +87,9 @@
 #
 # AUv3 is iOS's AU: <Name>-AUv3, an app extension inside the standalone app at
 # <OUTPUT_NAME>.app/PlugIns/<OUTPUT_NAME>.appex, identifier AUV3_BUNDLE_ID, so it
-# needs Standalone in the same call (a custom app included) and is skipped with a
-# status line off iOS. The appex is an executable of its own over NSExtensionMain
-# linking the static core again. Its Info.plist comes from describeModule(), which
+# needs Standalone in the same call (a custom app included) and is skipped off
+# iOS. The appex is an executable of its own over NSExtensionMain linking the
+# static core again. Its Info.plist comes from describeModule(), which
 # an iOS binary cannot run on the build machine to read: the first plugin with
 # AUv3 adds MakeASoundDescribeBuild, an ExternalProject that configures this same
 # top-level project for macOS with MAKEASOUND_DESCRIBE_BUILD on, CPM pointed at the
@@ -242,8 +242,6 @@ function(makeasound_add_plugin name)
     foreach (format IN LISTS ARG_FORMATS)
         if (format STREQUAL "Standalone")
             if (NOT TARGET MakeASoundStandalone)
-                message(STATUS "${name}: Standalone format skipped "
-                        "(MakeASoundStandalone not built)")
                 continue()
             endif ()
 
@@ -328,21 +326,18 @@ function(makeasound_add_plugin name)
             continue()
         elseif (format STREQUAL "VST3")
             if (NOT TARGET MakeASoundVST3)
-                message(STATUS "${name}: VST3 format skipped (MakeASoundVST3 not built)")
                 continue()
             endif ()
 
             _makeasound_add_vst3(${name})
         elseif (format STREQUAL "AU")
             if (NOT TARGET MakeASoundAU)
-                message(STATUS "${name}: AU format skipped (MakeASoundAU not built)")
                 continue()
             endif ()
 
             _makeasound_add_au(${name})
         elseif (format STREQUAL "AAX")
             if (NOT TARGET MakeASoundAAX)
-                message(STATUS "${name}: AAX format skipped (MakeASoundAAX not built)")
                 continue()
             endif ()
 
@@ -360,13 +355,7 @@ function(makeasound_add_plugin name)
             set(app ${name}-Standalone)
         endif ()
 
-        if (NOT IOS)
-            message(STATUS "${name}: AUv3 format skipped (iOS only; macOS ships AU)")
-        elseif (NOT TARGET MakeASoundAUv3)
-            message(STATUS "${name}: AUv3 format skipped (MakeASoundAUv3 not built)")
-        elseif (NOT TARGET ${app})
-            message(STATUS "${name}: AUv3 format skipped (no standalone app to carry it)")
-        else ()
+        if (IOS AND TARGET MakeASoundAUv3 AND TARGET ${app})
             _makeasound_add_auv3(${name} ${app})
         endif ()
     endif ()

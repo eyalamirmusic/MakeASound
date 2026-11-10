@@ -2,7 +2,6 @@
 # and the vendored SDK. Each <Name>-VST3 module links it and compiles the entry
 # files recorded on this target, since an archive would let the linker drop them.
 if (NOT TARGET vst3sdk OR IOS OR ANDROID)
-    message(STATUS "MakeASoundVST3 skipped (needs the VST3 SDK on a desktop)")
     return()
 endif ()
 

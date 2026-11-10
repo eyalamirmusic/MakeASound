@@ -204,11 +204,9 @@ elseif (MAKEASOUND_BUILD_AAX AND WIN32)
 
     string(TOUPPER "${aax_arch_id}" aax_arch_id)
 
+    # Off x64, Lib/MakeASound/Plugin/AAX reports the skip, once.
     if (aax_arch_id MATCHES "^(X64|AMD64|X86_64)$")
         set(aax_sdk_platform ON)
-    else ()
-        message(STATUS "aaxsdk skipped (the AAX SDK builds for Windows x64 only, "
-                "not '${aax_arch_id}')")
     endif ()
 endif ()
 
