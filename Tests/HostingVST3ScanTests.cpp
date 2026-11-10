@@ -6,6 +6,8 @@
 
 #include <ScanProtocol/ScanWorker.h>
 
+#include "HostFixtureCopies.h"
+
 #include <eacp/Core/Utils/FilePath.h>
 
 #include <NanoTest/NanoTest.h>
@@ -192,6 +194,23 @@ auto tWorker = test("HostingVST3Scan/aWorkerDescribesWhatItLoads") = []
     check(scan.classes.size() == 1);
     check(scan.classes[0].name == "HostFixtureEffect");
     check(scan.classes[0].numAudioInputs == 3);
+};
+
+// FakeScanWorker hands its argc/argv to runScanWorkerIfRequested itself, the
+// overload for a main() that never stored its command line with eacp.
+auto tWorkerNonAscii =
+    test("HostingVST3Scan/aWorkerGivenItsOwnArgvScansANonAsciiPath") = []
+{
+    const auto formats = DefaultFormats();
+    const auto target = HostFixtureCopies::copyIntoNonAsciiFolder(
+        MAKEASOUND_HOST_FIXTURE_VST3_DIR,
+        "HostFixtureEffect",
+        fs::temp_directory_path() / "MakeASoundHostingVST3Tests" / "workerArgv");
+    const auto scan = scanThroughWorker(formats, target);
+
+    check(scan.error.empty());
+    check(scan.succeeded());
+    check(scan.classes.size() == 1);
 };
 
 auto tCrash = test("HostingVST3Scan/aPluginThatCrashesIsRecordedAsACrash") = []

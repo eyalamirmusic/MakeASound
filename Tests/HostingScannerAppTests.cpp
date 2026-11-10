@@ -6,6 +6,8 @@
 
 #include <ScanProtocol/ScanWorker.h>
 
+#include "HostFixtureCopies.h"
+
 #include <eacp/Core/Process/Process.h>
 
 #include <NanoTest/NanoTest.h>
@@ -126,6 +128,73 @@ auto tSweep = test("HostingScannerApp/aSweepWritesTheDatabaseAndStaysQuiet") = [
           != std::string::npos);
 
     fs::remove_all(folder);
+};
+
+// The worker's target, and the sweep's folder, reach the scanner as program
+// arguments: they arrive as the UTF-8 the host sent, not in the system's code
+// page, and the module then loads from that path.
+auto tWorkerNonAscii = test("HostingScannerApp/workerModeScansANonAsciiPath") = []
+{
+    const auto bundle = HostFixtureCopies::copyIntoNonAsciiFolder(
+        MAKEASOUND_HOST_FIXTURE_VST3_DIR,
+        "HostFixtureEffect",
+        fs::temp_directory_path() / "MakeASoundHostingScannerAppTests" / "worker");
+
+    const auto result = scanner({"--makeasound-scan", bundle});
+    check(result.exitCode == 0);
+
+    const auto scan = decodeScanResult(result.output);
+    check(scan.has_value());
+
+    if (!scan)
+        return;
+
+    check(scan->error.empty());
+    check(scan->succeeded());
+    check(scan->path == bundle);
+    check(scan->classes.size() == 1);
+};
+
+auto tSweepNonAscii =
+    test("HostingScannerApp/aSweepOfANonAsciiFolderScansAndLoads") = []
+{
+    const auto root =
+        fs::temp_directory_path() / "MakeASoundHostingScannerAppTests" / "sweepUtf8";
+    const auto bundle = HostFixtureCopies::copyIntoNonAsciiFolder(
+        MAKEASOUND_HOST_FIXTURE_VST3_DIR, "HostFixtureEffect", root);
+    const auto folder =
+        HostFixtureCopies::utf8Text(root / HostFixtureCopies::nonAsciiFolderName());
+    const auto database = HostFixtureCopies::utf8Text(root / "Plugins.json");
+
+    const auto result = scanner({"--output",
+                                 database,
+                                 "--folder",
+                                 folder,
+                                 "--no-default-folders",
+                                 "--format",
+                                 "vst3",
+                                 "--timeout",
+                                 "20000"});
+    check(result.exitCode == 0);
+    check(result.errorOutput.find("1 to scan") != std::string::npos);
+    check(result.errorOutput.find("1 ok, 0 failed, 0 crashed") != std::string::npos);
+
+    auto cache = PluginCache(database);
+    check(cache.load());
+    check(cache.plugins().size() == 1);
+
+    if (cache.plugins().size() != 1)
+        return;
+
+    auto formats = FormatManager();
+    formats.addDefaultFormats();
+
+    auto loaded = formats.load(cache.plugins()[0], {.name = "Hosting Tests"});
+    check(loaded.error.empty());
+    check(loaded.plugin != nullptr);
+
+    if (loaded.plugin != nullptr)
+        check(loaded.plugin->name() == "HostFixtureEffect");
 };
 } // namespace
 } // namespace HostingScannerAppTests

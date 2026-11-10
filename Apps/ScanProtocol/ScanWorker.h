@@ -89,7 +89,8 @@ std::optional<ModuleScan> decodeScanResult(std::string_view workerOutput);
 std::optional<int> runScanWorkerIfRequested(const FormatManager& formats);
 
 // The same over an explicit argv, argv[0] skipped, for a main() that has not
-// stored its command line with eacp.
+// stored its command line with eacp. argv is read as UTF-8 through
+// eacp::Apps::utf8Arguments, as the stored command line is.
 std::optional<int>
     runScanWorkerIfRequested(int argc, char** argv, const FormatManager& formats);
 
