@@ -40,7 +40,15 @@
 # folders must not see).
 # AAX_WCGUID, with MAKEASOUND_PACE_SIGN_ID set and wraptool at
 # MAKEASOUND_PACE_WRAPTOOL, has PACE sign the AAX bundle after the build, as
-# MAKEASOUND_PACE_ACCOUNT or wraptool's default account; on macOS only so far.
+# MAKEASOUND_PACE_ACCOUNT or wraptool's default account. On Windows wraptool runs
+# MAKEASOUND_PACE_SIGNTOOL, through Artifact Signing when
+# MAKEASOUND_PACE_SIGNING_DLIB and MAKEASOUND_PACE_SIGNING_METADATA are set (no
+# MAKEASOUND_PACE_SIGN_ID needed; either one set but a file missing leaves the
+# bundle unsigned), else with the certificate whose thumbprint is
+# MAKEASOUND_PACE_SIGN_ID, then verifies the signed DLL. Each wraptool run is
+# stopped after MAKEASOUND_PACE_TIMEOUT seconds. MAKEASOUND_PACE_REQUIRED makes an
+# unsigned bundle a FATAL_ERROR at configure and a failed or stopped signing a
+# failed build.
 #
 # BUNDLE_ID (default com.makeasound.<name>, lowercased) is the app's identifier,
 # and each plug-in bundle's is it plus the format's suffix: <BUNDLE_ID>.vst3,
@@ -1068,21 +1076,36 @@ function(_makeasound_add_aax_macos name target bundle)
                         -D "SIGN_ID=${MAKEASOUND_PACE_SIGN_ID}"
                         -D "WCGUID=${ARG_AAX_WCGUID}"
                         -D "BUNDLE=${bundle}"
+                        -D "TIMEOUT=${MAKEASOUND_PACE_TIMEOUT}"
+                        -D "REQUIRED=${MAKEASOUND_PACE_REQUIRED}"
                         -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SignAAXBundle.cmake"
                 VERBATIM)
     elseif (ARG_AAX_WCGUID)
-        message(STATUS "${name}: AAX bundle not PACE signed "
-                "(needs wraptool and MAKEASOUND_PACE_SIGN_ID)")
+        _makeasound_aax_not_pace_signed(${name} "needs wraptool and MAKEASOUND_PACE_SIGN_ID")
     endif ()
 
     _makeasound_install_bundle(${target} "${bundle}"
             "/Library/Application Support/Avid/Audio/Plug-Ins")
 endfunction()
 
+# A plugin with an AAX_WCGUID whose bundle cannot be PACE signed: a status line
+# saying why, or under MAKEASOUND_PACE_REQUIRED a FATAL_ERROR.
+function(_makeasound_aax_not_pace_signed name)
+    string(CONCAT reason ${ARGN})
+
+    if (MAKEASOUND_PACE_REQUIRED)
+        message(FATAL_ERROR "${name}: AAX bundle cannot be PACE signed (${reason}), "
+                "and MAKEASOUND_PACE_REQUIRED is on")
+    endif ()
+
+    message(STATUS "${name}: AAX bundle not PACE signed (${reason})")
+endfunction()
+
 # The Windows half of <Name>-AAX: the DLL, itself named <OUTPUT_NAME>.aaxplugin,
-# in Contents/x64, with no plist, PkgInfo or signature. AAX_Exports.cpp marks the
-# seven ACF entry points __declspec(dllexport) wherever __GNUC__ is undefined,
-# which is cl and clang-cl alike, so no export list is needed.
+# in Contents/x64, with no plist or PkgInfo, and no signature but the one PACE's
+# wraptool gives it. AAX_Exports.cpp marks the seven ACF entry points
+# __declspec(dllexport) wherever __GNUC__ is undefined, which is cl and clang-cl
+# alike, so no export list is needed.
 function(_makeasound_add_aax_windows name target bundle)
     # The import library, .exp and .pdb stay out of the bundle, each named apart
     # from the standalone's and the VST3's, which share the output name and the
@@ -1097,9 +1120,61 @@ function(_makeasound_add_aax_windows name target bundle)
             PDB_NAME "${ARG_OUTPUT_NAME}-AAX"
             COMPILE_PDB_NAME "${ARG_OUTPUT_NAME}-AAX")
 
-    if (ARG_AAX_WCGUID)
-        message(STATUS "${name}: AAX bundle not PACE signed "
-                "(PACE signing is not wired up on Windows yet)")
+    # Either Artifact Signing file named picks Artifact Signing, which then needs
+    # both to exist: a missing one never falls back to the thumbprint.
+    set(artifact_signing OFF)
+    set(artifact_missing)
+
+    if (MAKEASOUND_PACE_SIGNING_DLIB OR MAKEASOUND_PACE_SIGNING_METADATA)
+        set(artifact_signing ON)
+
+        foreach (file IN ITEMS DLIB METADATA)
+            set(path "${MAKEASOUND_PACE_SIGNING_${file}}")
+
+            if (NOT path)
+                list(APPEND artifact_missing "MAKEASOUND_PACE_SIGNING_${file} is not set")
+            elseif (NOT EXISTS "${path}")
+                list(APPEND artifact_missing "MAKEASOUND_PACE_SIGNING_${file} ${path} does not exist")
+            endif ()
+        endforeach ()
+    endif ()
+
+    if (NOT ARG_AAX_WCGUID)
+    elseif (artifact_missing)
+        list(JOIN artifact_missing "; " missing)
+        _makeasound_aax_not_pace_signed(${name} "Artifact Signing: ${missing}")
+    elseif (EXISTS "${MAKEASOUND_PACE_WRAPTOOL}" AND EXISTS "${MAKEASOUND_PACE_SIGNTOOL}"
+            AND (artifact_signing OR MAKEASOUND_PACE_SIGN_ID))
+        set(signing_args)
+
+        if (artifact_signing)
+            message(STATUS "${name}: AAX bundle signed by PACE's wraptool "
+                    "and Artifact Signing")
+            list(APPEND signing_args
+                    -D "SIGNING_DLIB=${MAKEASOUND_PACE_SIGNING_DLIB}"
+                    -D "SIGNING_METADATA=${MAKEASOUND_PACE_SIGNING_METADATA}")
+        else ()
+            message(STATUS "${name}: AAX bundle signed by PACE's wraptool")
+            list(APPEND signing_args -D "SIGN_ID=${MAKEASOUND_PACE_SIGN_ID}")
+        endif ()
+
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                        -D "WRAPTOOL=${MAKEASOUND_PACE_WRAPTOOL}"
+                        -D "ACCOUNT=${MAKEASOUND_PACE_ACCOUNT}"
+                        -D "SIGNTOOL=${MAKEASOUND_PACE_SIGNTOOL}"
+                        ${signing_args}
+                        -D "WCGUID=${ARG_AAX_WCGUID}"
+                        -D "BUNDLE=${bundle}"
+                        -D "VERIFY=${bundle}/Contents/x64/${ARG_OUTPUT_NAME}.aaxplugin"
+                        -D "TIMEOUT=${MAKEASOUND_PACE_TIMEOUT}"
+                        -D "REQUIRED=${MAKEASOUND_PACE_REQUIRED}"
+                        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SignAAXBundle.cmake"
+                VERBATIM)
+    else ()
+        _makeasound_aax_not_pace_signed(${name} "needs wraptool, signtool, and either "
+                "MAKEASOUND_PACE_SIGN_ID or both MAKEASOUND_PACE_SIGNING_DLIB and "
+                "MAKEASOUND_PACE_SIGNING_METADATA")
     endif ()
 
     set(common_files "$ENV{CommonProgramFiles}")
