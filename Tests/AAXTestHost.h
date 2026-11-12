@@ -298,7 +298,11 @@ struct FakeEffect : AAX_IEffectDescriptor
         return maps.back().get();
     }
 
-    AAX_Result SetProperties(AAX_IPropertyMap*) override { return AAX_SUCCESS; }
+    AAX_Result SetProperties(AAX_IPropertyMap* map) override
+    {
+        properties = static_cast<FakePropertyMap*>(map);
+        return AAX_SUCCESS;
+    }
 
     AAX_Result AddResourceInfo(AAX_EResourceType, const char*) override
     {
@@ -319,12 +323,20 @@ struct FakeEffect : AAX_IEffectDescriptor
         return AAX_SUCCESS;
     }
 
+    int32_t property(AAX_EProperty id) const
+    {
+        auto value = AAX_CPropertyValue {-1};
+        nano::check(properties != nullptr && properties->GetProperty(id, &value));
+        return value;
+    }
+
     std::vector<std::unique_ptr<FakeComponent>> created;
     std::vector<FakeComponent*> components;
     std::vector<std::string> names;
     uint32_t categories = 0;
     std::map<AAX_CProcPtrID, void*> procs;
     std::vector<std::unique_ptr<FakePropertyMap>> maps;
+    FakePropertyMap* properties = nullptr;
 };
 
 struct FakeCollection : AAX_ICollection
