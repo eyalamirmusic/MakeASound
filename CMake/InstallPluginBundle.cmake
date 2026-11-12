@@ -23,8 +23,14 @@ execute_process(
         RESULT_VARIABLE removed
         ERROR_QUIET)
 
+if (CMAKE_HOST_APPLE)
+    set(copy_bundle ditto)
+else ()
+    set(copy_bundle "${CMAKE_COMMAND}" -E copy_directory)
+endif ()
+
 execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${SOURCE}" "${destination}"
+        COMMAND ${copy_bundle} "${SOURCE}" "${destination}"
         RESULT_VARIABLE result
         ERROR_QUIET)
 
