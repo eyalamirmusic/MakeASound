@@ -297,6 +297,28 @@ auto tCategory = test("AAX/theCategoryDefaultsByKindUnlessNamed") = []
     check(Format::categoryFor(plugin) == AAX_EPlugInCategory_MIDIEffect);
 };
 
+auto tChunkCalls = test("AAX/chunkCallsAreOnTheMainThreadUnlessTurnedOff") = []
+{
+    auto chunkCalls = [](const FakeCollection& collection, const char* effect)
+    {
+        return collection.effect(effect)->property(
+            AAX_eProperty_RequiresChunkCallsOnMainThread);
+    };
+
+    auto defaults = describeTestModule();
+    check(chunkCalls(defaults, "com.makeasound.tests.Gain") == 1);
+    check(chunkCalls(defaults, "com.makeasound.tests.Echo") == 1);
+
+    auto module = describeModule();
+    module.plugins[0].aaxChunkCallsOnMainThread = false;
+
+    auto collection = FakeCollection {};
+    check(Format::describeEffects(collection, module, bundleId, "Test Package")
+          == AAX_SUCCESS);
+    check(chunkCalls(collection, "com.makeasound.tests.Gain") == 0);
+    check(chunkCalls(collection, "com.makeasound.tests.Echo") == 1);
+};
+
 auto tPrepare = test("AAX/initializePreparesThePluginAtTheControllersRate") = []
 {
     auto host = AdapterHost<GainPlugin>("Gain");

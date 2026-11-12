@@ -223,6 +223,11 @@ struct PluginDescription
     // code plus the stem pair's index, JUCE's 'jcaa' derivation under a JUCE
     // scheme (aaxNativeIdFor()).
     AAXNativeIdFn aaxNativeId = {};
+
+    // AAX_eProperty_RequiresChunkCallsOnMainThread: whether Pro Tools makes the
+    // state chunk calls (GetChunkSize, GetChunk, SetChunk) on its main thread.
+    // Off, it may make them on any thread.
+    bool aaxChunkCallsOnMainThread = true;
 };
 
 // The description's vst3MidiControllers, or by category when unset: on for an
