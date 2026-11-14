@@ -1068,7 +1068,6 @@ function(_makeasound_add_aax_macos name target bundle)
             VERBATIM)
 
     if (ARG_AAX_WCGUID AND MAKEASOUND_PACE_SIGN_ID AND EXISTS "${MAKEASOUND_PACE_WRAPTOOL}")
-        message(STATUS "${name}: AAX bundle signed by PACE's wraptool")
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND}
                         -D "WRAPTOOL=${MAKEASOUND_PACE_WRAPTOOL}"
@@ -1148,13 +1147,10 @@ function(_makeasound_add_aax_windows name target bundle)
         set(signing_args)
 
         if (artifact_signing)
-            message(STATUS "${name}: AAX bundle signed by PACE's wraptool "
-                    "and Artifact Signing")
             list(APPEND signing_args
                     -D "SIGNING_DLIB=${MAKEASOUND_PACE_SIGNING_DLIB}"
                     -D "SIGNING_METADATA=${MAKEASOUND_PACE_SIGNING_METADATA}")
         else ()
-            message(STATUS "${name}: AAX bundle signed by PACE's wraptool")
             list(APPEND signing_args -D "SIGN_ID=${MAKEASOUND_PACE_SIGN_ID}")
         endif ()
 
