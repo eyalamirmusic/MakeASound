@@ -4,7 +4,10 @@
 // iOS simulator, which refuses virtual endpoints to a bundle-less process; a
 // Linux container with no /dev/snd/seq, where there is no sequencer to open at
 // all), so a machine that cannot be measured reports the same as one that passed
-// nothing: nothing measured.
+// nothing: nothing measured. With MAKEASOUND_REQUIRE_MIDI=1 each of those returns
+// is a failure instead (see MidiRequirement.h).
+
+#include "MidiRequirement.h"
 
 #include <MakeASound/MakeASound.h>
 
@@ -37,12 +40,18 @@ using MakeASound::MidiEvents;
 using MakeASound::MidiManager;
 using MakeASound::MidiNotification;
 using MakeASound::MIDI::Event;
+using MidiRequirement::measured;
+using MidiRequirement::unavailable;
 
 namespace
 {
 using Clock = std::chrono::steady_clock;
 
 const std::string loopbackName = "MakeASound Facade Test";
+
+constexpr auto noLoopback = "no virtual-port MIDI loopback";
+constexpr auto noMidi = "no MIDI system";
+constexpr auto nothingArrived = "the loopback opened but nothing arrived";
 
 // A virtual input is a destination anything in the system can send to, our own
 // output included: the platform's own loopback.
@@ -129,8 +138,11 @@ auto tAvailable = test("Midi/theAppleBackendComesUp") = []
     // Elsewhere a machine with no MIDI system at all is an ordinary state - a
     // Linux kernel with no snd-seq is exactly that - so all that is pinned is
     // that one which did come up says nothing went wrong.
-    if (midi.isAvailable())
-        check(midi.getLastError() == Error::NoError);
+    if (!midi.isAvailable())
+        return unavailable(noMidi);
+
+    check(midi.getLastError() == Error::NoError);
+    measured();
 #endif
 };
 
@@ -179,7 +191,7 @@ auto tArrival = test("Midi/aLoopbackArrivalSitsOnTheManagersClock") = []
     auto midi = MidiManager {};
 
     if (!openLoopback(midi))
-        return;
+        return unavailable(noLoopback);
 
     auto before = MidiManager::now();
     midi.sendMessage(Event::noteOn(0, 60, 1.f));
@@ -192,7 +204,9 @@ auto tArrival = test("Midi/aLoopbackArrivalSitsOnTheManagersClock") = []
     midi.closeAllInputs();
 
     if (delivered == 0)
-        return;
+        return unavailable(nothingArrived);
+
+    measured();
 
     // The send stamps the packet with the platform's own clock, so the arrival
     // cannot predate the send. The other side is only bounded loosely: a loaded
@@ -209,7 +223,7 @@ auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = [
     auto midi = MidiManager {};
 
     if (!openLoopback(midi))
-        return;
+        return unavailable(noLoopback);
 
     constexpr auto numSamples = 512;
     constexpr auto sampleRate = 48000;
@@ -261,7 +275,9 @@ auto tBlockSync = test("Midi/blockSyncOffsetsAreMonotonicAndInsideTheBlock") = [
     midi.closeAllInputs();
 
     if (seen == 0)
-        return;
+        return unavailable(nothingArrived);
+
+    measured();
 
     check(ordered);
     check(inRange);
@@ -294,7 +310,7 @@ auto tSysExRoundTrip = test("Midi/aLongSysExComesBackWholeInCallbackMode") = []
                               ++messages;
                           }
                       }))
-        return;
+        return unavailable(noLoopback);
 
     auto dump = std::vector<std::uint8_t> {};
     dump.reserve(payload);
@@ -319,7 +335,9 @@ auto tSysExRoundTrip = test("Midi/aLongSysExComesBackWholeInCallbackMode") = []
     midi.closeAllInputs();
 
     if (arrived == 0)
-        return;
+        return unavailable(nothingArrived);
+
+    measured();
 
     check(copy.size() == dump.size());
     check(copy == dump);
@@ -336,7 +354,7 @@ auto tIgnoredTypes = test("Midi/timingClockIsFilteredUntilItIsAskedFor") = []
                           if (!message.bytes.empty() && message.bytes[0] == 0xF8)
                               ++filtered;
                       }))
-        return;
+        return unavailable(noLoopback);
 
     const auto clock = std::uint8_t {0xF8};
 
@@ -366,9 +384,332 @@ auto tIgnoredTypes = test("Midi/timingClockIsFilteredUntilItIsAskedFor") = []
     // Nothing arriving at all is a platform that delivered no loopback, which is
     // the skip every case here shares.
     if (whileDelivered == 0)
-        return;
+        return unavailable(nothingArrived);
 
-    check(whileDelivered > 0);
+    measured();
+};
+
+auto tQueueMode = test("Midi/queueModeDeliversTypedEventsAndASysExThatFits") = []
+{
+    auto midi = MidiManager {};
+
+    if (!midi.isAvailable())
+        return unavailable(noMidi);
+
+    auto portId = midi.openVirtualInput(loopbackName);
+
+    if (!portId.has_value())
+        return unavailable(noLoopback);
+
+    if (!openLoopbackOutput(midi, loopbackName))
+    {
+        midi.closeAllInputs();
+        return unavailable(noLoopback);
+    }
+
+    // Short enough for an Event to carry, so the queue tier keeps it whole.
+    auto dump = std::vector<std::uint8_t> {0xF0, 0x7D, 0x01, 0x02, 0x03, 0xF7};
+
+    midi.sendMessage(Event::noteOn(0, 60, 1.f));
+    midi.sendMessage(dump.data(), dump.size());
+    midi.sendMessage(Event::noteOff(0, 60, 0.f));
+
+    auto events = MidiEvents {};
+    auto delivered = drainUntil(midi, events, 3, 3s);
+
+    midi.closeOutput();
+    midi.closeAllInputs();
+
+    if (delivered == 0)
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(delivered == 3);
+
+    for (const auto& evt: events)
+        check(evt.portId == *portId);
+
+    check(events[0].event.isNoteOn());
+    check(events[1].event.isSysEx());
+    check(events[1].event.asSysEx() != nullptr
+          && events[1].event.asSysEx()->size == static_cast<int>(dump.size()));
+    check(events[2].event.isNoteOff());
+};
+
+auto tCallbackSkipsQueue = test("Midi/aCallbackPortLeavesNothingToDrain") = []
+{
+    auto calls = std::atomic<int> {0};
+    auto midi = MidiManager {};
+
+    if (!openLoopback(midi, [&](const MakeASound::MidiMessage&) { ++calls; }))
+        return unavailable(noLoopback);
+
+    midi.sendMessage(Event::noteOn(0, 60, 1.f));
+
+    auto deadline = Clock::now() + 3s;
+
+    while (calls.load() == 0 && Clock::now() < deadline)
+        std::this_thread::sleep_for(5ms);
+
+    auto events = MidiEvents {};
+    midi.drainMessages(events);
+
+    midi.closeOutput();
+    midi.closeAllInputs();
+
+    if (calls.load() == 0)
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(events.empty());
+};
+
+auto tCallbackSysExDrop = test("Midi/aDumpPastTheCapIsDroppedAndAnnounced") = []
+{
+    auto longOnes = std::atomic<int> {0};
+    auto shortOnes = std::atomic<int> {0};
+    auto midi = MidiManager {};
+
+    // Smaller than the dump below, so the parser runs out of room for it.
+    midi.setMaxSysExBytes(256);
+
+    if (!openLoopback(midi,
+                      [&](const MakeASound::MidiMessage& message)
+                      {
+                          if (!message.bytes.empty() && message.bytes[0] == 0xF0)
+                              ++longOnes;
+                          else
+                              ++shortOnes;
+                      }))
+        return unavailable(noLoopback);
+
+    midi.drainNotifications();
+
+    auto dump = std::vector<std::uint8_t>(1024, 0x11);
+    dump.front() = 0xF0;
+    dump.back() = 0xF7;
+
+    midi.sendMessage(dump.data(), dump.size());
+    midi.sendMessage(Event::noteOn(0, 60, 1.f));
+
+    auto deadline = Clock::now() + 3s;
+
+    while (shortOnes.load() == 0 && Clock::now() < deadline)
+        std::this_thread::sleep_for(5ms);
+
+    auto dropped = countNotifications(midi, MidiNotification::SysExDropped, 3s);
+
+    midi.closeOutput();
+    midi.closeAllInputs();
+
+    if (shortOnes.load() == 0)
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(longOnes.load() == 0);
+    check(dropped > 0);
+};
+
+auto tQueueSysExDrop = test("Midi/queueModeDropsADumpAnEventCannotCarry") = []
+{
+    auto midi = MidiManager {};
+    midi.setMaxSysExBytes(8192);
+
+    if (!openLoopback(midi))
+        return unavailable(noLoopback);
+
+    midi.drainNotifications();
+
+    // Fits the port's assembly buffer, not an Event.
+    constexpr auto size = MakeASound::MIDI::SysEx::maxBytes * 4;
+
+    auto dump = std::vector<std::uint8_t>(size, 0x22);
+    dump.front() = 0xF0;
+    dump.back() = 0xF7;
+
+    midi.sendMessage(dump.data(), dump.size());
+    midi.sendMessage(Event::noteOn(0, 60, 1.f));
+
+    auto events = MidiEvents {};
+    auto delivered = drainUntil(midi, events, 1, 3s);
+    auto dropped = countNotifications(midi, MidiNotification::SysExDropped, 3s);
+
+    midi.closeOutput();
+    midi.closeAllInputs();
+
+    if (delivered == 0)
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(delivered == 1);
+    check(events[0].event.isNoteOn());
+    check(dropped > 0);
+};
+
+auto tOverflow = test("Midi/aQueueNobodyDrainsOverflowsAndSaysSo") = []
+{
+    auto midi = MidiManager {};
+
+    if (!openLoopback(midi))
+        return unavailable(noLoopback);
+
+    midi.drainNotifications();
+
+    // Well past what one port's queue holds, with nothing draining it.
+    constexpr auto sent = 3000;
+
+    for (auto i = 0; i < sent; ++i)
+        midi.sendMessage(Event::noteOn(0, 60 + (i % 12), 1.f));
+
+    auto overflowed = countNotifications(midi, MidiNotification::QueueOverflow, 3s);
+
+    auto events = MidiEvents {sent};
+    midi.drainMessages(events);
+
+    midi.closeOutput();
+    midi.closeAllInputs();
+
+    if (events.empty())
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(overflowed > 0);
+    check(events.size() < sent);
+};
+
+auto tActiveSense = test("Midi/activeSensingIsFilteredUntilItIsAskedFor") = []
+{
+    auto senses = std::atomic<int> {0};
+    auto clocks = std::atomic<int> {0};
+    auto notes = std::atomic<int> {0};
+    auto midi = MidiManager {};
+
+    if (!openLoopback(midi,
+                      [&](const MakeASound::MidiMessage& message)
+                      {
+                          if (message.bytes.empty())
+                              return;
+
+                          if (message.bytes[0] == 0xFE)
+                              ++senses;
+                          else if (message.bytes[0] == 0xF8)
+                              ++clocks;
+                          else
+                              ++notes;
+                      }))
+        return unavailable(noLoopback);
+
+    const auto sense = std::uint8_t {0xFE};
+    const auto clock = std::uint8_t {0xF8};
+
+    auto waitForNotes = [&](int wanted)
+    {
+        auto deadline = Clock::now() + 3s;
+
+        while (notes.load() < wanted && Clock::now() < deadline)
+            std::this_thread::sleep_for(5ms);
+
+        return notes.load() >= wanted;
+    };
+
+    // A note after each batch marks the point everything before it has passed.
+    midi.sendMessage(&sense, 1);
+    midi.sendMessage(Event::noteOn(0, 60, 1.f));
+
+    auto first = waitForNotes(1);
+    auto sensesWhileFiltered = senses.load();
+
+    // Active sensing let through, timing clock still filtered.
+    midi.setIgnoredTypes(true, false);
+
+    midi.sendMessage(&clock, 1);
+    midi.sendMessage(&sense, 1);
+    midi.sendMessage(Event::noteOn(0, 61, 1.f));
+
+    auto second = waitForNotes(2);
+
+    midi.closeOutput();
+    midi.closeAllInputs();
+
+    if (!first)
+        return unavailable(nothingArrived);
+
+    check(sensesWhileFiltered == 0);
+
+    if (!second)
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(senses.load() == 1);
+    check(clocks.load() == 0);
+};
+
+auto tCloseWhileReceiving = test("Midi/closingAnInputMidStreamStopsItsCallback") = []
+{
+    auto calls = std::atomic<int> {0};
+    auto midi = MidiManager {};
+
+    if (!midi.isAvailable())
+        return unavailable(noMidi);
+
+    auto portId = midi.openVirtualInput(
+        loopbackName, [&](const MakeASound::MidiMessage&) { ++calls; });
+
+    if (!portId.has_value())
+        return unavailable(noLoopback);
+
+    // A manager of its own, so the sends never share a handle with the close.
+    auto sender = MidiManager {};
+
+    if (!openLoopbackOutput(sender, loopbackName))
+    {
+        midi.closeAllInputs();
+        return unavailable(noLoopback);
+    }
+
+    auto sending = std::atomic<bool> {true};
+
+    auto pump = std::thread(
+        [&]
+        {
+            while (sending.load())
+            {
+                sender.sendMessage(Event::noteOn(0, 60, 1.f));
+                std::this_thread::sleep_for(100us);
+            }
+        });
+
+    auto deadline = Clock::now() + 3s;
+
+    while (calls.load() < 16 && Clock::now() < deadline)
+        std::this_thread::sleep_for(2ms);
+
+    // Closed with the stream still running into it.
+    midi.closeAllInputs();
+
+    auto afterClose = calls.load();
+    std::this_thread::sleep_for(100ms);
+    auto later = calls.load();
+
+    sending = false;
+    pump.join();
+    sender.closeOutput();
+
+    check(!midi.isInputOpen(*portId));
+    check(midi.getOpenInputPorts().empty());
+
+    if (afterClose == 0)
+        return unavailable(nothingArrived);
+
+    measured();
+
+    check(later == afterClose);
 };
 
 auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
@@ -376,7 +717,7 @@ auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
     auto watcher = MidiManager {};
 
     if (!watcher.isAvailable())
-        return;
+        return unavailable(noMidi);
 
     // Whether this platform has virtual ports at all, asked before the watcher
     // starts counting.
@@ -384,7 +725,7 @@ auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
         auto probe = MidiManager {};
 
         if (!probe.openVirtualInput("MakeASound Hotplug Probe").has_value())
-            return;
+            return unavailable(noLoopback);
     }
 
     watcher.drainNotifications();
@@ -396,7 +737,7 @@ auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
         auto other = MidiManager {};
 
         if (other.openVirtualOutput("MakeASound Hotplug Source") != Error::NoError)
-            return;
+            return unavailable(noLoopback);
 
         added = countNotifications(watcher, MidiNotification::PortAdded, 3s);
     }
@@ -404,9 +745,11 @@ auto tHotplug = test("Midi/aNewVirtualPortIsAnnouncedToEveryoneElse") = []
     removed = countNotifications(watcher, MidiNotification::PortRemoved, 3s);
 
     // A platform that never delivers inside the wait is reported as untested
-    // rather than failed: no CI runner has MIDI hardware to prove it otherwise.
+    // rather than failed, unless MIDI is required.
     if (added == 0)
-        return;
+        return unavailable("no PortAdded arrived");
+
+    measured();
 
     check(added > 0);
     check(removed > 0);

@@ -7,8 +7,11 @@
 // Everything here needs the platform to actually give us something - a playback
 // device, a virtual MIDI port - and returns without asserting when it doesn't, so a
 // headless runner reports the same as a machine with no soundcard: nothing measured.
+// For the MIDI cases MAKEASOUND_REQUIRE_MIDI=1 makes each of those returns a
+// failure instead (see MidiRequirement.h).
 
 #include "AllocationProbe.h"
+#include "MidiRequirement.h"
 
 #include <MakeASound/MakeASound.h>
 
@@ -37,10 +40,16 @@ using MakeASound::MidiMessage;
 using MakeASound::MidiNotification;
 using MakeASound::MIDI::Event;
 using MakeASound::MIDI::SysEx;
+using MidiRequirement::measured;
+using MidiRequirement::unavailable;
 
 namespace
 {
 using Clock = std::chrono::steady_clock;
+
+constexpr auto noMidi = "no MIDI system";
+constexpr auto noLoopback = "no virtual-port MIDI loopback";
+constexpr auto neverRan = "the MIDI thread never delivered to the probe";
 
 // Spins until the foreign thread has run `wanted` times, or gives up.
 bool waitForVisits(Probe::ThreadProbe& probe, int wanted, Clock::duration timeout)
@@ -171,7 +180,7 @@ auto tMidiInputThread = test("Allocations/theMidiInputThreadStaysOffTheHeap") = 
     auto midi = MidiManager {};
 
     if (!midi.isAvailable())
-        return;
+        return unavailable(noMidi);
 
     // Callback mode: the platform hands the message straight to us on its MIDI
     // thread, which is the thread this test is about.
@@ -179,12 +188,12 @@ auto tMidiInputThread = test("Allocations/theMidiInputThreadStaysOffTheHeap") = 
         probePortName, [&probe](const MidiMessage&) { probe.mark(); });
 
     if (!portId.has_value())
-        return;
+        return unavailable(noLoopback);
 
     if (!openLoopbackOutput(midi))
     {
         midi.closeAllInputs();
-        return;
+        return unavailable(noLoopback);
     }
 
     sendNotes(midi, 128);
@@ -206,7 +215,9 @@ auto tMidiInputThread = test("Allocations/theMidiInputThreadStaysOffTheHeap") = 
     midi.closeAllInputs();
 
     if (!ran && messages < 2)
-        return;
+        return unavailable(neverRan);
+
+    measured();
 
     check(violations == 0);
 };
@@ -217,7 +228,7 @@ auto tMidiSysEx = test("Allocations/aLongSysExOnTheMidiThreadStaysOffTheHeap") =
     auto midi = MidiManager {};
 
     if (!midi.isAvailable())
-        return;
+        return unavailable(noMidi);
 
     // The assembly buffer is allocated when the port opens, so the size the
     // dumps need is asked for before that and never again.
@@ -227,12 +238,12 @@ auto tMidiSysEx = test("Allocations/aLongSysExOnTheMidiThreadStaysOffTheHeap") =
         probePortName, [&probe](const MidiMessage&) { probe.mark(); });
 
     if (!portId.has_value())
-        return;
+        return unavailable(noLoopback);
 
     if (!openLoopbackOutput(midi))
     {
         midi.closeAllInputs();
-        return;
+        return unavailable(noLoopback);
     }
 
     // A kilobyte arrives as a run of packets, so this measures the assembly the
@@ -255,7 +266,9 @@ auto tMidiSysEx = test("Allocations/aLongSysExOnTheMidiThreadStaysOffTheHeap") =
     midi.closeAllInputs();
 
     if (!ran && messages < 2)
-        return;
+        return unavailable(neverRan);
+
+    measured();
 
     check(violations == 0);
 };
@@ -266,7 +279,7 @@ auto tQueuedSysEx = test("Allocations/theOversizeSysExDropTouchesNothing") = []
     auto midi = MidiManager {};
 
     if (!midi.isAvailable())
-        return;
+        return unavailable(noMidi);
 
     midi.setMaxSysExBytes(8192);
 
@@ -280,14 +293,14 @@ auto tQueuedSysEx = test("Allocations/theOversizeSysExDropTouchesNothing") = []
         probePortName, [&probe](const MidiMessage&) { probe.mark(); });
 
     if (!queuePort.has_value() || !markPort.has_value())
-        return;
+        return unavailable(noLoopback);
 
     auto sender = MidiManager {};
 
     if (!openOutputNamed(sender, queuePortName) || !openLoopbackOutput(midi))
     {
         midi.closeAllInputs();
-        return;
+        return unavailable(noLoopback);
     }
 
     // Longer than an Event can carry and shorter than the port's assembly
@@ -344,7 +357,9 @@ auto tQueuedSysEx = test("Allocations/theOversizeSysExDropTouchesNothing") = []
     midi.closeAllInputs();
 
     if (!ran && messages < 2)
-        return;
+        return unavailable(neverRan);
+
+    measured();
 
     check(violations == 0);
 
@@ -364,17 +379,17 @@ auto tQueuedDrain = test("Allocations/drainingRealQueuedMidiTouchesNothing") = [
     auto midi = MidiManager {};
 
     if (!midi.isAvailable())
-        return;
+        return unavailable(noMidi);
 
     auto portId = midi.openVirtualInput(probePortName);
 
     if (!portId.has_value())
-        return;
+        return unavailable(noLoopback);
 
     if (!openLoopbackOutput(midi))
     {
         midi.closeAllInputs();
-        return;
+        return unavailable(noLoopback);
     }
 
     constexpr auto sent = 64;
@@ -397,7 +412,7 @@ auto tQueuedDrain = test("Allocations/drainingRealQueuedMidiTouchesNothing") = [
     {
         midi.closeOutput();
         midi.closeAllInputs();
-        return;
+        return unavailable("the loopback opened but nothing arrived");
     }
 
     sendNotes(midi, sent);
@@ -415,6 +430,8 @@ auto tQueuedDrain = test("Allocations/drainingRealQueuedMidiTouchesNothing") = [
 
     midi.closeOutput();
     midi.closeAllInputs();
+
+    measured();
 
     check(count == 0);
     check(drained > 0);
