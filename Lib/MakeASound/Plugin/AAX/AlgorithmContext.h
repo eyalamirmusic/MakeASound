@@ -30,6 +30,10 @@ struct AlgorithmContext
     AAX_IMIDINode* midiOut;
     AAX_IMIDINode* transport;
     PrivateData* privateData;
+
+    // The newest state number GenerateCoefficients posted that the host has
+    // delivered for this buffer.
+    int64_t* parameterState;
 };
 #include AAX_ALIGN_FILE_BEGIN
 #include AAX_ALIGN_FILE_RESET

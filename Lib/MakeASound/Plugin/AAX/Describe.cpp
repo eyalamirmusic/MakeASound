@@ -112,6 +112,12 @@ void describeComponent(AAX_IEffectDescriptor& effect,
                                   sizeof(PrivateData),
                                   AAX_ePrivateDataOptions_DefaultOptions);
 
+    // Buffered: each buffer gets the newest state stamped at or before it.
+    checked =
+        component->AddDataInPort(AAX_FIELD_INDEX(AlgorithmContext, parameterState),
+                                 sizeof(int64_t),
+                                 AAX_eDataInPortType_Buffered);
+
     auto* properties = component->NewPropertyMap();
 
     if (properties == nullptr)
