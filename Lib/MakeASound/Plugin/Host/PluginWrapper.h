@@ -12,8 +12,10 @@ namespace MakeASound
 {
 
 // The per-block pipeline every format adapter shares; a bad index is a no-op.
-// In order: parameters, setPlayhead and setOffline, clearMidi/pushMidiIn/sortMidiInByOffset,
-//   bindInput/bindOutput per bus, process(), drain midiOut().
+// In order: parameters (the setters, or pushParameterChange then
+//   applyParameterChanges), setPlayhead and setOffline,
+//   clearMidi/pushMidiIn/sortMidiInByOffset, bindInput/bindOutput per bus,
+//   process(), drain midiOut().
 //
 // An effect that declares no bypass parameter gets one here (under a JUCE
 // IdScheme, any plugin, instruments included, as JUCE's wrappers do): a
@@ -111,6 +113,30 @@ public:
     float getNormalizedParameter(int index) const noexcept;
     void setParameterByHostId(uint32_t hostId, float normalized) noexcept;
 
+    static constexpr int maxRampSamples = 1 << 24;
+
+    // Audio thread: one host automation point for this block's paramChanges, a
+    // step when rampSamples is 0; a stepped parameter's value is snapped to its
+    // grid. False and dropped for a bad index, a held parameter, after this
+    // block's apply, or a full list; a full list still lands `normalized` at
+    // the end. A negative offset is a ramp that began before the block.
+    bool pushParameterChange(int index,
+                             int sampleOffset,
+                             float normalized,
+                             int rampSamples = 0) noexcept;
+
+    // Audio thread, after the pushes and before process(): puts the ramps
+    // carried from the last block first, sorts, fills each previousValue, trims
+    // ramps that began before the block, sets every parameter touched to its
+    // value at the block's end and keeps a ramp running past it for the next
+    // block. With numSamples <= 0 (a flush) every change completes now and the
+    // list is left empty. A second call before process() does nothing.
+    void applyParameterChanges(int numSamples) noexcept;
+
+    // Each parameter the last applyParameterChanges() set, once, so an adapter
+    // can tell host automation from a plugin's own move.
+    const Vector<int>& appliedParameters() const noexcept { return applied; }
+
     // Held while a plugin-side gesture is open (see HostEditListener). Counted,
     // so a nested gesture cannot release its parent's hold.
     void holdParameter(int index) noexcept;
@@ -162,7 +188,8 @@ public:
                     int matchingInputChannels = 0) noexcept;
 
     // Clears the MIDI out buses, runs the plugin with denormals flushed, then
-    // detaches every audio bus so no host pointer outlives its block. With the
+    // detaches every audio bus so no host pointer outlives its block and clears
+    // paramChanges. With the
     // added bypass on, processBypassed() runs instead; across a toggle both run
     // for the crossfade, the bypassed one on a copy of the inputs, and the MIDI
     // out is the side being faded to.
@@ -192,6 +219,24 @@ private:
         Vector<float*> table;
     };
 
+    // Per parameter, applyParameterChanges()'s state: the change in effect, and
+    // the end value of a push the full list dropped.
+    struct Automation
+    {
+        ParameterChange segment;
+        float deferredValue = 0.f;
+        bool touched = false;
+        bool hasDeferred = false;
+    };
+
+    // A ramp that runs into the next block, and the value this block left its
+    // parameter at: any other value there is a write since, which ends it.
+    struct Carry
+    {
+        ParameterChange change;
+        float leftAt = 0.f;
+    };
+
     static int addBypassAndCount(Plugin& plugin, ParameterIdentity identity);
 
     void prepareSubstitutes(int maxBlockSize);
@@ -207,6 +252,12 @@ private:
 
     Parameter* parameterAt(int index) const noexcept;
     Parameter* writableParameterAt(int index) const noexcept;
+
+    void deferToBlockEnd(int index, float normalized) noexcept;
+    void touch(int index) noexcept;
+    void listCarriedRamps(int lastSample) noexcept;
+    void finishCarriedRamps() noexcept;
+    bool isStillCarried(const Carry& carry) const noexcept;
 
     std::string savePluginState(StateContext context);
     static bool applyForeignState(Plugin& plugin,
@@ -228,6 +279,15 @@ private:
     BusLayout layout;
     ProcessContext context;
     EA::FixedDynamicArray<std::atomic<int>> holdCounts;
+
+    // Sized to the parameters at construction: one slot each, so none grows.
+    // The sort's scratch matches paramChanges' capacity.
+    Vector<Automation> automation;
+    Vector<int> applied;
+    Vector<int> deferred;
+    Vector<Carry> carried;
+    ParameterChanges sortScratch;
+    bool appliedThisBlock = false;
 
     // The added bypass's audio-thread state: 0 processing, 1 bypassed, between
     // while a crossfade runs, and the scratch the crossfade runs on, sized in

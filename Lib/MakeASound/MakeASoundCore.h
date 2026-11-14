@@ -8,6 +8,7 @@
 #include "Realtime/ScopedNoDenormals.h"
 #include "Realtime/Smoother.h"
 #include "Realtime/SpinLock.h"
+#include "Audio/ParameterChanges.h"
 #include "Audio/Processor.h"
 #include "MIDI/MIDI.h"
 #include "MIDI/MidiFile.h"

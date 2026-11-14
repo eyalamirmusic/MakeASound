@@ -856,6 +856,390 @@ auto tMidiCapacity = test("Plugin/pushMidiInDropsPastCapacity") = []
     check(accepted == ProcessContext::defaultMidiCapacity);
 };
 
+bool sameChange(const ParameterChange& change,
+                int index,
+                int offset,
+                int ramp,
+                float value,
+                float previous)
+{
+    return change.index == index && change.sampleOffset == offset
+           && change.rampSamples == ramp && near(change.value, value)
+           && near(change.previousValue, previous);
+}
+
+// One block as an adapter drives one, after its pushes.
+void runAutomatedBlock(PluginWrapper& wrapper, int numSamples = blockSize)
+{
+    wrapper.applyParameterChanges(numSamples);
+    wrapper.process();
+}
+
+auto tParamIndex = test("Plugin/aParameterKnowsItsIndex") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    const auto& list = wrapper.plugin().parameters();
+    auto& params = pluginOf<AutomationPlugin>(wrapper).params;
+
+    for (auto i = 0; i < list.size(); ++i)
+        check(list[i].index() == i);
+
+    check(params.level.index() == 2);
+    check(list[list.bypassIndex()].index() == 3);
+    check(FloatParam("Loose", 0.f, 1.f, 0.f).index() == -1);
+};
+
+auto tChangesSorted = test("Plugin/parameterChangesArriveSortedWithTheirStart") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    check(wrapper.pushParameterChange(0, 40, 0.8f));
+    check(wrapper.pushParameterChange(0, 10, 0.4f));
+    check(wrapper.pushParameterChange(2, 10, 1.f));
+    check(wrapper.pushParameterChange(0, 10, 0.6f));
+    check(!wrapper.pushParameterChange(-1, 0, 0.5f));
+    check(!wrapper.pushParameterChange(99, 0, 0.5f));
+
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 4);
+    check(sameChange(plugin.changes[0], 0, 10, 0, 0.4f, 0.f));
+    check(sameChange(plugin.changes[1], 2, 10, 0, 1.f, 0.5f));
+    check(sameChange(plugin.changes[2], 0, 10, 0, 0.6f, 0.4f));
+    check(sameChange(plugin.changes[3], 0, 40, 0, 0.8f, 0.6f));
+    check(near(plugin.amountSeen, 0.8f));
+    check(near(plugin.params.level.get(), 1.f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+    check(near(plugin.params.amount.get(), 0.8f));
+};
+
+auto tChangesClamped =
+    test("Plugin/parameterChangeOffsetsAreClampedIntoTheBlock") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, 500, 0.4f);
+    wrapper.pushParameterChange(0, -5, 0.2f);
+    runAutomatedBlock(wrapper);
+
+    // A step before the block is already in effect at sample 0.
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 0, 0, 0.2f, 0.2f));
+    check(sameChange(plugin.changes[1], 0, blockSize - 1, 0, 0.4f, 0.2f));
+};
+
+auto tRampTrimmed = test("Plugin/aRampThatBeganBeforeTheBlockIsTrimmed") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, -10, 1.f, 20);
+    wrapper.pushParameterChange(2, -30, 0.8f, 20);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 0, 10, 1.f, 0.5f));
+    check(near(plugin.changes[0].valueAt(10), 1.f));
+    check(sameChange(plugin.changes[1], 2, 0, 0, 0.8f, 0.8f));
+    check(near(plugin.amountSeen, 1.f));
+};
+
+auto tRampPastBlock = test("Plugin/aRampStartingPastTheBlockStartsAtItsEnd") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, 100, 1.f, 50);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 1);
+    check(sameChange(plugin.changes[0], 0, blockSize - 1, 50, 1.f, 0.f));
+    check(near(plugin.amountSeen, 0.02f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 1);
+    check(sameChange(plugin.changes[0], 0, 0, 49, 1.f, 0.02f));
+};
+
+auto tSteppedSnapped = test("Plugin/aSteppedParameterChangeIsSnapped") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(1, 4, 0.3f);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 1);
+    check(sameChange(plugin.changes[0], 1, 4, 0, 0.25f, 0.f));
+    check(plugin.params.mode.getIndex() == 1);
+};
+
+auto tRampCarried = test("Plugin/aRampPastTheBlockIsCarriedIntoTheNext") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    check(wrapper.pushParameterChange(0, 32, 1.f, 64));
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 1);
+    check(sameChange(plugin.changes[0], 0, 32, 64, 1.f, 0.f));
+    check(near(plugin.amountSeen, 0.5f));
+
+    wrapper.applyParameterChanges(blockSize);
+    check(wrapper.appliedParameters().size() == 1);
+    check(wrapper.appliedParameters()[0] == 0);
+    wrapper.process();
+
+    check(plugin.numChanges == 1);
+    check(sameChange(plugin.changes[0], 0, 0, 32, 1.f, 0.5f));
+    check(near(plugin.amountSeen, 1.f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+};
+
+auto tRampSuperseded = test("Plugin/aLaterChangeSupersedesACarriedRamp") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, 0, 1.f, 2 * blockSize);
+    runAutomatedBlock(wrapper);
+    check(near(plugin.amountSeen, 0.5f));
+
+    wrapper.pushParameterChange(0, 16, 0.2f);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 0, blockSize, 1.f, 0.5f));
+    check(sameChange(plugin.changes[1], 0, 16, 0, 0.2f, 0.625f));
+    check(near(plugin.amountSeen, 0.2f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+};
+
+auto tRampHeld = test("Plugin/aHeldParameterDropsPushesAndCarriedRamps") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, 0, 1.f, 2 * blockSize);
+    runAutomatedBlock(wrapper);
+
+    wrapper.holdParameter(0);
+    check(!wrapper.pushParameterChange(0, 8, 0.9f));
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.5f));
+
+    wrapper.releaseParameter(0);
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.5f));
+};
+
+auto tChangesOverflow = test("Plugin/aFullChangeListStillLandsTheLastValue") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+    auto capacity = ProcessContext::defaultParameterChangeCapacity;
+    auto accepted = 0;
+
+    // The amount's ramp would carry, but the dropped push's value wins.
+    check(wrapper.pushParameterChange(0, 0, 1.f, 10 * blockSize));
+
+    for (auto i = 1; i < capacity; ++i)
+        accepted += wrapper.pushParameterChange(2, i % blockSize, 0.1f) ? 1 : 0;
+
+    check(accepted == capacity - 1);
+    check(!wrapper.pushParameterChange(0, 5, 0.75f));
+    check(!wrapper.pushParameterChange(2, 5, 0.3f));
+
+    runAutomatedBlock(wrapper);
+
+    check(plugin.totalChanges == capacity);
+    check(near(plugin.amountSeen, 0.75f));
+    check(near(plugin.params.level.get(), 0.3f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.75f));
+};
+
+auto tChangesFlushed = test("Plugin/aZeroLengthApplyCompletesEveryChange") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, 10, 1.f, 1000);
+    wrapper.pushParameterChange(2, 3, 0.1f);
+    wrapper.applyParameterChanges(0);
+
+    check(near(plugin.params.amount.get(), 1.f));
+    check(near(plugin.params.level.get(), 0.1f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.processed == 1);
+    check(plugin.numChanges == 0);
+};
+
+auto tNoPushes = test("Plugin/aBlockWithoutPushesLeavesTheValues") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.setNormalizedParameter(0, 0.3f);
+    wrapper.process();
+
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.3f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+    check(wrapper.appliedParameters().empty());
+    check(near(plugin.amountSeen, 0.3f));
+};
+
+// A block whose amount ramp from 0 to 1 runs two blocks: half way at its end.
+void carryAmountRamp(PluginWrapper& wrapper)
+{
+    wrapper.pushParameterChange(0, 0, 1.f, 2 * blockSize);
+    runAutomatedBlock(wrapper);
+    check(near(wrapper.getNormalizedParameter(0), 0.5f));
+}
+
+auto tCarryAfterWrite = test("Plugin/aWriteBetweenBlocksEndsACarriedRamp") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    carryAmountRamp(wrapper);
+    wrapper.setNormalizedParameter(0, 0.2f);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.2f));
+};
+
+auto tCarryAfterLoad = test("Plugin/aLoadBetweenBlocksEndsACarriedRamp") = []
+{
+    auto source = makeWrapper<AutomationPlugin>();
+    pluginOf<AutomationPlugin>(source).params.amount.setValue(0.3f);
+    auto document = source.saveState(StateContext::Session);
+
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    carryAmountRamp(wrapper);
+    wrapper.loadState(document, StateContext::Session);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.3f));
+};
+
+auto tCarryAcrossLayout = test("Plugin/aNewLayoutLandsACarriedRampOnItsTarget") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    carryAmountRamp(wrapper);
+    check(wrapper.setLayout(wrapper.busLayout()));
+    check(near(plugin.params.amount.get(), 1.f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 1.f));
+};
+
+auto tCarryAcrossReset = test("Plugin/aResetLandsACarriedRampOnItsTarget") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    carryAmountRamp(wrapper);
+    wrapper.reset();
+    check(near(plugin.params.amount.get(), 1.f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+};
+
+auto tHoldBeforeApply = test("Plugin/aHoldBetweenPushAndApplyDropsThePush") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    check(wrapper.pushParameterChange(0, 5, 0.9f));
+    wrapper.holdParameter(0);
+    runAutomatedBlock(wrapper);
+    wrapper.releaseParameter(0);
+
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.f));
+    check(wrapper.appliedParameters().empty());
+};
+
+auto tTwoCarries = test("Plugin/twoParametersCarryTogether") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    wrapper.pushParameterChange(0, 0, 1.f, 2 * blockSize);
+    wrapper.pushParameterChange(2, 0, 0.f, 2 * blockSize);
+    runAutomatedBlock(wrapper);
+    runAutomatedBlock(wrapper);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 0, blockSize, 1.f, 0.5f));
+    check(sameChange(plugin.changes[1], 2, 0, blockSize, 0.f, 0.25f));
+    check(near(plugin.amountSeen, 1.f));
+    check(near(plugin.params.level.get(), 0.f));
+};
+
+auto tCarryEndsOnBoundary = test("Plugin/aCarryEndingOnTheBlockBoundaryStops") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    carryAmountRamp(wrapper);
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 1);
+    check(near(plugin.amountSeen, 1.f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 0);
+};
+
+auto tApplyTwice = test("Plugin/aSecondApplyInABlockDoesNothing") = []
+{
+    auto wrapper = makeWrapper<AutomationPlugin>();
+    auto& plugin = pluginOf<AutomationPlugin>(wrapper);
+
+    check(wrapper.pushParameterChange(0, 0, 1.f, 2 * blockSize));
+    check(wrapper.pushParameterChange(2, 10, 0.4f));
+    wrapper.applyParameterChanges(blockSize);
+    check(!wrapper.pushParameterChange(2, 20, 0.9f));
+    wrapper.applyParameterChanges(blockSize);
+    wrapper.process();
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[1], 2, 10, 0, 0.4f, 0.5f));
+    check(near(plugin.amountSeen, 0.5f));
+    check(near(plugin.params.level.get(), 0.4f));
+
+    runAutomatedBlock(wrapper);
+    check(plugin.numChanges == 1);
+    check(near(plugin.amountSeen, 1.f));
+};
+
 auto tMidiOut = test("Plugin/midiOutIsClearedEveryBlockAndReadable") = []
 {
     auto wrapper = makeWrapper<SynthPlugin>();
