@@ -5,6 +5,7 @@
 
 #include <AAX_IViewContainer.h>
 
+#include <eacp/Graphics/Graphics/SharedDevices.h>
 #include <eacp/Graphics/View/View.h>
 #include <eacp/Graphics/Window/EmbeddedView.h>
 
@@ -27,6 +28,11 @@ bool hasAAXView() noexcept
 AAX_IEffectGUI* AAX_CALLBACK createAAXView()
 {
     return new View;
+}
+
+void releaseViewDevices()
+{
+    eacp::Graphics::releaseSharedDevices();
 }
 
 View::View() = default;

@@ -23,6 +23,11 @@ namespace MakeASound::AAX
 bool hasAAXView() noexcept;
 AAX_IEffectGUI* AAX_CALLBACK createAAXView();
 
+// Gives back the drawing devices the views brought up for the whole process
+// (eacp::Graphics::releaseSharedDevices), at the module's shutdown while our
+// code is still mapped. A no-op where there is no UI.
+void releaseViewDevices();
+
 // Pro Tools' window onto a plugin's Editor (createEditor(), or GenericEditor when
 // null), embedded through eacp in the native view the host's container hands
 // over, and the editor's EditorHost while it is embedded: a resize request goes

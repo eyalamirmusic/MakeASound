@@ -4,6 +4,7 @@
 // MAKEASOUND_AAX_PACKAGE_NAME.
 #include "Adapter.h"
 #include "Describe.h"
+#include "View.h"
 #include "../Realtime/MessageThread.h"
 
 // The SDK's ACF glue, with its shutdown renamed so ours can run first.
@@ -37,9 +38,12 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
     }
 }
 
-// The host unloads the module after this, so nothing of eacp's may outlive it.
+// The host unloads the module after this, so nothing of eacp's may outlive it:
+// the views' drawing devices first, while this is still the message thread they
+// were built on (see VST3/EntryPoint.cpp), then the message thread itself.
 AAX_Result AAXShutdown(IACFUnknown* host)
 {
+    MakeASound::AAX::releaseViewDevices();
     MakeASound::releaseHostMessageThread();
     return AAXShutdown_SDK(host);
 }
