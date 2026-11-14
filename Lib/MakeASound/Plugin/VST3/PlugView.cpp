@@ -3,6 +3,7 @@
 #include "PlugViewFactory.h"
 #include "../UI/GenericEditor.h"
 
+#include <eacp/Graphics/Graphics/SharedDevices.h>
 #include <eacp/Graphics/View/View.h>
 #include <eacp/Graphics/Window/EmbeddedView.h>
 
@@ -33,6 +34,11 @@ Steinberg::IPlugView* createPlugView(FUnknown& owner, Plugin& plugin)
         editor = EA::makeOwned<GenericEditor>(plugin);
 
     return new PlugView(Steinberg::IPtr<FUnknown>(&owner), std::move(editor));
+}
+
+void releaseViewDevices()
+{
+    eacp::Graphics::releaseSharedDevices();
 }
 
 PlugView::PlugView(Steinberg::IPtr<FUnknown> ownerToKeep,

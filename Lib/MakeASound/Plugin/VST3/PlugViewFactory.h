@@ -14,4 +14,9 @@ namespace MakeASound::VST3
 // null for the rest.
 Steinberg::IPlugView* createPlugView(FUnknown& owner, Plugin& plugin);
 
+// Gives back the drawing devices the views brought up for the whole process
+// (eacp::Graphics::releaseSharedDevices), at the module's exit while our code
+// is still mapped. A no-op where there is no UI.
+void releaseViewDevices();
+
 } // namespace MakeASound::VST3
