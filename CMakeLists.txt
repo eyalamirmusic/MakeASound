@@ -83,8 +83,15 @@ if (WIN32)
     endif ()
 
     file(TO_CMAKE_PATH "${program_files_x86}" program_files_x86)
+    set(program_files "$ENV{ProgramFiles}")
+
+    if (NOT program_files)
+        set(program_files "C:/Program Files")
+    endif ()
+
+    file(TO_CMAKE_PATH "${program_files}" program_files)
     set(pace_wraptool_default
-        "${program_files_x86}/PACEAntiPiracy/Eden/Fusion/Versions/5/wraptool.exe")
+        "${program_files}/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool.exe")
     set(pace_signtool_default
         "${program_files_x86}/Windows Kits/10/bin/10.0.26100.0/x64/signtool.exe")
 
