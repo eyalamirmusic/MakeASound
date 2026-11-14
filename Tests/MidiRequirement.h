@@ -8,24 +8,23 @@
 // have one (Linux CI loads snd-seq-dummy and sets it), so there each of those
 // returns is a failure instead.
 //
-// Header-only and std-only apart from NanoTest, so the allocation suites can use
-// it without the plugin core, and inline in a namespace of its own, so a unity
-// batch can hold every file that includes it.
+// Header-only and std-only apart from NanoTest and eacp Core, so the allocation
+// suites can use it without the plugin core, and inline in a namespace of its
+// own, so a unity batch can hold every file that includes it.
 
 #include <NanoTest/NanoTest.h>
 
 #include <cstdio>
-#include <cstdlib>
 #include <source_location>
 #include <string_view>
+#include <eacp/Core/Utils/Environment.h>
 
 namespace MidiRequirement
 {
 
-inline bool isRequired() noexcept
+inline bool isRequired()
 {
-    const auto* value = std::getenv("MAKEASOUND_REQUIRE_MIDI");
-    return value != nullptr && std::string_view {value} == "1";
+    return eacp::getEnvValue("MAKEASOUND_REQUIRE_MIDI") == "1";
 }
 
 // Where a case would return without asserting, as `return unavailable("why");`:
