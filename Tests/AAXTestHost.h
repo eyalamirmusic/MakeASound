@@ -110,6 +110,7 @@ enum class FieldKind
     Clock,
     PrivateData,
     MidiNode,
+    DataIn,
     Other
 };
 
@@ -118,6 +119,7 @@ struct Field
     FieldKind kind = FieldKind::Other;
     int32_t size = 0;
     AAX_EMIDINodeType nodeType = AAX_eMIDINodeType_LocalInput;
+    AAX_EDataInPortType portType = AAX_eDataInPortType_Unbuffered;
 };
 
 struct FakeComponent : AAX_IComponentDescriptor
@@ -154,10 +156,15 @@ struct FakeComponent : AAX_IComponentDescriptor
         return add(index, {});
     }
 
-    AAX_Result
-        AddDataInPort(AAX_CFieldIndex index, uint32_t, AAX_EDataInPortType) override
+    AAX_Result AddDataInPort(AAX_CFieldIndex index,
+                             uint32_t size,
+                             AAX_EDataInPortType type) override
     {
-        return add(index, {});
+        return add(index,
+                   {FieldKind::DataIn,
+                    static_cast<int32_t>(size),
+                    AAX_eMIDINodeType_LocalInput,
+                    type});
     }
 
     AAX_Result AddAuxOutputStem(AAX_CFieldIndex, int32_t, const char[]) override
@@ -702,8 +709,20 @@ struct FakeController
         return AAX_ERROR_UNIMPLEMENTED;
     }
 
-    AAX_Result PostPacket(AAX_CFieldIndex, const void*, uint32_t) override
+    AAX_Result PostPacket(AAX_CFieldIndex field,
+                          const void* payload,
+                          uint32_t size) override
     {
+        if (failPackets)
+            return AAX_ERROR_UNIMPLEMENTED;
+
+        if (size == sizeof(int64_t))
+        {
+            ++numPackets;
+            lastPacket.field = field;
+            std::memcpy(&lastPacket.value, payload, sizeof(int64_t));
+        }
+
         return AAX_SUCCESS;
     }
 
@@ -754,9 +773,11 @@ struct FakeController
         return AAX_ERROR_UNIMPLEMENTED;
     }
 
-    AAX_Result GetCurrentAutomationTimestamp(AAX_CTransportCounter*) const override
+    AAX_Result
+        GetCurrentAutomationTimestamp(AAX_CTransportCounter* stamp) const override
     {
-        return AAX_ERROR_UNIMPLEMENTED;
+        *stamp = timestampImplemented ? automationTimestamp : 0;
+        return timestampImplemented ? AAX_SUCCESS : AAX_ERROR_UNIMPLEMENTED;
     }
 
     AAX_Result GetHostName(AAX_IString* name) const override
@@ -783,8 +804,13 @@ struct FakeController
         record(EditKind::SetValue, id, value);
 
         if (echo && adapter != nullptr)
+        {
             adapter->UpdateParameterNormalizedValue(
                 id, value, AAX_eUpdateSource_Unspecified);
+
+            if (generates)
+                adapter->GenerateCoefficients();
+        }
 
         return AAX_SUCCESS;
     }
@@ -824,6 +850,24 @@ struct FakeController
         std::string_view(id).copy(edit.id.data(), edit.id.size() - 1);
         edits.push_back(edit);
     }
+
+    // The newest packet the adapter posted: the port and its state number.
+    struct Packet
+    {
+        AAX_CFieldIndex field = 0;
+        int64_t value = 0;
+    };
+
+    Packet lastPacket;
+    int numPackets = 0;
+    bool failPackets = false;
+
+    // What GetCurrentAutomationTimestamp answers: 0 is an immediate change.
+    AAX_CTransportCounter automationTimestamp = 0;
+    bool timestampImplemented = true;
+
+    // Pro Tools follows its updates with GenerateCoefficients.
+    bool generates = true;
 
     std::string effectId;
     double sampleRateToReport = sampleRate;
@@ -980,6 +1024,7 @@ struct AdapterHost
         context.midiOut = &midiOut;
         context.transport = &transportNode;
         context.privateData = &privateData;
+        context.parameterState = &deliveredState;
     }
 
     ~AdapterHost()
@@ -1037,11 +1082,34 @@ struct AdapterHost
             Format::registeredId(list.entry(list.indexOf(&param)).aaxId));
     }
 
+    // An immediate change, followed by GenerateCoefficients as Pro Tools does.
     AAX_Result hostWrites(const Parameter& param, double normalized)
     {
-        return adapter->UpdateParameterNormalizedValue(
+        auto result = adapter->UpdateParameterNormalizedValue(
             idOf(param).data(), normalized, AAX_eUpdateSource_Unspecified);
+
+        if (controller.generates)
+            adapter->GenerateCoefficients();
+
+        return result;
     }
+
+    // An automation point played back at `timestamp`, queued for its buffer.
+    AAX_Result automate(const Parameter& param,
+                        double normalized,
+                        AAX_CTransportCounter timestamp = 1000)
+    {
+        controller.automationTimestamp = timestamp;
+        auto result = hostWrites(param, normalized);
+        controller.automationTimestamp = 0;
+        return result;
+    }
+
+    // The newest state number posted, 0 before any.
+    int64_t lastPosted() const { return controller.lastPacket.value; }
+
+    // The host delivers the newest posted state to the next buffer.
+    void deliverLatest() { deliveredState = lastPosted(); }
 
     double hostValue(const Parameter& param)
     {
@@ -1062,6 +1130,7 @@ struct AdapterHost
 
     int32_t numSamples = 0;
     AAX_CTimestamp clock = 0;
+    int64_t deliveredState = 0;
     FakeMidiNode midiIn;
     FakeMidiNode midiOut;
     FakeTransport transport;

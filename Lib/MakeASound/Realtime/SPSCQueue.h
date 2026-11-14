@@ -50,6 +50,18 @@ public:
         return true;
     }
 
+    // Consumer thread only. Copies the front into `out` without removing it.
+    bool peek(T& out) const noexcept
+    {
+        const auto read = readIndex.load(std::memory_order_relaxed);
+
+        if (read == writeIndex.load(std::memory_order_acquire))
+            return false;
+
+        out = buffer[read];
+        return true;
+    }
+
 private:
     static constexpr std::size_t bufferSize = Capacity + 1;
 

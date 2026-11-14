@@ -59,6 +59,14 @@ void Plugin::setParameters(ParameterList list)
 
     if (parameterIdentity)
         parameterList.setIdentity(*parameterIdentity);
+
+    indexParameters();
+}
+
+void Plugin::indexParameters() noexcept
+{
+    for (auto index = 0; index < parameterList.size(); ++index)
+        parameterList[index].listIndex = index;
 }
 
 void Plugin::refreshParameterNames()
@@ -83,6 +91,7 @@ void Plugin::addHostBypass()
                 .id = "__bypass", .bypass = true, .sessionOnly = true});
 
     parameterList.addHostBypass(*hostBypass);
+    indexParameters();
 }
 
 BoolParam* Plugin::activeHostBypass() const noexcept

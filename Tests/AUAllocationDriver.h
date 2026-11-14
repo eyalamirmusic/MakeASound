@@ -42,9 +42,9 @@ bool takesMidi(UnitHost<P>& host)
     return !host.plugin().getBusLayout().midiInputs.empty();
 }
 
-// Everything a busy host slice carries: a write to every parameter, notes, a
-// controller and a bend at their frames when `midi` (the plugin takes MIDI),
-// then the render.
+// Everything a busy host slice carries: a write to every parameter, a scheduled
+// step partway and a ramp that began a slice earlier, notes, a controller and a
+// bend at their frames when `midi` (the plugin takes MIDI), then the render.
 template <typename P>
 OSStatus busyBlock(UnitHost<P>& host,
                    const std::vector<AudioUnitParameterID>& ids,
@@ -54,21 +54,40 @@ OSStatus busyBlock(UnitHost<P>& host,
 {
     const auto& list = host.plugin().parameters();
     auto normalized = block % 2 == 0 ? 0.3f : 0.7f;
+    auto last = std::max<UInt32>(frames, 1) - 1;
 
     // In the host's space: 0..1 for a curve no display flag draws (the skewed
     // cutoff, which the reconcile then denormalizes on the render thread).
+    auto hostValue = [](const MakeASound::Parameter& param, float value)
+    {
+        return param.curve() == MakeASound::Parameter::Curve::Other
+                   ? value
+                   : param.toPlain(value);
+    };
+
     for (auto id: ids)
     {
         const auto& param = list[list.indexOfHostId(id)];
-        host.hostWrites(id,
-                        param.curve() == MakeASound::Parameter::Curve::Other
-                            ? normalized
-                            : param.toPlain(normalized));
+        host.hostWrites(id, hostValue(param, normalized));
+        host.schedule(id, hostValue(param, 1.f - normalized), last / 2);
+        host.scheduleRamp(id,
+                          -static_cast<SInt32>(frames),
+                          frames * 3,
+                          hostValue(param, normalized),
+                          hostValue(param, 1.f - normalized));
+    }
+
+    // More than the adapter stages, so the untimed overflow is measured too.
+    if (!ids.empty())
+    {
+        const auto& param = list[list.indexOfHostId(ids[0])];
+
+        for (auto i = UInt32 {0}; i < 520; ++i)
+            host.schedule(ids[0], hostValue(param, normalized), i % (last + 1));
     }
 
     if (midi)
     {
-        auto last = std::max<UInt32>(frames, 1) - 1;
         MusicDeviceMIDIEvent(host.unit, 0x90, 60, 100, 0);
         MusicDeviceMIDIEvent(host.unit, 0xB0, 1, 64, last / 3);
         MusicDeviceMIDIEvent(host.unit, 0xE0, 0, 80, last * 2 / 3);

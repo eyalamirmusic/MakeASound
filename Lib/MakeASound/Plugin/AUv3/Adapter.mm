@@ -164,6 +164,8 @@ Adapter::Adapter(AUAudioUnit* unitToUse,
     , space(pluginDescription)
     , lastPluginValue(pluginWrapper.plugin().parameters().size(), 0.f)
     , undoHostWrite(pluginWrapper.plugin().parameters().size(), false)
+    , automatedValue(pluginWrapper.plugin().parameters().size(),
+                     std::numeric_limits<float>::quiet_NaN())
 {
     // No setHostName(): AUAudioUnit never names its host, so hostName() stays
     // empty. Out of process, hostProcessName() names the extension, not the host.
@@ -504,6 +506,12 @@ void Adapter::renderBlock(AudioUnitRenderActionFlags*,
     pluginWrapper.clearMidi();
     bindInputs(timestamp, frames, pullInput);
     applyEvents(events, timestamp, frames);
+    pluginWrapper.applyParameterChanges(static_cast<int>(frames));
+
+    for (auto index: pluginWrapper.appliedParameters())
+        automatedValue[index].store(pluginWrapper.getParameter(index),
+                                    std::memory_order_relaxed);
+
     pluginWrapper.setPlayhead(
         readPlayhead(render.musicalContext, render.transportState, timestamp));
     pluginWrapper.setOffline(renderingOffline.load(std::memory_order_relaxed));
@@ -569,19 +577,10 @@ void Adapter::applyEvents(const AURenderEvent* events,
     {
         switch (event->head.eventType)
         {
-            // Written before the block, as every adapter does; a ramp lands on
-            // its end value.
             case AURenderEventParameter:
             case AURenderEventParameterRamp:
-            {
-                auto index = indexOfExposed(event->parameter.parameterAddress);
-
-                if (index >= 0)
-                    pluginWrapper.setParameter(
-                        index, plainFromTree(index, event->parameter.value));
-
+                pushParameterEvent(event->parameter, timestamp, frames);
                 break;
-            }
 
             case AURenderEventMIDI:
             case AURenderEventMIDISysEx:
@@ -602,6 +601,34 @@ void Adapter::applyEvents(const AURenderEvent* events,
                 break;
         }
     }
+}
+
+// A ramp is delivered only in the render cycle where it starts, so one that
+// outlives the block is the wrapper's to carry.
+void Adapter::pushParameterEvent(const AUParameterEvent& event,
+                                 const AudioTimeStamp* timestamp,
+                                 AUAudioFrameCount frames) noexcept
+{
+    auto index = indexOfExposed(event.parameterAddress);
+
+    if (index < 0)
+        return;
+
+    constexpr auto maxSamples = PluginWrapper::maxRampSamples;
+    const auto& param = plugin().parameters()[index];
+    auto normalized = param.toNormalized(plainFromTree(index, event.value));
+    auto stepped = param.isDiscrete() || param.numSteps() > 0;
+    auto ramp = event.eventType == AURenderEventParameterRamp && !stepped
+                    ? static_cast<int>(std::min<AUAudioFrameCount>(
+                          event.rampDurationSampleFrames, maxSamples))
+                    : 0;
+
+    // A late ramp keeps its distance, so the wrapper trims what has passed.
+    auto offset =
+        ramp > 0 ? rampOffset(event.eventSampleTime, timestamp, frames, maxSamples)
+                 : sampleOffset(event.eventSampleTime, timestamp, frames);
+
+    pluginWrapper.pushParameterChange(index, offset, normalized, ramp);
 }
 
 void Adapter::bindOutputs(AUAudioFrameCount frames,
@@ -820,10 +847,16 @@ void Adapter::syncTreeFromPlugin(bool onlyReported)
     for (auto index: exposed)
     {
         auto undo = undoHostWrite[index].exchange(false);
+        auto value = pluginWrapper.getParameter(index);
+
+        // Where the host's automation left it: no plugin move to report.
+        if (auto automated = value; automatedValue[index].compare_exchange_strong(
+                automated, std::numeric_limits<float>::quiet_NaN()))
+            lastPluginValue[index] = value;
 
         // Left unreported, the tree's value provider still reads the plugin, so
         // a host that asks has the value all the same.
-        auto moved = pluginWrapper.getParameter(index) != lastPluginValue[index]
+        auto moved = value != lastPluginValue[index]
                      && (!onlyReported || list.entry(index).reportsPluginMoves);
 
         if (undo || moved)

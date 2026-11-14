@@ -10,8 +10,13 @@ int roundSampleRate(double sampleRate) noexcept
     return static_cast<int>(std::lround(sampleRate));
 }
 
-void ProcessContext::prepare(const BusLayout& layout, int midiCapacity)
+void ProcessContext::prepare(const BusLayout& layout,
+                             int midiCapacity,
+                             int parameterChangeCapacity)
 {
+    paramChanges.reserveAtLeast(parameterChangeCapacity);
+    paramChanges.clear();
+
     inputs.resize(layout.inputs.size());
     outputs.resize(layout.outputs.size());
     midiIn.resize(layout.midiInputs.size());

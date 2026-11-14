@@ -8,6 +8,8 @@
 namespace MakeASound
 {
 
+class Plugin;
+
 // What a parameter is beyond its range: every concrete parameter takes one of
 // these last, so `{.sessionOnly = true}` or `{.hostId = 7}` reads at the
 // declaration.
@@ -134,6 +136,10 @@ public:
     // Empty when none was given.
     const std::string& explicitAAXId() const noexcept { return paramAAXId; }
 
+    // Its index in its plugin's parameters(), which ParameterChange::index
+    // names; -1 until a plugin registers it.
+    int index() const noexcept { return listIndex; }
+
     virtual float minValue() const noexcept = 0;
     virtual float maxValue() const noexcept = 0;
     virtual float defaultValue() const noexcept = 0;
@@ -208,6 +214,8 @@ protected:
                                      std::string_view part) noexcept;
 
 private:
+    friend class Plugin;
+
     std::string paramName;
     std::string paramId;
     std::string paramShortName;
@@ -221,6 +229,7 @@ private:
     int hint;
     std::string paramHostKey;
     std::string paramAAXId;
+    int listIndex = -1;
 };
 
 } // namespace MakeASound

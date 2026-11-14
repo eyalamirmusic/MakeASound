@@ -5,6 +5,7 @@
 // part of the vocabulary once; the behaviour is pinned in MakeASoundTests.
 
 #include <MakeASound/MakeASoundCore.h>
+#include <MakeASound/Common/Algorithms.h>
 
 #include <NanoTest/NanoTest.h>
 
@@ -103,5 +104,98 @@ auto processCase = test("Core/ProcessSpec") = []
     processor.process(context);
 
     check(output.getChannelPointer(1)[15] == 0.5f);
+};
+
+bool near(float a, float b)
+{
+    return a - b < 1e-5f && b - a < 1e-5f;
+}
+
+auto parameterChangesCase = test("Core/ParameterChanges") = []
+{
+    using MakeASound::ParameterChange;
+
+    auto context = MakeASound::ProcessContext {};
+    context.prepare({}, 16, 8);
+    auto& changes = context.paramChanges;
+
+    check(changes.empty());
+    check(changes.capacity() >= 8);
+
+    changes.add(ParameterChange {.index = 1, .sampleOffset = 20, .value = 0.9f});
+    changes.add(ParameterChange {
+        .index = 0, .sampleOffset = 4, .value = 1.f, .rampSamples = 8});
+    changes.add(ParameterChange {.index = 1, .sampleOffset = 4, .value = 0.1f});
+    changes.add(ParameterChange {
+        .index = 0, .sampleOffset = 20, .value = 0.2f, .previousValue = 1.f});
+    changes.sortByOffset();
+
+    check(changes[0].index == 0 && changes[0].sampleOffset == 4);
+    check(changes[1].index == 1 && changes[1].sampleOffset == 4);
+    check(changes[2].index == 1 && changes[2].sampleOffset == 20);
+    check(changes[3].index == 0 && changes[3].sampleOffset == 20);
+
+    check(near(changes[0].valueAt(4), 0.f));
+    check(near(changes[0].valueAt(8), 0.5f));
+    check(near(changes[0].valueAt(12), 1.f));
+
+    check(near(changes.valueAt(0, 0, 0.7f), 0.f));
+    check(near(changes.valueAt(0, 6, 0.7f), 0.25f));
+    check(near(changes.valueAt(0, 19, 0.7f), 1.f));
+    check(near(changes.valueAt(0, 25, 0.7f), 0.2f));
+    check(near(changes.valueAt(1, 10, 0.7f), 0.1f));
+    check(near(changes.valueAt(2, 10, 0.7f), 0.7f));
+};
+
+// Sorted runs interleaved, as one queue per parameter arrives: the merge keeps
+// each run's order within an offset, as the insertion sort does.
+auto mergeSortCase = test("Core/stableMergeSort") = []
+{
+    using MakeASound::ParameterChange;
+
+    auto changes = MakeASound::ParameterChanges {};
+    auto expected = MakeASound::ParameterChanges {};
+    auto scratch = MakeASound::ParameterChanges {};
+
+    for (auto run = 0; run < 7; ++run)
+        for (auto offset = 0; offset < 50; offset += 1 + run)
+            changes.add(ParameterChange {.index = run, .sampleOffset = offset % 13});
+
+    expected = changes;
+    expected.sortByOffset();
+    scratch.reserveAtLeast(changes.size());
+
+    MakeASound::Algorithms::stableMergeSort(
+        changes,
+        scratch,
+        [](const ParameterChange& a, const ParameterChange& b)
+        { return a.sampleOffset < b.sampleOffset; });
+
+    check(changes.size() == expected.size());
+
+    auto same = true;
+
+    for (auto i = 0; i < changes.size(); ++i)
+        same = same && changes[i].index == expected[i].index
+               && changes[i].sampleOffset == expected[i].sampleOffset;
+
+    check(same);
+};
+
+auto spscPeekCase = test("Core/SPSCQueuePeek") = []
+{
+    auto queue = MakeASound::SPSCQueue<int, 2> {};
+    auto value = -1;
+
+    check(!queue.peek(value) && value == -1);
+    check(queue.push(1) && queue.push(2));
+    check(queue.peek(value) && value == 1);
+    check(queue.peek(value) && value == 1);
+    check(queue.pop(value) && value == 1);
+    check(queue.peek(value) && value == 2);
+    check(queue.push(3));
+    check(queue.pop(value) && value == 2);
+    check(queue.pop(value) && value == 3);
+    check(!queue.peek(value) && value == 3);
 };
 } // namespace

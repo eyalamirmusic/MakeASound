@@ -299,6 +299,9 @@ private:
     void addHostBypass();
     BoolParam* activeHostBypass() const noexcept;
 
+    // Gives every listed parameter its Parameter::index().
+    void indexParameters() noexcept;
+
     // Message thread: grows the added bypass's delay to latencySamples().
     void fitBypassDelay() noexcept;
 

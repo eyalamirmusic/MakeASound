@@ -341,7 +341,16 @@ started.
     by byte (`AAX/Describe.cpp` ~56-62).
   - Sample-accurate automation, filling `ProcessContext::paramChanges` from VST3
     queue points and AUv3 parameter and ramp events (JUCE takes the last value
-    only).
+    only). Done: the list type (`Audio/ParameterChanges.h`), `Parameter::index()`,
+    `PluginWrapper::pushParameterChange`/`applyParameterChanges` (ramps carried
+    across blocks), and the VST3, AUv3 (parameter and ramp render events at
+    their offsets, a ramp carried past its block) and AU v2 adapters (its own
+    `ScheduleParameter`, staged for the next render, each re-sent ramp clipped to
+    its block, no longer dropped), and AAX at offset 0 of the buffer Pro Tools
+    stamped (a Buffered data-in port's state number; Pro Tools hand check
+    pending). Open: hosting forwarding it,
+    a block-splitting utility that walks it, and whether the native profile
+    advertises `kAudioUnitParameterFlag_CanRamp` now that ramps are honoured.
   - `Smoother::follow(const FloatParam&)` glue.
   - An `isList()` virtual instead of inferring a list from `stateFormat()`
     (`VST3/HostParameters.cpp`, `AU/HostParameters.cpp`); `isBoolean()` and

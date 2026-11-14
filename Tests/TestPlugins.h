@@ -521,6 +521,45 @@ struct SynthPlugin : StatePlugin<State<SynthParams>>
     std::array<MIDI::Event, maxEvents> events {};
 };
 
+struct AutomationParams : ParameterGroup
+{
+    AutomationParams() { add(amount, mode, level); }
+
+    FloatParam amount {"Amount", 0.f, 1.f, 0.f, {.versionHint = 1}};
+    ChoiceParam mode {"Mode", {"A", "B", "C", "D", "E"}, 0, {.versionHint = 1}};
+    FloatParam level {"Level", 0.f, 1.f, 0.5f, {.versionHint = 1}};
+};
+
+// Copies the paramChanges each block hands it, and the amount it reads then.
+struct AutomationPlugin : StatePlugin<State<AutomationParams>>
+{
+    static constexpr int maxChanges = 32;
+
+    std::string_view name() const override { return "Automation"; }
+
+    BusLayout getBusLayout() const override { return BusLayout::stereoInOut(); }
+
+    void prepare(const ProcessSpec&) override {}
+
+    void process(ProcessContext& context) noexcept override
+    {
+        ++processed;
+        totalChanges = context.paramChanges.size();
+        numChanges = 0;
+        amountSeen = params.amount.getNormalized();
+
+        for (const auto& change: context.paramChanges)
+            if (numChanges < maxChanges)
+                changes[numChanges++] = change;
+    }
+
+    int processed = 0;
+    int totalChanges = 0;
+    int numChanges = 0;
+    float amountSeen = 0.f;
+    std::array<ParameterChange, maxChanges> changes {};
+};
+
 // What the test module (describeModule() in PluginTests.cpp) creates. A suite
 // hosting the module through a format's C API reaches the plugin behind a unit
 // through `lastCreated`, and hosts another plugin under an entry's codes by
