@@ -23,6 +23,7 @@ add_library(MakeASoundHosting STATIC
         FormatManager.cpp
         HostedPlugin.cpp
         JuceHostCompat.cpp
+        PathText.cpp
         PluginCache.cpp
         Scan/ExecutablePath.cpp
         Scan/ScanCoordinator.cpp
@@ -40,6 +41,7 @@ if (APPLE)
             AU/AUFormat.mm
             AU/HostedAudioUnit.cpp
             DefaultFormats-macOS.cpp
+            PathText-macOS.cpp
             Scan/ExecutablePath-macOS.cpp
             Scan/WorkerProcess-macOS.cpp
             VST3/VST3Folders-macOS.cpp)
@@ -53,6 +55,7 @@ if (APPLE)
 else ()
     target_sources(MakeASoundHosting PRIVATE
             DefaultFormats-Windows.cpp
+            PathText-Windows.cpp
             Scan/ExecutablePath-Windows.cpp
             Scan/WorkerProcess-Windows.cpp
             VST3/VST3Folders-Windows.cpp)

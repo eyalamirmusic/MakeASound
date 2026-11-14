@@ -85,6 +85,22 @@ cmake -S . -B build-ios -G Ninja -DCMAKE_SYSTEM_NAME=iOS \
 cmake --build build-ios
 ```
 
+A signed device build, and an archive to export from, is made with the Xcode
+generator and needs `MAKEASOUND_IOS_TEAM`, the Apple development team id each
+standalone app and its AUv3 extension sign with (automatic signing). Without it
+they are signed ad hoc for the simulator and not signed at all for a device;
+`CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM` alone does not turn device signing on.
+
+```bash
+cmake -S . -B build-ios-xcode -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DMAKEASOUND_IOS_TEAM=<team id>
+xcodebuild archive -project build-ios-xcode/MakeASound.xcodeproj \
+      -scheme Gain-Standalone -configuration Release \
+      -destination generic/platform=iOS -archivePath build-ios-xcode/Gain.xcarchive
+```
+
+The archive holds the app in `Products/Applications`, its extension embedded.
+
 Main options: `MAKEASOUND_BUILD_DEVICES`, `MAKEASOUND_BUILD_PLUGIN`, `MAKEASOUND_BUILD_HOSTING`, `MAKEASOUND_BUILD_AAX`, `MAKEASOUND_INSTALL_PLUGINS`, `MAKEASOUND_IOS_TEAM`.
 
 ## Using it in your project

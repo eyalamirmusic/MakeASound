@@ -34,14 +34,14 @@ struct TrackInfo
     bool isValid = false;
 
     // The track's display name, "Lead Vocal".
-    std::string name;
+    std::string name {};
 
     // A key that survives a rename or a reorder, for per-track state.
-    std::string uid;
+    std::string uid {};
 
     // What `index` counts in ("Input", "Output", "Channel"), 1-based, and this
     // namespace's position among the host's, also 1-based.
-    std::string indexNamespace;
+    std::string indexNamespace {};
     int index = 0;
     int namespaceOrder = 0;
 

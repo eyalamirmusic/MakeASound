@@ -68,13 +68,66 @@ option(MAKEASOUND_BUILD_AAX
 # PACE signing of each AAX bundle after it builds, on when wraptool is there, the
 # identity is set and the plugin names its AAX_WCGUID. No password is passed:
 # wraptool reads it from the keychain, where one sync with it saved it, and an empty
-# account means wraptool's default, the last one that sync saw.
-set(MAKEASOUND_PACE_WRAPTOOL "/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool"
+# account means wraptool's default, the last one that sync saw. On Windows wraptool
+# has signtool add the Authenticode signature: through Microsoft Artifact Signing
+# when its dlib and metadata.json are both set, else with the certificate whose
+# SHA-1 thumbprint is the identity. The default wraptool and signtool are the newest
+# installed. MAKEASOUND_PACE_REQUIRED fails the configure when a plugin with an
+# AAX_WCGUID cannot be signed, and the build when wraptool fails or runs longer
+# than MAKEASOUND_PACE_TIMEOUT seconds.
+if (WIN32)
+    set(program_files_x86 "$ENV{ProgramFiles\(x86\)}")
+
+    if (NOT program_files_x86)
+        set(program_files_x86 "C:/Program Files (x86)")
+    endif ()
+
+    file(TO_CMAKE_PATH "${program_files_x86}" program_files_x86)
+    set(pace_wraptool_default
+        "${program_files_x86}/PACEAntiPiracy/Eden/Fusion/Versions/5/wraptool.exe")
+    set(pace_signtool_default
+        "${program_files_x86}/Windows Kits/10/bin/10.0.26100.0/x64/signtool.exe")
+
+    if (NOT MAKEASOUND_PACE_WRAPTOOL)
+        file(GLOB pace_wraptools
+             "${program_files_x86}/PACEAntiPiracy/Eden/Fusion/Versions/*/wraptool.exe")
+
+        if (pace_wraptools)
+            list(SORT pace_wraptools COMPARE NATURAL ORDER DESCENDING)
+            list(GET pace_wraptools 0 pace_wraptool_default)
+        endif ()
+    endif ()
+
+    if (NOT MAKEASOUND_PACE_SIGNTOOL)
+        file(GLOB pace_signtools
+             "${program_files_x86}/Windows Kits/10/bin/10.*/x64/signtool.exe")
+
+        if (pace_signtools)
+            list(SORT pace_signtools COMPARE NATURAL ORDER DESCENDING)
+            list(GET pace_signtools 0 pace_signtool_default)
+        endif ()
+    endif ()
+
+    set(MAKEASOUND_PACE_SIGNTOOL "${pace_signtool_default}" CACHE FILEPATH
+        "The signtool wraptool runs (10.0.22621.755 or newer for Artifact Signing)")
+    set(MAKEASOUND_PACE_SIGNING_DLIB "" CACHE FILEPATH
+        "Artifact Signing's Azure.CodeSigning.Dlib.dll (x64), which signtool loads")
+    set(MAKEASOUND_PACE_SIGNING_METADATA "" CACHE FILEPATH
+        "Artifact Signing's metadata.json: endpoint, account and certificate profile")
+else ()
+    set(pace_wraptool_default "/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool")
+endif ()
+
+set(MAKEASOUND_PACE_WRAPTOOL "${pace_wraptool_default}"
     CACHE FILEPATH "PACE's wraptool, used to sign AAX bundles")
 set(MAKEASOUND_PACE_ACCOUNT "" CACHE STRING
     "The iLok account that signs AAX bundles (empty: wraptool's default)")
 set(MAKEASOUND_PACE_SIGN_ID "" CACHE STRING
-    "The Developer ID Application identity wraptool signs AAX bundles with")
+    "The identity wraptool signs AAX bundles with: the Developer ID Application on macOS, the certificate's SHA-1 thumbprint on Windows")
+option(MAKEASOUND_PACE_REQUIRED
+       "Fail when an AAX bundle with an AAX_WCGUID cannot be PACE signed" OFF)
+set(MAKEASOUND_PACE_TIMEOUT 600 CACHE STRING
+    "Seconds each wraptool run may take before it is stopped as failed (0: no limit)")
 
 # Set only by an iOS tree on the host sub-build it runs for the AUv3 plists (see
 # CMake/MakeASoundPlugin.cmake): this same project for macOS, where

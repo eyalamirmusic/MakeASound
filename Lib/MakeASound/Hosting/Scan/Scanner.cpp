@@ -1,8 +1,10 @@
 #include "Scanner.h"
+#include "../PathText.h"
 
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <set>
 #include <utility>
 #include <vector>
@@ -54,7 +56,7 @@ ModuleStamp moduleStamp(std::string_view path)
 {
     auto stamp = ModuleStamp();
     auto ec = std::error_code();
-    const auto root = fs::path(std::string(path));
+    const auto root = stdPath(path);
 
     if (path.empty() || !fs::exists(root, ec) || ec)
         return stamp;
@@ -88,7 +90,7 @@ ModuleStamp moduleStamp(std::string_view path)
         if (!entry.is_directory(entryError) || entryError)
             continue;
 
-        if (!isArchitectureFolder(entry.path().filename().string()))
+        if (!isArchitectureFolder(pathText(entry.path().filename())))
             continue;
 
         auto binaryError = std::error_code();
@@ -108,14 +110,21 @@ ModuleStamp moduleStamp(std::string_view path)
 Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPaths,
                                              std::string_view extension)
 {
-    // A set both deduplicates (search paths can overlap, or meet through a
-    // symlink) and sorts.
-    auto found = std::set<std::string>();
+    // Keyed by pathKey, so this both deduplicates (search paths can overlap, meet
+    // through a symlink, or spell one folder two ways on Windows) and sorts. The
+    // first spelling found is the one reported.
+    auto found = std::map<std::string, std::string>();
     auto visited = std::set<std::string>();
     auto pending = std::vector<std::pair<fs::path, int>>();
 
+    const auto add = [&found](const fs::path& path)
+    {
+        auto text = pathText(path);
+        found.emplace(pathKey(text), std::move(text));
+    };
+
     const auto isModule = [&](const fs::path& path)
-    { return Text::endsWithIgnoringCase(path.filename().string(), extension); };
+    { return Text::endsWithIgnoringCase(pathText(path.filename()), extension); };
 
     // Canonical form, only to break loops. A path the filesystem cannot
     // canonicalise is taken as given: a duplicate visit is cheaper than a hang.
@@ -124,7 +133,7 @@ Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPa
         auto ec = std::error_code();
         const auto canonical = fs::canonical(path, ec);
 
-        return ec ? path.string() : canonical.string();
+        return pathKey(pathText(ec ? path : canonical));
     };
 
     for (const auto& searchPath: searchPaths)
@@ -132,14 +141,14 @@ Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPa
         if (searchPath.empty())
             continue;
 
-        auto root = fs::path(searchPath);
+        auto root = stdPath(searchPath);
         auto ec = std::error_code();
 
         if (!fs::exists(root, ec) || ec)
             continue;
 
         if (isModule(root))
-            found.insert(root.string());
+            add(root);
         else if (fs::is_directory(root, ec) && !ec)
             pending.emplace_back(std::move(root), 0);
     }
@@ -162,7 +171,7 @@ Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPa
 
             if (isModule(entryPath))
             {
-                found.insert(entryPath.string());
+                add(entryPath);
                 continue;
             }
 
@@ -178,7 +187,7 @@ Vector<std::string> findModulesWithExtension(const Vector<std::string>& searchPa
     auto result = Vector<std::string>();
     result.reserve(static_cast<int>(found.size()));
 
-    for (const auto& path: found)
+    for (const auto& [key, path]: found)
         result.add(path);
 
     return result;

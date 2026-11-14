@@ -119,8 +119,21 @@ auto tAvailable = test("Midi/theAppleBackendComesUp") = []
 
 #if defined(__APPLE__)
     // Core MIDI starts on both macOS and the iOS simulator, so Apple has no
-    // machine where the MIDI system is simply absent.
-    check(midi.isAvailable());
+    // machine where the MIDI system is simply absent. A failure names the error,
+    // and Core MIDI's own status on a client asked for again from here.
+    if (!midi.isAvailable())
+    {
+        auto probe = MIDIClientRef {};
+        auto status = MIDIClientCreate(CFSTR("Probe"), nullptr, nullptr, &probe);
+
+        if (status == noErr)
+            MIDIClientDispose(probe);
+
+        check(false,
+              "MidiManager unavailable: lastError "
+                  + std::to_string(static_cast<int>(midi.getLastError()))
+                  + ", MIDIClientCreate now returns " + std::to_string(status));
+    }
 #else
     // Elsewhere a machine with no MIDI system at all is an ordinary state - a
     // Linux kernel with no snd-seq is exactly that - so all that is pinned is

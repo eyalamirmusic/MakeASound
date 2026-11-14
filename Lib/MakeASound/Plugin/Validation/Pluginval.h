@@ -41,7 +41,7 @@ struct Result
     eacp::FilePath bundle;
     bool passed = false;
     int exitCode = -1;
-    std::string log;
+    std::string log {};
     double seconds = 0;
 };
 

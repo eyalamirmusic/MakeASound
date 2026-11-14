@@ -92,9 +92,9 @@ struct SettingsPanelOptions
     bool touch = false;
 
     // Unset: forTouch() with touch, else SettingsPanelMetrics's defaults.
-    std::optional<SettingsPanelMetrics> metrics;
+    std::optional<SettingsPanelMetrics> metrics {};
 
-    SettingsPanelCaptions captions;
+    SettingsPanelCaptions captions {};
 
     ChoiceStyle channelStyle = ChoiceStyle::standard;
     ChoiceStyle midiInputStyle = ChoiceStyle::standard;
@@ -112,13 +112,13 @@ struct SettingsPanelOptions
     bool hideChannelsWithoutDevice = false;
 
     // How a choice is labelled. Unset: "1", "1/2"; and the size alone, "512".
-    std::function<std::string(int firstChannel, int count)> channelLabel;
-    std::function<std::string(int blockSize, int sampleRate)> blockSizeLabel;
+    std::function<std::string(int firstChannel, int count)> channelLabel {};
+    std::function<std::string(int blockSize, int sampleRate)> blockSizeLabel {};
 
     // A button at the end of the output device's row, calling
     // SettingsPanel::onTestOutput -- StandaloneHost::playTestTone, say. Empty,
     // no button.
-    std::string testButtonLabel;
+    std::string testButtonLabel {};
 
     static SettingsPanelOptions forLayout(const BusLayout& layout);
 

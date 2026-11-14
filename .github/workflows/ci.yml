@@ -623,8 +623,9 @@ jobs:
 
   # The same iOS tree under the Xcode generator, which is how a signed device
   # build is made (MAKEASOUND_IOS_TEAM): each app embeds its AUv3 extension with
-  # XCODE_EMBED_APP_EXTENSIONS rather than having it laid out by hand. Build only
-  # and unsigned, for a device; the Ninja job above is the one that runs things.
+  # XCODE_EMBED_APP_EXTENSIONS rather than having it laid out by hand. Build and
+  # archive only, unsigned, for a device; the Ninja job above is the one that
+  # runs things.
   ios-xcode:
     name: iOS (Xcode generator, device, unsigned)
     runs-on: macos-latest
@@ -680,3 +681,32 @@ jobs:
             otool -l "$appex/${app#*/}" | grep -A4 LC_BUILD_VERSION | grep -qE 'platform 2$'
             echo "$appex: ok"
           done
+
+      # `xcodebuild archive` is how a signed app is exported (App Store, ad hoc),
+      # and an archive holds only installed products: an app that Xcode skips
+      # installing still archives with rc 0, but with an empty Products and
+      # nothing to export. The app must be in Products/Applications with its
+      # extension embedded, the extension nowhere else, and the archive must
+      # name the app. Unsigned, as the build above.
+      - name: Archive a standalone app
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="MakeASound Gain"
+          archive="$RUNNER_TEMP/Gain.xcarchive"
+          xcodebuild archive -quiet \
+                -project build-ios-xcode/MakeASound.xcodeproj \
+                -scheme Gain-Standalone -configuration RelWithDebInfo \
+                -destination generic/platform=iOS -archivePath "$archive" \
+                CODE_SIGNING_ALLOWED=NO
+          find "$archive/Products" -maxdepth 4
+          app="$archive/Products/Applications/$name.app"
+          test -x "$app/$name"
+          test -x "$app/PlugIns/$name.appex/$name"
+          stray=$(find "$archive/Products" -name '*.appex' -not -path "$app/*")
+          if [ -n "$stray" ]; then
+            echo "ERROR: extensions installed outside the app: $stray"; exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Print :ApplicationProperties:ApplicationPath" \
+                "$archive/Info.plist" | grep -qx "Applications/$name.app"
+          echo "$archive: ok"

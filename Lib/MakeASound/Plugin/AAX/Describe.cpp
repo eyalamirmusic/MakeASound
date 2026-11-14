@@ -170,6 +170,15 @@ bool describeEffect(AAX_ICollection& collection,
     addNames(*effect, plugin.name);
     checked = effect->AddCategory(categoryFor(plugin));
 
+    auto* properties = effect->NewPropertyMap();
+
+    if (properties == nullptr)
+        checked = AAX_ERROR_NULL_OBJECT;
+
+    checked = properties->AddProperty(AAX_eProperty_RequiresChunkCallsOnMainThread,
+                                      plugin.aaxChunkCallsOnMainThread);
+    checked = effect->SetProperties(properties);
+
     // The adapter's wrapper adds a bypass to an effect that has none, and under
     // a JUCE scheme to any plugin that has none.
     auto canBypass =

@@ -28,7 +28,6 @@ set_target_properties(MakeASoundAUDescribe PROPERTIES
 # view files recorded on this target, since an archive would let the linker drop
 # them, and since the view's Objective-C classes are named per module.
 if (NOT TARGET ausdk)
-    message(STATUS "MakeASoundAU skipped (needs the AudioUnitSDK, macOS only)")
     return()
 endif ()
 

@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <string_view>
+#include <eacp/Core/Utils/Environment.h>
 
 namespace PluginvalTests
 {
@@ -24,13 +25,13 @@ namespace Pluginval = MakeASound::Pluginval;
 auto pluginvalExampleBundles =
     test("Pluginval/exampleBundlesPassAtStrictness10") = []
 {
-    auto* setting = std::getenv("MAKEASOUND_PLUGINVAL");
+    auto setting = eacp::getEnvValue("MAKEASOUND_PLUGINVAL");
 
-    if (setting == nullptr)
+    if (setting.empty())
         return;
 
     auto options = Pluginval::Options {};
-    options.guiTests = std::string_view {setting} != "nogui";
+    options.guiTests = setting != "nogui";
 
     auto bundles = Pluginval::findBundles(MAKEASOUND_VST3_DIR);
     check(!bundles.empty());

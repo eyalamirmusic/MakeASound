@@ -100,13 +100,15 @@ std::optional<ModuleScan> decodeScanResult(std::string_view workerOutput)
 
 namespace
 {
-// argv without argv[0]; a null entry reads as empty.
+// argv without argv[0], as UTF-8 (eacp recovers it from the wide command line
+// on Windows); a null entry reads as empty.
 Vector<std::string> argumentsOf(int argc, char** argv)
 {
+    const auto all = eacp::Apps::utf8Arguments(argc, argv);
     auto arguments = Vector<std::string>();
 
-    for (auto i = 1; i < argc; ++i)
-        arguments.add(argv[i] != nullptr ? std::string(argv[i]) : std::string());
+    for (auto i = 1; i < static_cast<int>(all.size()); ++i)
+        arguments.add(all[i]);
 
     return arguments;
 }

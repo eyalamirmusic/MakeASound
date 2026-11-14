@@ -64,6 +64,13 @@ public:
 
     // Replaces the document with the file's contents. False, leaving the
     // document empty, when the file is missing, unreadable or malformed.
+    //
+    // The document never holds two entries for one target (one pathKey). A file
+    // an older build wrote can, with one module under two spellings: it loads
+    // with one, in the first one's place, and without the rest, so the next save
+    // writes the module once. The one kept is the first that scanned, or the
+    // first when none did, so a plugin that crashed the worker under one spelling
+    // and described fine under another stays listed and is not blacklisted.
     bool load();
 
     // Writes the document atomically, creating parent folders. False on I/O
@@ -94,7 +101,10 @@ public:
     // path, then class id, so the order is stable.
     Vector<PluginDescription> plugins() const;
 
-    // The entry for `path`, or null when it was never scanned.
+    // The entry for `path`, or null when it was never scanned. Here and in every
+    // call below, an entry matches a path when their pathKeys are equal
+    // (PathText.h): on Windows '\' and '/' are one separator, and case, repeated
+    // and trailing separators and a "\\?\" prefix do not count.
     const ModuleScan* find(std::string_view path) const;
 
     // Which of `foundTargets` must be scanned: those with no entry, and those

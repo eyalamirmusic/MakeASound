@@ -279,6 +279,14 @@ if (MAKEASOUND_BUILD_PLUGIN)
                 HostingVST3StringsTests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting MakeASoundScanProtocol)
 
+        # The spellings of one Windows path that the cache must treat as one, and
+        # on macOS the texts it must keep apart.
+        if (WIN32)
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-Windows.cpp)
+        elseif (APPLE)
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-macOS.cpp)
+        endif ()
+
         # A stand-in scan worker whose misbehaviour the command line picks
         # (crash, abort, hang, garbage, the old marker), for the scan suites.
         add_executable(FakeScanWorker FakeScanWorker.cpp)

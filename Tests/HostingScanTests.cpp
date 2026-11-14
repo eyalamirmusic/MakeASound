@@ -10,6 +10,7 @@
 #include <NanoTest/NanoTest.h>
 
 #include <eacp/Core/App/AppEnvironment.h>
+#include <eacp/Core/Utils/FilePath.h>
 
 #include <chrono>
 #include <filesystem>
@@ -39,13 +40,14 @@ fs::path freshFolder(const char* name)
     return folder;
 }
 
+// The bundle's path as the module walk spells what it finds: UTF-8 with '/'.
 std::string makeBundle(const fs::path& path, std::size_t bytes = 64)
 {
     fs::create_directories(path / "Contents" / "MacOS");
     auto out = std::ofstream(path / "Contents" / "MacOS" / "binary",
                              std::ios::binary | std::ios::trunc);
     out << std::string(bytes, 'x');
-    return path.string();
+    return eacp::FilePath(path).str();
 }
 
 std::int64_t msSince(Clock::time_point start)
