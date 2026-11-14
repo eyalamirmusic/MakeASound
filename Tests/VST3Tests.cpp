@@ -27,6 +27,7 @@
 
 #include <eacp/Core/Threads/EventLoop.h>
 
+#include <array>
 #include <climits>
 #include <cmath>
 #include <limits>
@@ -719,6 +720,349 @@ auto tQueue = test("VST3/theQueueLeavesTheLastPoint") = []
 
     check(near(params.gain.getNormalized(), 0.3));
     check(host.plugin().processed == 1);
+};
+
+using AutomationHost = AdapterHost<AutomationPlugin>;
+
+bool sameChange(const MakeASound::ParameterChange& change,
+                int offset,
+                int ramp,
+                double value,
+                double previous)
+{
+    return change.sampleOffset == offset && change.rampSamples == ramp
+           && near(change.value, value) && near(change.previousValue, previous);
+}
+
+void runAutomation(AutomationHost& host, int numSamples = blockSize)
+{
+    host.fillBlock(numSamples);
+    host.run();
+    host.clearQueues();
+}
+
+auto tPointsToChanges = test("VST3/queuePointsBecomeStepsAndRamps") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+
+    host.addPoint(amountId, 0, 0.2);
+    host.addPoint(amountId, 32, 0.6);
+    runAutomation(host);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 0, 0.2, 0.0));
+    check(sameChange(plugin.changes[1], 0, 32, 0.6, 0.2));
+    check(near(plugin.amountSeen, 0.6));
+
+    host.addPoint(amountId, 16, 0.5);
+    host.addPoint(amountId, 40, 0.1);
+    runAutomation(host);
+
+    // The first line starts at sample -1, so one step of it has passed at 0.
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 16, 0.5, 0.6 - 0.1 / 17));
+    check(sameChange(plugin.changes[1], 16, 24, 0.1, 0.5));
+    check(near(plugin.amountSeen, 0.1));
+
+    runAutomation(host);
+    check(plugin.numChanges == 0);
+};
+
+auto tJumpPoints = test("VST3/twoPointsOnAdjacentSamplesAreAJump") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+
+    host.addPoint(amountId, 20, 0.3);
+    host.addPoint(amountId, 21, 0.9);
+    runAutomation(host);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 20, 0.3, 0.3 / 21));
+    check(sameChange(plugin.changes[1], 21, 0, 0.9, 0.3));
+};
+
+auto tOnePoint = test("VST3/aSinglePointMidBlockIsARampFromSampleMinusOne") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+
+    host.addPoint(amountId, 30, 0.62);
+    runAutomation(host);
+
+    check(plugin.numChanges == 1);
+    check(sameChange(plugin.changes[0], 0, 30, 0.62, 0.02));
+    check(near(plugin.amountSeen, 0.62));
+};
+
+// A host automating one straight line over two blocks, sending each block's
+// last sample only: a single line, no sample repeated at the boundary.
+auto tLastSampleRamp = test("VST3/aRampSentAsEachBlocksLastSampleIsOneLine") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+    auto step = 1.0 / 256;
+
+    host.addPoint(amountId, blockSize - 1, 0.25);
+    runAutomation(host);
+
+    check(plugin.numChanges == 1);
+    auto first = plugin.changes[0];
+    check(near(first.valueAt(0), step));
+    check(near(first.valueAt(blockSize - 1), 0.25));
+
+    host.addPoint(amountId, blockSize - 1, 0.5);
+    runAutomation(host);
+
+    check(plugin.numChanges == 1);
+    auto second = plugin.changes[0];
+    check(near(second.valueAt(0) - first.valueAt(blockSize - 1), step));
+    check(near(second.valueAt(1) - second.valueAt(0), step));
+    check(near(second.valueAt(blockSize - 1), 0.5));
+};
+
+auto tDiscretePoints = test("VST3/aDiscreteParameterOnlySteps") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto modeId = host.hostIdOf(plugin.params.mode);
+
+    host.addPoint(modeId, 10, 0.25);
+    host.addPoint(modeId, 30, 0.75);
+    runAutomation(host);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 10, 0, 0.25, 0.0));
+    check(sameChange(plugin.changes[1], 30, 0, 0.75, 0.25));
+    check(plugin.params.mode.getIndex() == 3);
+};
+
+auto tLatePoint = test("VST3/aPointPastTheBlockEndsItsRampInside") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+
+    host.addPoint(amountId, 10, 0.4);
+    host.addPoint(amountId, blockSize + 20, 0.8);
+    runAutomation(host);
+
+    check(plugin.numChanges == 2);
+    check(sameChange(plugin.changes[0], 0, 10, 0.4, 0.4 / 11));
+    check(sameChange(plugin.changes[1], 10, blockSize - 11, 0.8, 0.4));
+    check(near(plugin.amountSeen, 0.8));
+
+    runAutomation(host);
+    check(plugin.numChanges == 0);
+};
+
+auto tFlushPoints = test("VST3/aFlushLandsTheLastPointAndCarriesNothing") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+
+    host.addPoint(amountId, 0, 0.3);
+    host.addPoint(amountId, 40, 0.9);
+    runAutomation(host, 0);
+
+    check(plugin.processed == 0);
+    check(near(plugin.params.amount.getNormalized(), 0.9));
+
+    runAutomation(host);
+    check(plugin.processed == 1);
+    check(plugin.numChanges == 0);
+};
+
+auto tAutomationNotEchoed = test("VST3/automationIsNotEchoedBack") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+
+    host.addPoint(amountId, 0, 0.2);
+    host.addPoint(amountId, 50, 0.7);
+    host.fillBlock(blockSize);
+    host.run();
+    check(host.outputChanges.getParameterCount() == 0);
+
+    // A ramp carried across blocks moves the value with no queue behind it.
+    host.clearQueues();
+    host.adapter->wrapper().pushParameterChange(2, 0, 1.f, 2 * blockSize);
+    host.fillBlock(blockSize);
+    host.run();
+    check(host.outputChanges.getParameterCount() == 0);
+
+    host.clearQueues();
+    host.fillBlock(blockSize);
+    host.run();
+    check(host.outputChanges.getParameterCount() == 0);
+    check(near(plugin.params.level.getNormalized(), 1.0));
+    check(plugin.numChanges == 1);
+};
+
+auto tHeldPoints = test("VST3/aHeldParameterDropsItsPoints") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto amountId = host.hostIdOf(plugin.params.amount);
+    auto& listener = *plugin.hostEditListener();
+
+    listener.beginParameterEdit(0);
+    plugin.params.amount.setValue(0.4f);
+    listener.performParameterEdit(0, 0.4f);
+
+    host.clearQueues();
+    host.addPoint(amountId, 0, 0.1);
+    host.addPoint(amountId, 30, 0.9);
+    host.fillBlock(blockSize);
+    host.run();
+
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 0.4));
+    check(host.outputChanges.getParameterCount() == 0);
+
+    listener.endParameterEdit(0);
+};
+
+// One queue whose points stay as given, unsorted and duplicated, which the
+// SDK's own queue would sort and merge.
+struct RawQueue : Vst::IParamValueQueue
+{
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID, void**) override
+    {
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1; }
+
+    Vst::ParamID PLUGIN_API getParameterId() override { return id; }
+    int32 PLUGIN_API getPointCount() override { return numPoints; }
+
+    tresult PLUGIN_API getPoint(int32 index,
+                                int32& offset,
+                                Vst::ParamValue& value) override
+    {
+        if (index < 0 || index >= numPoints)
+            return Steinberg::kResultFalse;
+
+        offset = points[static_cast<size_t>(index)].first;
+        value = points[static_cast<size_t>(index)].second;
+        return Steinberg::kResultOk;
+    }
+
+    tresult PLUGIN_API addPoint(int32, Vst::ParamValue, int32&) override
+    {
+        return Steinberg::kResultFalse;
+    }
+
+    Vst::ParamID id = 0;
+    int32 numPoints = 0;
+    std::array<std::pair<int32, Vst::ParamValue>, 4> points {};
+};
+
+struct RawChanges : Vst::IParameterChanges
+{
+    tresult PLUGIN_API queryInterface(const Steinberg::TUID, void**) override
+    {
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1; }
+
+    int32 PLUGIN_API getParameterCount() override { return 1; }
+
+    Vst::IParamValueQueue* PLUGIN_API getParameterData(int32 index) override
+    {
+        return index == 0 ? &queue : nullptr;
+    }
+
+    Vst::IParamValueQueue* PLUGIN_API addParameterData(const Vst::ParamID&,
+                                                       int32&) override
+    {
+        return nullptr;
+    }
+
+    RawQueue queue;
+};
+
+auto tUnsortedPoints = test("VST3/unsortedAndDuplicatePointsResolveByOffset") = []
+{
+    auto host = AutomationHost {};
+    auto& plugin = host.plugin();
+    auto raw = RawChanges {};
+    raw.queue.id = host.hostIdOf(plugin.params.amount);
+    raw.queue.numPoints = 3;
+    raw.queue.points = {{{40, 0.8}, {10, 0.4}, {10, 0.6}, {}}};
+
+    host.fillBlock(blockSize);
+    host.data.inputParameterChanges = &raw;
+    host.run();
+
+    check(plugin.numChanges == 3);
+    check(sameChange(plugin.changes[0], 0, 40, 0.8, 0.8 / 41));
+    check(sameChange(plugin.changes[1], 10, 0, 0.4, 0.8 * 11 / 41));
+    check(sameChange(plugin.changes[2], 10, 0, 0.6, 0.4));
+    check(near(plugin.amountSeen, 0.6));
+    check(host.outputChanges.getParameterCount() == 0);
+};
+
+auto tBypassQueue = test("VST3/theBypassIsAutomatedThroughAQueue") = []
+{
+    auto host = AutomationHost {};
+    const auto& list = host.plugin().parameters();
+    auto bypass = list.bypassIndex();
+    auto bypassId = list.entry(bypass).hostId;
+
+    host.addPoint(bypassId, 20, 1.0);
+    runAutomation(host);
+
+    check(near(list[bypass].getNormalized(), 1.0));
+    check(host.outputChanges.getParameterCount() == 0);
+
+    host.addPoint(bypassId, 5, 0.0);
+    runAutomation(host);
+
+    check(near(list[bypass].getNormalized(), 0.0));
+    check(host.outputChanges.getParameterCount() == 0);
+};
+
+auto tShadowBesideParams = test("VST3/controllerQueuesSitBesideParameterQueues") = []
+{
+    auto host = AdapterHost<SynthPlugin> {{}, withMidiControllers};
+    auto& plugin = host.plugin();
+    auto levelId = host.hostIdOf(plugin.params.level);
+    auto modWheel = Vst::ParamID {};
+
+    check(host.adapter->getMidiControllerAssignment(0, 0, 1, modWheel)
+          == Steinberg::kResultTrue);
+
+    host.addPoint(levelId, 10, 0.3);
+    host.addPoint(modWheel, 0, 0.1);
+    host.addPoint(modWheel, 20, 0.5);
+    host.addPoint(levelId, 50, 0.8);
+    host.addPoint(modWheel, 40, 0.9);
+    host.fillBlock(blockSize);
+    host.run();
+
+    check(plugin.numEvents == 3);
+
+    for (auto i = 0; i < 3; ++i)
+    {
+        const auto* cc = plugin.events[i].asControlChange();
+        check(cc != nullptr && cc->controller == 1);
+        check(plugin.events[i].sampleOffset == i * 20);
+    }
+
+    check(near(plugin.params.level.getNormalized(), 0.8));
+    check(host.outputChanges.getParameterCount() == 0);
 };
 
 // The host automates the gain with a zero-sample flush.
