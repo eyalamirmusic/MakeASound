@@ -27,6 +27,22 @@ int sampleOffset(AUEventSampleTime time,
     return static_cast<int>(std::clamp<AUEventSampleTime>(time - start, 0, last));
 }
 
+int rampOffset(AUEventSampleTime time,
+               const AudioTimeStamp* timestamp,
+               AUAudioFrameCount frames,
+               int limit) noexcept
+{
+    auto offset = sampleOffset(time, timestamp, frames);
+    auto immediate = time - AUEventSampleTimeImmediate;
+
+    if (offset > 0 || timestamp == nullptr
+        || (immediate >= 0 && immediate < 0x7fffffff))
+        return offset;
+
+    auto start = static_cast<AUEventSampleTime>(timestamp->mSampleTime);
+    return static_cast<int>(std::clamp<AUEventSampleTime>(time - start, -limit, 0));
+}
+
 std::optional<MIDI::Event> midiEvent(const AUMIDIEvent& event, int offset) noexcept
 {
     if (event.length == 0)

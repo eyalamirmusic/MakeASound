@@ -21,9 +21,10 @@ namespace AUv3Allocation
 using namespace AUv3Host;
 using Probe::allocationsIn;
 
-// Everything a busy host slice carries: an event for every exposed parameter,
-// then a note, a controller and a bend at their frames where the plugin takes
-// MIDI, built before the ban.
+// Everything a busy host slice carries: for every exposed parameter an event at
+// the start, one partway and a ramp that outlives the slice, then a note, a
+// controller and a bend at their frames where the plugin takes MIDI, built
+// before the ban.
 template <typename P>
 void busyEvents(UnitHost<P>& host, EventList& events, int block, UInt32 frames)
 {
@@ -35,9 +36,17 @@ void busyEvents(UnitHost<P>& host, EventList& events, int block, UInt32 frames)
     events.clear();
 
     for (auto i = 0; i < list.size(); ++i)
-        if (list.isHostExposed(i))
-            events.parameter(
-                list.entry(i).address, list[i].toPlain(normalized), start);
+    {
+        if (!list.isHostExposed(i))
+            continue;
+
+        auto address = list.entry(i).address;
+        events.parameter(address, list[i].toPlain(normalized), start);
+        events.parameter(
+            address, list[i].toPlain(1.f - normalized), start + last / 4);
+        events.ramp(
+            address, list[i].toPlain(normalized), start + last / 2, frames * 2 + 1);
+    }
 
     if (!host.plugin().getBusLayout().midiInputs.empty())
     {

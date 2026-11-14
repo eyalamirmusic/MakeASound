@@ -249,6 +249,13 @@ Adapter::Adapter(AudioComponentInstance instance,
     for (auto slot = 0; slot < exposed.size(); ++slot)
         slotOfIndex[exposed[slot]] = slot;
 
+    overflowed.resize(exposed.size());
+    hasOverflow.resize(exposed.size());
+    takenOverflow.reserveAtLeast(exposed.size());
+    automatedHostValue.resize(exposed.size());
+    automatedOffset.resize(exposed.size(), -1);
+    automatedSlots.reserveAtLeast(exposed.size());
+
     if (!exposed.empty())
         valueTimer = std::make_unique<ValueTimer>(*this);
 
@@ -334,6 +341,8 @@ void Adapter::PostConstructor()
     MusicDeviceBase::PostConstructor();
 
     stagedMidi.reserveAtLeast(ProcessContext::defaultMidiCapacity);
+    scheduled.reserveAtLeast(maxScheduledEvents);
+    takenEvents.reserveAtLeast(maxScheduledEvents);
 
     const auto& layout = pluginWrapper.busLayout();
 
@@ -440,6 +449,7 @@ OSStatus Adapter::Initialize()
 
     resetPending = false;
     pluginWrapper.reset();
+    dropScheduled();
 
     return noErr;
 }
@@ -606,6 +616,9 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
     // choose between the host's value and one the plugin moved itself.
     if (result == noErr)
     {
+        // Later than anything scheduled for it, so it wins, as under the base,
+        // which applies a scheduled immediate event at once.
+        dropScheduledFor(slotOfIndex[index]);
         setFromHost(index, value);
         markToldHost(slotOfIndex[index]);
 
@@ -620,6 +633,98 @@ OSStatus Adapter::SetParameter(AudioUnitParameterID id,
     }
 
     return result;
+}
+
+OSStatus Adapter::ScheduleParameter(const AudioUnitParameterEvent* events,
+                                    UInt32 numEvents) noexcept
+{
+    for (auto i = UInt32 {0}; events != nullptr && i < numEvents; ++i)
+    {
+        const auto& event = events[i];
+        auto immediate = event.eventType == kParameterEvent_Immediate;
+        auto index = event.scope == kAudioUnitScope_Global
+                         ? indexOfExposed(event.parameter)
+                         : -1;
+
+        // Any other scope's, or anything before Initialize, as the base does:
+        // an immediate event only.
+        if (index < 0 || !IsInitialized())
+        {
+            if (immediate)
+                std::ignore = SetParameter(event.parameter,
+                                           event.scope,
+                                           event.element,
+                                           event.eventValues.immediate.value,
+                                           event.eventValues.immediate.bufferOffset);
+            continue;
+        }
+
+        if (!immediate && event.eventType != kParameterEvent_Ramped)
+            continue;
+
+        constexpr auto maxSamples = PluginWrapper::maxRampSamples;
+        auto staged = ScheduledEvent {.slot = slotOfIndex[index]};
+
+        if (immediate)
+        {
+            const auto& values = event.eventValues.immediate;
+            staged.startOffset =
+                static_cast<int>(std::min<UInt32>(values.bufferOffset, maxSamples));
+            staged.startValue = values.value;
+            staged.endValue = values.value;
+        }
+        else
+        {
+            const auto& values = event.eventValues.ramp;
+            staged.ramped = true;
+            staged.startOffset = std::clamp<SInt32>(
+                values.startBufferOffset, -maxSamples, maxSamples);
+            staged.duration = static_cast<int>(
+                std::min<UInt32>(values.durationInFrames, maxSamples));
+            staged.startValue = values.startValue;
+            staged.endValue = values.endValue;
+        }
+
+        auto lock = ScopedSpinLock(scheduledLock);
+
+        if (scheduled.size() < scheduled.capacity())
+        {
+            scheduled.add(staged);
+        }
+        else
+        {
+            overflowed[staged.slot] = staged;
+            hasOverflow[staged.slot] = 1;
+            anyOverflow = true;
+        }
+
+        anyScheduled.store(true, std::memory_order_release);
+    }
+
+    return noErr;
+}
+
+void Adapter::dropScheduled() noexcept
+{
+    auto lock = ScopedSpinLock(scheduledLock);
+    scheduled.clear();
+
+    for (auto& flag: hasOverflow)
+        flag = 0;
+
+    anyOverflow = false;
+    anyScheduled.store(false, std::memory_order_release);
+}
+
+void Adapter::dropScheduledFor(int slot) noexcept
+{
+    if (slot < 0 || !anyScheduled.load(std::memory_order_acquire))
+        return;
+
+    auto lock = ScopedSpinLock(scheduledLock);
+    scheduled.eraseIf([slot](const ScheduledEvent& event)
+                      { return event.slot == slot; });
+    hasOverflow[slot] = 0;
 }
 
 bool Adapter::isBypassed() const noexcept
@@ -1042,6 +1147,9 @@ OSStatus Adapter::RestoreState(CFPropertyListRef plist)
     if (result != noErr)
         return result;
 
+    // Scheduled before the restore, so older than it.
+    dropScheduled();
+
     try
     {
         if (document)
@@ -1134,6 +1242,146 @@ void Adapter::reconcileParameters() noexcept
         }
 
         lastPluginValue[slot] = value;
+    }
+}
+
+void Adapter::applyScheduledParameters(UInt32 frames) noexcept
+{
+    auto numSamples = static_cast<int>(frames);
+
+    takeScheduled();
+
+    for (const auto& event: takenEvents)
+        pushScheduled(event, numSamples, false);
+
+    for (const auto& event: takenOverflow)
+        pushScheduled(event, numSamples, true);
+
+    takenEvents.clear();
+    takenOverflow.clear();
+    pluginWrapper.applyParameterChanges(numSamples);
+
+    if (automatedSlots.empty())
+        return;
+
+    // The host's own values, so neither the next reconcile nor the timer
+    // reports them back as the plugin's. A move the plugin made before them,
+    // which the reconcile found, is still reported.
+    const auto& list = plugin().parameters();
+
+    for (auto index: pluginWrapper.appliedParameters())
+    {
+        auto slot = slotOfIndex[index];
+
+        if (slot < 0 || automatedOffset[slot] < 0)
+            continue;
+
+        auto hostValue = automatedHostValue[slot];
+        std::ignore =
+            Globals()->SetParameterOrError(list.entry(index).hostId, hostValue);
+        lastHostValue[slot] = hostValue;
+        lastPluginValue[slot] = pluginWrapper.getParameter(index);
+        markToldHost(slot);
+    }
+
+    for (auto slot: automatedSlots)
+        automatedOffset[slot] = -1;
+
+    automatedSlots.clear();
+}
+
+// Only the hand-over is under the lock; the conversions run after it.
+void Adapter::takeScheduled() noexcept
+{
+    if (!anyScheduled.load(std::memory_order_acquire))
+        return;
+
+    auto lock = ScopedSpinLock(scheduledLock);
+    std::swap(scheduled, takenEvents);
+
+    if (anyOverflow)
+    {
+        for (auto slot = 0; slot < hasOverflow.size(); ++slot)
+        {
+            if (hasOverflow[slot] != 0)
+                takenOverflow.add(overflowed[slot]);
+
+            hasOverflow[slot] = 0;
+        }
+
+        anyOverflow = false;
+    }
+
+    anyScheduled.store(false, std::memory_order_release);
+}
+
+// An event applies to one render, and a host re-sends a ramp on every buffer it
+// spans, so each is clipped to this block from its own two ends. One that found
+// the list full lands at the block's end.
+void Adapter::pushScheduled(const ScheduledEvent& event,
+                            int numSamples,
+                            bool untimed) noexcept
+{
+    auto start = event.startOffset;
+    auto end = start + event.duration;
+
+    auto hostAt = [&](int sample)
+    {
+        if (!event.ramped || sample >= end)
+            return event.endValue;
+
+        if (sample <= start)
+            return event.startValue;
+
+        return event.startValue
+               + (event.endValue - event.startValue)
+                     * static_cast<float>(sample - start)
+                     / static_cast<float>(event.duration);
+    };
+
+    if (event.ramped && start >= numSamples)
+        return;
+
+    auto last = std::max(0, numSamples - 1);
+    auto from = std::clamp(start, 0, last);
+    auto to = std::min(end, numSamples);
+
+    if (untimed)
+    {
+        pushHostChange(event.slot, last, hostAt(to));
+        return;
+    }
+
+    const auto& param = plugin().parameters()[exposed[event.slot]];
+    auto stepped = param.isDiscrete() || param.numSteps() > 0;
+
+    if (!event.ramped || stepped || to <= from)
+    {
+        pushHostChange(event.slot, from, hostAt(to));
+        return;
+    }
+
+    pushHostChange(event.slot, from, hostAt(from));
+    pushHostChange(event.slot, from, hostAt(to), to - from);
+}
+
+void Adapter::pushHostChange(int slot,
+                             int offset,
+                             float hostValue,
+                             int rampSamples) noexcept
+{
+    auto index = exposed[slot];
+    const auto& entry = plugin().parameters().entry(index);
+    auto normalized = entry.param->toNormalized(space.fromHost(entry, hostValue));
+    pluginWrapper.pushParameterChange(index, offset, normalized, rampSamples);
+
+    if (automatedOffset[slot] < 0)
+        automatedSlots.add(slot);
+
+    if (offset >= automatedOffset[slot])
+    {
+        automatedOffset[slot] = offset;
+        automatedHostValue[slot] = hostValue;
     }
 }
 
@@ -1278,11 +1526,14 @@ OSStatus Adapter::Render(AudioUnitRenderActionFlags& flags,
                          const AudioTimeStamp& timestamp,
                          UInt32 frames) noexcept
 {
+    renderedThisPull = true;
+
     if (resetPending.exchange(false))
         pluginWrapper.reset();
 
     takeStagedMidi();
     reconcileParameters();
+    applyScheduledParameters(frames);
     bindInputs(flags, timestamp, frames);
     pluginWrapper.setPlayhead(readPlayhead(*this, GetHostCallbackInfo(), timestamp));
     pluginWrapper.setOffline(offlineRender.load(std::memory_order_relaxed));
@@ -1292,6 +1543,20 @@ OSStatus Adapter::Render(AudioUnitRenderActionFlags& flags,
     emitMidiOut(midiOutputCallback.currentForBlock(), timestamp);
 
     return noErr;
+}
+
+OSStatus Adapter::RenderBus(AudioUnitRenderActionFlags& flags,
+                            const AudioTimeStamp& timestamp,
+                            UInt32 bus,
+                            UInt32 frames) noexcept
+{
+    renderedThisPull = false;
+    auto result = MusicDeviceBase::RenderBus(flags, timestamp, bus, frames);
+
+    if (!renderedThisPull && anyScheduled.load(std::memory_order_acquire))
+        dropScheduled();
+
+    return result;
 }
 
 void Adapter::takeStagedMidi() noexcept

@@ -3741,5 +3741,494 @@ auto tPlugReaderFirst = test("AU/aTamberPlugPortsOwnReaderStillComesFirst") = []
     check(refusing.plugin().legacyLoads == 1);
     check(TamberPlugFixtures::holdsSVFValues(refusing.plugin().params));
 };
+
+// AutomationPlugin under the Gain entry's codes, automated through
+// AudioUnitScheduleParameters.
+struct AutomationUnit
+{
+    const ParameterChange& change(int i) const { return plugin.changes[i]; }
+
+    ScopedStandIn<AutomationPlugin> standIn {Module::gainStandIn};
+    UnitHost<AutomationPlugin> host {"Gain"};
+    AutomationPlugin& plugin = host.plugin();
+    AutomationParams& params = plugin.params;
+    AudioUnitParameterID amount = host.hostIdOf(params.amount);
+    AudioUnitParameterID mode = host.hostIdOf(params.mode);
+    AudioUnitParameterID level = host.hostIdOf(params.level);
+};
+
+bool isStep(const ParameterChange& change, int index, int offset, float value)
+{
+    return change.index == index && change.sampleOffset == offset
+           && change.rampSamples == 0 && near(change.value, value);
+}
+
+// Parameter `index` at `sample` by the changes the plugin last saw.
+float seenAt(const AutomationPlugin& plugin, int index, int sample, float fallback)
+{
+    auto value = fallback;
+
+    for (auto i = 0; i < plugin.numChanges; ++i)
+    {
+        const auto& change = plugin.changes[i];
+
+        if (change.index == index && change.sampleOffset <= sample)
+            value = change.valueAt(sample);
+    }
+
+    return value;
+}
+
+auto tScheduledOffsets = test("AU/scheduledEventsLandAtTheirOffsets") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    check(host.schedule(unit.amount, 0.75f, 40) == noErr);
+    check(host.schedule(unit.amount, 0.25f, 10) == noErr);
+    check(host.schedule(unit.level, 0.2f, 5) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 3);
+    check(isStep(unit.change(0), 2, 5, 0.2f));
+    check(isStep(unit.change(1), 0, 10, 0.25f));
+    check(isStep(unit.change(2), 0, 40, 0.75f));
+    check(near(unit.change(1).previousValue, 0.f));
+    check(near(unit.plugin.amountSeen, 0.75f));
+    check(near(host.hostValue(unit.amount), 0.75f));
+    check(near(host.hostValue(unit.level), 0.2f));
+
+    // An event belongs to one render.
+    check(host.render(maxBlock) == noErr);
+    check(unit.plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 0.75f));
+};
+
+auto tScheduledRamp = test("AU/aScheduledRampWithinABlockIsALine") = []
+{
+    auto unit = AutomationUnit {};
+
+    check(unit.host.scheduleRamp(unit.amount, 8, 32, 0.2f, 1.f) == noErr);
+    check(unit.host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 2);
+    check(isStep(unit.change(0), 0, 8, 0.2f));
+    check(unit.change(1).sampleOffset == 8);
+    check(unit.change(1).rampSamples == 32);
+    check(near(unit.change(1).previousValue, 0.2f));
+    check(near(seenAt(unit.plugin, 0, 24, 0.f), 0.6f));
+    check(near(unit.plugin.amountSeen, 1.f));
+    check(near(unit.host.hostValue(unit.amount), 1.f));
+};
+
+auto tResentRamp = test("AU/aRampResentOverBuffersIsOneLine") = []
+{
+    auto unit = AutomationUnit {};
+    auto line = [](int sample)
+    { return std::clamp(static_cast<float>(sample - 32) / 160.f, 0.f, 1.f); };
+
+    for (auto block = 0; block < 3; ++block)
+    {
+        auto start = block * maxBlock;
+        check(unit.host.scheduleRamp(unit.amount, 32 - start, 160, 0.f, 1.f)
+              == noErr);
+        check(unit.host.render(maxBlock) == noErr);
+
+        for (auto s = 0; s < maxBlock; ++s)
+            if (start + s >= 32)
+                check(near(seenAt(unit.plugin, 0, s, 0.f), line(start + s)));
+
+        check(near(unit.plugin.amountSeen, line(start + maxBlock)));
+        check(near(unit.host.hostValue(unit.amount), line(start + maxBlock)));
+    }
+
+    check(unit.host.render(maxBlock) == noErr);
+    check(unit.plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 1.f));
+};
+
+auto tRampEndKept = test("AU/aRampedEventKeepsItsEndValue") = []
+{
+    auto unit = AutomationUnit {};
+
+    check(unit.host.scheduleRamp(unit.amount, 0, 16, 0.f, 0.8f) == noErr);
+    check(unit.host.render(maxBlock) == noErr);
+    check(near(unit.plugin.amountSeen, 0.8f));
+    check(near(unit.host.hostValue(unit.amount), 0.8f));
+
+    // One that ended before this buffer lands its end at the start.
+    check(unit.host.scheduleRamp(unit.amount, -100, 50, 0.8f, 0.3f) == noErr);
+    check(unit.host.render(maxBlock) == noErr);
+    check(unit.plugin.numChanges == 1);
+    check(isStep(unit.change(0), 0, 0, 0.3f));
+    check(near(unit.params.amount.getValue(), 0.3f));
+};
+
+auto tScheduledDiscrete = test("AU/aScheduledRampOnADiscreteParameterSteps") = []
+{
+    auto unit = AutomationUnit {};
+
+    check(unit.host.scheduleRamp(unit.mode, 10, 40, 0.f, 3.f) == noErr);
+    check(unit.host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 1);
+    check(isStep(unit.change(0), 1, 10, unit.params.mode.toNormalized(3.f)));
+    check(unit.params.mode.getIndex() == 3);
+    check(near(unit.host.hostValue(unit.mode), 3.f));
+};
+
+auto tScheduledReadBack = test("AU/getParameterReadsBackWhatWasScheduled") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    // Nothing moves before the render the event belongs to.
+    check(host.schedule(unit.amount, 0.6f, 20) == noErr);
+    check(near(host.hostValue(unit.amount), 0.f));
+    check(near(unit.params.amount.getValue(), 0.f));
+
+    check(host.render(maxBlock) == noErr);
+    check(near(host.hostValue(unit.amount), 0.6f));
+
+    // Mid-ramp, the value at the block's end; then the ramp's end.
+    check(host.scheduleRamp(unit.amount, 0, 128, 0.6f, 1.f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(near(host.hostValue(unit.amount), 0.8f));
+
+    check(host.scheduleRamp(unit.amount, -64, 128, 0.6f, 1.f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(near(host.hostValue(unit.amount), 1.f));
+};
+
+auto tScheduledNotEchoed = test("AU/scheduledAutomationIsNotEchoed") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, {unit.amount, unit.mode, unit.level});
+
+    check(host.schedule(unit.amount, 0.3f, 10) == noErr);
+    check(host.scheduleRamp(unit.level, 0, 100, 0.5f, 0.1f) == noErr);
+    check(host.scheduleRamp(unit.mode, 0, 10, 0.f, 2.f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(host.scheduleRamp(unit.level, -maxBlock, 100, 0.5f, 0.1f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(host.render(maxBlock) == noErr);
+    pumpFor(150);
+    check(log.types.empty());
+
+    // A move of the plugin's own still reaches the listener.
+    unit.params.amount.setValue(0.9f);
+    check(host.render(maxBlock) == noErr);
+    check(pumpUntil([&] { return !log.types.empty(); }));
+    check(log.ids[0] == unit.amount);
+
+    AUListenerDispose(listener);
+};
+
+auto tScheduledHeld = test("AU/aHeldParameterDropsScheduledEvents") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+    auto& listener = *unit.plugin.hostEditListener();
+
+    listener.beginParameterEdit(0);
+    unit.params.amount.setValue(0.4f);
+    listener.performParameterEdit(0, 0.4f);
+
+    check(host.schedule(unit.amount, 0.9f, 10) == noErr);
+    check(host.scheduleRamp(unit.amount, 20, 100, 0.9f, 0.1f) == noErr);
+    check(host.schedule(unit.level, 0.8f, 30) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 1);
+    check(isStep(unit.change(0), 2, 30, 0.8f));
+    check(near(unit.params.amount.getValue(), 0.4f));
+    check(near(host.hostValue(unit.amount), 0.4f));
+
+    listener.endParameterEdit(0);
+};
+
+auto tScheduledState = test("AU/stateSavedAroundAScheduleIsConsistent") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    check(host.hostWrites(unit.amount, 0.2f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(host.schedule(unit.amount, 0.6f, 20) == noErr);
+    auto before = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+
+    check(host.render(maxBlock) == noErr);
+    check(pumpUntil([&] { return unit.plugin.isStateSnapshotCurrent(); }));
+    auto after = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+
+    auto target = UnitHost<AutomationPlugin>("Gain");
+    auto& amount = target.plugin().params.amount;
+
+    check(restoreClassInfo(target, before.value) == noErr);
+    check(near(amount.getValue(), 0.2f));
+    check(near(target.hostValue(unit.amount), 0.2f));
+
+    check(restoreClassInfo(target, after.value) == noErr);
+    check(near(amount.getValue(), 0.6f));
+    check(near(target.hostValue(unit.amount), 0.6f));
+};
+
+auto tSetParameterUnchanged = test("AU/setParameterAtOffsetZeroLandsAtOnce") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    check(host.hostWrites(unit.amount, 0.3f) == noErr);
+    check(near(unit.params.amount.getValue(), 0.3f));
+    check(near(host.hostValue(unit.amount), 0.3f));
+
+    check(host.render(maxBlock) == noErr);
+    check(unit.plugin.numChanges == 0);
+    check(near(unit.plugin.amountSeen, 0.3f));
+};
+
+auto tScheduleThenRestore = test("AU/aRestoreDropsWhatWasScheduledBeforeIt") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    check(host.hostWrites(unit.amount, 0.2f) == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(pumpUntil([&] { return unit.plugin.isStateSnapshotCurrent(); }));
+    auto saved = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+
+    check(host.schedule(unit.amount, 0.9f, 0) == noErr);
+    check(restoreClassInfo(host, saved.value) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 0.2f));
+    check(near(host.hostValue(unit.amount), 0.2f));
+};
+
+auto tScheduleUninitialized = test("AU/aScheduleWhileUninitializedLandsAtOnce") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+    check(AudioUnitUninitialize(host.unit) == noErr);
+
+    check(host.schedule(unit.amount, 0.7f, 10) == noErr);
+    check(host.scheduleRamp(unit.level, 0, 10, 0.f, 0.1f) == noErr);
+    check(near(host.hostValue(unit.amount), 0.7f));
+    check(near(unit.params.amount.getValue(), 0.7f));
+    check(near(unit.params.level.getValue(), 0.5f));
+
+    auto saved = CFOwned<CFPropertyListRef>(copyClassInfo(host));
+    auto target = UnitHost<AutomationPlugin>("Gain");
+    check(restoreClassInfo(target, saved.value) == noErr);
+    check(near(target.plugin().params.amount.getValue(), 0.7f));
+
+    check(host.initialize() == noErr);
+    check(host.render(maxBlock) == noErr);
+    check(unit.plugin.numChanges == 0);
+    check(near(unit.plugin.amountSeen, 0.7f));
+};
+
+// Two stereo outputs, automated as AutomationPlugin.
+struct TwoOutputAutomation : AutomationPlugin
+{
+    BusLayout getBusLayout() const override
+    {
+        auto layout = BusLayout::instrument();
+        layout.outputs.add({"Aux", 2, false});
+        return layout;
+    }
+};
+
+// Each pull runs the host's pre-render notify, where it schedules, but only the
+// first of a timestamp renders: the later pull's events go with it.
+auto tScheduledTwoOutputs =
+    test("AU/eventsScheduledForAPullThatRendersNothingGo") = []
+{
+    auto standIn = ScopedStandIn<TwoOutputAutomation>(Module::echoStandIn);
+    auto host = UnitHost<TwoOutputAutomation>("Echo");
+    auto& plugin = host.plugin();
+    auto amount = host.hostIdOf(plugin.params.amount);
+    check(host.outputs.size() == 2);
+
+    check(host.schedule(amount, 0.3f, 10) == noErr);
+    check(host.render(maxBlock, true, 0) == noErr);
+    check(plugin.processed == 1);
+    check(isStep(plugin.changes[0], 0, 10, 0.3f));
+
+    check(host.schedule(amount, 0.9f, 5) == noErr);
+    host.sampleTime -= maxBlock;
+    check(host.render(maxBlock, true, 1) == noErr);
+    check(plugin.processed == 1);
+
+    check(host.render(maxBlock, true, 0) == noErr);
+    check(plugin.processed == 2);
+    check(plugin.numChanges == 0);
+    check(near(plugin.params.amount.getValue(), 0.3f));
+};
+
+auto tSetAfterSchedule = test("AU/setParameterAfterAScheduleWins") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    check(host.schedule(unit.amount, 0.9f, 10) == noErr);
+    check(host.scheduleRamp(unit.amount, 0, 64, 0.f, 1.f) == noErr);
+    check(host.schedule(unit.level, 0.1f, 20) == noErr);
+    check(host.hostWrites(unit.amount, 0.2f) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 1);
+    check(isStep(unit.change(0), 2, 20, 0.1f));
+    check(near(unit.params.amount.getValue(), 0.2f));
+    check(near(host.hostValue(unit.amount), 0.2f));
+};
+
+// Past the staging list's room each parameter keeps its latest event, which
+// lands untimed at the block's end.
+auto tScheduleOverflow = test("AU/eventsPastTheStagingRoomStillLand") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    for (auto i = 0; i < 600; ++i)
+        check(host.schedule(unit.amount, i == 599 ? 0.77f : 0.1f, i % maxBlock)
+              == noErr);
+
+    check(host.schedule(unit.level, 0.15f, 3) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.totalChanges > 500);
+    check(near(unit.plugin.amountSeen, 0.77f));
+    check(near(host.hostValue(unit.amount), 0.77f));
+    check(near(unit.params.level.getValue(), 0.15f));
+    check(near(host.hostValue(unit.level), 0.15f));
+
+    check(host.render(maxBlock) == noErr);
+    check(unit.plugin.totalChanges == 0);
+};
+
+auto tScheduleOtherScopes = test("AU/otherScopesAndUnknownIdsScheduleNothing") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    auto events = std::array<AudioUnitParameterEvent, 2> {};
+    events[0] = {.scope = kAudioUnitScope_Input,
+                 .parameter = unit.amount,
+                 .eventType = kParameterEvent_Immediate};
+    events[0].eventValues.immediate = {.bufferOffset = 0, .value = 0.9f};
+    events[1] = {.scope = kAudioUnitScope_Global,
+                 .parameter = 0x7eadbeef,
+                 .eventType = kParameterEvent_Ramped};
+    events[1].eventValues.ramp = {.startBufferOffset = 0,
+                                  .durationInFrames = 10,
+                                  .startValue = 0.f,
+                                  .endValue = 1.f};
+
+    check(AudioUnitScheduleParameters(host.unit, events.data(), 2) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 0.f));
+    check(near(host.hostValue(unit.amount), 0.f));
+};
+
+auto tScheduleBeyond = test("AU/eventsBeyondTheBlock") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    // A step lands on the last sample; a ramp that starts later is the next
+    // buffer's, which the host sends again.
+    check(host.schedule(unit.amount, 0.4f, 1000) == noErr);
+    check(host.scheduleRamp(unit.level, 100, 50, 0.f, 1.f) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    check(unit.plugin.numChanges == 1);
+    check(isStep(unit.change(0), 0, maxBlock - 1, 0.4f));
+    check(near(unit.params.level.getValue(), 0.5f));
+    check(near(host.hostValue(unit.level), 0.5f));
+};
+
+auto tScheduleEmptyBlock = test("AU/anEmptyRenderLandsWhatWasScheduled") = []
+{
+    auto unit = AutomationUnit {};
+    auto& host = unit.host;
+
+    check(host.schedule(unit.amount, 0.5f, 10) == noErr);
+    check(host.render(0) == noErr);
+
+    check(near(unit.params.amount.getValue(), 0.5f));
+    check(near(host.hostValue(unit.amount), 0.5f));
+
+    check(host.render(maxBlock) == noErr);
+    check(unit.plugin.numChanges == 0);
+};
+
+// Moves `level` after reading the block, while asked to.
+struct MovingAutomationPlugin : AutomationPlugin
+{
+    void process(ProcessContext& context) noexcept override
+    {
+        AutomationPlugin::process(context);
+
+        if (moveLevelTo >= 0.f)
+            params.level.setValue(moveLevelTo);
+    }
+
+    float moveLevelTo = -1.f;
+};
+
+auto tMoveWhileAutomated = test("AU/aPluginMoveInAnAutomatedBlockIsReported") = []
+{
+    auto standIn = ScopedStandIn<MovingAutomationPlugin>(Module::gainStandIn);
+    auto host = UnitHost<MovingAutomationPlugin>("Gain");
+    auto level = host.hostIdOf(host.plugin().params.level);
+    auto log = GestureLog {};
+    auto listener = listenForValues(host, log, {level});
+
+    host.plugin().moveLevelTo = 0.9f;
+    check(host.schedule(level, 0.2f, 10) == noErr);
+    check(host.render(maxBlock) == noErr);
+
+    host.plugin().moveLevelTo = -1.f;
+    check(host.render(maxBlock) == noErr);
+    check(pumpUntil([&] { return !log.types.empty(); }));
+    check(near(log.values.back(), 0.9f));
+    check(near(host.hostValue(level), 0.9f));
+
+    AUListenerDispose(listener);
+};
+
+// Each end of a block lands exactly, in the host's space, whichever space a
+// curve publishes.
+auto tSkewedRamp = test("AU/aRampOnASkewedParameterEndsTheBlockExactly") = []
+{
+    auto curves = ScopedStandIn<CurvePlugin>(Module::gainStandIn);
+    auto host = UnitHost<CurvePlugin>("Gain");
+    auto& p = host.plugin().params;
+
+    // From `from` to `to` (plain) over 128 frames, `start` into this block.
+    auto rampAndCheck = [&](FloatParam& param, SInt32 start, float from, float to)
+    {
+        auto hostFrom = AU::toHostValue(param, from);
+        auto hostTo = AU::toHostValue(param, to);
+        auto end =
+            hostFrom
+            + (hostTo - hostFrom) * static_cast<float>(maxBlock - start) / 128.f;
+        auto id = host.hostIdOf(param);
+
+        check(host.scheduleRamp(id, start, 128, hostFrom, hostTo) == noErr);
+        check(host.render(maxBlock) == noErr);
+        check(near(host.hostValue(id), end));
+        check(near(param.getValue(), AU::fromHostValue(param, end), 1e-3));
+    };
+
+    rampAndCheck(p.skewed, 0, 20.f, 80.f);
+    rampAndCheck(p.squareRoot, -32, 20.f, 100.f);
+};
 } // namespace
 } // namespace AUTests
