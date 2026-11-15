@@ -285,11 +285,18 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting MakeASoundScanProtocol)
 
         # The spellings of one Windows path that the cache must treat as one, and
-        # on macOS the texts it must keep apart.
+        # elsewhere the texts it must keep apart.
         if (WIN32)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-Windows.cpp)
-        elseif (APPLE)
-            list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-macOS.cpp)
+        else ()
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-Default.cpp)
+        endif ()
+
+        # VST3_PATH, which only the Linux default folders read, and Unix-second
+        # stamps from libstdc++'s file clock.
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            list(APPEND MAKEASOUND_TEST_SOURCES
+                    HostingVST3FoldersTests-Linux.cpp HostingStampTests-Linux.cpp)
         endif ()
 
         # A stand-in scan worker whose misbehaviour the command line picks

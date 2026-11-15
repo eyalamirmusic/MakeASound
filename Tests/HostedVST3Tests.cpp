@@ -317,6 +317,7 @@ struct Loaded
         , plugin(MakeASound::Hosting::PluginDescription {},
                  nullptr,
                  nullptr,
+                 nullptr,
                  IPtr<IComponent>(component.get()),
                  IPtr<IEditController>(controller.get()),
                  true)
@@ -437,6 +438,7 @@ struct BadTextLoaded
         : component(owned(new BadTextComponent()))
         , controller(owned(new BadTextController()))
         , plugin(MakeASound::Hosting::PluginDescription {},
+                 nullptr,
                  nullptr,
                  nullptr,
                  IPtr<IComponent>(component.get()),

@@ -1,4 +1,5 @@
 #include "Scanner.h"
+#include "StampClock.h"
 #include "../PathText.h"
 
 #include <algorithm>
@@ -21,12 +22,6 @@ namespace fs = std::filesystem;
 // symlink loops; this is the second line.
 constexpr auto maxWalkDepth = 24;
 
-std::int64_t toStampSeconds(fs::file_time_type time)
-{
-    return std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch())
-        .count();
-}
-
 // The folders inside a bundle that hold the loadable binary, per platform layout.
 // Named rather than globbed, so a bundle full of resources costs a few stats.
 bool isArchitectureFolder(const std::string& name)
@@ -38,7 +33,9 @@ bool isArchitectureFolder(const std::string& name)
            || name.find("-linux") != std::string::npos;
 }
 
-void accumulateFile(const fs::path& file, ModuleStamp& stamp)
+// A time before its epoch is negative, so the first mtime replaces the zero
+// rather than losing a max() to it.
+void accumulateFile(const fs::path& file, ModuleStamp& stamp, bool& anyTime)
 {
     auto ec = std::error_code();
 
@@ -48,13 +45,19 @@ void accumulateFile(const fs::path& file, ModuleStamp& stamp)
     ec.clear();
 
     if (const auto time = fs::last_write_time(file, ec); !ec)
-        stamp.lastModified = std::max(stamp.lastModified, toStampSeconds(time));
+    {
+        const auto seconds = toStampSeconds(time);
+        stamp.lastModified =
+            anyTime ? std::max(stamp.lastModified, seconds) : seconds;
+        anyTime = true;
+    }
 }
 } // namespace
 
 ModuleStamp moduleStamp(std::string_view path)
 {
     auto stamp = ModuleStamp();
+    auto anyTime = false;
     auto ec = std::error_code();
     const auto root = stdPath(path);
 
@@ -63,7 +66,7 @@ ModuleStamp moduleStamp(std::string_view path)
 
     if (fs::is_regular_file(root, ec) && !ec)
     {
-        accumulateFile(root, stamp);
+        accumulateFile(root, stamp, anyTime);
         return stamp;
     }
 
@@ -100,7 +103,7 @@ ModuleStamp moduleStamp(std::string_view path)
             auto fileError = std::error_code();
 
             if (binary.is_regular_file(fileError) && !fileError)
-                accumulateFile(binary.path(), stamp);
+                accumulateFile(binary.path(), stamp, anyTime);
         }
     }
 

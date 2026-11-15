@@ -22,7 +22,7 @@ function(makeasound_enable_hosting target)
     if (NOT TARGET MakeASoundHosting)
         message(FATAL_ERROR "makeasound_enable_hosting(${target}): MakeASoundHosting "
                 "does not exist. It needs MAKEASOUND_BUILD_HOSTING and "
-                "MAKEASOUND_BUILD_PLUGIN, on macOS or Windows.")
+                "MAKEASOUND_BUILD_PLUGIN, on macOS, Windows or Linux.")
     endif ()
 
     target_link_libraries(${target} PRIVATE MakeASoundHosting)

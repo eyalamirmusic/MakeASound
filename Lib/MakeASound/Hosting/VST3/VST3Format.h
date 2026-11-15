@@ -17,6 +17,12 @@ public:
     //
     //   macOS    ~/Library/Audio/Plug-Ins/VST3, /Library/Audio/Plug-Ins/VST3
     //   Windows  %COMMONPROGRAMFILES%\VST3, %LOCALAPPDATA%\Programs\Common\VST3
+    //   Linux    $VST3_PATH (colon-separated, first, a leading ~ as $HOME, as
+    //            JUCE has it), ~/.vst3,
+    //            /usr/lib64/vst3, /usr/lib/vst3, /usr/local/lib64/vst3,
+    //            /usr/local/lib/vst3
+    //
+    // Resolved in the host: a scan worker is handed a target, never a folder.
     //
     // Folders, not the SDK's Module::getModulePaths(), which answers with the
     // modules it found: a database that recorded those as where it looked would
