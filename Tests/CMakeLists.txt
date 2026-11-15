@@ -150,6 +150,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
     if (TARGET MakeASoundStandalone)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneUITests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
+
+        # The standalone's File menu on Linux, its items and their commands.
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            list(APPEND MAKEASOUND_TEST_SOURCES StandaloneMenuTests-Linux.cpp)
+        endif ()
     endif ()
 
     # The VST3 adapter hosted in-process, with the SDK's own queues and event lists.

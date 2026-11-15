@@ -264,8 +264,11 @@ function(makeasound_add_plugin name)
             add_executable(${target} ${standalone_sources})
             # The format before the core: the core defines describeModule(), which the
             # format references, and a single-pass linker resolves left to right.
+            # MakeASoundStandaloneCore by name, since the reference is there and a
+            # transitive dependency would land after the core.
             target_link_libraries(${target} PRIVATE
-                    MakeASoundStandalone ${ARG_STANDALONE_LIBRARIES} ${name})
+                    MakeASoundStandalone MakeASoundStandaloneCore
+                    ${ARG_STANDALONE_LIBRARIES} ${name})
 
             # Set before eacp_set_gui_subsystem, which reads both into AppInfo.
             # The program database and import library are named apart, as the

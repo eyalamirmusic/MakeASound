@@ -47,20 +47,22 @@ set_source_files_properties(StandaloneHostDefault.cpp PROPERTIES
 set_makeasound_target_settings(MakeASoundStandaloneCore)
 
 # MakeASoundStandalone: the default app, the core's host with its editor and the
-# settings panel, over eacp's window tier: on macOS and Windows a window each and
-# the menu bar, on iOS one screen. The shell is one TU per platform. Nothing
+# settings panel, over eacp's window tier: on the desktop a window each and the
+# menu bar (on Linux one eacp draws in the window), on iOS one screen. The shell
+# is one TU per platform, and so is the menu the commands extend. Nothing
 # shared links it; a <Name>-Standalone executable does, which
 # makeasound_add_plugin builds from the main file recorded on the target, and
 # Apps/PluginHost does for SettingsPanel alone.
-if (NOT TARGET MakeASoundPluginUI OR NOT TARGET eacp-graphics
-        OR NOT (APPLE OR WIN32))
+if (NOT TARGET MakeASoundPluginUI OR NOT TARGET eacp-graphics)
     return()
 endif ()
 
 if (IOS)
     set(shell StandaloneApp-iOS.cpp)
+elseif (WIN32)
+    set(shell StandaloneApp-Desktop.cpp AppCommands.cpp AppMenu-Windows.cpp)
 else ()
-    set(shell StandaloneApp-Desktop.cpp)
+    set(shell StandaloneApp-Desktop.cpp AppCommands.cpp AppMenu-Default.cpp)
 endif ()
 
 add_library(MakeASoundStandalone STATIC
