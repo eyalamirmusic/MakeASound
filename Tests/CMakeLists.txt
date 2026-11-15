@@ -375,6 +375,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     list(APPEND MAKEASOUND_TEST_SOURCES ALSABackendTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS ALSA::ALSA)
+
+    # miniaudio's PulseAudio device lookups, through its own context.
+    list(APPEND MAKEASOUND_TEST_SOURCES PulseDeviceInfoTests.cpp)
+    list(APPEND MAKEASOUND_TEST_TARGETS miniaudio)
 endif ()
 
 # The allocation suites interpose malloc/new through dlsym(RTLD_NEXT, ...), which
