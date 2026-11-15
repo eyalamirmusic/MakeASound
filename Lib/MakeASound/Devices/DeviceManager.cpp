@@ -91,6 +91,23 @@ StreamConfig DeviceManager::getDefaultDuplexConfig() const
     return makeDefaultConfig(true, true);
 }
 
+StreamConfig DeviceManager::getDefaultSystemOutputCaptureConfig() const
+{
+    auto captureConfig = makeDefaultConfig(true, false);
+
+    if (captureConfig.output.has_value())
+    {
+        auto captured = StreamParameters();
+        captured.device = captureConfig.output->device;
+        captured.nChannels = captured.device.outputChannels;
+        captureConfig.input = captured;
+        captureConfig.output.reset();
+    }
+
+    captureConfig.captureSystemOutput = true;
+    return captureConfig;
+}
+
 StreamConfig DeviceManager::getDefaultConfig() const
 {
     return getDefaultDuplexConfig();

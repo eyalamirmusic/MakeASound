@@ -23,16 +23,23 @@ add_library(MakeASound STATIC
 if(IOS)
     target_sources(MakeASound PRIVATE
             MakeASound/Devices/DeviceQueriesIOS.mm
+            MakeASound/Devices/SystemOutputTap-Default.cpp
             MakeASound/Devices/AudioSession-iOS.mm)
     target_link_libraries(MakeASound PRIVATE "-framework AVFoundation")
 elseif(APPLE)
     target_sources(MakeASound PRIVATE
             MakeASound/Devices/DeviceQueries.mm
+            MakeASound/Devices/SystemOutputTap.mm
             MakeASound/Devices/AudioSession-Default.cpp)
-    target_link_libraries(MakeASound PRIVATE "-framework CoreAudio")
+    set_source_files_properties(MakeASound/Devices/SystemOutputTap.mm PROPERTIES
+            COMPILE_OPTIONS -fobjc-arc)
+    target_link_libraries(MakeASound PRIVATE
+            "-framework CoreAudio"
+            "-framework Foundation")
 else()
     target_sources(MakeASound PRIVATE
             MakeASound/Devices/DeviceQueries.cpp
+            MakeASound/Devices/SystemOutputTap-Default.cpp
             MakeASound/Devices/AudioSession-Default.cpp)
 endif()
 

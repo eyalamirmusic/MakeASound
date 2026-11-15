@@ -77,6 +77,7 @@ set(MAKEASOUND_TEST_SOURCES
         EngineTests.cpp
         DeviceInfoTests.cpp
         DeviceManagerTests.cpp
+        SystemOutputCaptureTests.cpp
         MiniAudioNotificationTests.cpp
         MidiParserTests.cpp
         MidiFileTests.cpp
