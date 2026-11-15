@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MiniAudio-Backend.h"
+#include "../Devices/SystemOutputTap.h"
 
 #include <atomic>
 #include <cstdint>
@@ -101,6 +102,21 @@ private:
     void stopLocked();
     Error openStreamLocked();
 
+    // What miniaudio opens for the capture side. Left as given unless the config
+    // records what the output device in config.input plays.
+    struct SystemOutputCaptureTarget
+    {
+        const ma_device_id* captureId = nullptr;
+        int channels = 0;
+        bool isLoopback = false;
+    };
+
+    Error prepareSystemOutputCapture(SystemOutputCaptureTarget& target);
+    Error prepareLoopbackCapture(SystemOutputCaptureTarget& target);
+    Error prepareMonitorSourceCapture(SystemOutputCaptureTarget& target);
+    Error prepareProcessTapCapture(SystemOutputCaptureTarget& target);
+    const ma_device_id* findPlaybackId(int makeASoundId) const;
+
     // Own thread: re-opening from the notification callback deadlocks — on macOS it
     // arrives inside a Core Audio property listener, and tearing the device down
     // there waits on the lock the listener itself holds.
@@ -134,6 +150,11 @@ private:
 
     ma_device device {};
     bool deviceInitialised = false;
+
+    // Built per open for system output capture: the PulseAudio monitor's name or the
+    // macOS tap's aggregate UID, neither of which enumeration hands out.
+    ma_device_id systemCaptureId {};
+    SystemOutputTap systemOutputTap;
 
     struct CachedDevice
     {

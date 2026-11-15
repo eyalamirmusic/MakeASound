@@ -70,6 +70,19 @@ if (NOT TARGET MakeASound)
     return()
 endif ()
 
+# MakeASoundSystemCaptureTests: records what the machine plays, on its own so it
+# builds without the plugin core and runs as its own process. macOS asks a
+# command-line tool for system audio recording through the usage description in an
+# Info.plist embedded in its binary.
+nano_add_executable(MakeASoundSystemCaptureTests
+        SOURCES SystemOutputCaptureTests.cpp
+        TARGETS MakeASound)
+
+if (APPLE AND NOT IOS)
+    target_link_options(MakeASoundSystemCaptureTests PRIVATE
+            LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/MakeASoundSystemCaptureTests-Info.plist)
+endif ()
+
 set(MAKEASOUND_TEST_SOURCES
         SPSCQueueTests.cpp
         BufferTests.cpp

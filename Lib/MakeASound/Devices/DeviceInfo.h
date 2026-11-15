@@ -99,7 +99,8 @@ enum class Error
     INVALID_USE,
     DRIVER_ERROR,
     SYSTEM_ERROR,
-    THREAD_ERROR
+    THREAD_ERROR,
+    NOT_SUPPORTED
 };
 
 // A message fit to put in front of a user. Empty for NoError.
@@ -187,7 +188,13 @@ struct StreamConfig
     int maxBlockSize = 0;
     std::optional<StreamOptions> options;
 
-    MIRO_REFLECT(input, output, sampleRate, maxBlockSize, options)
+    // The input side records what the output device named in `input` is playing
+    // (every app's sound) instead of a microphone: WASAPI loopback on Windows, the
+    // sink's monitor source on PulseAudio/PipeWire, a Core Audio process tap on
+    // macOS 14.2+. Anywhere else start() returns NOT_SUPPORTED.
+    bool captureSystemOutput = false;
+
+    MIRO_REFLECT(input, output, sampleRate, maxBlockSize, options, captureSystemOutput)
 };
 
 struct AudioCallbackInfo

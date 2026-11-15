@@ -43,6 +43,11 @@ public:
     StreamConfig getDefaultInputConfig() const;
     StreamConfig getDefaultDuplexConfig() const;
 
+    // Records what the default output device is playing: input only, at the output's
+    // channel count, with StreamConfig::captureSystemOutput set. No output side is
+    // left unset when the machine has no output device.
+    StreamConfig getDefaultSystemOutputCaptureConfig() const;
+
     // Legacy: getDefaultDuplexConfig() under its old name, kept for existing
     // callers. New code asks for a direction.
     StreamConfig getDefaultConfig() const;

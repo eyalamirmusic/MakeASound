@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <string>
 
 namespace MakeASound::MiniAudio
 {
@@ -575,6 +576,8 @@ void DeviceManager::stopLocked()
     deviceInitialised = false;
     stopping = false;
 
+    systemOutputTap.destroy();
+
     deactivateSession();
 }
 
@@ -622,6 +625,10 @@ Error DeviceManager::openStreamLocked()
         config.output.has_value() ? config.output->device.outputChannels : 0;
     auto nativeCapture =
         config.input.has_value() ? config.input->device.inputChannels : 0;
+    auto capture = SystemOutputCaptureTarget {captureId, nativeCapture};
+
+    if (auto error = prepareSystemOutputCapture(capture); error != Error::NoError)
+        return setError(error);
 
     // The session follows the stream in every dimension the app has not spoken for,
     // so asking the manager for 44100 asks the route for it too. Before
@@ -640,7 +647,10 @@ Error DeviceManager::openStreamLocked()
         return setError(sessionError);
 
     auto deviceConfig = makeDeviceConfig(
-        config, playbackId, captureId, nativePlayback, nativeCapture);
+        config, playbackId, capture.captureId, nativePlayback, capture.channels);
+
+    if (capture.isLoopback)
+        deviceConfig.deviceType = ma_device_type_loopback;
     deviceConfig.dataCallback = audioCallback;
     deviceConfig.notificationCallback = deviceNotificationCallback;
     deviceConfig.pUserData = this;
@@ -707,6 +717,72 @@ Error DeviceManager::openStreamLocked()
                                       getRouteLatency(config.input->device, true));
 
     return setError(Error::NoError);
+}
+
+Error DeviceManager::prepareSystemOutputCapture(SystemOutputCaptureTarget& target)
+{
+    if (!config.captureSystemOutput)
+        return Error::NoError;
+
+    if (!config.input.has_value() || config.output.has_value())
+        return Error::INVALID_USE;
+
+    target.channels = config.input->device.outputChannels;
+
+    if (currentBackend == Backend::WASAPI)
+        return prepareLoopbackCapture(target);
+
+    if (currentBackend == Backend::PulseAudio)
+        return prepareMonitorSourceCapture(target);
+
+    if (currentBackend == Backend::CoreAudio)
+        return prepareProcessTapCapture(target);
+
+    return Error::NOT_SUPPORTED;
+}
+
+const ma_device_id* DeviceManager::findPlaybackId(int makeASoundId) const
+{
+    for (const auto& cached: deviceCache)
+        if (cached.id == makeASoundId && cached.hasPlayback)
+            return &cached.playbackId;
+
+    return nullptr;
+}
+
+Error DeviceManager::prepareLoopbackCapture(SystemOutputCaptureTarget& target)
+{
+    // A null id is the default output, which is what loopback records then.
+    target.captureId = findPlaybackId(config.input->device.id);
+    target.isLoopback = true;
+    return Error::NoError;
+}
+
+Error DeviceManager::prepareMonitorSourceCapture(SystemOutputCaptureTarget& target)
+{
+    // Every sink has a source named after it that carries what it plays.
+    auto monitorName = std::string("@DEFAULT_MONITOR@");
+
+    if (const auto* outputId = findPlaybackId(config.input->device.id))
+        monitorName = std::string(outputId->pulse) + ".monitor";
+
+    systemCaptureId = {};
+    monitorName.copy(systemCaptureId.pulse, sizeof(systemCaptureId.pulse) - 1);
+    target.captureId = &systemCaptureId;
+    return Error::NoError;
+}
+
+Error DeviceManager::prepareProcessTapCapture(SystemOutputCaptureTarget& target)
+{
+    if (auto error = systemOutputTap.create(); error != Error::NoError)
+        return error;
+
+    const auto& uid = systemOutputTap.getCaptureDeviceUid();
+    systemCaptureId = {};
+    uid.copy(systemCaptureId.coreaudio, sizeof(systemCaptureId.coreaudio) - 1);
+    target.captureId = &systemCaptureId;
+    target.channels = SystemOutputTap::channelCount;
+    return Error::NoError;
 }
 
 int DeviceManager::getStreamLatency() const
