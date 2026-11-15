@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the test suite and runs the system output capture cases. Usage: scripts/test-system-output-capture.sh [host]
-# With a host, runs on it over ssh in ~/projects/MakeASound at this checkout's branch,
+# With a host, runs on it over ssh in ~/projects/MakeASound-system-capture at this checkout's branch,
 # fetched from the remote the branch tracks, so push it first.
 set -euo pipefail
 
@@ -9,8 +9,8 @@ if [[ $# -ge 1 ]]; then
     branch=$(git rev-parse --abbrev-ref HEAD)
     remote_url=$(git remote get-url "$(git config "branch.$branch.remote")")
     ssh "$host" "bash -lc 'set -e; mkdir -p ~/projects; cd ~/projects;
-        [ -d MakeASound ] || git clone https://github.com/eyalamirmusic/MakeASound.git;
-        cd MakeASound; git fetch $remote_url $branch; git checkout -B $branch FETCH_HEAD;
+        [ -d MakeASound-system-capture ] || git clone https://github.com/eyalamirmusic/MakeASound.git MakeASound-system-capture;
+        cd MakeASound-system-capture; git fetch $remote_url $branch; git checkout -B $branch FETCH_HEAD;
         scripts/test-system-output-capture.sh'"
     exit
 fi
