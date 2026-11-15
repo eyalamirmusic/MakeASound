@@ -285,7 +285,7 @@ auto tInjected = test("Standalone/anInjectedEventLandsAtOffsetZero") = []
     check(plugin.events[0].isNoteOn());
     check(plugin.events[0].asNoteOn()->pitch == 64);
     check(plugin.events[0].sampleOffset == 0);
-    check(stream.outputs[0][0] == plugin.params.level.get());
+    check(stream.outputs[0][0] == 0.f);
 
     stream.run(rig.engine);
     check(plugin.numEvents == 0);

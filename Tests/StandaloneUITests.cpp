@@ -485,6 +485,15 @@ eacp::UI::Label* findLabel(SettingsPanel& panel, const std::string& text)
     return nullptr;
 }
 
+// The panel's checkboxes, read from its own tree: what it laid out from its own
+// snapshot of the MIDI ports, which another process's virtual port can change
+// between that snapshot and any read of the manager here. In a standard-style
+// panel they are a checkbox per MIDI input and nothing else.
+int checkboxesOf(SettingsPanel& panel)
+{
+    return (int) findAll<eacp::UI::Checkbox>(*panel.getRootComponent()).size();
+}
+
 void layOut(SettingsPanel& panel)
 {
     panel.setBounds(
@@ -528,7 +537,7 @@ auto tPanelDefaultLayout = test("Standalone/settingsPanelLaysOutAsItAlwaysHas") 
 
     // A row per control, one per MIDI input or one saying there are none.
     auto panel = SettingsPanel {devices, midi, {}};
-    auto midiRows = std::max(1, (int) midi.getInputPorts().size());
+    auto midiRows = std::max(1, checkboxesOf(panel));
 
     check(panel.preferredWidth() == 420);
     check(panel.preferredHeight() == (6 + midiRows) * 32 + 24);
@@ -558,10 +567,16 @@ auto tPanelHidesUnusedChannels =
     auto shown = SettingsPanel {devices, midi, {}};
     auto hidden = SettingsPanel {devices, midi, {.hideChannelsWithoutDevice = true}};
 
+    // Each panel's MIDI rows are its own snapshot's, so a port that came or went
+    // between the two is told apart from the row the option takes away.
+    auto midiRowsOf = [](SettingsPanel& panel)
+    { return std::max(1, checkboxesOf(panel)); };
+
     // No input picked: one row fewer, the caption hidden.
     shown.setConfig(fourChannelConfig());
     hidden.setConfig(fourChannelConfig());
-    check(hidden.preferredHeight() == shown.preferredHeight() - 32);
+    auto midiDifference = (midiRowsOf(hidden) - midiRowsOf(shown)) * 32;
+    check(hidden.preferredHeight() == shown.preferredHeight() - 32 + midiDifference);
 
     auto* caption = findLabel(hidden, "Input channels");
     check(caption != nullptr && !caption->isVisible());
@@ -572,7 +587,8 @@ auto tPanelHidesUnusedChannels =
     config.input->device.inputChannels = 2;
     hidden.setConfig(config);
 
-    check(hidden.preferredHeight() == shown.preferredHeight());
+    midiDifference = (midiRowsOf(hidden) - midiRowsOf(shown)) * 32;
+    check(hidden.preferredHeight() == shown.preferredHeight() + midiDifference);
     check(caption != nullptr && caption->isVisible());
 };
 
@@ -628,7 +644,14 @@ auto tPanelDialogLayout = test("Standalone/settingsPanelTakesItsWordsAndSizes") 
 
     // Rows of 30, two sections apart, and two lists at least two rows of 22
     // tall inside a one-point frame.
-    auto midiRows = std::max(2, (int) midi.getInputPorts().size());
+    // The MIDI list's boxes are the panel's own snapshot's, the channel pairs'
+    // the ones labelled "a + b".
+    auto midiBoxes = 0;
+
+    for (auto* box: findAll<eacp::UI::Checkbox>(*panel.getRootComponent()))
+        midiBoxes += box->getText().find(" + ") == std::string::npos ? 1 : 0;
+
+    auto midiRows = std::max(2, midiBoxes);
     auto channelList = 2 * 22 + 2;
     auto midiList = midiRows * 22 + 2;
     check(panel.preferredHeight()
