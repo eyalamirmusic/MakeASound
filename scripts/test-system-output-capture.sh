@@ -30,6 +30,7 @@ if [[ $(uname) == Linux && ! -e /usr/include/alsa/asoundlib.h ]] && command -v n
     cmake_args+=(-DALSA_INCLUDE_DIR="$alsa_dev/include"
                  -DALSA_LIBRARY="$alsa_lib/lib/libasound.so")
     with_toolchain=(nix shell nixpkgs#cmake nixpkgs#ninja nixpkgs#clang --command)
+    export CC=clang CXX=clang++
 
     # Release links with LTO, and nix's clang emits bitcode its GNU ld cannot read.
     build_type=Debug
