@@ -7,6 +7,13 @@
 #include <pluginterfaces/base/funknown.h>
 #include <pluginterfaces/gui/iplugview.h>
 
+#include <functional>
+
+namespace eacp::Graphics
+{
+class NativeChildSurface;
+}
+
 namespace MakeASound::Hosting
 {
 
@@ -41,11 +48,19 @@ private:
 // What differs per platform (VST3EditorPlatform-<os>.cpp).
 namespace VST3EditorPlatform
 {
-// kPlatformTypeNSView or kPlatformTypeHWND.
+// kPlatformTypeNSView, kPlatformTypeHWND or kPlatformTypeX11EmbedWindowID.
 Steinberg::FIDString viewType() noexcept;
 
-// Physical pixels per point for the native window, 1 on macOS.
-float scaleFor(void* nativeParent) noexcept;
+// Physical pixels per point for the native window: 1 on macOS, the window's DPI
+// on Windows, the surface's backing scale on Linux. Either may be null before
+// the view is in a window.
+float scaleFor(eacp::Graphics::NativeChildSurface* surface,
+               void* nativeParent) noexcept;
+
+// Calls onChange when the scale moves without a resize; nothing on macOS and
+// Windows, which follow it only through resizes.
+void watchScale(eacp::Graphics::NativeChildSurface& surface,
+                std::function<void()> onChange);
 
 // What the plugin is told of the scale: nothing on macOS but a 1 before
 // attaching (some plugins otherwise double their own size), the scale on

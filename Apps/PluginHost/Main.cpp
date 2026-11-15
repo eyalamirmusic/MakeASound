@@ -10,6 +10,7 @@
 // first.
 
 #include "PluginHost.h"
+#include "WindowSystem.h"
 
 #include <ScanProtocol/ScanWorker.h>
 
@@ -230,6 +231,15 @@ public:
     }
 
 private:
+    static Standalone::SettingsPanelOptions settingsOptions()
+    {
+        auto options = Standalone::SettingsPanelOptions();
+        options.showInput = true;
+        options.showMidiInputs = true;
+        options.showMidiOutput = false;
+        return options;
+    }
+
     Host& host;
     PluginRows rows {host};
 
@@ -248,9 +258,7 @@ private:
     // Every row: what the host may load changes, and an input is the user's
     // pick. The window goes before the panel it shows.
     Standalone::SettingsPanel settings {
-        host.deviceManager(),
-        host.midiManager(),
-        {.showInput = true, .showMidiInputs = true, .showMidiOutput = false}};
+        host.deviceManager(), host.midiManager(), settingsOptions()};
     OwningPointer<Graphics::Window> settingsWindow;
 };
 
@@ -322,5 +330,6 @@ int main(int argc, char** argv)
     if (MakeASound::ScanProtocol::requestedScanTarget())
         return eacp::Apps::runConsole(runScanWorker);
 
+    PluginHost::chooseWindowSystem();
     return eacp::Apps::run<PluginHost::App>();
 }

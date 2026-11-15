@@ -336,6 +336,22 @@ if (MAKEASOUND_BUILD_PLUGIN)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostingPluginHostAppTests.cpp)
                 set(MAKEASOUND_TEST_PLUGIN_HOST ON)
             endif ()
+
+            # The run loop a Linux host lends, and hosted editors in an X11
+            # window, read back over the test's own xcb connection.
+            if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                list(APPEND MAKEASOUND_TEST_SOURCES HostedVST3RunLoopTests-Linux.cpp)
+
+                if (TARGET MakeASoundHostedEditor)
+                    find_package(PkgConfig REQUIRED)
+                    pkg_check_modules(MAKEASOUND_TEST_XCB REQUIRED IMPORTED_TARGET xcb)
+
+                    list(APPEND MAKEASOUND_TEST_SOURCES HostedEditorTests-Linux.cpp)
+                    list(APPEND MAKEASOUND_TEST_TARGETS
+                            MakeASoundHostedEditor eacp-graphics
+                            PkgConfig::MAKEASOUND_TEST_XCB)
+                endif ()
+            endif ()
         endif ()
 
         # Audio Units: Apple's own, found through the registry, and the test

@@ -1,5 +1,6 @@
 #include "../../Plugin/VST3/VST3Common.h"
 #include "HostedVST3Editor.h"
+#include "VST3RunLoop.h"
 #include "../UI/NativeViewContainer.h"
 
 #include <base/source/fobject.h>
@@ -53,7 +54,8 @@ EditorSize sizeOf(const eacp::Graphics::View& view)
 
 struct HostedVST3Editor::Impl
 {
-    // The IPlugFrame the plugin asks to be resized through.
+    // The IPlugFrame the plugin asks to be resized through, and on Linux the run
+    // loop its view registers with, emptied when the view is removed.
     struct Frame
         : public FObject
         , public IPlugFrame
@@ -61,6 +63,15 @@ struct HostedVST3Editor::Impl
         explicit Frame(Impl& ownerToUse)
             : owner(&ownerToUse)
         {
+        }
+
+        tresult PLUGIN_API queryInterface(const TUID _iid, void** obj) override
+        {
+            if (runLoop && runLoop->answer(_iid, obj))
+                return kResultOk;
+
+            QUERY_INTERFACE(_iid, obj, IPlugFrame::iid, IPlugFrame)
+            return FObject::queryInterface(_iid, obj);
         }
 
         tresult PLUGIN_API resizeView(IPlugView*, ViewRect* newSize) override
@@ -76,17 +87,19 @@ struct HostedVST3Editor::Impl
             return owner->editor.requestOwnResize(size) ? kResultOk : kResultFalse;
         }
 
-        void detach() noexcept { owner = nullptr; }
+        void detach() noexcept
+        {
+            owner = nullptr;
 
-        // clang-format off
+            if (runLoop)
+                runLoop->clear();
+        }
+
         OBJ_METHODS(Frame, FObject)
         REFCOUNT_METHODS(FObject)
-        DEFINE_INTERFACES
-            DEF_INTERFACE(IPlugFrame)
-        END_DEFINE_INTERFACES(FObject)
-        // clang-format on
 
         Impl* owner = nullptr;
+        IPtr<VST3RunLoop> runLoop = VST3RunLoop::create();
     };
 
     Impl(HostedVST3Editor& editorToUse, IPlugView& viewToUse)
@@ -101,7 +114,10 @@ struct HostedVST3Editor::Impl
             frame->detach();
 
         if (container)
+        {
             container->onResized = {};
+            container->onBackingScaleChanged = [](float) {};
+        }
     }
 
     void setScale(float scaleToUse)
@@ -113,13 +129,14 @@ struct HostedVST3Editor::Impl
         VST3EditorPlatform::announceScale(*plugView, scale);
     }
 
-    // The container moved: the plugin follows, at the window's current scale.
+    // The container moved or its scale did: the plugin follows, at the window's
+    // current scale.
     void containerResized()
     {
         if (!attached)
             return;
 
-        setScale(VST3EditorPlatform::scaleFor(nativeParent));
+        setScale(VST3EditorPlatform::scaleFor(container.get(), nativeParent));
 
         auto rect = rectFor(sizeOf(*container), scale);
         plugView->onSize(&rect);
@@ -148,7 +165,7 @@ OwningPointer<Editor> HostedVST3Editor::create(IPlugView* view)
 HostedVST3Editor::HostedVST3Editor(IPlugView& viewToUse)
     : impl(EA::makeOwned<Impl>(*this, viewToUse))
 {
-    impl->setScale(VST3EditorPlatform::scaleFor(nullptr));
+    impl->setScale(VST3EditorPlatform::scaleFor(nullptr, nullptr));
 }
 
 HostedVST3Editor::~HostedVST3Editor()
@@ -187,6 +204,8 @@ eacp::Graphics::View& HostedVST3Editor::view()
         impl->container = EA::makeOwned<NativeViewContainer>();
         impl->container->onResized = [owner = impl.get()](int, int)
         { owner->containerResized(); };
+        VST3EditorPlatform::watchScale(
+            *impl->container, [owner = impl.get()] { owner->containerResized(); });
 
         auto size = initialSize();
         impl->container->setBounds({0.f,
@@ -212,7 +231,7 @@ void HostedVST3Editor::onAttached()
         return;
 
     impl->nativeParent = parent;
-    impl->setScale(VST3EditorPlatform::scaleFor(parent));
+    impl->setScale(VST3EditorPlatform::scaleFor(&container, parent));
 
     impl->frame = owned(new Impl::Frame(*impl));
     impl->plugView->setFrame(impl->frame);

@@ -117,13 +117,18 @@ if (TARGET eacp-graphics)
                 "-framework AudioToolbox"
                 "-framework Cocoa"
                 "-framework CoreAudioKit")
-    else ()
+    elseif (WIN32)
         target_sources(MakeASoundHostedEditor PRIVATE
                 HostedEditors-Windows.cpp
                 VST3/VST3EditorPlatform-Windows.cpp)
 
         target_compile_definitions(MakeASoundHostedEditor PRIVATE
                 WIN32_LEAN_AND_MEAN NOMINMAX)
+    else ()
+        # X11 only: an editor shows in a window on eacp's X11 backend.
+        target_sources(MakeASoundHostedEditor PRIVATE
+                HostedEditors-Linux.cpp
+                VST3/VST3EditorPlatform-Linux.cpp)
     endif ()
 
     target_link_libraries(MakeASoundHostedEditor
