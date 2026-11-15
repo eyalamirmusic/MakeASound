@@ -14,6 +14,7 @@
 
 #include <eacp/Graphics/Graphics/Keyboard.h>
 #include <eacp/UI/UI.h>
+#include <eacp/GPU/Device/Device.h>
 
 #include <array>
 #include <cmath>
@@ -446,6 +447,10 @@ auto tPanelGivenLook = test("Standalone/settingsPanelWearsTheThemeItIsGiven") = 
     // eacp's own host tests do.
     panel.setBounds({0.f, 0.f, (float) width, (float) height});
     panel.resized();
+
+    // The pixels need a GPU device, which a runner with no driver lacks.
+    if (!eacp::GPU::Device::shared().isValid())
+        return;
 
     auto image = panel.renderToImage(1.f);
 
