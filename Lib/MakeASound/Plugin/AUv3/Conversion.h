@@ -20,6 +20,14 @@ int sampleOffset(AUEventSampleTime time,
                  const AudioTimeStamp* timestamp,
                  AUAudioFrameCount frames) noexcept;
 
+// As sampleOffset, but one scheduled before the block keeps its distance as a
+// negative offset (no further back than `limit`), so a ramp that began
+// earlier is trimmed rather than shifted.
+int rampOffset(AUEventSampleTime time,
+               const AudioTimeStamp* timestamp,
+               AUAudioFrameCount frames,
+               int limit) noexcept;
+
 // A short message, or a whole F0..F7 message up to MIDI::SysEx::maxBytes; nullopt
 // for what does not map.
 std::optional<MIDI::Event> midiEvent(const AUMIDIEvent& event, int offset) noexcept;

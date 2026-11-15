@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <iterator>
+#include <utility>
 
 namespace MakeASound::Algorithms
 {
@@ -30,6 +32,55 @@ void stableInsertionSort(Container& c, Compare less) noexcept
         }
         *slot = key;
     }
+}
+
+// Stable and O(N log N), merging through `scratch`; allocation-free when scratch
+// already has the capacity, an insertion sort otherwise. Bottom-up, so the
+// elements must be cheap to copy.
+template <class Container, class Compare>
+void stableMergeSort(Container& c, Container& scratch, Compare less) noexcept
+{
+    auto size = c.size();
+
+    if (size < 2)
+        return;
+
+    if (scratch.capacity() < size)
+    {
+        stableInsertionSort(c, less);
+        return;
+    }
+
+    scratch.resize(size);
+    auto* from = c.data();
+    auto* to = scratch.data();
+
+    for (auto width = 1; width < size; width *= 2)
+    {
+        for (auto start = 0; start < size; start += 2 * width)
+        {
+            auto mid = std::min(start + width, size);
+            auto end = std::min(start + 2 * width, size);
+            auto left = start;
+            auto right = mid;
+            auto out = start;
+
+            while (left < mid && right < end)
+                to[out++] =
+                    less(from[right], from[left]) ? from[right++] : from[left++];
+
+            while (left < mid)
+                to[out++] = from[left++];
+
+            while (right < end)
+                to[out++] = from[right++];
+        }
+
+        std::swap(from, to);
+    }
+
+    if (from != c.data())
+        std::copy_n(from, size, c.data());
 }
 
 template <class Container>

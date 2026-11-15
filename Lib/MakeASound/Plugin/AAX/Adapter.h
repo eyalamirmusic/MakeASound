@@ -6,9 +6,12 @@
 #include "../Core/Description.h"
 #include "../Host/PluginWrapper.h"
 #include "../../MIDI/MidiParser.h"
+#include "../../Realtime/SPSCQueue.h"
+#include "../../Realtime/SpinLock.h"
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -58,10 +61,15 @@ public:
 
     AAX_Result GetMasterBypassParameter(AAX_IString* id) const override;
 
-    // A host write lands in the wrapper unless a gesture holds the parameter.
+    // Marks the parameter dirty; GenerateCoefficients decides when it lands.
     AAX_Result UpdateParameterNormalizedValue(AAX_CParamID id,
                                               double value,
                                               AAX_EUpdateSource source) override;
+
+    // The dirty values: automation playback (a non-zero automation timestamp)
+    // is queued for the buffer the host delivers its state number in; anything
+    // else lands in the wrapper now, unless a gesture holds the parameter.
+    AAX_Result GenerateCoefficients() override;
 
     AAX_Result GetNumberOfChunks(int32_t* count) const override;
     AAX_Result GetChunkIDFromIndex(int32_t index, AAX_CTypeID* id) const override;
@@ -75,7 +83,8 @@ public:
     // the session modified for state that is not a parameter.
     AAX_Result GetNumberOfChanges(int32_t* numChanges) const override;
 
-    // Message thread: the latency and the values the plugin moved on its own.
+    // Any thread (the SDK calls it off the main thread): host values stuck while
+    // render is not running, the latency and the values the plugin moved.
     AAX_Result TimerWakeup() override;
 
     // After the base's: AAX_eNotificationEvent_TrackNameChanged becomes the
@@ -88,6 +97,19 @@ public:
     // One instance's block, from the process procedure. Audio thread.
     void render(AlgorithmContext& context) noexcept;
 
+    static constexpr int queueCapacity = 4096;
+
+    // Automated values that found the queue full or their packet refused, and
+    // so landed early.
+    int queueOverflows() const noexcept { return overflows.load(); }
+
+    // How long host values may stay pending with nothing consumed before
+    // TimerWakeup lands them; a second by default.
+    void setStallThreshold(std::chrono::steady_clock::duration threshold) noexcept
+    {
+        stallThreshold = threshold;
+    }
+
     // HostEditListener, message thread
     void beginParameterEdit(int index) noexcept override;
     void performParameterEdit(int index, float normalized) noexcept override;
@@ -97,22 +119,85 @@ public:
     void stateChanged() noexcept override;
 
 private:
+    // One automated value, under the state number its packet carries.
+    struct QueuedValue
+    {
+        int64_t state = 0;
+        int32_t index = 0;
+        float value = 0.f;
+    };
+
+    // Per plugin index: what the host last saw the plugin hold, whether a host
+    // value is dirty, the newest state it was queued under and the state below
+    // which its queue is stale.
+    struct HostValue
+    {
+        std::atomic<float> baseline {0.f};
+        std::atomic<bool> dirty {false};
+        std::atomic<int64_t> lastQueued {0};
+        std::atomic<int64_t> supersededBelow {0};
+
+        // Under dataModelMutex: the dirty value and the newest queued one.
+        float pending = 0.f;
+        float queued = 0.f;
+    };
+
     AAX_Result createWrapper();
     void registerParameters();
+
+    // Set once EffectInit built everything; what a call off the main thread
+    // checks before touching the wrapper.
+    bool isReady() const noexcept { return ready.load(std::memory_order_acquire); }
+
+    HostValue& hostValue(int index) const noexcept
+    {
+        return hostValues[static_cast<size_t>(index)];
+    }
+
     void renderSlice(AlgorithmContext& context,
                      const Playhead& playhead,
                      int start,
                      int numSamples) noexcept;
     void notifyHostIfLatencyChanged() noexcept;
 
+    // Audio thread: every queued value up to the delivered state, at offset 0.
+    void takeHostValues(const AlgorithmContext& context, int numSamples) noexcept;
+
+    // Under dataModelMutex. Queues the dirty values under one state number, or
+    // lands each one now: its dirty value if any, else its newest queued one.
+    void queueDirty(AAX_IController& controller) noexcept;
+    void writeNow(const Vector<int>& indices) noexcept;
+    void clearDirty() noexcept;
+
+    // The parameters' queued values give way to a write or a load.
+    void supersede(const Vector<int>& indices) noexcept;
+
+    // Lands the dirty values now, as a GenerateCoefficients with no timestamp.
+    void flushDirty() noexcept;
+
+    // Lands every pending host value now and supersedes its queue: before a
+    // load, which then wins, and when the watchdog finds them stuck.
+    void settlePending() noexcept;
+
+    // A host value the plugin does not hold yet: dirty, or queued and unread.
+    bool isHostPending(int index) const noexcept;
+
+    // Lands every pending host value once nothing has been consumed for the
+    // stall threshold.
+    void settleIfStalled() noexcept;
+
     // The AAX parameters take what the plugin holds; only the ones it moved
-    // since the last look unless `all`.
+    // since the last look unless `all`. Never one with a host value pending.
     void mirrorParametersToHost(bool all);
 
     const ModuleDescription& described;
     std::string bundleId;
 
     OwningPointer<PluginWrapper> pluginWrapper;
+    std::atomic<bool> ready {false};
+
+    // Alive with the adapter, for work posted to the message thread.
+    std::shared_ptr<bool> lifetime = std::make_shared<bool>(true);
 
     int inputChannels = 0;
     int outputChannels = 0;
@@ -122,11 +207,31 @@ private:
 
     // Registered plugin indices in declaration order, the same sorted by their
     // AAX id, each one's AAX id as registered (registeredId) by plugin index,
-    // empty for the rest, and what each held when last mirrored to the host.
+    // empty for the rest, and each one's HostValue.
     Vector<int> registered;
     Vector<int> byParamId;
     Vector<std::string> paramIds;
-    std::unique_ptr<std::atomic<float>[]> lastPluginValue;
+    std::unique_ptr<HostValue[]> hostValues;
+
+    // Update, GenerateCoefficients, the settle and a load's drop take it; the
+    // lists are reserved for every parameter.
+    std::mutex dataModelMutex;
+    Vector<int> dirtyList;
+    Vector<int> writeList;
+    int64_t nextState = 1;
+
+    // Pushed by GenerateCoefficients, popped by render, which skips its drain
+    // rather than wait while a supersede holds consumeLock.
+    SPSCQueue<QueuedValue, queueCapacity> hostQueue;
+    EA::Locks::PrimitiveSpinLock consumeLock;
+    std::atomic<int64_t> consumedThrough {0};
+    std::atomic<int> overflows {0};
+
+    // TimerWakeup's watch on consumedThrough.
+    std::chrono::steady_clock::duration stallThreshold = std::chrono::seconds {1};
+    bool watching = false;
+    int64_t watchedConsumed = 0;
+    std::chrono::steady_clock::time_point idleSince;
 
     Vector<const float*> inputTable;
     Vector<float*> outputTable;

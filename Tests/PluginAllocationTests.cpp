@@ -128,6 +128,9 @@ int allocationsPerBlock(PluginWrapper& wrapper,
                         int& drained)
 {
     auto hostId = wrapper.plugin().parameters().entry(0).hostId;
+    auto numParameters = wrapper.plugin().parameters().size();
+    auto bypass = wrapper.plugin().parameters().bypassIndex();
+    auto maxPushes = 1 << 16;
     auto capacity = ProcessContext::defaultMidiCapacity;
     auto playhead = Playhead {};
     playhead.isValid = true;
@@ -139,6 +142,27 @@ int allocationsPerBlock(PluginWrapper& wrapper,
     {
         wrapper.setNormalizedParameter(0, 0.7f);
         wrapper.setParameterByHostId(hostId, 0.6f);
+
+        // Until the list is full and past it, with ramps that began before the
+        // block and ramps that carry into the next one; never the bypass, which
+        // would turn the block into a crossfade.
+        auto dropped = 0;
+
+        for (auto i = 0; dropped < 3 && i < maxPushes; ++i)
+        {
+            auto index = i % numParameters;
+
+            if (index == bypass)
+                continue;
+
+            if (!wrapper.pushParameterChange(index,
+                                             (i * 37) % (3 * blockSize) - blockSize,
+                                             i % 3 == 0 ? 0.25f : 0.75f,
+                                             (i % 2) * 2 * blockSize))
+                ++dropped;
+        }
+
+        wrapper.applyParameterChanges(blockSize);
         wrapper.setPlayhead(playhead);
         wrapper.clearMidi();
 

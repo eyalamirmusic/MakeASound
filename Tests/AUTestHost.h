@@ -416,6 +416,35 @@ struct UnitHost
         return AudioUnitSetParameter(unit, id, kAudioUnitScope_Global, 0, value, 0);
     }
 
+    // AudioUnitScheduleParameters for the next render: a step at `offset`.
+    OSStatus schedule(AudioUnitParameterID id, float value, UInt32 offset) const
+    {
+        auto event =
+            AudioUnitParameterEvent {.scope = kAudioUnitScope_Global,
+                                     .parameter = id,
+                                     .eventType = kParameterEvent_Immediate};
+        event.eventValues.immediate = {.bufferOffset = offset, .value = value};
+        return AudioUnitScheduleParameters(unit, &event, 1);
+    }
+
+    // A ramp as a host sends it on each buffer it spans, `start` relative to that
+    // buffer, so negative once it began in an earlier one.
+    OSStatus scheduleRamp(AudioUnitParameterID id,
+                          SInt32 start,
+                          UInt32 duration,
+                          float from,
+                          float to) const
+    {
+        auto event = AudioUnitParameterEvent {.scope = kAudioUnitScope_Global,
+                                              .parameter = id,
+                                              .eventType = kParameterEvent_Ramped};
+        event.eventValues.ramp = {.startBufferOffset = start,
+                                  .durationInFrames = duration,
+                                  .startValue = from,
+                                  .endValue = to};
+        return AudioUnitScheduleParameters(unit, &event, 1);
+    }
+
     static OSStatus pullInput(void* refCon,
                               AudioUnitRenderActionFlags*,
                               const AudioTimeStamp*,

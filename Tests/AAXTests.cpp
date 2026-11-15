@@ -252,6 +252,11 @@ auto tFields = test("AAX/theContextFieldsAreDescribed") = []
             check(transport.kind == FieldKind::MidiNode);
             check(transport.nodeType == AAX_eMIDINodeType_Transport);
             check(component->property(AAX_eProperty_UsesTransport) == 1);
+
+            auto state = field(*component, AAX_FIELD_INDEX(Context, parameterState));
+            check(state.kind == FieldKind::DataIn);
+            check(state.size == static_cast<int32_t>(sizeof(int64_t)));
+            check(state.portType == AAX_eDataInPortType_Buffered);
         }
     }
 
@@ -524,6 +529,7 @@ auto tHostWrite = test("AAX/aHostWriteLandsInTheNextBlock") = []
     check(host.hostWrites(gain, gain.toNormalized(-6.0206f)) == AAX_SUCCESS);
     check(near(gain.getValue(), -6.0206f, 1e-3));
     check(near(host.hostValue(gain), gain.toNormalized(-6.0206f)));
+    check(host.controller.numPackets == 0);
 
     host.fillInputs(1.f);
     host.render(blockSize);
@@ -1157,8 +1163,10 @@ std::string masterBypassOf(Format::Adapter& adapter)
 
 AAX_Result hostWritesId(Format::Adapter& adapter, AAX_CParamID id, double value)
 {
-    return adapter.UpdateParameterNormalizedValue(
+    auto result = adapter.UpdateParameterNormalizedValue(
         id, value, AAX_eUpdateSource_Unspecified);
+    adapter.GenerateCoefficients();
+    return result;
 }
 
 bool isAutomatable(Format::Adapter& adapter, AAX_CParamID id)
@@ -1552,6 +1560,577 @@ auto tControlsUnderJuce =
     check(native.adapter->SetChunk(Format::controlsChunkId, &chunk.get())
           == AAX_SUCCESS);
     check(JuceFixtures::holdsDefaults(native.plugin().params));
+};
+
+// Buffer-aligned automation: a value GenerateCoefficients stamps with an
+// automation timestamp waits in the queue for the buffer its state number is
+// delivered in, and lands there at offset 0.
+
+using AutomationHost = AdapterHost<AutomationPlugin>;
+
+// What each process() of a block saw: its changes and the amount.
+struct SliceRecorder : AutomationPlugin
+{
+    struct Slice
+    {
+        int changes = 0;
+        float amount = 0.f;
+    };
+
+    void process(ProcessContext& context) noexcept override
+    {
+        AutomationPlugin::process(context);
+
+        if (numSlices < static_cast<int>(slices.size()))
+            slices[static_cast<size_t>(numSlices++)] = {numChanges, amountSeen};
+    }
+
+    std::array<Slice, 8> slices {};
+    int numSlices = 0;
+};
+
+void renderBoth(AutomationHost& a, AutomationHost& b, int frames)
+{
+    a.numSamples = frames;
+    b.numSamples = frames;
+    Format::AlgorithmContext* instances[] = {&a.context, &b.context};
+    Format::processProc(instances, instances + 2);
+}
+
+auto tAligned = test("AAX/anAutomatedWriteWaitsForTheBufferItWasStampedFor") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+
+    check(host.automate(amount, 0.8) == AAX_SUCCESS);
+    check(amount.getNormalized() == 0.f);
+    check(near(host.hostValue(amount), 0.8));
+    check(host.controller.numPackets == 1);
+    check(host.controller.lastPacket.field
+          == AAX_FIELD_INDEX(Format::AlgorithmContext, parameterState));
+
+    host.render(blockSize);
+    check(plugin.amountSeen == 0.f && plugin.numChanges == 0);
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.8));
+    check(plugin.numChanges == 1);
+
+    const auto& change = plugin.changes[0];
+    check(change.index == amount.index() && change.sampleOffset == 0);
+    check(near(change.value, 0.8) && change.previousValue == 0.f);
+    check(change.rampSamples == 0);
+
+    host.render(blockSize);
+    check(plugin.numChanges == 0);
+};
+
+auto tBundles = test("AAX/bundlesApplyInOrderUpToTheDeliveredState") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+
+    host.automate(amount, 0.2, 1000);
+    auto first = host.lastPosted();
+    host.automate(amount, 0.4, 1100);
+    auto second = host.lastPosted();
+    host.automate(amount, 0.6, 1200);
+    check(first < second && second < host.lastPosted());
+
+    host.deliveredState = second;
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.4));
+    check(plugin.numChanges == 2);
+    check(near(plugin.changes[0].value, 0.2) && near(plugin.changes[1].value, 0.4));
+    check(near(plugin.changes[1].previousValue, 0.2));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.6) && plugin.numChanges == 1);
+};
+
+auto tStuck = test("AAX/aLateOrStuckDeliveryMovesOnlyAlignment") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+
+    host.automate(amount, 0.3);
+    host.deliveredState = host.lastPosted() + 100;
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.3));
+
+    // Never delivered: the timer lands it once nothing has been taken for long
+    // enough, and the host's value is never pushed back meanwhile.
+    host.automate(amount, 0.7);
+    host.deliveredState = 0;
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.3));
+
+    // Within the default second, nothing lands.
+    host.adapter->TimerWakeup();
+    host.adapter->TimerWakeup();
+    check(near(amount.getNormalized(), 0.3));
+    check(near(host.hostValue(amount), 0.7));
+
+    host.adapter->setStallThreshold({});
+    host.adapter->TimerWakeup();
+    check(near(amount.getNormalized(), 0.7));
+    check(near(host.hostValue(amount), 0.7));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.7) && plugin.numChanges == 0);
+};
+
+auto tNullPort = test("AAX/aNullStatePortAppliesAtTheNextBlock") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    host.context.parameterState = nullptr;
+
+    host.automate(host.plugin().params.amount, 0.5);
+    check(host.plugin().params.amount.getNormalized() == 0.f);
+    host.render(blockSize);
+    check(near(host.plugin().amountSeen, 0.5) && host.plugin().numChanges == 1);
+};
+
+auto tNoTimestamp = test("AAX/anUnimplementedTimestampWritesImmediately") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    host.controller.timestampImplemented = false;
+
+    host.automate(host.plugin().params.amount, 0.5);
+    check(near(host.plugin().params.amount.getNormalized(), 0.5));
+    check(host.controller.numPackets == 0);
+};
+
+auto tSuperseded = test("AAX/anImmediateWriteSupersedesQueuedAutomation") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+
+    host.automate(amount, 0.2);
+    host.hostWrites(amount, 0.9);
+    check(near(amount.getNormalized(), 0.9));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.9) && plugin.numChanges == 0);
+};
+
+auto tLoadDrops = test("AAX/aChunkLoadDropsQueuedAutomation") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto source = AutomationHost("Gain");
+    source.plugin().params.amount.setValue(0.6f);
+    auto chunk = saveChunk(source);
+
+    auto host = AutomationHost("Gain");
+    auto& amount = host.plugin().params.amount;
+    host.automate(amount, 0.2);
+    check(host.adapter->SetChunk(Format::chunkId, &chunk.get()) == AAX_SUCCESS);
+    check(near(amount.getNormalized(), 0.6));
+    check(near(host.hostValue(amount), 0.6));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(host.plugin().amountSeen, 0.6) && host.plugin().numChanges == 0);
+};
+
+// What playback trades: a save before the buffer keeps the value applied.
+auto tSaveApplied = test("AAX/aSaveBeforeItsBufferSavesTheAppliedValue") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& amount = host.plugin().params.amount;
+    host.automate(amount, 0.8);
+
+    auto early = saveChunk(host);
+    host.deliverLatest();
+    host.render(blockSize);
+    auto late = saveChunk(host);
+
+    auto target = AutomationHost("Gain");
+    auto& loaded = target.plugin().params.amount;
+    check(target.adapter->SetChunk(Format::chunkId, &early.get()) == AAX_SUCCESS);
+    check(loaded.getNormalized() == 0.f);
+    check(target.adapter->SetChunk(Format::chunkId, &late.get()) == AAX_SUCCESS);
+    check(near(loaded.getNormalized(), 0.8));
+};
+
+auto tNoEcho = test("AAX/hostAutomationIsNeverMirroredBack") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+
+    host.automate(amount, 0.4);
+    host.deliverLatest();
+    host.render(blockSize);
+
+    auto values = host.controller.currentValues;
+    host.adapter->TimerWakeup();
+    check(host.controller.currentValues == values);
+    check(near(host.hostValue(amount), 0.4));
+
+    // The host is ahead of the buffer: nothing stale goes back to it.
+    host.automate(amount, 0.5);
+    auto applied = host.lastPosted();
+    host.automate(amount, 0.9);
+    host.deliveredState = applied;
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.5));
+
+    host.adapter->TimerWakeup();
+    plugin.notifyHostParameterValuesChanged();
+    check(near(host.hostValue(amount), 0.9));
+
+    // Nor a value the host wrote that no GenerateCoefficients has landed yet.
+    auto& level = plugin.params.level;
+    host.controller.generates = false;
+    host.hostWrites(level, 0.1);
+    plugin.notifyHostParameterValuesChanged();
+    check(near(level.getNormalized(), 0.5));
+    check(near(host.hostValue(level), 0.1));
+};
+
+auto tPluginMove = test("AAX/aPluginMoveIsStillMirroredWhileOthersAreQueued") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& params = host.plugin().params;
+
+    host.automate(params.amount, 0.4);
+    params.level.setValue(0.25f);
+    host.adapter->TimerWakeup();
+    check(near(host.hostValue(params.level), 0.25));
+    check(near(host.hostValue(params.amount), 0.4));
+    check(params.amount.getNormalized() == 0.f);
+};
+
+auto tHeldQueue = test("AAX/aHeldParameterDropsDeliveredAutomation") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+    auto& listener = *plugin.hostEditListener();
+
+    listener.beginParameterEdit(amount.index());
+    host.automate(amount, 0.7);
+    host.deliverLatest();
+    host.render(blockSize);
+    check(amount.getNormalized() == 0.f && plugin.numChanges == 0);
+
+    listener.endParameterEdit(amount.index());
+    host.render(blockSize);
+    check(plugin.amountSeen == 0.f);
+};
+
+auto tSliced = test("AAX/aSlicedBlockTakesItsChangesInTheFirstSlice") = []
+{
+    auto standIn = ScopedStandIn<SliceRecorder>(Module::gainStandIn);
+    auto host = AdapterHost<SliceRecorder>("Gain");
+    auto& plugin = host.plugin();
+
+    host.automate(plugin.params.amount, 0.6);
+    host.deliverLatest();
+    host.render(2500);
+
+    check(plugin.numSlices == 3);
+    check(plugin.slices[0].changes == 1 && near(plugin.slices[0].amount, 0.6));
+    check(plugin.slices[1].changes == 0 && near(plugin.slices[1].amount, 0.6));
+    check(plugin.slices[2].changes == 0 && near(plugin.slices[2].amount, 0.6));
+};
+
+auto tOverflow = test("AAX/aFullQueueLandsTheValueEarlyNotNever") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+
+    for (auto i = 0; i < Format::Adapter::queueCapacity; ++i)
+        host.automate(amount, i % 2 == 0 ? 0.75 : 0.25);
+
+    check(host.adapter->queueOverflows() == 0);
+    check(amount.getNormalized() == 0.f);
+
+    host.automate(amount, 0.5);
+    check(host.adapter->queueOverflows() == 1);
+    check(near(amount.getNormalized(), 0.5));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.5) && plugin.numChanges == 0);
+
+    // A refused packet lands its values too.
+    host.controller.failPackets = true;
+    host.automate(plugin.params.level, 0.9);
+    check(host.adapter->queueOverflows() == 2);
+    check(near(plugin.params.level.getNormalized(), 0.9));
+};
+
+auto tTwoInstances = test("AAX/twoInstancesKeepTheirOwnQueues") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto a = AutomationHost("Gain");
+    auto b = AutomationHost("Gain");
+
+    a.automate(a.plugin().params.amount, 0.3);
+    b.automate(b.plugin().params.amount, 0.6);
+    a.deliverLatest();
+
+    renderBoth(a, b, blockSize);
+    check(near(a.plugin().amountSeen, 0.3) && b.plugin().amountSeen == 0.f);
+
+    b.deliverLatest();
+    renderBoth(a, b, blockSize);
+    check(near(b.plugin().amountSeen, 0.6) && a.plugin().numChanges == 0);
+};
+
+auto tLatencyQueued = test("AAX/anAutomatedLatencyParameterNotifiesOnTheTimer") = []
+{
+    auto standIn = ScopedStandIn<LatencyPlugin>(Module::gainStandIn);
+    auto host = AdapterHost<LatencyPlugin>("Gain");
+    auto& latency = host.plugin().params.latency;
+    auto calls = host.controller.latencyCalls;
+
+    host.automate(latency, latency.toNormalized(128.f));
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(latency.getValue(), 128.f, 1e-2));
+    check(host.controller.latencyCalls == calls);
+
+    host.adapter->TimerWakeup();
+    check(host.controller.latency == 128);
+    check(host.controller.latencyCalls == calls + 1);
+};
+
+auto tBypassQueued = test("AAX/automatedBypassWaitsForItsBuffer") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    auto& bypass = host.plugin().params.bypass;
+
+    host.automate(bypass, 1.0);
+    check(!bypass.isOn());
+    host.deliverLatest();
+    host.render(blockSize);
+    check(bypass.isOn());
+};
+
+auto tSettleDirty = test("AAX/aDirtyValueWithNoGenerateCoefficientsIsSettled") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& level = host.plugin().params.level;
+
+    host.controller.generates = false;
+    host.hostWrites(level, 0.1);
+    check(near(level.getNormalized(), 0.5));
+
+    host.adapter->setStallThreshold({});
+    host.adapter->TimerWakeup();
+    host.adapter->TimerWakeup();
+    check(near(level.getNormalized(), 0.1));
+    check(near(host.hostValue(level), 0.1));
+};
+
+auto tNoSettleWhileTaking = test("AAX/theWatchdogWaitsWhileBuffersTakeValues") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& amount = plugin.params.amount;
+    host.adapter->setStallThreshold({});
+
+    host.automate(amount, 0.2);
+    auto first = host.lastPosted();
+    host.automate(amount, 0.4);
+    auto second = host.lastPosted();
+    host.automate(amount, 0.6);
+
+    host.deliveredState = first;
+    host.render(blockSize);
+    host.adapter->TimerWakeup();
+    check(near(amount.getNormalized(), 0.2));
+
+    host.deliveredState = second;
+    host.render(blockSize);
+    host.adapter->TimerWakeup();
+    check(near(amount.getNormalized(), 0.4));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.6) && plugin.numChanges == 1);
+};
+
+auto tJuceDrops = test("AAX/aJuceChunkLoadSupersedesQueuedAutomation") = []
+{
+    auto standIn = ScopedStandIn<FixturePlugin>(Module::gainStandIn);
+    auto host = AdapterHost<FixturePlugin>("Gain");
+    auto& cutoff = host.plugin().params.cutoff;
+    auto chunk = chunkOf(Format::juceChunkId, JuceFixtures::blob());
+
+    host.automate(cutoff, 0.9);
+    check(host.adapter->SetChunk(Format::juceChunkId, &chunk.get()) == AAX_SUCCESS);
+    check(JuceFixtures::holdsFixtureValues(host.plugin().params));
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(JuceFixtures::holdsFixtureValues(host.plugin().params));
+    check(near(host.hostValue(cutoff), cutoff.getNormalized()));
+};
+
+// The controls chunk's values come back as host writes of their own: the load
+// itself drops nothing the host queued.
+auto tControlsKeep = test("AAX/aControlsChunkLoadKeepsQueuedAutomation") = []
+{
+    auto source = AdapterHost<GainPlugin>("Gain");
+    auto size = uint32_t {};
+    check(source.adapter->AAX_CEffectParameters::GetChunkSize(
+              Format::controlsChunkId, &size)
+          == AAX_SUCCESS);
+
+    auto chunk = Chunk {};
+    chunk.storage.resize(sizeof(AAX_SPlugInChunk) + size);
+    chunk.get().fSize = static_cast<int32_t>(size);
+    check(source.adapter->AAX_CEffectParameters::GetChunk(Format::controlsChunkId,
+                                                          &chunk.get())
+          == AAX_SUCCESS);
+
+    auto host = AdapterHost<GainPlugin>("Gain");
+    auto& gain = host.plugin().params.gain;
+    host.automate(gain, 0.4);
+    host.controller.echo = false;
+    check(host.adapter->SetChunk(Format::controlsChunkId, &chunk.get())
+          == AAX_SUCCESS);
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(gain.getNormalized(), 0.4));
+};
+
+auto tPartialOverflow = test("AAX/aBundleThatOverflowsLandsOnlyWhatDidNotFit") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& params = plugin.params;
+
+    for (auto i = 0; i < Format::Adapter::queueCapacity - 1; ++i)
+        host.automate(params.amount, i % 2 == 0 ? 0.75 : 0.25);
+
+    // One bundle of three, one place left: the first fits, the others land.
+    host.controller.automationTimestamp = 5000;
+    host.controller.generates = false;
+    host.hostWrites(params.amount, 0.1);
+    host.hostWrites(params.level, 0.9);
+    host.hostWrites(params.mode, 1.0);
+    host.adapter->GenerateCoefficients();
+    host.controller.automationTimestamp = 0;
+
+    check(host.adapter->queueOverflows() == 2);
+    check(params.amount.getNormalized() == 0.f);
+    check(near(params.level.getNormalized(), 0.9));
+    check(params.mode.getIndex() == 4);
+
+    host.deliverLatest();
+    host.render(blockSize);
+    check(near(plugin.amountSeen, 0.1));
+    check(near(params.level.getNormalized(), 0.9) && params.mode.getIndex() == 4);
+};
+
+auto tHeldNoEcho = test("AAX/aHeldParametersDroppedAutomationIsNotEchoed") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& amount = host.plugin().params.amount;
+    auto& listener = *host.plugin().hostEditListener();
+
+    listener.beginParameterEdit(amount.index());
+    host.automate(amount, 0.7);
+    host.deliverLatest();
+    host.render(blockSize);
+
+    auto values = host.controller.currentValues;
+    host.adapter->TimerWakeup();
+    listener.endParameterEdit(amount.index());
+    host.adapter->TimerWakeup();
+    check(host.controller.currentValues == values);
+    check(amount.getNormalized() == 0.f);
+    check(near(host.hostValue(amount), 0.7));
+};
+
+auto tSteppedNoEcho = test("AAX/aSteppedParametersAutomationLandsSnapped") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& plugin = host.plugin();
+    auto& mode = plugin.params.mode;
+
+    host.automate(mode, 0.3);
+    host.deliverLatest();
+    host.render(blockSize);
+    check(plugin.numChanges == 1 && near(plugin.changes[0].value, 0.25));
+    check(mode.getIndex() == 1);
+
+    auto values = host.controller.currentValues;
+    host.adapter->TimerWakeup();
+    check(host.controller.currentValues == values);
+    check(near(host.hostValue(mode), 0.3));
+};
+
+auto tFailedLoad = test("AAX/aChunkThatLoadsNothingKeepsTheHostsValues") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& params = host.plugin().params;
+
+    host.automate(params.amount, 0.7);
+    host.controller.generates = false;
+    host.hostWrites(params.level, 0.2);
+
+    auto garbage = chunkOf(Format::chunkId, "not a document");
+    host.adapter->SetChunk(Format::chunkId, &garbage.get());
+
+    check(near(params.amount.getNormalized(), 0.7));
+    check(near(params.level.getNormalized(), 0.2));
+    check(near(host.hostValue(params.amount), 0.7));
+    check(near(host.hostValue(params.level), 0.2));
+};
+
+auto tSaveDirty = test("AAX/aSaveOrCompareRightAfterAWriteSeesIt") = []
+{
+    auto standIn = ScopedStandIn<AutomationPlugin>(Module::gainStandIn);
+    auto host = AutomationHost("Gain");
+    auto& amount = host.plugin().params.amount;
+    auto before = saveChunk(host);
+
+    host.controller.generates = false;
+    host.hostWrites(amount, 0.6);
+
+    auto equal = AAX_CBoolean {true};
+    check(host.adapter->CompareActiveChunk(&before.get(), &equal) == AAX_SUCCESS);
+    check(!equal);
+    check(near(amount.getNormalized(), 0.6));
+
+    host.hostWrites(amount, 0.8);
+    auto saved = saveChunk(host);
+    auto target = AutomationHost("Gain");
+    check(target.adapter->SetChunk(Format::chunkId, &saved.get()) == AAX_SUCCESS);
+    check(near(target.plugin().params.amount.getNormalized(), 0.8));
 };
 } // namespace
 } // namespace AAXTests

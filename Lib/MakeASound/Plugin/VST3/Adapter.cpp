@@ -457,9 +457,7 @@ tresult PLUGIN_API Adapter::process(Vst::ProcessData& data) noexcept
     }
 
     pluginWrapper.clearMidi();
-
-    if (data.inputParameterChanges != nullptr)
-        applyParameterChanges(*data.inputParameterChanges);
+    applyParameterChanges(data.inputParameterChanges, data.numSamples);
 
     pluginWrapper.setPlayhead(data.processContext != nullptr
                                   ? toPlayhead(*data.processContext)
@@ -521,37 +519,24 @@ void Adapter::emitParameterChanges(Vst::IParameterChanges& changes) noexcept
     }
 }
 
-void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
+void Adapter::applyParameterChanges(Vst::IParameterChanges* changes,
+                                    int numSamples) noexcept
 {
     const auto& list = plugin().parameters();
-    auto numQueues = changes.getParameterCount();
+    auto numQueues = changes != nullptr ? changes->getParameterCount() : 0;
 
     for (auto q = 0; q < numQueues; ++q)
     {
-        auto* queue = changes.getParameterData(q);
+        auto* queue = changes->getParameterData(q);
 
         if (queue == nullptr)
             continue;
 
         auto id = queue->getParameterId();
-        auto numPoints = queue->getPointCount();
-        auto offset = int32 {};
-        auto value = Vst::ParamValue {};
 
         if (auto index = list.indexOfHostId(id); index >= 0)
         {
-            if (numPoints > 0
-                && queue->getPoint(numPoints - 1, offset, value)
-                       == Steinberg::kResultOk)
-            {
-                pluginWrapper.setNormalizedParameter(index,
-                                                     static_cast<float>(value));
-
-                // Not echoed back; a held parameter that dropped the write is
-                // the gesture's to report.
-                takeAsBaseline(index);
-            }
-
+            pushPoints(index, *queue, numSamples);
             continue;
         }
 
@@ -560,11 +545,65 @@ void Adapter::applyParameterChanges(Vst::IParameterChanges& changes) noexcept
         if (!target)
             continue;
 
-        for (auto p = 0; p < numPoints; ++p)
+        auto offset = int32 {};
+        auto value = Vst::ParamValue {};
+
+        for (auto p = 0; p < queue->getPointCount(); ++p)
             if (queue->getPoint(p, offset, value) == Steinberg::kResultOk)
                 pluginWrapper.pushMidiIn(
                     target->bus,
                     shadowEvent(*target, offset, static_cast<float>(value)));
+    }
+
+    pluginWrapper.applyParameterChanges(numSamples);
+
+    // Not echoed back: neither a ramp carried from the last block nor a queue,
+    // whose held parameter dropped it for the gesture to report.
+    for (auto index: pluginWrapper.appliedParameters())
+        takeAsBaseline(index);
+
+    for (auto q = 0; q < numQueues; ++q)
+    {
+        auto* queue = changes->getParameterData(q);
+
+        if (queue == nullptr || queue->getPointCount() <= 0)
+            continue;
+
+        if (auto index = list.indexOfHostId(queue->getParameterId()); index >= 0)
+            takeAsBaseline(index);
+    }
+}
+
+// Each point ends a line from the one before, the first from the value at
+// sample -1 (ivstparameterchanges.h); a segment of one sample or less is a
+// jump. Clamped into the block, so the last point is the block's end value.
+void Adapter::pushPoints(int index,
+                         Vst::IParamValueQueue& queue,
+                         int numSamples) noexcept
+{
+    const auto& param = plugin().parameters()[index];
+    auto stepped = param.isDiscrete() || param.numSteps() > 0;
+    auto lastSample = std::max(0, numSamples - 1);
+    auto start = -1;
+
+    for (auto p = 0; p < queue.getPointCount(); ++p)
+    {
+        auto point = int32 {};
+        auto value = Vst::ParamValue {};
+
+        if (queue.getPoint(p, point, value) != Steinberg::kResultOk)
+            continue;
+
+        auto offset = std::clamp(static_cast<int>(point), 0, lastSample);
+        auto length = offset - start;
+        auto normalized = static_cast<float>(value);
+
+        if (stepped || length <= 1)
+            pluginWrapper.pushParameterChange(index, offset, normalized);
+        else
+            pluginWrapper.pushParameterChange(index, start, normalized, length);
+
+        start = offset;
     }
 }
 

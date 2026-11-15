@@ -71,8 +71,10 @@ std::vector<std::string> exposedIds(AdapterHost<P>& host)
     return ids;
 }
 
-// Everything a busy block carries: a write to every exposed parameter, notes, a
-// controller, a bend and a split SysEx at their timestamps, then the render.
+// Everything a busy block carries: a write to every exposed parameter, landed
+// now or queued as automation by turns, the newest bundle left for the next
+// block or every one taken through no port; notes, a controller, a bend and a
+// split SysEx at their timestamps, then the render.
 template <typename P>
 void busyBlock(AdapterHost<P>& host,
                const std::vector<std::string>& ids,
@@ -80,10 +82,16 @@ void busyBlock(AdapterHost<P>& host,
                int frames)
 {
     auto normalized = block % 2 == 0 ? 0.3 : 0.7;
+    host.controller.automationTimestamp = block % 3 == 0 ? 0 : 1000 + block;
 
     for (const auto& id: ids)
         host.adapter->UpdateParameterNormalizedValue(
             id.data(), normalized, AAX_eUpdateSource_Unspecified);
+
+    host.adapter->GenerateCoefficients();
+    host.controller.automationTimestamp = 0;
+    host.deliveredState = std::max<int64_t>(0, host.lastPosted() - 1);
+    host.context.parameterState = block % 5 == 4 ? nullptr : &host.deliveredState;
 
     host.midiIn.clear();
     host.midiOut.clear();
@@ -120,6 +128,36 @@ int allocationsOverBlocks(AdapterHost<P>& host)
         count += allocationsIn([&] { busyBlock(host, ids, block++, size); });
 
     return count;
+}
+
+// Automation queued past the queue's capacity, the rest landing early, then one
+// block that takes it all.
+template <typename P>
+int allocationsOverFlood(AdapterHost<P>& host)
+{
+    auto ids = exposedIds(host);
+
+    if (ids.empty())
+        return 0;
+
+    return allocationsIn(
+        [&]
+        {
+            host.controller.automationTimestamp = 1000;
+
+            for (auto i = 0; i < Format::Adapter::queueCapacity + 8; ++i)
+            {
+                host.adapter->UpdateParameterNormalizedValue(
+                    ids.front().data(),
+                    i % 2 == 0 ? 0.25 : 0.75,
+                    AAX_eUpdateSource_Unspecified);
+                host.adapter->GenerateCoefficients();
+            }
+
+            host.controller.automationTimestamp = 0;
+            host.deliverLatest();
+            host.render(TestPlugins::blockSize);
+        });
 }
 
 // The same while every parameter is held by an editor gesture, and after the

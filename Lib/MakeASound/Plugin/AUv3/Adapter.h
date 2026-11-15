@@ -180,6 +180,9 @@ private:
     void applyEvents(const AURenderEvent* events,
                      const AudioTimeStamp* timestamp,
                      AUAudioFrameCount frames) noexcept;
+    void pushParameterEvent(const AUParameterEvent& event,
+                            const AudioTimeStamp* timestamp,
+                            AUAudioFrameCount frames) noexcept;
     void bindOutputs(AUAudioFrameCount frames,
                      AudioBufferList* singleOutput) noexcept;
     void emitMidiOut(const AudioTimeStamp* timestamp) noexcept;
@@ -204,6 +207,11 @@ private:
     Vector<int> exposed;
     EA::FixedDynamicArray<std::atomic<float>> lastPluginValue;
     EA::FixedDynamicArray<std::atomic<bool>> undoHostWrite;
+
+    // Per entry, the value the render's automation last left the plugin at
+    // (NaN for none): the host's own, which a sync takes as its baseline
+    // rather than reporting it back as the plugin's move.
+    EA::FixedDynamicArray<std::atomic<float>> automatedValue;
 
     // A load made off the message thread, whose values the next tick carries
     // into the tree whether their entries report plugin moves or not.

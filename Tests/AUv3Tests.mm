@@ -1749,4 +1749,292 @@ auto tPlugAsNativeOffThread =
     check(near(params.highPass.cutoff.get(), 0.9f));
     check(near(target.parameterFor(params.highPass.cutoff).value, 0.9f));
 };
+
+// AutomationPlugin under the Gain entry's codes, rendering through the internal
+// block with the events a slice carries.
+struct AutomationUnit
+{
+    AUParameterAddress address(const Parameter& param) const
+    {
+        return host.parameterFor(param).address;
+    }
+
+    AUEventSampleTime at(int offset) const
+    {
+        return static_cast<AUEventSampleTime>(host.sampleTime) + offset;
+    }
+
+    AUAudioUnitStatus render(AUAudioFrameCount frames = maxBlock)
+    {
+        auto status = host.renderEvents(frames, events.head());
+        events.clear();
+        return status;
+    }
+
+    const ParameterChange& change(int i) { return host.plugin().changes[i]; }
+
+    ScopedStandIn<AutomationPlugin> standIn {Module::gainStandIn};
+    UnitHost<AutomationPlugin> host {"Gain"};
+    AutomationParams& params = host.plugin().params;
+    EventList events;
+};
+
+bool isStep(const ParameterChange& change, int index, int offset, float value)
+{
+    return change.index == index && change.sampleOffset == offset
+           && change.rampSamples == 0 && near(change.value, value);
+}
+
+auto tEventOffsets = test("AUv3/parameterEventsLandAtTheirOffsets") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+
+    unit.events.parameter(unit.address(unit.params.amount), 0.75f, unit.at(40));
+    unit.events.parameter(unit.address(unit.params.amount), 0.25f, unit.at(10));
+    unit.events.parameter(unit.address(unit.params.level), 0.2f, unit.at(5));
+    check(unit.render() == noErr);
+
+    check(plugin.numChanges == 3);
+    check(isStep(unit.change(0), 2, 5, 0.2f));
+    check(isStep(unit.change(1), 0, 10, 0.25f));
+    check(isStep(unit.change(2), 0, 40, 0.75f));
+    check(near(unit.change(1).previousValue, 0.f));
+    check(near(unit.change(2).previousValue, 0.25f));
+
+    // What the plugin reads from the parameter is the block's last value.
+    check(near(plugin.amountSeen, 0.75f));
+    check(near(unit.params.level.getValue(), 0.2f));
+
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 0.75f));
+};
+
+auto tImmediate = test("AUv3/anImmediateEventLandsAtItsOffset") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+    auto address = unit.address(unit.params.amount);
+
+    unit.events.parameter(address, 0.5f, AUEventSampleTimeImmediate);
+    unit.events.parameter(address, 0.6f, AUEventSampleTimeImmediate + 20);
+    unit.events.parameter(address, 0.7f, AUEventSampleTimeImmediate + 1000);
+    check(unit.render() == noErr);
+
+    check(plugin.numChanges == 3);
+    check(isStep(unit.change(0), 0, 0, 0.5f));
+    check(isStep(unit.change(1), 0, 20, 0.6f));
+    check(isStep(unit.change(2), 0, maxBlock - 1, 0.7f));
+    check(near(plugin.amountSeen, 0.7f));
+};
+
+auto tRampInBlock = test("AUv3/aRampInsideTheBlockIsALine") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+
+    unit.events.ramp(unit.address(unit.params.amount), 1.f, unit.at(8), 32);
+    check(unit.render() == noErr);
+
+    check(plugin.numChanges == 1);
+    check(unit.change(0).sampleOffset == 8);
+    check(unit.change(0).rampSamples == 32);
+    check(near(unit.change(0).previousValue, 0.f));
+    check(near(unit.change(0).value, 1.f));
+    check(near(unit.change(0).valueAt(24), 0.5f));
+    check(near(plugin.amountSeen, 1.f));
+};
+
+// The host sends the ramp once; the wrapper carries it to its target.
+auto tRampAcrossBlocks = test("AUv3/aRampAcrossBlocksIsOneLine") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+    auto line = [](int sample) { return static_cast<float>(sample - 32) / 128.f; };
+
+    unit.events.ramp(unit.address(unit.params.amount), 1.f, unit.at(32), 128);
+
+    for (auto block = 0; block < 3; ++block)
+    {
+        check(unit.render() == noErr);
+        check(plugin.numChanges == 1);
+
+        const auto& change = unit.change(0);
+        auto start = block * maxBlock;
+
+        for (auto s = std::max(change.sampleOffset, 0); s < maxBlock; ++s)
+            if (start + s >= 32)
+                check(near(change.valueAt(s), std::min(1.f, line(start + s))));
+
+        check(near(plugin.amountSeen, std::min(1.f, line(start + maxBlock))));
+    }
+
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 1.f));
+};
+
+auto tRampSuperseded = test("AUv3/aLaterEventEndsARunningRamp") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+    auto address = unit.address(unit.params.amount);
+
+    unit.events.ramp(address, 1.f, unit.at(0), 128);
+    check(unit.render() == noErr);
+    check(near(plugin.amountSeen, 0.5f));
+
+    unit.events.parameter(address, 0.2f, unit.at(16));
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 2);
+    check(unit.change(0).rampSamples == 64);
+    check(isStep(unit.change(1), 0, 16, 0.2f));
+    check(near(unit.change(1).previousValue, 0.625f));
+    check(near(plugin.amountSeen, 0.2f));
+
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 0.2f));
+};
+
+auto tDiscreteSteps = test("AUv3/aRampOnADiscreteParameterSteps") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+
+    unit.events.ramp(unit.address(unit.params.mode), 3.f, unit.at(10), 40);
+    check(unit.render() == noErr);
+
+    check(plugin.numChanges == 1);
+    check(isStep(unit.change(0), 1, 10, unit.params.mode.toNormalized(3.f)));
+    check(unit.params.mode.getIndex() == 3);
+};
+
+auto tHeldEvents = test("AUv3/aHeldParameterDropsTimedEvents") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+    auto& listener = *plugin.hostEditListener();
+    auto address = unit.address(unit.params.amount);
+
+    listener.beginParameterEdit(0);
+    unit.params.amount.setValue(0.4f);
+    listener.performParameterEdit(0, 0.4f);
+
+    unit.events.parameter(address, 0.9f, unit.at(10));
+    unit.events.ramp(address, 0.1f, unit.at(20), 100);
+    unit.events.parameter(unit.address(unit.params.level), 0.8f, unit.at(30));
+    check(unit.render() == noErr);
+
+    check(plugin.numChanges == 1);
+    check(isStep(unit.change(0), 2, 30, 0.8f));
+    check(near(unit.params.amount.getValue(), 0.4f));
+
+    check(unit.render() == noErr);
+    check(near(unit.params.amount.getValue(), 0.4f));
+    listener.endParameterEdit(0);
+};
+
+// What a host schedules through the unit's own block reaches the render at its
+// offset, a ramp as a ramp, and the tree has the host's value without the
+// adapter writing it.
+auto tScheduleBlock = test("AUv3/theScheduleBlockDeliversOffsetsAndRamps") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+    auto* node = unit.host.parameterFor(unit.params.amount);
+    auto schedule = unit.host.unit.scheduleParameterBlock;
+
+    schedule(AUEventSampleTimeImmediate + 10, 0, node.address, 0.3f);
+    check(unit.host.render(maxBlock) == noErr);
+    check(plugin.numChanges == 1);
+    check(isStep(unit.change(0), 0, 10, 0.3f));
+    check(pumpUntil([&] { return near(node.value, 0.3f); }));
+
+    schedule(AUEventSampleTimeImmediate, maxBlock, node.address, 0.9f);
+    check(unit.host.render(maxBlock) == noErr);
+    check(plugin.numChanges == 1);
+    check(unit.change(0).rampSamples == maxBlock);
+    check(near(unit.change(0).previousValue, 0.3f));
+    check(near(plugin.amountSeen, 0.9f));
+};
+
+// The tree is written only for a plugin's own move, so the host's automation
+// observers never hear their own automation back.
+auto tNotEchoed = test("AUv3/hostAutomationReachesNoAutomationObserver") = []
+{
+    auto unit = AutomationUnit {};
+    auto log = AutomationLog {unit.host.unit.parameterTree};
+    auto amount = unit.address(unit.params.amount);
+    auto level = unit.address(unit.params.level);
+
+    unit.events.parameter(amount, 0.3f, unit.at(10));
+    check(unit.render() == noErr);
+    pumpFor(100);
+
+    unit.events.ramp(amount, 0.9f, unit.at(0), 20 * maxBlock);
+
+    for (auto block = 0; block < 20; ++block)
+    {
+        check(unit.render() == noErr);
+        pumpFor(40);
+    }
+
+    check(near(unit.params.amount.getValue(), 0.9f));
+    check(log.events.empty());
+
+    unit.params.level.setValue(0.9f);
+    check(pumpUntil([&] { return log.countFor(level) == 1; }));
+    check(log.countFor(amount) == 0);
+};
+
+auto tLateRamp = test("AUv3/aRampThatBeganBeforeTheCycleIsTrimmed") = []
+{
+    auto unit = AutomationUnit {};
+
+    unit.events.ramp(unit.address(unit.params.amount), 1.f, unit.at(-100), 200);
+    check(unit.render() == noErr);
+
+    check(unit.host.plugin().numChanges == 1);
+    check(unit.change(0).sampleOffset == 0);
+    check(unit.change(0).rampSamples == 100);
+    check(near(unit.change(0).previousValue, 0.5f));
+    check(near(unit.host.plugin().amountSeen, 0.5f + 0.5f * maxBlock / 100.f));
+};
+
+// A ramp the wrapper carries lands on its target when the stream breaks, and
+// ends when the host writes the parameter itself.
+auto tCarriedRampEnds = test("AUv3/aCarriedRampEndsWithTheStreamOrAWrite") = []
+{
+    auto unit = AutomationUnit {};
+    auto& plugin = unit.host.plugin();
+    auto* node = unit.host.parameterFor(unit.params.amount);
+
+    auto startRamp = [&]
+    {
+        unit.params.amount.setValue(0.f);
+        unit.events.ramp(node.address, 1.f, unit.at(0), 2 * maxBlock);
+        check(unit.render() == noErr);
+        check(near(plugin.amountSeen, 0.5f));
+    };
+
+    startRamp();
+    check(unit.host.allocate());
+    check(near(unit.params.amount.getValue(), 1.f));
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 0);
+
+    startRamp();
+    [unit.host.unit reset];
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 0);
+    check(near(plugin.amountSeen, 1.f));
+
+    startRamp();
+    node.value = 0.3f;
+    check(unit.render() == noErr);
+    check(plugin.numChanges == 0);
+    check(near(unit.params.amount.getValue(), 0.3f));
+};
 } // namespace

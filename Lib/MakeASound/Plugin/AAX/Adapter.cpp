@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 
 namespace MakeASound::AAX
 {
@@ -154,6 +155,7 @@ AAX_Result Adapter::createWrapper()
     auto latency = std::max(0, pluginWrapper->plugin().latencySamples());
     lastReportedLatency = latency;
     controller->SetSignalLatency(latency);
+    ready.store(true, std::memory_order_release);
     return AAX_SUCCESS;
 }
 
@@ -162,12 +164,14 @@ void Adapter::registerParameters()
     const auto& list = pluginWrapper->plugin().parameters();
 
     paramIds.resize(list.size());
-    lastPluginValue = std::make_unique<std::atomic<float>[]>(
-        static_cast<size_t>(std::max(1, list.size())));
+    hostValues =
+        std::make_unique<HostValue[]>(static_cast<size_t>(std::max(1, list.size())));
+    dirtyList.reserveAtLeast(list.size());
+    writeList.reserveAtLeast(list.size());
 
     for (auto index = 0; index < list.size(); ++index)
     {
-        lastPluginValue[static_cast<size_t>(index)] = list[index].getNormalized();
+        hostValue(index).baseline = list[index].getNormalized();
 
         if (!list.isRegistered(index))
             continue;
@@ -225,23 +229,190 @@ AAX_Result Adapter::UpdateParameterNormalizedValue(AAX_CParamID id,
                                                    double value,
                                                    AAX_EUpdateSource source)
 {
-    auto result =
-        AAX_CEffectParameters::UpdateParameterNormalizedValue(id, value, source);
-    auto index = indexOf(id);
+    // Dirty before the base shows the host's value, so no mirror in between
+    // takes the plugin's older one for a move of its own.
+    if (auto index = isReady() ? indexOf(id) : -1; index >= 0)
+    {
+        auto lock = std::lock_guard {dataModelMutex};
+        auto& host = hostValue(index);
 
-    if (result != AAX_SUCCESS || index < 0)
+        if (!host.dirty.load(std::memory_order_relaxed))
+            dirtyList.add(index);
+
+        host.pending = static_cast<float>(value);
+        host.dirty.store(true, std::memory_order_release);
+    }
+
+    return AAX_CEffectParameters::UpdateParameterNormalizedValue(id, value, source);
+}
+
+AAX_Result Adapter::GenerateCoefficients()
+{
+    auto result = AAX_CEffectParameters::GenerateCoefficients();
+    auto* controller = Controller();
+
+    if (!isReady() || controller == nullptr)
         return result;
 
-    pluginWrapper->setNormalizedParameter(index, static_cast<float>(value));
+    // An automation point at transport start also reads 0 and lands now, as
+    // every point did before.
+    auto stamp = AAX_CTransportCounter {0};
+    auto automated = controller->GetCurrentAutomationTimestamp(&stamp) == AAX_SUCCESS
+                     && stamp != 0;
 
-    // The host already shows what it wrote, snapped or not.
-    lastPluginValue[static_cast<size_t>(index)] =
-        pluginWrapper->getNormalizedParameter(index);
+    {
+        auto lock = std::lock_guard {dataModelMutex};
+
+        if (dirtyList.empty())
+            return result;
+
+        if (automated)
+            queueDirty(*controller);
+        else
+            writeNow(dirtyList);
+
+        clearDirty();
+    }
 
     if (isMessageThread())
         notifyHostIfLatencyChanged();
 
     return result;
+}
+
+void Adapter::queueDirty(AAX_IController& controller) noexcept
+{
+    auto state = nextState++;
+    writeList.clear();
+
+    for (auto index: dirtyList)
+    {
+        auto& host = hostValue(index);
+
+        if (!hostQueue.push({state, index, host.pending}))
+        {
+            writeList.add(index);
+            continue;
+        }
+
+        host.queued = host.pending;
+        host.lastQueued.store(state, std::memory_order_release);
+    }
+
+    // A refused packet would leave its values for the watchdog: land them now.
+    if (writeList.size() < dirtyList.size()
+        && controller.PostPacket(AAX_FIELD_INDEX(AlgorithmContext, parameterState),
+                                 &state,
+                                 sizeof(state))
+               != AAX_SUCCESS)
+    {
+        writeList.clear();
+
+        for (auto index: dirtyList)
+            writeList.add(index);
+    }
+
+    if (writeList.empty())
+        return;
+
+    overflows.fetch_add(writeList.size());
+    writeNow(writeList);
+}
+
+void Adapter::writeNow(const Vector<int>& indices) noexcept
+{
+    supersede(indices);
+
+    for (auto index: indices)
+    {
+        auto& host = hostValue(index);
+        auto value =
+            host.dirty.load(std::memory_order_relaxed) ? host.pending : host.queued;
+
+        pluginWrapper->setNormalizedParameter(index, value);
+
+        // The host already shows what it wrote, snapped or not.
+        host.baseline.store(pluginWrapper->getNormalizedParameter(index),
+                            std::memory_order_release);
+    }
+}
+
+void Adapter::clearDirty() noexcept
+{
+    for (auto index: dirtyList)
+        hostValue(index).dirty.store(false, std::memory_order_release);
+
+    dirtyList.clear();
+}
+
+// Holding the lock waits out a drain in flight; every later one sees the floor.
+void Adapter::supersede(const Vector<int>& indices) noexcept
+{
+    auto lock = ScopedSpinLock(consumeLock);
+
+    for (auto index: indices)
+        hostValue(index).supersededBelow.store(nextState, std::memory_order_release);
+}
+
+void Adapter::flushDirty() noexcept
+{
+    {
+        auto lock = std::lock_guard {dataModelMutex};
+        writeNow(dirtyList);
+        clearDirty();
+    }
+
+    if (isMessageThread())
+        notifyHostIfLatencyChanged();
+}
+
+void Adapter::settlePending() noexcept
+{
+    auto lock = std::lock_guard {dataModelMutex};
+    writeList.clear();
+
+    for (auto index: registered)
+        if (isHostPending(index))
+            writeList.add(index);
+
+    writeNow(writeList);
+    clearDirty();
+}
+
+// Dirty first: GenerateCoefficients publishes lastQueued before it clears it.
+bool Adapter::isHostPending(int index) const noexcept
+{
+    const auto& host = hostValue(index);
+
+    if (host.dirty.load(std::memory_order_acquire))
+        return true;
+
+    auto queued = host.lastQueued.load(std::memory_order_acquire);
+    return queued > consumedThrough.load(std::memory_order_acquire)
+           && queued >= host.supersededBelow.load(std::memory_order_acquire);
+}
+
+void Adapter::settleIfStalled() noexcept
+{
+    auto consumed = consumedThrough.load(std::memory_order_acquire);
+    auto now = std::chrono::steady_clock::now();
+    auto pending = std::any_of(registered.begin(),
+                               registered.end(),
+                               [this](int index) { return isHostPending(index); });
+
+    if (!pending || !watching || consumed != watchedConsumed)
+    {
+        watching = pending;
+        watchedConsumed = consumed;
+        idleSince = now;
+        return;
+    }
+
+    if (now - idleSince < stallThreshold)
+        return;
+
+    settlePending();
+    idleSince = now;
 }
 
 AAX_Result Adapter::GetNumberOfChunks(int32_t* count) const
@@ -272,8 +443,11 @@ AAX_Result Adapter::GetChunkSize(AAX_CTypeID id, uint32_t* size) const
     if (id != chunkId)
         return AAX_ERROR_INVALID_CHUNK_ID;
 
-    if (!pluginWrapper)
+    if (!isReady())
         return AAX_ERROR_NULL_OBJECT;
+
+    // A value set with no GenerateCoefficients since is saved as set.
+    const_cast<Adapter*>(this)->flushDirty();
 
     return guarded(
         [&]
@@ -311,20 +485,34 @@ AAX_Result Adapter::SetChunk(AAX_CTypeID id, const AAX_SPlugInChunk* chunk)
     if (id != chunkId && id != juceChunkId && id != controlsChunkId)
         return AAX_ERROR_INVALID_CHUNK_ID;
 
-    if (!pluginWrapper)
+    if (!isReady())
         return AAX_ERROR_NULL_OBJECT;
 
     return guarded(
         [&]() -> AAX_Result
         {
+            // What the host queued or left dirty lands first and the load then
+            // wins; a load that fails or reads nothing leaves the host's values.
             if (id == chunkId)
             {
+                settlePending();
                 pluginWrapper->loadState(readChunk(*chunk), StateContext::Session);
             }
             else if (id == juceChunkId)
             {
                 // A JUCE build's state. Off the message thread it runs later,
-                // and its parameterValuesChanged mirrors again then.
+                // and its parameterValuesChanged mirrors again then; the settle
+                // is posted just ahead of it.
+                if (isMessageThread())
+                    settlePending();
+                else
+                    callOnMessageThread(
+                        [this, alive = std::weak_ptr<bool>(lifetime)]
+                        {
+                            if (alive.lock())
+                                settlePending();
+                        });
+
                 auto foreign = ForeignState {};
                 foreign.origin = ForeignOrigin::JuceAAX;
                 foreign.bytes = readChunk(*chunk);
@@ -363,8 +551,10 @@ AAX_Result Adapter::CompareActiveChunk(const AAX_SPlugInChunk* chunk,
     // 'juce' or 'elck', which a load reads but a save never writes.
     *isEqual = true;
 
-    if (chunk->fChunkID != chunkId || !pluginWrapper)
+    if (chunk->fChunkID != chunkId || !isReady())
         return AAX_SUCCESS;
+
+    const_cast<Adapter*>(this)->flushDirty();
 
     return guarded(
         [&]
@@ -381,8 +571,9 @@ AAX_Result Adapter::CompareActiveChunk(const AAX_SPlugInChunk* chunk,
 
 AAX_Result Adapter::TimerWakeup()
 {
-    if (pluginWrapper)
+    if (isReady())
     {
+        settleIfStalled();
         notifyHostIfLatencyChanged();
         mirrorParametersToHost(false);
     }
@@ -404,7 +595,7 @@ AAX_Result
     }
 
     if (type != AAX_eNotificationEvent_TrackNameChanged || data == nullptr
-        || !pluginWrapper)
+        || !isReady())
         return result;
 
     try
@@ -424,13 +615,25 @@ void Adapter::mirrorParametersToHost(bool all)
 {
     for (auto index: registered)
     {
-        auto value = pluginWrapper->getNormalizedParameter(index);
-        auto& last = lastPluginValue[static_cast<size_t>(index)];
+        auto& host = hostValue(index);
 
-        if (!all && (value == last || pluginWrapper->isParameterHeld(index)))
+        if (isHostPending(index))
             continue;
 
-        last = value;
+        // The baseline first: a host value that landed in between moved it
+        // (the compare-exchange fails), or is still pending (checked again).
+        auto baseline = host.baseline.load(std::memory_order_acquire);
+        auto value = pluginWrapper->getNormalizedParameter(index);
+        std::atomic_thread_fence(std::memory_order_acquire);
+
+        if (isHostPending(index))
+            continue;
+
+        if (!all && (value == baseline || pluginWrapper->isParameterHeld(index)))
+            continue;
+
+        if (!host.baseline.compare_exchange_strong(baseline, value))
+            continue;
 
         if (auto* param = mParameterManager.GetParameterByID(paramIds[index].data());
             param != nullptr && param->GetNormalizedValue() != value)
@@ -466,7 +669,7 @@ void Adapter::render(AlgorithmContext& context) noexcept
     if (context.outputs == nullptr || frames <= 0)
         return;
 
-    if (!pluginWrapper)
+    if (!isReady())
     {
         for (auto channel = 0; channel < outputChannels; ++channel)
             if (auto* output = context.outputs[channel])
@@ -475,6 +678,8 @@ void Adapter::render(AlgorithmContext& context) noexcept
         return;
     }
 
+    // Once, ahead of the slices: the first slice's process() takes them.
+    takeHostValues(context, std::min(maxBlockSize, frames));
     incoming.clear();
 
     if (hasMidiIn && context.midiIn != nullptr)
@@ -500,6 +705,59 @@ void Adapter::render(AlgorithmContext& context) noexcept
                     std::min(maxBlockSize, frames - start));
 
     renderedSamples += frames;
+}
+
+// With no port every queued value is due, as an Unbuffered port would deliver.
+void Adapter::takeHostValues(const AlgorithmContext& context,
+                             int numSamples) noexcept
+{
+    auto front = QueuedValue {};
+
+    if (!hostQueue.peek(front))
+        return;
+
+    auto lock = ScopedTryLock(consumeLock);
+
+    if (!lock.held)
+        return;
+
+    auto delivered = context.parameterState != nullptr
+                         ? *context.parameterState
+                         : std::numeric_limits<int64_t>::max();
+    auto consumed = consumedThrough.load(std::memory_order_relaxed);
+    auto popped = false;
+    auto pushed = false;
+
+    while (hostQueue.peek(front) && front.state <= delivered)
+    {
+        hostQueue.pop(front);
+        popped = true;
+        consumed = std::max(consumed, front.state);
+
+        if (front.state
+            < hostValue(front.index).supersededBelow.load(std::memory_order_acquire))
+            continue;
+
+        pluginWrapper->pushParameterChange(front.index, 0, front.value);
+        pushed = true;
+    }
+
+    if (!popped)
+        return;
+
+    if (pushed)
+    {
+        pluginWrapper->applyParameterChanges(numSamples);
+
+        // Not echoed back. A held parameter dropped its value: the gesture's.
+        for (auto index: pluginWrapper->appliedParameters())
+            hostValue(index).baseline.store(
+                pluginWrapper->getNormalizedParameter(index),
+                std::memory_order_release);
+    }
+
+    // After the baselines, so a mirror that sees these consumed sees them too.
+    consumedThrough.store(consumed, std::memory_order_release);
 }
 
 void Adapter::renderSlice(AlgorithmContext& context,
@@ -580,7 +838,7 @@ void Adapter::performParameterEdit(int index, float) noexcept
     if (pluginWrapper->plugin().parameters().isRegistered(index))
     {
         auto value = pluginWrapper->getNormalizedParameter(index);
-        lastPluginValue[static_cast<size_t>(index)] = value;
+        hostValue(index).baseline = value;
         SetParameterNormalizedValue(paramIds[index].data(), value);
     }
 

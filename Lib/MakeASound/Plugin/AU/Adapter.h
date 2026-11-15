@@ -52,7 +52,17 @@ public:
     OSStatus Initialize() override;
     OSStatus Reset(AudioUnitScope scope, AudioUnitElement element) override;
 
+    // AUBase reads it only to reserve and fill its own event list, which this
+    // adapter never uses: ScheduleParameter below is dispatched regardless.
     bool CanScheduleParameters() const noexcept override { return false; }
+
+    // From any host thread, usually the render thread's pre-render notify:
+    // staged under a spin lock for this render cycle's Render, which applies
+    // each event at its frame; until then Globals() and the plugin keep their
+    // values. While uninitialized, as the base: immediate events through
+    // SetParameter, ramps dropped.
+    OSStatus ScheduleParameter(const AudioUnitParameterEvent* events,
+                               UInt32 numEvents) noexcept override;
     bool StreamFormatWritable(AudioUnitScope scope,
                               AudioUnitElement element) override;
     UInt32 SupportedNumChannels(const AUChannelInfo** outInfo) override;
@@ -113,6 +123,14 @@ public:
     OSStatus Render(AudioUnitRenderActionFlags& flags,
                     const AudioTimeStamp& timestamp,
                     UInt32 frames) noexcept override;
+
+    // The base's, then what was scheduled for a pull that rendered nothing (a
+    // bus of a timestamp already rendered) is dropped, as the SDK drops its own
+    // events after every render cycle.
+    OSStatus RenderBus(AudioUnitRenderActionFlags& flags,
+                       const AudioTimeStamp& timestamp,
+                       UInt32 bus,
+                       UInt32 frames) noexcept override;
 
     // AUMIDIBase, from any host thread: staged under a spin lock for the next
     // render, which hands every event to MIDI-in bus 0 at its frame, since AU
@@ -175,6 +193,20 @@ private:
         std::function<void()> close;
     };
 
+    // A host's scheduled event in its own value space: a step at startOffset, or
+    // a ramp whose start may lie in an earlier buffer.
+    struct ScheduledEvent
+    {
+        int slot = 0;
+        bool ramped = false;
+        int startOffset = 0;
+        int duration = 0;
+        float startValue = 0.f;
+        float endValue = 0.f;
+    };
+
+    static constexpr int maxScheduledEvents = 512;
+
     // A main-queue timer calling postMovedParameters(), defined in Adapter.cpp
     // so no dispatch type reaches an Objective-C++ TU including this header.
     class ValueTimer;
@@ -201,6 +233,17 @@ private:
     bool postUntoldValues() noexcept;
 
     void reconcileParameters() noexcept;
+    void applyScheduledParameters(UInt32 frames) noexcept;
+    void takeScheduled() noexcept;
+    void dropScheduled() noexcept;
+    void dropScheduledFor(int slot) noexcept;
+    void pushScheduled(const ScheduledEvent& event,
+                       int numSamples,
+                       bool untimed) noexcept;
+    void pushHostChange(int slot,
+                        int offset,
+                        float hostValue,
+                        int rampSamples = 0) noexcept;
     void bindInputs(AudioUnitRenderActionFlags& flags,
                     const AudioTimeStamp& timestamp,
                     UInt32 frames) noexcept;
@@ -261,6 +304,29 @@ private:
     // Reserved in PostConstructor; a full buffer drops the event.
     MIDI::Buffer stagedMidi;
     EA::Locks::PrimitiveSpinLock stagedMidiLock;
+
+    // Under scheduledLock: events for the next render, per slot the latest one a
+    // full list had no room for, which lands untimed at the block's end, and
+    // whether any slot holds one. anyScheduled lets an idle render skip the lock.
+    Vector<ScheduledEvent> scheduled;
+    Vector<ScheduledEvent> overflowed;
+    Vector<char> hasOverflow;
+    bool anyOverflow = false;
+    std::atomic<bool> anyScheduled {false};
+    EA::Locks::PrimitiveSpinLock scheduledLock;
+
+    // Render thread: what the hand-over took, converted outside the lock, and
+    // whether this pull's RenderBus reached Render.
+    Vector<ScheduledEvent> takenEvents;
+    Vector<ScheduledEvent> takenOverflow;
+    bool renderedThisPull = false;
+
+    // Render thread, per slot: the host's value at the block's end after this
+    // render's scheduled events, from the change at the latest offset (-1 when
+    // none), and the slots they touched.
+    Vector<float> automatedHostValue;
+    Vector<int> automatedOffset;
+    Vector<int> automatedSlots;
 
     RealtimeSwap<AUMIDIOutputCallbackStruct> midiOutputCallback;
     Vector<Byte> midiPacketBuffer;

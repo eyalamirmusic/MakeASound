@@ -2,6 +2,7 @@
 
 #include "Buffer.h"
 #include "BusLayout.h"
+#include "ParameterChanges.h"
 #include "Playhead.h"
 #include "../MIDI/MIDI.h"
 
@@ -29,15 +30,9 @@ struct ProcessSpec
     BusLayout layout;
 };
 
-// Sample-accurate automation lands here in a later stage; empty for now so that
-// adding it changes nothing a Processor already compiles against.
-struct ParameterChanges
-{
-};
-
 // One block's worth of buses. The audio buffers refer to memory the host owns
-// (a device callback's scratch, a plugin host's channel arrays); the MIDI buffers
-// and the vectors are reserved by prepare() and never grow after it.
+// (a device callback's scratch, a plugin host's channel arrays); the MIDI buffers,
+// paramChanges and the vectors are reserved by prepare() and never grow after it.
 //
 // The main*() accessors hand back bus 0, or a stand-in for a bus the layout did
 // not declare: an empty Buffer for audio, a real MIDI::Buffer that reads empty and
@@ -47,10 +42,13 @@ struct ParameterChanges
 struct ProcessContext
 {
     static constexpr int defaultMidiCapacity = 1024;
+    static constexpr int defaultParameterChangeCapacity = 1024;
 
     // Host thread. Sizes the bus vectors to the layout and reserves every MIDI
-    // buffer, the stand-ins included.
-    void prepare(const BusLayout& layout, int midiCapacity = defaultMidiCapacity);
+    // buffer, the stand-ins included, and paramChanges.
+    void prepare(const BusLayout& layout,
+                 int midiCapacity = defaultMidiCapacity,
+                 int parameterChangeCapacity = defaultParameterChangeCapacity);
 
     // Every MIDI buffer, in and out, stand-ins included.
     void clearMidi() noexcept;
@@ -84,6 +82,9 @@ struct ProcessContext
     Vector<MIDI::Buffer> midiOut;
 
     Playhead playhead;
+
+    // The block's host automation, sorted by offset. A plugin that reads only
+    // its parameters' values already sees each at the block's end.
     ParameterChanges paramChanges;
 
     // The host renders this block faster or slower than real time (a bounce,

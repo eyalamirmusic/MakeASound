@@ -397,8 +397,8 @@ struct UnitHost
 // handed to the internal block as the base class would.
 struct EventList
 {
-    // Room for an event per parameter of a consumer's plugin, plus its MIDI.
-    static constexpr int capacity = 256;
+    // Room for three events per parameter of a consumer's plugin, plus its MIDI.
+    static constexpr int capacity = 1024;
 
     void clear() noexcept { count = 0; }
 
@@ -409,6 +409,19 @@ struct EventList
         event.parameter.eventSampleTime = time;
         event.parameter.parameterAddress = address;
         event.parameter.value = value;
+    }
+
+    void ramp(AUParameterAddress address,
+              AUValue value,
+              AUEventSampleTime time,
+              AUAudioFrameCount duration)
+    {
+        auto& event = next();
+        event.parameter.eventType = AURenderEventParameterRamp;
+        event.parameter.eventSampleTime = time;
+        event.parameter.parameterAddress = address;
+        event.parameter.value = value;
+        event.parameter.rampDurationSampleFrames = duration;
     }
 
     void midi(AUEventSampleTime time, std::initializer_list<uint8_t> bytes)
@@ -428,15 +441,18 @@ struct EventList
         return count > 0 ? &events[0] : nullptr;
     }
 
+    // Past capacity, a check fails and the event goes nowhere.
     AURenderEvent& next()
     {
         nano::check(count < capacity);
-        auto& event = events[count++];
+        auto& event = count < capacity ? events[static_cast<size_t>(count++)] : spare;
         event = AURenderEvent {};
         return event;
     }
 
-    std::array<AURenderEvent, capacity> events {};
+    // On the heap, about 300 KB, allocated where the list is made.
+    std::vector<AURenderEvent> events = std::vector<AURenderEvent>(capacity);
+    AURenderEvent spare {};
     int count = 0;
 };
 

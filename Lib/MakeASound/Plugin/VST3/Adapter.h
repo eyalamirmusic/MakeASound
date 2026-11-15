@@ -102,7 +102,10 @@ private:
     void notifyHostIfLatencyChanged();
     void notifyHostParamValuesChanged();
     void markHostDirty();
-    void applyParameterChanges(Vst::IParameterChanges& changes) noexcept;
+    void applyParameterChanges(Vst::IParameterChanges* changes,
+                               int numSamples) noexcept;
+    void
+        pushPoints(int index, Vst::IParamValueQueue& queue, int numSamples) noexcept;
     void collectEvents(Vst::IEventList& events) noexcept;
     void bindBuses(Vst::ProcessData& data) noexcept;
     void emitEvents(Vst::IEventList& events) noexcept;

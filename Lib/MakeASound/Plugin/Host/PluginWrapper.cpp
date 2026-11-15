@@ -2,11 +2,13 @@
 
 #include "../Realtime/MessageThread.h"
 #include "../../Realtime/ScopedNoDenormals.h"
+#include "../../Common/Algorithms.h"
 
 #include <Miro/Miro.h>
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <exception>
 #include <future>
 #include <utility>
@@ -43,6 +45,13 @@ PluginWrapper::PluginWrapper(OwningPointer<Plugin> pluginToUse,
 {
     live->plugin = pluginPtr.get();
     context.prepare(layout);
+
+    auto numParameters = holdCounts.size();
+    automation.resize(numParameters);
+    applied.reserveAtLeast(numParameters);
+    deferred.reserveAtLeast(numParameters);
+    carried.reserveAtLeast(numParameters);
+    sortScratch.reserveAtLeast(context.paramChanges.capacity());
 }
 
 PluginWrapper::~PluginWrapper()
@@ -83,12 +92,16 @@ bool PluginWrapper::setLayout(const BusLayout& proposed)
         return false;
 
     layout = proposed;
+    finishCarriedRamps();
     context.prepare(layout);
+    sortScratch.reserveAtLeast(context.paramChanges.capacity());
+    appliedThisBlock = false;
     return true;
 }
 
 void PluginWrapper::prepare(double sampleRate, int maxBlockSize)
 {
+    finishCarriedRamps();
     pluginPtr->prepare({sampleRate, maxBlockSize, layout});
     prepareBypass(sampleRate, maxBlockSize);
     prepareSubstitutes(maxBlockSize);
@@ -198,6 +211,7 @@ void PluginWrapper::prepareBypass(double sampleRate, int maxBlockSize)
 
 void PluginWrapper::reset() noexcept
 {
+    finishCarriedRamps();
     pluginPtr->reset();
 
     // After a gap there is nothing to fade from, nor anything to delay.
@@ -492,6 +506,201 @@ void PluginWrapper::setParameterByHostId(uint32_t hostId, float normalized) noex
                            normalized);
 }
 
+bool PluginWrapper::pushParameterChange(int index,
+                                        int sampleOffset,
+                                        float normalized,
+                                        int rampSamples) noexcept
+{
+    auto* param = index < automation.size() ? writableParameterAt(index) : nullptr;
+
+    if (param == nullptr || appliedThisBlock || !std::isfinite(normalized))
+        return false;
+
+    auto value = std::clamp(normalized, 0.f, 1.f);
+
+    if (param->isDiscrete() || param->numSteps() > 0)
+        value = param->toNormalized(param->toPlain(value));
+
+    // The carries go in at the apply, so they keep their room.
+    auto& changes = context.paramChanges;
+
+    if (changes.size() + carried.size() >= changes.capacity())
+    {
+        deferToBlockEnd(index, value);
+        return false;
+    }
+
+    changes.add(
+        {.index = index,
+         .sampleOffset = std::clamp(sampleOffset, -maxRampSamples, maxRampSamples),
+         .value = value,
+         .rampSamples = std::clamp(rampSamples, 0, maxRampSamples)});
+    return true;
+}
+
+void PluginWrapper::deferToBlockEnd(int index, float normalized) noexcept
+{
+    auto& state = automation[index];
+
+    if (!state.hasDeferred)
+        deferred.add(index);
+
+    state.hasDeferred = true;
+    state.deferredValue = normalized;
+}
+
+void PluginWrapper::touch(int index) noexcept
+{
+    auto& state = automation[index];
+
+    if (!state.touched)
+        applied.add(index);
+
+    state.touched = true;
+}
+
+void PluginWrapper::applyParameterChanges(int numSamples) noexcept
+{
+    if (appliedThisBlock)
+        return;
+
+    auto& changes = context.paramChanges;
+    listCarriedRamps(std::max(0, numSamples - 1));
+
+    // A change before the block sorts with sample 0, after the carries there,
+    // which it supersedes.
+    Algorithms::stableMergeSort(
+        changes,
+        sortScratch,
+        [](const ParameterChange& a, const ParameterChange& b) noexcept
+        { return std::max(a.sampleOffset, 0) < std::max(b.sampleOffset, 0); });
+
+    applied.clear();
+
+    for (auto& change: changes)
+    {
+        auto& state = automation[change.index];
+        const auto& segment = state.segment;
+        change.previousValue = state.touched
+                                   ? segment.valueAt(std::max(change.sampleOffset,
+                                                              segment.sampleOffset))
+                                   : parameterAt(change.index)->getNormalized();
+        touch(change.index);
+        state.segment = change;
+    }
+
+    // Trimmed, not shifted: the part before sample 0 has passed.
+    for (auto& change: changes)
+    {
+        if (change.sampleOffset >= 0)
+            continue;
+
+        auto atStart = change.valueAt(0);
+        change.rampSamples = std::max(0, change.rampSamples + change.sampleOffset);
+        change.sampleOffset = 0;
+        change.previousValue = atStart;
+    }
+
+    for (auto index: deferred)
+    {
+        if (isParameterHeld(index))
+            automation[index].hasDeferred = false;
+        else
+            touch(index);
+    }
+
+    deferred.clear();
+
+    for (auto index: applied)
+    {
+        auto& state = automation[index];
+        auto* param = parameterAt(index);
+        const auto& segment = state.segment;
+        auto end = segment.sampleOffset + segment.rampSamples;
+        state.touched = false;
+
+        if (state.hasDeferred)
+        {
+            state.hasDeferred = false;
+            param->setNormalized(state.deferredValue);
+        }
+        else if (numSamples <= 0 || end <= numSamples
+                 || carried.size() >= carried.capacity())
+        {
+            param->setNormalized(segment.value);
+        }
+        else
+        {
+            param->setNormalized(segment.valueAt(numSamples));
+            carried.add({.change = {.index = index,
+                                    .value = segment.value,
+                                    .rampSamples = end - numSamples},
+                         .leftAt = param->getNormalized()});
+        }
+    }
+
+    if (numSamples <= 0)
+        changes.clear();
+    else
+        appliedThisBlock = true;
+}
+
+// The last block's carries go ahead of this block's pushes, a held parameter's
+// dropped and every offset brought back to the block's last sample.
+void PluginWrapper::listCarriedRamps(int lastSample) noexcept
+{
+    auto& changes = context.paramChanges;
+    auto room = std::min(changes.capacity(), sortScratch.capacity());
+    sortScratch.clear();
+
+    for (const auto& carry: carried)
+    {
+        if (!isStillCarried(carry))
+            continue;
+
+        if (sortScratch.size() < room)
+            sortScratch.add(carry.change);
+        else
+            parameterAt(carry.change.index)->setNormalized(carry.change.value);
+    }
+
+    carried.clear();
+
+    for (auto change: changes)
+    {
+        if (parameterAt(change.index) == nullptr || isParameterHeld(change.index))
+            continue;
+
+        change.sampleOffset = std::min(change.sampleOffset, lastSample);
+
+        if (sortScratch.size() < room)
+            sortScratch.add(change);
+        else
+            deferToBlockEnd(change.index, change.value);
+    }
+
+    changes.clear();
+
+    for (const auto& change: sortScratch)
+        changes.add(change);
+}
+
+bool PluginWrapper::isStillCarried(const Carry& carry) const noexcept
+{
+    auto* param = writableParameterAt(carry.change.index);
+    return param != nullptr && param->getNormalized() == carry.leftAt;
+}
+
+// Lands each ramp on its target, as a host that stopped mid-ramp would expect.
+void PluginWrapper::finishCarriedRamps() noexcept
+{
+    for (const auto& carry: carried)
+        if (isStillCarried(carry))
+            parameterAt(carry.change.index)->setNormalized(carry.change.value);
+
+    carried.clear();
+}
+
 void PluginWrapper::holdParameter(int index) noexcept
 {
     if (index >= 0 && index < holdCounts.size())
@@ -618,6 +827,9 @@ void PluginWrapper::process() noexcept
 
     for (auto& buffer: context.outputs)
         buffer.referTo(nullptr, 0, 0);
+
+    context.paramChanges.clear();
+    appliedThisBlock = false;
 }
 
 void PluginWrapper::processBypassable(const BoolParam& bypass) noexcept

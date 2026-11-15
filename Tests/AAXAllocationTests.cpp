@@ -32,6 +32,13 @@ auto tEffect = test("Allocations/aaxEffectRenderIsOffTheHeap") = []
     }
 };
 
+auto tFlood = test("Allocations/aaxAutomationPastTheQueueIsOffTheHeap") = []
+{
+    auto host = AdapterHost<GainPlugin>("Gain");
+    check(allocationsOverFlood(host) == 0);
+    check(host.adapter->queueOverflows() > 0);
+};
+
 auto tInstrument = test("Allocations/aaxInstrumentRenderIsOffTheHeap") = []
 {
     auto host = AdapterHost<SynthPlugin>(

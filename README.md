@@ -38,7 +38,7 @@ A C++20 library for platform-agnostic audio, MIDI and audio plugins.
 
 - Parameters declared in nested groups, with stable host ids and automation in every format.
 - Versioned JSON state for presets and sessions.
-- Sample-accurate MIDI in and out, host bypass.
+- Sample-accurate MIDI and parameter automation (VST3, AU and AUv3; AAX to the buffer), host bypass.
 - Custom editors with a size policy (min, max, aspect ratio), or a generic parameter editor.
 - A standalone app with device and MIDI settings, a computer keyboard, and settings kept across launches, or a windowless host for an app of your own.
 - Compatibility profiles that keep the parameter ids and state of plugins ported from JUCE or Tamber Plug.
