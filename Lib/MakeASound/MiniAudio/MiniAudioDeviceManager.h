@@ -102,7 +102,8 @@ private:
     void stopLocked();
     Error openStreamLocked();
 
-    // What miniaudio opens to record what the output device in config.input plays.
+    // What miniaudio opens for the capture side. Left as given unless the config
+    // records what the output device in config.input plays.
     struct SystemOutputCaptureTarget
     {
         const ma_device_id* captureId = nullptr;
@@ -111,6 +112,10 @@ private:
     };
 
     Error prepareSystemOutputCapture(SystemOutputCaptureTarget& target);
+    Error prepareLoopbackCapture(SystemOutputCaptureTarget& target);
+    Error prepareMonitorSourceCapture(SystemOutputCaptureTarget& target);
+    Error prepareProcessTapCapture(SystemOutputCaptureTarget& target);
+    const ma_device_id* findPlaybackId(int makeASoundId) const;
 
     // Own thread: re-opening from the notification callback deadlocks — on macOS it
     // arrives inside a Core Audio property listener, and tearing the device down
