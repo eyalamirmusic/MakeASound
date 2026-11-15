@@ -27,12 +27,14 @@ if [[ $(uname) == Linux && ! -e /usr/include/alsa/asoundlib.h ]] && command -v n
     pulse_lib=$(nix build --no-link --print-out-paths nixpkgs#libpulseaudio)
     cmake_args+=(-DALSA_INCLUDE_DIR="$alsa_dev/include"
                  -DALSA_LIBRARY="$alsa_lib/lib/libasound.so")
+    # nix's clang emits LTO bitcode its GNU ld cannot link; gcc's ld reads gcc's.
+    export CC=gcc CXX=g++
     export LD_LIBRARY_PATH="$pulse_lib/lib:$alsa_lib/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
 cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=Release -DMAKEASOUND_BUILD_APPS=OFF \
     -DMAKEASOUND_BUILD_EXAMPLES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF \
-    -DMAKEASOUND_BUILD_HOSTING=OFF "${cmake_args[@]}"
+    -DMAKEASOUND_BUILD_HOSTING=OFF ${cmake_args[@]+"${cmake_args[@]}"}
 cmake --build build-system-capture --target MakeASoundSystemCaptureTests
 ctest --test-dir build-system-capture -R SystemOutputCapture --output-on-failure -V \
     -E recordsAToneThisProcessPlays
