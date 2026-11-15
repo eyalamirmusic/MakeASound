@@ -18,25 +18,28 @@ fi
 cd "$(dirname "$0")/.."
 cmake_args=()
 build_type=Release
+with_toolchain=()
 
 # A Linux box whose toolchain comes from nix has no system ALSA headers, and its
 # binaries do not search /usr/lib, so ALSA and the PulseAudio client miniaudio loads
-# come from nix too.
+# come from nix too, with a compiler from the same nixpkgs so both agree on glibc.
 if [[ $(uname) == Linux && ! -e /usr/include/alsa/asoundlib.h ]] && command -v nix >/dev/null; then
     alsa_dev=$(nix build --no-link --print-out-paths nixpkgs#alsa-lib.dev)
     alsa_lib=$(nix build --no-link --print-out-paths nixpkgs#alsa-lib)
     pulse_lib=$(nix build --no-link --print-out-paths nixpkgs#libpulseaudio)
     cmake_args+=(-DALSA_INCLUDE_DIR="$alsa_dev/include"
                  -DALSA_LIBRARY="$alsa_lib/lib/libasound.so")
+    with_toolchain=(nix shell nixpkgs#cmake nixpkgs#ninja nixpkgs#clang --command)
+
     # Release links with LTO, and nix's clang emits bitcode its GNU ld cannot read.
     build_type=Debug
     export LD_LIBRARY_PATH="$pulse_lib/lib:$alsa_lib/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
-cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=$build_type -DMAKEASOUND_BUILD_APPS=OFF \
+${with_toolchain[@]+"${with_toolchain[@]}"} cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=$build_type -DMAKEASOUND_BUILD_APPS=OFF \
     -DMAKEASOUND_BUILD_EXAMPLES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF \
     -DMAKEASOUND_BUILD_HOSTING=OFF ${cmake_args[@]+"${cmake_args[@]}"}
-cmake --build build-system-capture --target MakeASoundSystemCaptureTests
+${with_toolchain[@]+"${with_toolchain[@]}"} cmake --build build-system-capture --target MakeASoundSystemCaptureTests
 ctest --test-dir build-system-capture -R SystemOutputCapture --output-on-failure -V \
     -E recordsAToneThisProcessPlays
 
