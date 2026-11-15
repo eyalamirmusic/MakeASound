@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the test suite and runs the system output capture cases. Usage: scripts/test-system-output-capture.sh [host]
+# Builds MakeASoundSystemCaptureTests and runs the system output capture cases. Usage: scripts/test-system-output-capture.sh [host]
 # With a host, runs on it over ssh in ~/projects/MakeASound-system-capture at this checkout's branch,
 # fetched from the remote the branch tracks, so push it first.
 set -euo pipefail
@@ -31,12 +31,13 @@ if [[ $(uname) == Linux && ! -e /usr/include/alsa/asoundlib.h ]] && command -v n
 fi
 
 cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=Release -DMAKEASOUND_BUILD_APPS=OFF \
-    -DMAKEASOUND_BUILD_EXAMPLES=OFF "${cmake_args[@]}"
-cmake --build build-system-capture --target MakeASoundTests
+    -DMAKEASOUND_BUILD_EXAMPLES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF \
+    -DMAKEASOUND_BUILD_HOSTING=OFF "${cmake_args[@]}"
+cmake --build build-system-capture --target MakeASoundSystemCaptureTests
 ctest --test-dir build-system-capture -R SystemOutputCapture --output-on-failure -V \
     -E recordsAToneThisProcessPlays
 
-tests=build-system-capture/Tests/MakeASoundTests
+tests=build-system-capture/Tests/MakeASoundSystemCaptureTests
 tone_case=SystemOutputCapture/recordsAToneThisProcessPlays
 
 if [[ $(uname) != Darwin ]]; then
