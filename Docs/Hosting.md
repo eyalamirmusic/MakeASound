@@ -40,6 +40,13 @@ third, picking the output and input devices and channels, the sample rate, the
 block size and the MIDI inputs. The tests drive the `Host` class headless over the
 fixture plugins, and run the app binary as its own scan worker.
 
+On Linux the app asks eacp for X11 windows before its first one
+(`WindowSystem-Linux.cpp`: `EACP_WINDOW_SYSTEM=x11` unless the variable is already
+set), since a plugin's editor needs an X11 window to parent into. Under a Wayland
+desktop that is XWayland, with what XWayland brings: a fractional display scale is
+drawn blurry, as in other Linux plugin hosts. `EACP_WINDOW_SYSTEM=wayland` gives
+native Wayland windows and no plugin editors.
+
 ## Loading and running a plugin
 
 ```cpp
@@ -178,13 +185,26 @@ a host that passes none gets no editors. `createEditor()` answers a
 `EditorWindow`, a plugin's own view through `EmbeddedView`), plus
 `constrainSize()`, the nearest size the plugin accepts.
 
-- **VST3** (`HostedVST3Editor`, macOS and Windows): the `IPlugView` parented into an
-  eacp `NativeChildSurface` (an `NSView`, or a child `HWND`) from `onAttached()`,
-  the earliest a child window exists. Sizes are points to the host; on Windows the
-  plugin's `ViewRect`s are pixels, converted against the child window's DPI, and
-  the plugin is told the scale through `setContentScaleFactor`, the only way it
-  learns it there. On macOS it is told 1 before attaching. A plugin's
-  `resizeView` becomes `Editor::requestOwnResize`.
+- **VST3** (`HostedVST3Editor`, macOS, Windows and Linux): the `IPlugView` parented
+  into an eacp `NativeChildSurface` (an `NSView`, a child `HWND`, or an X11 window
+  for `kPlatformTypeX11EmbedWindowID`) from `onAttached()`, the earliest a child
+  window exists. Sizes are points to the host; on Windows the plugin's
+  `ViewRect`s are pixels, converted against the child window's DPI, and the
+  plugin is told the scale through `setContentScaleFactor`, the only way it learns
+  it there. On macOS it is told 1 before attaching. Linux is pixels too, at the
+  surface's `backingScale()` (the X11 window's `Xft.dpi` over 96): the plugin is
+  told it through `setContentScaleFactor` before `attached()`, and again, followed
+  by an `onSize` at the new pixel size, whenever `onBackingScaleChanged` fires. A
+  plugin's `resizeView` becomes `Editor::requestOwnResize`.
+- **Linux** needs an X11 window: a host sets `EACP_WINDOW_SYSTEM=x11` before its
+  first window (XWayland under a Wayland desktop). In a Wayland or headless
+  window the surface has no handle and the editor's view stays empty. The host
+  lends the plugin a `Steinberg::Linux::IRunLoop` over eacp's loop
+  (`VST3RunLoop`, `Threads::FdWatcher` and `Threads::Timer`) two ways, as JUCE
+  does: from the host context every load initialises the plugin with, and from
+  the `IPlugFrame` an editor sets. The frame's is emptied when the view is
+  removed and the load's when the plugin is destroyed, before its module goes,
+  whatever the plugin left registered.
 - **Audio Units** (`HostedAudioUnitEditor`, macOS): the unit's `CocoaUI` view (an
   AUv3 answers it too through the v2 API), else Apple's `AUGenericView`, which is
   the only resizable kind; a view that changes its own frame asks the host to
@@ -205,8 +225,9 @@ clash on.
 ## Building it
 
 `MAKEASOUND_BUILD_HOSTING` (on for a top-level build, off as a dependency) needs
-`MAKEASOUND_BUILD_PLUGIN`. The target builds on macOS and Windows for now; Linux
-and iOS come later, and the per-platform files below are where they slot in.
+`MAKEASOUND_BUILD_PLUGIN`. The target builds on macOS, Windows and Linux; iOS
+comes later, and the per-platform files below are where it slots in.
+`MakeASoundHostedEditor` builds wherever eacp graphics does, Linux included.
 
 There are to be two libraries:
 
@@ -238,6 +259,8 @@ The mangled name encodes a type's name, never its layout, so nothing catches it.
 An executable that exports nothing keeps its definitions to itself. A plugin bundle
 built with `makeasound_add_plugin` is sealed by its own export list already, so a
 plugin that hosts (an instrument that loads other plugins) gets only the link.
+On Linux an executable exports only what its shared libraries reference, and a
+plugin's version script binds its own C++ locally, so there is nothing to add.
 
 No stand-in for the VST3 SDK's `moduleHandle` is needed: `moduleinit.cpp`, which
 references it, is an object of its own in `vst3sdk` that no host pulls in.
@@ -259,11 +282,18 @@ that wants a subset, or a format of its own, calls `add()` instead. Formats clai
 targets in the order they were added: a `*.vst3` path is VST3's, a
 `type:subtype:manufacturer` identifier is AU's.
 
+Each format's `defaultSearchFolders()` are the platform's install folders that
+exist (`VST3/VST3Folders-<os>.cpp`, listed in `VST3Format.h`). On Linux the VST3
+ones are the spec's (`~/.vst3`, `/usr/lib64/vst3`, `/usr/lib/vst3`,
+`/usr/local/lib64/vst3`, `/usr/local/lib/vst3`), with the colon-separated
+entries of `VST3_PATH` ahead of them, a leading `~` read as the home folder, as
+JUCE does.
+
 | | VST3 scan | AU scan | VST3 load | AU load | hosted editors |
 | --- | --- | --- | --- | --- | --- |
 | macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes (VST3, AU) |
 | Windows | yes | - | yes | - | yes (VST3, HWND child, DPI conversion) |
-| Linux | later | - | later (headless) | - | later |
+| Linux | yes | - | yes | - | yes (VST3, X11 child, needs an X11 window) |
 | iOS | later | later | later | later | later |
 
 CLAP hosting and out-of-process audio processing are not planned.
@@ -307,3 +337,5 @@ The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 - **Windows hosted-editor tests** (pixels and points against a DPI): the code is
   in, built and tested on macOS only so far.
 - A typing keyboard in `Apps/PluginHost`.
+- **Linux editor scale on a real HiDPI display**: tested only by setting
+  `Xft.dpi` on a headless Xvfb.

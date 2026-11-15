@@ -1,8 +1,8 @@
 #include "StandaloneApp.h"
+#include "AppCommands.h"
 #include "EditorWindow.h"
 #include "TypingKeyboard.h"
 
-#include <eacp/Graphics/Menu/Menu.h>
 #include <eacp/Graphics/Window/Window.h>
 #include <eacp/Core/Threads/Timer.h>
 
@@ -141,6 +141,23 @@ StandaloneApp::Shell::~Shell()
     editor->setHost(nullptr);
 }
 
+void StandaloneApp::Shell::installMenuBar()
+{
+    auto actions = AppCommands {};
+    actions.appName = std::string(host.plugin().name());
+    actions.showSettings = [this] { showSettings(); };
+    actions.resetPlugin = [this] { host.resetPlugin(); };
+    actions.resetAudioAndMidi = [this] { resetAudioAndMidi(panel, host); };
+
+    if (host.hasMidiInput())
+    {
+        actions.toggleTyping = [this] { toggleTyping(); };
+        actions.isTyping = [this] { return typingEnabled; };
+    }
+
+    installAppMenu(actions, *editorWindow);
+}
+
 void StandaloneApp::Shell::createEditorWindow()
 {
     editor = createEditor(host);
@@ -170,48 +187,6 @@ void StandaloneApp::Shell::createSettingsWindow()
     settingsWindow->setContentView(panel);
     settingsWindow->setVisible(false);
     settingsWindow->events.input.addListener(keys);
-}
-
-void StandaloneApp::Shell::installMenuBar()
-{
-    using Graphics::commandKey;
-    using Graphics::MenuItem;
-
-    auto name = std::string(host.plugin().name());
-    auto appMenu = Graphics::standardApplicationMenu(name);
-
-    // Below "About" and its separator.
-    auto at = appMenu.items.size() >= 2 ? 2 : appMenu.items.size();
-
-    appMenu.items.insert(
-        at++,
-        MenuItem::withAction(
-            "Audio / MIDI Settings…", [this] { showSettings(); }, commandKey(",")));
-
-    if (host.hasMidiInput())
-        appMenu.items.insert(at++,
-                             MenuItem::withCheckableAction(
-                                 "Computer MIDI Keyboard",
-                                 [this] { toggleTyping(); },
-                                 [this] { return typingEnabled; },
-                                 commandKey("k")));
-
-    appMenu.items.insert(at++, MenuItem::separator());
-
-    appMenu.items.insert(at++,
-                         MenuItem::withAction("Reset Plugin to Defaults",
-                                              [this] { host.resetPlugin(); }));
-
-    appMenu.items.insert(at++,
-                         MenuItem::withAction("Reset Audio / MIDI Settings",
-                                              [this]
-                                              { resetAudioAndMidi(panel, host); }));
-
-    appMenu.items.insert(at++, MenuItem::separator());
-
-    auto bar = Graphics::MenuBar {};
-    bar.add(std::move(appMenu));
-    Graphics::setApplicationMenuBar(bar, *editorWindow);
 }
 
 void StandaloneApp::Shell::toggleTyping()

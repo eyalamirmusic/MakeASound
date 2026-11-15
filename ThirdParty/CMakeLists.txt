@@ -104,9 +104,9 @@ add_library(vst3sdk-hosting STATIC
 
 # The loader that differs per platform: Cocoa's NSBundle under ARC, LoadLibraryW
 # (and Shell32's known folders, which the file links itself through a pragma), or
-# dlopen. iOS has none: hosting is macOS and Windows for now (Linux next), and the
-# Mac loader is Cocoa's, so an iOS tree keeps the platform-neutral host side the
-# VST3 test host uses, and Module::create is not defined there.
+# dlopen. iOS has none: hosting is macOS, Windows and Linux for now, and the Mac
+# loader is Cocoa's, so an iOS tree keeps the platform-neutral host side the VST3
+# test host uses, and Module::create is not defined there.
 if (IOS)
     set(vst3_module_loader)
 elseif (APPLE)

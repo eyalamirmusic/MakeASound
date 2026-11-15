@@ -482,7 +482,8 @@ struct SynthParams : ParameterGroup
 };
 
 // Writes `level` into every output sample and echoes each MIDI event it is
-// handed to its MIDI output.
+// handed to its MIDI output. Silent as a standalone: the one format whose tests
+// open a real output device.
 struct SynthPlugin : StatePlugin<State<SynthParams>>
 {
     static constexpr int maxEvents = 16;
@@ -513,7 +514,8 @@ struct SynthPlugin : StatePlugin<State<SynthParams>>
             context.mainMidiOut().add(event);
         }
 
-        context.mainOutput().fill(params.level.get());
+        auto standalone = format() == PluginFormat::Standalone;
+        context.mainOutput().fill(standalone ? 0.f : params.level.get());
     }
 
     bool midiOutWasEmpty = false;

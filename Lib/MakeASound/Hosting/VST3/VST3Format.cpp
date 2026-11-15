@@ -2,6 +2,7 @@
 #include "VST3Format.h"
 #include "VST3Classes.h"
 #include "VST3HostedPlugin.h"
+#include "VST3RunLoop.h"
 #include "VST3Strings.h"
 #include "../PathText.h"
 #include "../Scan/Scanner.h"
@@ -98,12 +99,14 @@ void describeClass(const ::VST3::Hosting::PluginFactory& factory,
     component->terminate();
 }
 
-// The SDK's host application under the host's own name.
+// The SDK's host application under the host's own name, answering the run loop
+// too where there is one, for a plugin that wants it before any editor opens.
 class NamedHostApplication : public HostApplication
 {
 public:
-    explicit NamedHostApplication(std::string nameToUse)
+    NamedHostApplication(std::string nameToUse, IPtr<VST3RunLoop> runLoopToUse)
         : name(std::move(nameToUse))
+        , runLoop(std::move(runLoopToUse))
     {
     }
 
@@ -118,8 +121,17 @@ public:
         return kResultTrue;
     }
 
+    tresult PLUGIN_API queryInterface(const TUID _iid, void** obj) override
+    {
+        if (runLoop && runLoop->answer(_iid, obj))
+            return kResultOk;
+
+        return HostApplication::queryInterface(_iid, obj);
+    }
+
 private:
     std::string name;
+    IPtr<VST3RunLoop> runLoop;
 };
 
 // Some plugins find their own files through the working directory while they
@@ -248,8 +260,9 @@ LoadResult VST3Format::load(const PluginDescription& description,
                        + description.classId);
 
     // Outlives every initialize() below; the plugin keeps it.
+    auto runLoop = VST3RunLoop::create();
     auto hostApplication =
-        IPtr<IHostApplication>(owned(new NamedHostApplication(host.name)));
+        IPtr<IHostApplication>(owned(new NamedHostApplication(host.name, runLoop)));
     factory.setHostContext(hostApplication);
 
     auto component = factory.createInstance<IComponent>(chosen->ID());
@@ -311,6 +324,7 @@ LoadResult VST3Format::load(const PluginDescription& description,
     result.plugin = EA::makeOwned<VST3HostedPlugin>(std::move(loaded),
                                                     std::move(module),
                                                     std::move(hostApplication),
+                                                    std::move(runLoop),
                                                     std::move(component),
                                                     std::move(controller),
                                                     separate);

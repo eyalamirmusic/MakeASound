@@ -91,7 +91,8 @@ public:
     MS::Vector<DeviceEvent> drainEvents();
 
     std::atomic<float> toneHz {220.f};
-    std::atomic<float> levelGain {0.03f};
+    // Silent until the level knob is turned up.
+    std::atomic<float> levelGain {0.f};
     std::atomic<bool> monitorInput {false};
 
 private:

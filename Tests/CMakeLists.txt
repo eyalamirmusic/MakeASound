@@ -150,6 +150,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
     if (TARGET MakeASoundStandalone)
         list(APPEND MAKEASOUND_TEST_SOURCES StandaloneUITests.cpp)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundStandalone)
+
+        # The standalone's File menu on Linux, its items and their commands.
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            list(APPEND MAKEASOUND_TEST_SOURCES StandaloneMenuTests-Linux.cpp)
+        endif ()
     endif ()
 
     # The VST3 adapter hosted in-process, with the SDK's own queues and event lists.
@@ -280,11 +285,18 @@ if (MAKEASOUND_BUILD_PLUGIN)
         list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHosting MakeASoundScanProtocol)
 
         # The spellings of one Windows path that the cache must treat as one, and
-        # on macOS the texts it must keep apart.
+        # elsewhere the texts it must keep apart.
         if (WIN32)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-Windows.cpp)
-        elseif (APPLE)
-            list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-macOS.cpp)
+        else ()
+            list(APPEND MAKEASOUND_TEST_SOURCES HostingPathKeyTests-Default.cpp)
+        endif ()
+
+        # VST3_PATH, which only the Linux default folders read, and Unix-second
+        # stamps from libstdc++'s file clock.
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            list(APPEND MAKEASOUND_TEST_SOURCES
+                    HostingVST3FoldersTests-Linux.cpp HostingStampTests-Linux.cpp)
         endif ()
 
         # A stand-in scan worker whose misbehaviour the command line picks
@@ -323,6 +335,22 @@ if (MAKEASOUND_BUILD_PLUGIN)
             if (TARGET PluginHost)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostingPluginHostAppTests.cpp)
                 set(MAKEASOUND_TEST_PLUGIN_HOST ON)
+            endif ()
+
+            # The run loop a Linux host lends, and hosted editors in an X11
+            # window, read back over the test's own xcb connection.
+            if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                list(APPEND MAKEASOUND_TEST_SOURCES HostedVST3RunLoopTests-Linux.cpp)
+
+                if (TARGET MakeASoundHostedEditor)
+                    find_package(PkgConfig REQUIRED)
+                    pkg_check_modules(MAKEASOUND_TEST_XCB REQUIRED IMPORTED_TARGET xcb)
+
+                    list(APPEND MAKEASOUND_TEST_SOURCES HostedEditorTests-Linux.cpp)
+                    list(APPEND MAKEASOUND_TEST_TARGETS
+                            MakeASoundHostedEditor eacp-graphics
+                            PkgConfig::MAKEASOUND_TEST_XCB)
+                endif ()
             endif ()
         endif ()
 
@@ -375,6 +403,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     list(APPEND MAKEASOUND_TEST_SOURCES ALSABackendTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS ALSA::ALSA)
+
+    # miniaudio's PulseAudio device lookups, through its own context.
+    list(APPEND MAKEASOUND_TEST_SOURCES PulseDeviceInfoTests.cpp)
+    list(APPEND MAKEASOUND_TEST_TARGETS miniaudio)
 endif ()
 
 # The allocation suites interpose malloc/new through dlsym(RTLD_NEXT, ...), which

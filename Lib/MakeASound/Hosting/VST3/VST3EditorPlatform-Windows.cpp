@@ -15,7 +15,7 @@ Steinberg::FIDString viewType() noexcept
 
 // ViewRects are physical pixels on Windows: the DPI of the child window the
 // plugin is parented into, the system's before there is one.
-float scaleFor(void* nativeParent) noexcept
+float scaleFor(eacp::Graphics::NativeChildSurface*, void* nativeParent) noexcept
 {
     auto dpi = nativeParent != nullptr
                    ? GetDpiForWindow(static_cast<HWND>(nativeParent))
@@ -25,6 +25,10 @@ float scaleFor(void* nativeParent) noexcept
         dpi = GetDpiForSystem();
 
     return dpi > 0 ? static_cast<float>(dpi) / 96.f : 1.f;
+}
+
+void watchScale(eacp::Graphics::NativeChildSurface&, std::function<void()>)
+{
 }
 
 void announceBeforeAttach(Steinberg::IPlugView&) noexcept

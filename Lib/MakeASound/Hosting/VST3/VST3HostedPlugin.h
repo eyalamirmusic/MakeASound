@@ -8,6 +8,7 @@
 #include "../HostedPlugin.h"
 #include "../../Realtime/SPSCQueue.h"
 #include "VST3HostedParameter.h"
+#include "VST3RunLoop.h"
 
 #include <public.sdk/source/vst/hosting/eventlist.h>
 #include <public.sdk/source/vst/hosting/module.h>
@@ -38,6 +39,7 @@ public:
         PluginDescription description,
         std::shared_ptr<::VST3::Hosting::Module> moduleToUse,
         Steinberg::IPtr<Steinberg::Vst::IHostApplication> hostToUse,
+        Steinberg::IPtr<VST3RunLoop> runLoopToUse,
         Steinberg::IPtr<Steinberg::Vst::IComponent> componentToUse,
         Steinberg::IPtr<Steinberg::Vst::IEditController> controllerToUse,
         bool separateControllerToUse);
@@ -71,6 +73,13 @@ public:
     Steinberg::Vst::IEditController* editController() const noexcept
     {
         return controller.get();
+    }
+
+    // The context the plugin was initialised with, which answers the run loop
+    // on Linux.
+    Steinberg::Vst::IHostApplication* hostContext() const noexcept
+    {
+        return hostApplication.get();
     }
 
     // What this host installed on the controller: what the plugin's own GUI
@@ -137,6 +146,7 @@ private:
 
     std::shared_ptr<::VST3::Hosting::Module> module;
     Steinberg::IPtr<Steinberg::Vst::IHostApplication> hostApplication;
+    Steinberg::IPtr<VST3RunLoop> runLoop;
     Steinberg::IPtr<Steinberg::Vst::IComponent> component;
     Steinberg::IPtr<Steinberg::Vst::IAudioProcessor> processor;
     Steinberg::IPtr<Steinberg::Vst::IEditController> controller;

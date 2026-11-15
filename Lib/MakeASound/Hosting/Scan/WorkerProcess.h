@@ -8,7 +8,7 @@ namespace MakeASound::Hosting
 // answer: on Windows that means no fault dialog, no abort() message box and no
 // "the application has stopped working" prompt, any of which would sit there
 // until the host's timeout killed it. One TU per platform
-// (WorkerProcess-<os>.cpp); nothing to do on macOS.
+// (WorkerProcess-<os>.cpp); nothing to do on macOS, no core file on Linux.
 void prepareWorkerProcess() noexcept;
 
 } // namespace MakeASound::Hosting

@@ -50,6 +50,11 @@ targets being scanned at any moment, in the order they started, for a "Scanning:
 …" line; a target leaves it just before its `onTargetFinished`. `ScanCoordinator`
 has the same pair.
 
+The folders a sweep walks are its formats' `defaultSearchFolders()` (unless
+`useDefaultFolders` is off) plus `searchFolders`, resolved in the host when the
+sweep starts; a worker is handed one target and never reads them, so `VST3_PATH`
+on Linux needs to be set only in the host's environment.
+
 `ScanMode::InProcess` runs the same scans on a background thread of the host, with
 no isolation at all. It exists for tests and for stepping through a format in a
 debugger.
@@ -156,7 +161,8 @@ Every entry carries a stamp, and the cache compares it with the target's current
 one:
 
 - **VST3:** the newest mtime and the total size of the binaries in the bundle's
-  architecture folders (`Contents/MacOS`, `Contents/<arch>-win`), not the bundle
+  architecture folders (`Contents/MacOS`, `Contents/<arch>-win`,
+  `Contents/<arch>-linux`), not the bundle
   folder, whose mtime does not move when the binary is replaced, and not its
   resources, which can be gigabytes. A bare `.vst3` file stamps as itself.
 - **Audio Unit:** the component's version, with a size of zero. A component has no
@@ -217,8 +223,9 @@ Audio Units alone.
 - `format` is the `PluginFormat` enumerator's name, `"VST3"` or `"AU"`.
 - `classId` is the VST3 class UID as 32 hex digits, or for an Audio Unit the same
   identifier as `path`. Identity is `path` plus `classId`, never a position.
-- `lastModified` counts seconds from the platform's filesystem clock, not the Unix
-  epoch: compare stamps, never show one as a date.
+- `lastModified` is seconds since the Unix epoch on macOS and Linux, and on
+  Windows seconds of the filesystem clock, which counts from 1601: compare stamps,
+  never show one as a date.
 - An entry with no `format` (an older file) reads as VST3.
 
 **The schema is a compatibility promise.** It is Tamber Plug's, field for field: a
@@ -251,6 +258,8 @@ database, a vendor's family of apps say, pass one path to all of them.
   turns off Windows' fault dialogs and `abort()`'s message box before it loads the
   plugin, so a crash ends the worker at once instead of waiting out the timeout
   behind a prompt.
+- **No core files on Linux:** a worker sets its core file limit to zero before it
+  loads the plugin, so a sweep over crashing plugins leaves no dumps behind.
 - **Seal the exports:** `makeasound_enable_hosting(<target>)` links the library and
   stops an executable exporting its C++ weak symbols on macOS, so a loaded plugin
   never binds to the host's copies of inline functions (see

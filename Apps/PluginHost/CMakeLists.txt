@@ -17,6 +17,12 @@ endif ()
 
 add_executable(PluginHost Main.cpp)
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(PluginHost PRIVATE WindowSystem-Linux.cpp)
+else ()
+    target_sources(PluginHost PRIVATE WindowSystem-Default.cpp)
+endif ()
+
 # Sealed, as every host that loads third-party code should be.
 makeasound_enable_hosting(PluginHost)
 target_link_libraries(PluginHost PRIVATE

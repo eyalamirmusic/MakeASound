@@ -18,10 +18,10 @@ namespace MakeASound::Hosting
 // (a bare .vst3 DLL on Windows) stamps as itself, and a directory with no
 // Contents as its own mtime.
 //
-// `lastModified` counts seconds from std::filesystem's own clock epoch, not the
-// Unix epoch: clock_cast is missing from some toolchains we build with, and the
-// usual workaround of subtracting two "now"s jitters, which would make a stamp
-// compare unequal to itself. Never throws; a missing path stamps as {0, 0}.
+// `lastModified` is seconds since the Unix epoch on macOS and Linux, and the
+// file clock's own count from 1601 on Windows (StampClock.h), as Tamber Plug's
+// macOS databases have it. Never "now" minus "now", which jitters and would make a stamp compare
+// unequal to itself. Never throws; a missing path stamps as {0, 0}.
 ModuleStamp moduleStamp(std::string_view path);
 
 // Every entry under `searchPaths` whose name ends with `extension` (".vst3"),

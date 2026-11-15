@@ -2,10 +2,8 @@ set(CMAKE_FOLDER Apps)
 
 find_package(eacp REQUIRED)
 
-# eacp draws on Apple and Windows only - its Graphics and GPU modules sit behind
-# this same condition in its own tree - so the app that needs them is gated the
-# same way, and a Linux build gets the console demos.
-if ((APPLE OR WIN32) AND EACP_BUILD_GRAPHICS)
+# The app that draws needs eacp's UI and GPU modules, wherever eacp builds them.
+if (TARGET eacp-ui AND TARGET eacp-gpu)
     set(MAKEASOUND_BUILD_UI_APPS ON)
 else ()
     set(MAKEASOUND_BUILD_UI_APPS OFF)

@@ -194,12 +194,14 @@ VST3HostedPlugin::VST3HostedPlugin(
     PluginDescription description,
     std::shared_ptr<::VST3::Hosting::Module> moduleToUse,
     IPtr<IHostApplication> hostToUse,
+    IPtr<VST3RunLoop> runLoopToUse,
     IPtr<IComponent> componentToUse,
     IPtr<IEditController> controllerToUse,
     bool separateControllerToUse)
     : HostedPlugin(std::move(description))
     , module(std::move(moduleToUse))
     , hostApplication(std::move(hostToUse))
+    , runLoop(std::move(runLoopToUse))
     , component(std::move(componentToUse))
     , controller(std::move(controllerToUse))
     , separateController(separateControllerToUse)
@@ -252,6 +254,11 @@ VST3HostedPlugin::~VST3HostedPlugin()
 
     if (component)
         component->terminate();
+
+    // Nothing may call into the module once it is unloaded, whatever the plugin
+    // left registered.
+    if (runLoop)
+        runLoop->clear();
 }
 
 void VST3HostedPlugin::readBusLayout()

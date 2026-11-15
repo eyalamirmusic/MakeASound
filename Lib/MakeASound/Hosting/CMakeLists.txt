@@ -5,10 +5,16 @@ set(CMAKE_FOLDER Lib/Hosting)
 # link it: eacp-core (processes, timers, files) and the format SDKs, and no
 # graphics. Hosted editors go in a library of their own.
 #
-# macOS and Windows for now. Linux and iOS hosting come later, and the platform
-# split below is where they slot in.
-if (NOT ((APPLE AND NOT IOS) OR WIN32))
-    message(STATUS "MakeASoundHosting skipped (macOS and Windows only for now)")
+# macOS, Windows and Linux. iOS hosting comes later, and the platform split below
+# is where it slots in.
+set(hosting_linux OFF)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(hosting_linux ON)
+endif ()
+
+if (NOT ((APPLE AND NOT IOS) OR WIN32 OR hosting_linux))
+    message(STATUS "MakeASoundHosting skipped (macOS, Windows and Linux only for now)")
     return()
 endif ()
 
@@ -41,8 +47,9 @@ if (APPLE)
             AU/AUFormat.mm
             AU/HostedAudioUnit.cpp
             DefaultFormats-macOS.cpp
-            PathText-macOS.cpp
+            PathText-Default.cpp
             Scan/ExecutablePath-macOS.cpp
+            Scan/StampClock-Default.cpp
             Scan/WorkerProcess-macOS.cpp
             VST3/VST3Folders-macOS.cpp)
 
@@ -52,16 +59,33 @@ if (APPLE)
             "-framework AudioToolbox"
             "-framework CoreFoundation"
             "-framework CoreMIDI")
-else ()
+elseif (WIN32)
     target_sources(MakeASoundHosting PRIVATE
-            DefaultFormats-Windows.cpp
+            DefaultFormats-Default.cpp
             PathText-Windows.cpp
             Scan/ExecutablePath-Windows.cpp
+            Scan/StampClock-Default.cpp
             Scan/WorkerProcess-Windows.cpp
             VST3/VST3Folders-Windows.cpp)
 
     # On the target, so windows.h leaves no min/max macros in a unity chunk.
     target_compile_definitions(MakeASoundHosting PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+else ()
+    target_sources(MakeASoundHosting PRIVATE
+            DefaultFormats-Default.cpp
+            PathText-Default.cpp
+            Scan/ExecutablePath-Linux.cpp
+            Scan/StampClock-Linux.cpp
+            Scan/WorkerProcess-Linux.cpp
+            VST3/VST3Folders-Linux.cpp)
+endif ()
+
+# The run loop a Linux plugin asks its host for, over eacp's loop; VST3 names
+# none elsewhere.
+if (hosting_linux)
+    target_sources(MakeASoundHosting PRIVATE VST3/VST3RunLoop-Linux.cpp)
+else ()
+    target_sources(MakeASoundHosting PRIVATE VST3/VST3RunLoop-Default.cpp)
 endif ()
 
 target_link_libraries(MakeASoundHosting
@@ -93,13 +117,18 @@ if (TARGET eacp-graphics)
                 "-framework AudioToolbox"
                 "-framework Cocoa"
                 "-framework CoreAudioKit")
-    else ()
+    elseif (WIN32)
         target_sources(MakeASoundHostedEditor PRIVATE
                 HostedEditors-Windows.cpp
                 VST3/VST3EditorPlatform-Windows.cpp)
 
         target_compile_definitions(MakeASoundHostedEditor PRIVATE
                 WIN32_LEAN_AND_MEAN NOMINMAX)
+    else ()
+        # X11 only: an editor shows in a window on eacp's X11 backend.
+        target_sources(MakeASoundHostedEditor PRIVATE
+                HostedEditors-Linux.cpp
+                VST3/VST3EditorPlatform-Linux.cpp)
     endif ()
 
     target_link_libraries(MakeASoundHostedEditor

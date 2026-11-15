@@ -37,7 +37,7 @@ std::filesystem::path stdPath(std::string_view text);
 // cache sees one. Elsewhere the key is the text itself, byte for byte, so case
 // and separators keep two texts apart there, and the text of a target that is
 // not a file (an Audio Unit's "aufx:mrev:appl") is its own key. One TU per
-// platform: PathText-Windows.cpp, PathText-macOS.cpp.
+// platform: PathText-Windows.cpp, PathText-Default.cpp (macOS and Linux).
 std::string pathKey(std::string_view text);
 
 } // namespace MakeASound::Hosting

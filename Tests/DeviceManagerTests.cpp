@@ -172,21 +172,24 @@ auto tStableIds = test("DeviceManager/handsTheSameIdToTheSameDevice") = []
     // A host caches a DeviceInfo and opens it later. Ids used to be enumeration
     // order, so anything appearing or disappearing renumbered the rest; they are a
     // registry keyed on the name now, and an id is unique within one enumeration.
+    // Matched by name rather than position: a device may come or go between the
+    // two calls (a PipeWire node another process's stream brings up).
     auto manager = DeviceManager {};
     auto first = manager.getDevices();
     auto second = manager.getDevices();
 
-    check(first.size() == second.size());
-
     auto seen = MakeASound::Vector<int> {};
 
-    for (auto i = 0; i < first.size(); ++i)
+    for (const auto& device: first)
     {
-        check(first[i].id == second[i].id);
-        check(first[i].name == second[i].name);
-        check(!seen.contains(first[i].id));
+        check(!seen.contains(device.id));
+        seen.add(device.id);
 
-        seen.add(first[i].id);
+        auto named = second;
+        named.eraseIf([&](const auto& other) { return other.name != device.name; });
+
+        if (named.size() == 1)
+            check(named[0].id == device.id);
     }
 };
 

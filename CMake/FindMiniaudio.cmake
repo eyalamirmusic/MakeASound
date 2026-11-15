@@ -11,7 +11,8 @@ include(CPM)
 message(STATUS "Fetching miniaudio (first configure only)...")
 CPMAddPackage(
         NAME miniaudio
-        URL https://github.com/mackron/miniaudio/archive/refs/tags/0.11.25.zip
+        # Fork: 0.11.25 + a PulseAudio null-info fix; back to mackron's once released.
+        URL https://github.com/eyalamirmusic/miniaudio/archive/4bcbd70610bcc0cd2fed5d9cf733b57d6e54d58d.zip
         DOWNLOAD_ONLY YES
         DOWNLOAD_NO_PROGRESS YES
         QUIET

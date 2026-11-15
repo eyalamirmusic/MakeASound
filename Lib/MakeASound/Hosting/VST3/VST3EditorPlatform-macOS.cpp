@@ -12,9 +12,13 @@ Steinberg::FIDString viewType() noexcept
 }
 
 // ViewRects are points on macOS: AppKit scales the backing store itself.
-float scaleFor(void*) noexcept
+float scaleFor(eacp::Graphics::NativeChildSurface*, void*) noexcept
 {
     return 1.f;
+}
+
+void watchScale(eacp::Graphics::NativeChildSurface&, std::function<void()>)
+{
 }
 
 // Some plugins guess a Retina factor and double their own size unless told 1.

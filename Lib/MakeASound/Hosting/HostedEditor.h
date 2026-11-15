@@ -11,7 +11,7 @@ namespace MakeASound::Hosting
 {
 
 // The plugin's view parented into an eacp view (macOS NSView, Windows child
-// HWND). Sizes are points on every platform; a format that speaks pixels is
+// HWND, Linux X11 window). Sizes are points on every platform; a format that speaks pixels is
 // converted inside. A resize the plugin asks for goes to the editor's host
 // (Editor::requestOwnResize) even when constraints() says not resizable, which
 // only keeps the user from dragging it; a size the host proposes is offered to
@@ -24,7 +24,7 @@ public:
 };
 
 // The factory to pass as HostInfo::editors: the editor for each format this
-// platform shows (VST3 on macOS and Windows, Audio Units on macOS), or null when
+// platform shows (VST3 everywhere, Audio Units on macOS), or null when
 // the plugin has none. One TU per platform.
 HostedEditorFactory hostedEditors();
 

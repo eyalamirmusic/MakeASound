@@ -125,6 +125,11 @@ auto tStandaloneLive = test("Allocations/standaloneLiveCallbackIsOffTheHeap") = 
     if (!config.output.has_value())
         return;
 
+    // As in RealtimeThreadAllocationTests: on PulseAudio the callback's thread
+    // also runs libpulse's main loop, which allocates every packet it sends.
+    if (devices.getBackend() == Backend::PulseAudio)
+        return;
+
     if (engine.start(config, processor) != Error::NoError)
         return;
 
