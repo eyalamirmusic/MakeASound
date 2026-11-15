@@ -452,6 +452,12 @@ nano_add_executable(MakeASoundTests
         SOURCES ${MAKEASOUND_TEST_SOURCES}
         TARGETS ${MAKEASOUND_TEST_TARGETS})
 
+# A command-line tool asks macOS for system audio recording through the usage
+# description in an Info.plist embedded in its own binary.
+if (APPLE AND NOT IOS)
+    target_link_options(MakeASoundTests PRIVATE LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/MakeASoundTests-Info.plist)
+endif ()
+
 # The cases that open a named virtual MIDI port take one lock, so `ctest -j` runs
 # them one at a time (see the file). Appended after NanoTest's own include, which
 # defines the cases it reads.

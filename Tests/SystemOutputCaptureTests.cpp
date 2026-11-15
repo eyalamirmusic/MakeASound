@@ -70,11 +70,14 @@ auto tHearsItsOwnTone =
     auto recorder = DeviceManager {};
     auto recordConfig = recorder.getDefaultSystemOutputCaptureConfig();
     auto loudestTone = std::atomic<double> {0.0};
+    auto recordedBlocks = std::atomic<int> {0};
 
     auto recordError = recorder.start(
         recordConfig,
         [&](AudioCallbackInfo& info)
         {
+            ++recordedBlocks;
+
             for (auto channel: info.getInput())
             {
                 auto level = measureToneLevel(channel, toneFrequency, info.sampleRate);
@@ -117,7 +120,10 @@ auto tHearsItsOwnTone =
     player.stop();
     recorder.stop();
 
-    std::printf("loudest 1 kHz level recorded: %f\n", loudestTone.load());
+    std::printf("blocks recorded: %d, loudest 1 kHz level: %f\n",
+                recordedBlocks.load(),
+                loudestTone.load());
+    check(recordedBlocks.load() > 0);
     check(loudestTone.load() > minimumHeardToneLevel);
 };
 

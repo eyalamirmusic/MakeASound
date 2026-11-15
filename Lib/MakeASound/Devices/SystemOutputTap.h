@@ -14,9 +14,13 @@ namespace MakeASound
 // returns NOT_SUPPORTED: Windows and PulseAudio record the output through miniaudio
 // directly.
 //
-// The first create() in a process makes macOS ask the user for "System Audio
-// Recording Only" permission, worded from the app's NSAudioCaptureUsageDescription.
-// Until it is granted the tap delivers silence rather than failing.
+// macOS asks the user for "System Audio Recording Only" permission (Privacy &
+// Security > Screen & System Audio Recording), worded from the
+// NSAudioCaptureUsageDescription in the Info.plist of the responsible process: the
+// app, or for a command-line tool the terminal that started it (a tool started by
+// launchd answers for itself, from an Info.plist linked in with
+// -sectcreate __TEXT __info_plist). Without the permission the tap records silence
+// rather than failing.
 class SystemOutputTap
 {
 public:

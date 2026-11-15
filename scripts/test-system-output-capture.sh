@@ -19,4 +19,28 @@ cd "$(dirname "$0")/.."
 cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=Release -DMAKEASOUND_BUILD_APPS=OFF \
     -DMAKEASOUND_BUILD_EXAMPLES=OFF
 cmake --build build-system-capture --target MakeASoundTests
-ctest --test-dir build-system-capture -R SystemOutputCapture --output-on-failure -V
+ctest --test-dir build-system-capture -R SystemOutputCapture --output-on-failure -V \
+    -E recordsAToneThisProcessPlays
+
+tests=build-system-capture/Tests/MakeASoundTests
+tone_case=SystemOutputCapture/recordsAToneThisProcessPlays
+
+if [[ $(uname) != Darwin ]]; then
+    "$tests" --test "$tone_case"
+    exit
+fi
+
+# macOS gives system audio recording to the process that is responsible for the
+# recorder: a terminal's child records silence unless the terminal app holds the
+# permission. Started by launchd, the test binary is its own responsible process and
+# asks with the usage description embedded in it.
+label=makeasound.system-output-capture
+log=$(mktemp)
+launchctl remove "$label" 2>/dev/null || true
+launchctl submit -l "$label" -o "$log" -e "$log" -- "$PWD/$tests" --test "$tone_case"
+
+while launchctl list "$label" 2>/dev/null | grep -q '"PID"'; do sleep 1; done
+
+launchctl remove "$label"
+cat "$log"
+grep -q "1 passed" "$log"
