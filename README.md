@@ -30,7 +30,7 @@ A C++20 library for platform-agnostic audio, MIDI and audio plugins.
 
 | Format | Platforms |
 | --- | --- |
-| Standalone app | macOS, Windows, iOS |
+| Standalone app | macOS, Windows, Linux, iOS |
 | VST3 | macOS, Windows, Linux |
 | AU v2 | macOS |
 | AUv3 | iOS |
@@ -44,10 +44,10 @@ A C++20 library for platform-agnostic audio, MIDI and audio plugins.
 - Compatibility profiles that keep the parameter ids and state of plugins ported from JUCE or Tamber Plug.
 - Example plugins pass pluginval at strictness 10, `auval -strict` and Avid's AAX Validator.
 
-**Hosting** (`MakeASoundHosting`, macOS and Windows)
+**Hosting** (`MakeASoundHosting`, macOS, Windows and Linux)
 
 - Scans VST3 plugins and Audio Units out of process into a plugin database.
-- Loads and runs them, with their editors. See [Docs/Hosting.md](Docs/Hosting.md) and [Docs/PluginScanning.md](Docs/PluginScanning.md).
+- Loads and runs them, with their editors (on Linux in an X11 window: `EACP_WINDOW_SYSTEM=x11`). See [Docs/Hosting.md](Docs/Hosting.md) and [Docs/PluginScanning.md](Docs/PluginScanning.md).
 
 **Tools**
 
