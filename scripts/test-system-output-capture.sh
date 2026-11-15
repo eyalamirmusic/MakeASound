@@ -16,8 +16,22 @@ if [[ $# -ge 1 ]]; then
 fi
 
 cd "$(dirname "$0")/.."
+cmake_args=()
+
+# A Linux box whose toolchain comes from nix has no system ALSA headers, and its
+# binaries do not search /usr/lib, so ALSA and the PulseAudio client miniaudio loads
+# come from nix too.
+if [[ $(uname) == Linux && ! -e /usr/include/alsa/asoundlib.h ]] && command -v nix >/dev/null; then
+    alsa_dev=$(nix build --no-link --print-out-paths nixpkgs#alsa-lib.dev)
+    alsa_lib=$(nix build --no-link --print-out-paths nixpkgs#alsa-lib)
+    pulse_lib=$(nix build --no-link --print-out-paths nixpkgs#libpulseaudio)
+    cmake_args+=(-DALSA_INCLUDE_DIR="$alsa_dev/include"
+                 -DALSA_LIBRARY="$alsa_lib/lib/libasound.so")
+    export LD_LIBRARY_PATH="$pulse_lib/lib:$alsa_lib/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=Release -DMAKEASOUND_BUILD_APPS=OFF \
-    -DMAKEASOUND_BUILD_EXAMPLES=OFF
+    -DMAKEASOUND_BUILD_EXAMPLES=OFF "${cmake_args[@]}"
 cmake --build build-system-capture --target MakeASoundTests
 ctest --test-dir build-system-capture -R SystemOutputCapture --output-on-failure -V \
     -E recordsAToneThisProcessPlays
