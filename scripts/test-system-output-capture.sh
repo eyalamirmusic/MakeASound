@@ -17,6 +17,7 @@ fi
 
 cd "$(dirname "$0")/.."
 cmake_args=()
+build_type=Release
 
 # A Linux box whose toolchain comes from nix has no system ALSA headers, and its
 # binaries do not search /usr/lib, so ALSA and the PulseAudio client miniaudio loads
@@ -27,12 +28,12 @@ if [[ $(uname) == Linux && ! -e /usr/include/alsa/asoundlib.h ]] && command -v n
     pulse_lib=$(nix build --no-link --print-out-paths nixpkgs#libpulseaudio)
     cmake_args+=(-DALSA_INCLUDE_DIR="$alsa_dev/include"
                  -DALSA_LIBRARY="$alsa_lib/lib/libasound.so")
-    # nix's clang emits LTO bitcode its GNU ld cannot link; gcc's ld reads gcc's.
-    export CC=gcc CXX=g++
+    # Release links with LTO, and nix's clang emits bitcode its GNU ld cannot read.
+    build_type=Debug
     export LD_LIBRARY_PATH="$pulse_lib/lib:$alsa_lib/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
-cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=Release -DMAKEASOUND_BUILD_APPS=OFF \
+cmake -S . -B build-system-capture -G Ninja -DCMAKE_BUILD_TYPE=$build_type -DMAKEASOUND_BUILD_APPS=OFF \
     -DMAKEASOUND_BUILD_EXAMPLES=OFF -DMAKEASOUND_BUILD_PLUGIN=OFF \
     -DMAKEASOUND_BUILD_HOSTING=OFF ${cmake_args[@]+"${cmake_args[@]}"}
 cmake --build build-system-capture --target MakeASoundSystemCaptureTests
