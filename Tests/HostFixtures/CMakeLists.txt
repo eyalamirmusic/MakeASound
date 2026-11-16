@@ -17,6 +17,9 @@
 # <build>/HostFixtures/AU, which no AU registry looks in. A test loads the
 # component's own factory out of the bundle and registers it in its process
 # (AudioComponentRegister), so nothing is ever found through the registry.
+#
+# With MAKEASOUND_BUILD_CLAP all four are CLAP modules as well, in
+# <build>/HostFixtures/CLAP, with HostFixturePair (two plugins in one module).
 set(host_fixture_dir "${CMAKE_BINARY_DIR}/HostFixtures")
 
 foreach (fixture Effect Instrument ScanCrash ScanHang)
@@ -24,6 +27,10 @@ foreach (fixture Effect Instrument ScanCrash ScanHang)
 
     if (fixture MATCHES "^(Effect|Instrument)$" AND TARGET MakeASoundAU)
         list(APPEND fixture_formats AU)
+    endif ()
+
+    if (TARGET MakeASoundCLAP)
+        list(APPEND fixture_formats CLAP)
     endif ()
 
     makeasound_add_plugin(HostFixture${fixture}
@@ -44,3 +51,18 @@ endif ()
 
 set(MAKEASOUND_HOST_FIXTURE_VST3_DIR "${host_fixture_dir}/VST3" PARENT_SCOPE)
 set(MAKEASOUND_HOST_FIXTURE_AU_DIR "${host_fixture_dir}/AU" PARENT_SCOPE)
+
+# With the CLAP format, the four fixtures are CLAP modules too, in
+# <build>/HostFixtures/CLAP, beside HostFixturePair, one module holding two
+# plugins, built as CLAP alone so the VST3 suites' fixture counts stand.
+if (TARGET MakeASoundCLAP)
+    makeasound_add_plugin(HostFixturePair
+            FORMATS CLAP
+            OUTPUT_NAME "HostFixturePair"
+            BUNDLE_DIRECTORY "${host_fixture_dir}"
+            NO_INSTALL
+            FOLDER Tests/HostFixtures
+            SOURCES Pair.cpp)
+
+    set(MAKEASOUND_HOST_FIXTURE_CLAP_DIR "${host_fixture_dir}/CLAP" PARENT_SCOPE)
+endif ()

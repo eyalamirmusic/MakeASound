@@ -359,6 +359,13 @@ if (MAKEASOUND_BUILD_PLUGIN)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp HostedVST3Tests.cpp)
             set(MAKEASOUND_TEST_HOST_FIXTURES ON)
 
+            # The same fixtures as CLAP modules, where the hosting library scans
+            # CLAP (the clap headers are there) and the adapter builds them.
+            if (TARGET MakeASoundCLAP AND TARGET clap)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostingCLAPScanTests.cpp)
+                set(MAKEASOUND_TEST_HOST_FIXTURES_CLAP ON)
+            endif ()
+
             # Apps/PluginScanner, run as a program over the fixtures.
             if (TARGET PluginScanner)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostingScannerAppTests.cpp)
@@ -569,6 +576,24 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
                 HostFixtureEffect-AU HostFixtureInstrument-AU)
         target_compile_definitions(MakeASoundTests PRIVATE
                 MAKEASOUND_HOST_FIXTURE_AU_DIR="${MAKEASOUND_HOST_FIXTURE_AU_DIR}")
+    endif ()
+endif ()
+
+if (MAKEASOUND_TEST_HOST_FIXTURES_CLAP)
+    add_dependencies(MakeASoundTests
+            HostFixtureEffect-CLAP HostFixtureInstrument-CLAP
+            HostFixtureScanCrash-CLAP HostFixtureScanHang-CLAP HostFixturePair-CLAP)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_HOST_FIXTURE_CLAP_DIR="${MAKEASOUND_HOST_FIXTURE_CLAP_DIR}")
+
+    # The instrument's editor, and the gui extension offering it, exist only
+    # with eacp graphics and the plugin UI.
+    if (TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+        target_compile_definitions(MakeASoundTests PRIVATE
+                MAKEASOUND_HOST_FIXTURE_CLAP_HAS_EDITOR=1)
+    else ()
+        target_compile_definitions(MakeASoundTests PRIVATE
+                MAKEASOUND_HOST_FIXTURE_CLAP_HAS_EDITOR=0)
     endif ()
 endif ()
 

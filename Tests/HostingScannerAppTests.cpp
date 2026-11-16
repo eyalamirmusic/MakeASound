@@ -60,7 +60,7 @@ auto tBadArguments = test("HostingScannerApp/badArgumentsExitWithTwo") = []
 {
     check(scanner({"--bogus"}).exitCode == 2);
     check(scanner({"--jobs", "0"}).exitCode == 2);
-    check(scanner({"--format", "clap"}).exitCode == 2);
+    check(scanner({"--format", "aax"}).exitCode == 2);
     check(scanner({"--output"}).exitCode == 2);
     check(scanner({"--makeasound-scan"}).exitCode == 2);
 };

@@ -7,7 +7,8 @@ plugin framework: a host's view of plugins somebody else built. It sits beside
 host.
 
 It **finds and describes** plugins (VST3 everywhere it builds, Audio Units on
-macOS, scanned out of process into a database), **loads and runs** them in
+macOS, CLAP on the desktop with `MAKEASOUND_BUILD_CLAP`, scanned out of process
+into a database), **loads and runs** them in
 process, and **shows their own editors** (see [Editors](#editors)). What is still
 to come is under [What is not here yet](#what-is-not-here-yet). Scanning has its
 own document, [PluginScanning.md](PluginScanning.md).
@@ -274,29 +275,41 @@ is no process-wide registry and no static initializer to keep alive:
 
 ```cpp
 auto formats = MakeASound::Hosting::FormatManager();
-formats.addDefaultFormats();   // VST3, then AU on macOS
+formats.addDefaultFormats();   // VST3, then AU on macOS, then CLAP
 ```
 
-`addDefaultFormats()` is defined per platform (`DefaultFormats-<os>.cpp`). A host
-that wants a subset, or a format of its own, calls `add()` instead. Formats claim
-targets in the order they were added: a `*.vst3` path is VST3's, a
-`type:subtype:manufacturer` identifier is AU's.
+`addDefaultFormats()` is defined per platform (`DefaultFormats-<os>.cpp`); CLAP
+joins it where the build hosts CLAP (`MAKEASOUND_BUILD_CLAP`, desktop), through
+`DefaultFormatsCLAP-On.cpp` or `-Off.cpp`. A host that wants a subset, or a
+format of its own, calls `add()` instead. Formats claim targets in the order they
+were added: a `*.vst3` path is VST3's, a `type:subtype:manufacturer` identifier is
+AU's, a `*.clap` path is CLAP's.
 
 Each format's `defaultSearchFolders()` are the platform's install folders that
 exist (`VST3/VST3Folders-<os>.cpp`, listed in `VST3Format.h`). On Linux the VST3
 ones are the spec's (`~/.vst3`, `/usr/lib64/vst3`, `/usr/lib/vst3`,
 `/usr/local/lib64/vst3`, `/usr/local/lib/vst3`), with the colon-separated
 entries of `VST3_PATH` ahead of them, a leading `~` read as the home folder, as
-JUCE does.
+JUCE does. The CLAP ones (`CLAP/CLAPFolders-<os>.cpp`, listed in `CLAPFormat.h`)
+are the spec's, with the entries of `CLAP_PATH` (`;`-separated on Windows,
+`:` elsewhere) ahead of them.
 
-| | VST3 scan | AU scan | VST3 load | AU load | hosted editors |
-| --- | --- | --- | --- | --- | --- |
-| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes (VST3, AU) |
-| Windows | yes | - | yes | - | yes (VST3, HWND child, DPI conversion) |
-| Linux | yes | - | yes | - | yes (VST3, X11 child, needs an X11 window) |
-| iOS | later | later | later | later | later |
+A CLAP module is scanned as every plugin its factory lists, one description each
+with the descriptor's id as its class id, a category of "Instrument", "Note
+Effect" or "Audio Effect" and its features `|`-separated as its sub-categories.
+Each plugin is created and `init()`ed, never activated, to read its audio ports,
+note ports and whether it offers `clap.gui`. Loading one is not here yet:
+`CLAPFormat` leaves `load()` to `HostFormat`, which loads nothing and says so.
 
-CLAP hosting and out-of-process audio processing are not planned.
+| | VST3 scan | AU scan | CLAP scan | VST3 load | AU load | CLAP load | hosted editors |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes | later | yes (VST3, AU) |
+| Windows | yes | - | yes | yes | - | later | yes (VST3, HWND child, DPI conversion) |
+| Linux | yes | - | yes | yes | - | later | yes (VST3, X11 child, needs an X11 window) |
+| iOS | later | later | - | later | later | - | later |
+
+CLAP loading and editors come next; out-of-process audio processing is not
+planned.
 
 ## Threading
 
@@ -323,6 +336,8 @@ Selected in CMake, never with `#if`, like the rest of MakeASound:
 - `DefaultFormats-<os>.cpp`, `Scan/ExecutablePath-<os>.cpp`,
   `Scan/WorkerProcess-<os>.cpp`, `VST3/VST3Folders-<os>.cpp`
 - `AU/`, added on macOS only
+- `CLAP/CLAPModule-<macOS|Default>.cpp` and `CLAP/CLAPFolders-<os>.cpp`, with
+  `MAKEASOUND_BUILD_CLAP`
 - the SDK's `module_mac.mm` / `module_win32.cpp` / `module_linux.cpp`, one per
   platform in `vst3sdk-hosting` (`ThirdParty/CMakeLists.txt`), and none on
   iOS, where `MakeASoundHosting` is not built

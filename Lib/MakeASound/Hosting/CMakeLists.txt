@@ -1,6 +1,7 @@
 set(CMAKE_FOLDER Lib/Hosting)
 
-# MakeASoundHosting: scanning third-party plugins, in process or out of it, and the
+# MakeASoundHosting: scanning third-party plugins (VST3, Audio Units on macOS,
+# CLAP with MAKEASOUND_BUILD_CLAP), in process or out of it, and the
 # cache of what a scan found. Deliberately slim, so a scanner's worker process can
 # link it: eacp-core (processes, timers, files) and the format SDKs, and no
 # graphics. Hosted editors go in a library of their own.
@@ -86,6 +87,39 @@ if (hosting_linux)
     target_sources(MakeASoundHosting PRIVATE VST3/VST3RunLoop-Linux.cpp)
 else ()
     target_sources(MakeASoundHosting PRIVATE VST3/VST3RunLoop-Default.cpp)
+endif ()
+
+# CLAP, over the C API alone, where the headers are (MAKEASOUND_BUILD_CLAP, on
+# the desktop). No public hosting header includes them: CLAPFormat.h declares the
+# format, and addDefaultFormats() reaches it through DefaultFormatsCLAP-On.cpp,
+# or -Off.cpp where CLAP is not built.
+if (MAKEASOUND_BUILD_CLAP AND TARGET clap)
+    target_sources(MakeASoundHosting PRIVATE
+            CLAP/CLAPFolders.cpp
+            CLAP/CLAPFormat.cpp
+            CLAP/CLAPHost.cpp
+            CLAP/CLAPModule.cpp
+            DefaultFormatsCLAP-On.cpp)
+
+    # macOS loads a .clap bundle through CFBundle; elsewhere it is the shared
+    # library itself, loaded through eacp.
+    if (APPLE)
+        target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFolders-macOS.cpp
+                CLAP/CLAPModule-macOS.cpp)
+    elseif (WIN32)
+        target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFolders-Windows.cpp
+                CLAP/CLAPModule-Default.cpp)
+    else ()
+        target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFolders-Linux.cpp
+                CLAP/CLAPModule-Default.cpp)
+    endif ()
+
+    target_link_libraries(MakeASoundHosting PRIVATE clap)
+else ()
+    target_sources(MakeASoundHosting PRIVATE DefaultFormatsCLAP-Off.cpp)
 endif ()
 
 target_link_libraries(MakeASoundHosting

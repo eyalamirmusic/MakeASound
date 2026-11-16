@@ -21,7 +21,7 @@ using Hosting::ScanSessionOptions;
 //   --output <file>        cachePath
 //   --folder <dir>         searchFolders (repeatable)
 //   --no-default-folders   useDefaultFolders = false
-//   --format <VST3|AU>     formats (repeatable, any case)
+//   --format <VST3|AU|CLAP> formats (repeatable, any case)
 //   --force                forceRescan
 //   --jobs <n>             jobs, at least 1
 //   --timeout <ms>         timeoutMs, at least 0
