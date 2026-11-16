@@ -3,25 +3,22 @@
 #include "VST3Common.h"
 #include "HostRunLoop.h"
 #include "../Core/Editor.h"
+#include "../UI/EmbeddedEditor.h"
 #include "../../Common/Common.h"
 
 #include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
 #include "public.sdk/source/common/pluginview.h"
 
-namespace eacp::Graphics
-{
-class EmbeddedView;
-}
-
 namespace MakeASound::VST3
 {
 
-// The host's window onto a plugin's Editor, embedded through eacp, and the
-// editor's EditorHost: a resize request goes to the host's IPlugFrame. The editor
-// lives as long as the view, the embedding only while the host has it attached.
-// The platform's half is in PlugView-<platform>.cpp: the view type the host hands
-// attached(), the currency of a ViewRect and how the content scale reaches the
-// embedded view.
+// The host's window onto a plugin's Editor, embedded through EmbeddedEditor, and
+// the editor's EditorHost: a resize request goes to the host's IPlugFrame. The
+// editor lives as long as the view, the embedding only while the host has it
+// attached. A ViewRect is in EmbeddedEditor's host units: points on macOS,
+// physical pixels on Windows and X11. The platform's half is the view type the
+// host hands attached(), in PlugView-<platform>.cpp; the rest of it, the scale
+// and the keys, is EmbeddedEditor's.
 class PlugView
     : public Steinberg::CPluginView
     , public Steinberg::IPlugViewContentScaleSupport
@@ -47,7 +44,7 @@ public:
     bool drawsResizeHandle() const override { return true; }
 
     // On Windows, posted to the host's window while attached; elsewhere left to
-    // the view (PlugView-<platform>.cpp).
+    // the view (EmbeddedEditor::unhandledKey).
     bool unhandledKey(const eacp::Graphics::KeyEvent& key) override;
 
     OBJ_METHODS(PlugView, Steinberg::CPluginView)
@@ -60,22 +57,12 @@ private:
     void attachedToParent() override;
     void removedFromParent() override;
 
-    // Pixels per point in a ViewRect: 1 where the host speaks points.
-    float rectScale() const noexcept;
-    // Hands the scale to the embedded view where the platform leaves that to us.
-    void applyContentScale() noexcept;
-    Steinberg::ViewRect rectFor(EditorSize size) const noexcept;
-    EditorSize pointsOf(const Steinberg::ViewRect& pixels) const noexcept;
+    Steinberg::ViewRect rectFor(EditorSize units) const noexcept;
     Steinberg::ViewRect openingRect() const;
 
     Steinberg::IPtr<FUnknown> owner;
-    OwningPointer<Editor> editor;
-    OwningPointer<eacp::Graphics::EmbeddedView> embedded;
+    EmbeddedEditor embedding;
     OwningPointer<HostRunLoop> frameLoop;
-    float scale = 1.f;
-    // Whether `scale` came from the host's setContentScaleFactor. Not every host
-    // calls it, and on Windows one that never does leaves the window's DPI.
-    bool hostScaled = false;
     bool sizedByHost = false;
     int sizeChanges = 0;
 };

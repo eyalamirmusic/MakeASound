@@ -3,11 +3,6 @@
 #include "PlugViewFactory.h"
 #include "../UI/GenericEditor.h"
 
-#include <eacp/Graphics/Graphics/SharedDevices.h>
-#include <eacp/Graphics/View/View.h>
-#include <eacp/Graphics/Window/EmbeddedView.h>
-
-#include <cmath>
 #include <cstring>
 
 namespace MakeASound::VST3
@@ -20,9 +15,9 @@ bool isNativeViewType(FIDString type)
     return type != nullptr && std::strcmp(type, PlugView::nativeViewType()) == 0;
 }
 
-int scaleBy(int value, float factor)
+EditorSize sizeOf(const Steinberg::ViewRect& rect) noexcept
 {
-    return static_cast<int>(std::lround(static_cast<float>(value) * factor));
+    return {rect.getWidth(), rect.getHeight()};
 }
 } // namespace
 
@@ -38,41 +33,30 @@ Steinberg::IPlugView* createPlugView(FUnknown& owner, Plugin& plugin)
 
 void releaseViewDevices()
 {
-    eacp::Graphics::releaseSharedDevices();
+    releaseEmbeddedEditorDevices();
 }
 
 PlugView::PlugView(Steinberg::IPtr<FUnknown> ownerToKeep,
                    OwningPointer<Editor> editorToShow)
     : owner(std::move(ownerToKeep))
-    , editor(std::move(editorToShow))
+    , embedding(std::move(editorToShow), *this)
 {
-    editor->setHost(this);
     setRect(openingRect());
 }
 
 PlugView::~PlugView()
 {
-    if (embedded)
-        removedFromParent();
-
-    editor->setHost(nullptr);
+    embedding.detach();
 }
 
-Steinberg::ViewRect PlugView::rectFor(EditorSize size) const noexcept
+Steinberg::ViewRect PlugView::rectFor(EditorSize units) const noexcept
 {
-    auto factor = rectScale();
-    return {0, 0, scaleBy(size.width, factor), scaleBy(size.height, factor)};
-}
-
-EditorSize PlugView::pointsOf(const Steinberg::ViewRect& pixels) const noexcept
-{
-    auto factor = 1.f / rectScale();
-    return {scaleBy(pixels.getWidth(), factor), scaleBy(pixels.getHeight(), factor)};
+    return {0, 0, units.width, units.height};
 }
 
 Steinberg::ViewRect PlugView::openingRect() const
 {
-    return rectFor(editor->constraints().constrain(editor->initialSize()));
+    return rectFor(embedding.openingSize());
 }
 
 tresult PLUGIN_API PlugView::isPlatformTypeSupported(FIDString type)
@@ -90,21 +74,12 @@ tresult PLUGIN_API PlugView::attached(void* parent, FIDString type)
 
 void PlugView::attachedToParent()
 {
-    auto factor = rectScale();
-    auto options = eacp::Graphics::EmbeddedViewOptions {
-        scaleBy(rect.getWidth(), 1.f / factor),
-        scaleBy(rect.getHeight(), 1.f / factor)};
-
-    embedded = EA::makeOwned<eacp::Graphics::EmbeddedView>(systemWindow, options);
-    applyContentScale();
-    embedded->setContentView(editor->view());
-    editor->onAttached();
+    embedding.attach(systemWindow, sizeOf(rect));
 }
 
 void PlugView::removedFromParent()
 {
-    editor->onRemoved();
-    embedded.reset();
+    embedding.detach();
 }
 
 tresult PLUGIN_API PlugView::getSize(Steinberg::ViewRect* size)
@@ -126,33 +101,23 @@ tresult PLUGIN_API PlugView::onSize(Steinberg::ViewRect* newSize)
     sizedByHost = true;
     ++sizeChanges;
     auto result = CPluginView::onSize(newSize);
-
-    if (embedded)
-    {
-        auto factor = rectScale();
-        embedded->setSize(scaleBy(newSize->getWidth(), 1.f / factor),
-                          scaleBy(newSize->getHeight(), 1.f / factor));
-    }
-
+    embedding.setSize(sizeOf(*newSize));
     return result;
 }
 
 tresult PLUGIN_API PlugView::canResize()
 {
-    return editor->constraints().resizable ? Steinberg::kResultTrue
-                                           : Steinberg::kResultFalse;
+    return embedding.resizable() ? Steinberg::kResultTrue : Steinberg::kResultFalse;
 }
 
 tresult PLUGIN_API PlugView::checkSizeConstraint(Steinberg::ViewRect* rectToCheck)
 {
-    auto limits = editor->constraints();
-
-    if (!limits.resizable || rectToCheck == nullptr)
+    if (!embedding.resizable() || rectToCheck == nullptr)
         return CPluginView::checkSizeConstraint(rectToCheck);
 
-    auto allowed = rectFor(limits.constrain(pointsOf(*rectToCheck)));
-    rectToCheck->right = rectToCheck->left + allowed.getWidth();
-    rectToCheck->bottom = rectToCheck->top + allowed.getHeight();
+    auto allowed = embedding.constrain(sizeOf(*rectToCheck));
+    rectToCheck->right = rectToCheck->left + allowed.width;
+    rectToCheck->bottom = rectToCheck->top + allowed.height;
     return Steinberg::kResultTrue;
 }
 
@@ -163,7 +128,7 @@ bool PlugView::resizeEditor(EditorSize size)
     if (!plugFrame)
         return false;
 
-    auto requested = rectFor(size);
+    auto requested = rectFor(embedding.toUnits(size));
     auto changesBefore = sizeChanges;
 
     if (plugFrame->resizeView(this, &requested) != Steinberg::kResultTrue)
@@ -173,6 +138,11 @@ bool PlugView::resizeEditor(EditorSize size)
         onSize(&requested);
 
     return true;
+}
+
+bool PlugView::unhandledKey(const eacp::Graphics::KeyEvent& key)
+{
+    return embedding.unhandledKey(key);
 }
 
 tresult PLUGIN_API PlugView::setFrame(Steinberg::IPlugFrame* frame)
@@ -187,9 +157,7 @@ tresult PLUGIN_API PlugView::setContentScaleFactor(ScaleFactor factor)
     if (!(factor > 0.f))
         return Steinberg::kInvalidArgument;
 
-    scale = factor;
-    hostScaled = true;
-    applyContentScale();
+    embedding.setHostScale(factor);
     return Steinberg::kResultOk;
 }
 
