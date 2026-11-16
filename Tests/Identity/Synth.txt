@@ -13,6 +13,9 @@ auv3 param entry 0 address 1096112509 identifier "Level" strings 0
 aax effect "com.makeasound.tests.Echo"
 aax native 4:0x45636873
 aax param entry 0 id "4155597d" automatable 1
+clap plugin "com.makeasound.tests.Echo"
+clap param 0 entry 0 id 1096112509 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 0/1 note 1/1
 plugin "Synth" code Echo scheme JUCE category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 73313124 address 8013864904 identifier "Level" aaxId "Level" groups {}
@@ -32,6 +35,9 @@ aax effect "com.makeasound.tests"
 aax native 4:0x6a636163
 aax param entry 0 id "Level" automatable 1
 aax param entry 1 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Echo"
+clap param 0 entry 0 id 73313124 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 0/1 note 1/1
 plugin "Synth" code Echo scheme JUCELegacyIndex category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Level" aaxId "0" groups {}
@@ -51,6 +57,9 @@ aax effect "com.makeasound.tests"
 aax native 4:0x6a636163
 aax param entry 0 id "0" automatable 1
 aax param entry 1 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Echo"
+clap param 0 entry 0 id 73313124 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 0/1 note 1/1
 plugin "Synth" code Echo scheme TamberPlug category Instrument
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 1
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Level" aaxId "00000000" groups {}
@@ -65,3 +74,6 @@ auv3 param entry 0 address 0 identifier "Level" strings 0
 aax effect "com.makeasound.tests.Echo"
 aax native 4:0x45636873
 aax param entry 0 id "00000000" automatable 1
+clap plugin "com.makeasound.tests.Echo"
+clap param 0 entry 0 id 0 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 0/1 note 1/1

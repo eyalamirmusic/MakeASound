@@ -42,6 +42,14 @@ aax param entry 2 id "02f3b39e" automatable 1
 aax param entry 3 id "6c3e443e" automatable 1
 aax param entry 4 id "0fb2d9d9" automatable 1
 aax param entry 6 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Jprt"
+clap param 0 entry 0 id 1801646368 flags 0x20 min 0 max 1 default 0.404752135 module ""
+clap param 1 entry 1 id 1819205650 flags 0x10021 min 0 max 2 default 1 module ""
+clap param 2 entry 2 id 49525662 flags 0x21 min 0 max 1 default 1 module ""
+clap param 3 entry 3 id 1816020030 flags 0x21 min 1 max 16 default 8 module ""
+clap param 4 entry 4 id 263379417 flags 0x20 min 0 max 1 default 0.00199999986 module "Envelope"
+clap param 5 entry 6 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Port" code Jprt scheme JUCE category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "cutoff" key "cutoff" hint 1 automatable 1 session 0 bypass no hostId 798419949 address 1052795674147 identifier "cutoff" aaxId "cutoff" groups {}
@@ -88,6 +96,14 @@ aax param entry 3 id "voices" automatable 1
 aax param entry 4 id "attack" automatable 1
 aax param entry 5 id "quality" automatable 0
 aax param entry 6 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Jprt"
+clap param 0 entry 0 id 2945903597 flags 0x20 min 0 max 1 default 0.404752135 module ""
+clap param 1 entry 1 id 3357091 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 2685373249 flags 0x21 min 0 max 1 default 1 module ""
+clap param 3 entry 3 id 3483977089 flags 0x20 min 0 max 1 default 0.466666669 module ""
+clap param 4 entry 4 id 2887708232 flags 0x20 min 0 max 1 default 0.00199999986 module "Envelope"
+clap param 5 entry 5 id 651215103 flags 0x0 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Legacy Port" code Jlgy scheme JUCELegacyIndex category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "cutoff" key "cutoff" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "cutoff" aaxId "0" groups {}
@@ -134,6 +150,14 @@ aax param entry 3 id "3" automatable 1
 aax param entry 4 id "4" automatable 1
 aax param entry 5 id "5" automatable 0
 aax param entry 6 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Jlgy"
+clap param 0 entry 0 id 2945903597 flags 0x20 min 0 max 1 default 0.404752135 module ""
+clap param 1 entry 1 id 3357091 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 2685373249 flags 0x21 min 0 max 1 default 1 module ""
+clap param 3 entry 3 id 3483977089 flags 0x20 min 0 max 1 default 0.466666669 module ""
+clap param 4 entry 4 id 2887708232 flags 0x20 min 0 max 1 default 0.00199999986 module "Envelope"
+clap param 5 entry 5 id 651215103 flags 0x0 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Port Flipped" code Jflp scheme JUCE category Effect
 core juce studioOne 0 legacyAutomation 1 replaceVst2 0 midiControllers 0
 core entry 0 "cutoff" key "cutoff" hint 1 automatable 1 session 0 bypass no hostId 2945903597 address 1052795674147 identifier "cutoff" aaxId "cutoff" groups {}
@@ -180,6 +204,14 @@ aax param entry 3 id "voices" automatable 1
 aax param entry 4 id "attack" automatable 1
 aax param entry 5 id "quality" automatable 0
 aax param entry 6 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Jflp"
+clap param 0 entry 0 id 2945903597 flags 0x20 min 0 max 1 default 0.404752135 module ""
+clap param 1 entry 1 id 3357091 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 2685373249 flags 0x21 min 0 max 1 default 1 module ""
+clap param 3 entry 3 id 3483977089 flags 0x20 min 0 max 1 default 0.466666669 module ""
+clap param 4 entry 4 id 2887708232 flags 0x20 min 0 max 1 default 0.00199999986 module "Envelope"
+clap param 5 entry 5 id 651215103 flags 0x0 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Port Flipped" code Jflp scheme JUCELegacyIndex category Effect
 core juce studioOne 0 legacyAutomation 1 replaceVst2 0 midiControllers 0
 core entry 0 "cutoff" key "cutoff" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "cutoff" aaxId "0" groups {}
@@ -226,6 +258,14 @@ aax param entry 3 id "3" automatable 1
 aax param entry 4 id "4" automatable 1
 aax param entry 5 id "5" automatable 0
 aax param entry 6 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Jflp"
+clap param 0 entry 0 id 2945903597 flags 0x20 min 0 max 1 default 0.404752135 module ""
+clap param 1 entry 1 id 3357091 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 2685373249 flags 0x21 min 0 max 1 default 1 module ""
+clap param 3 entry 3 id 3483977089 flags 0x20 min 0 max 1 default 0.466666669 module ""
+clap param 4 entry 4 id 2887708232 flags 0x20 min 0 max 1 default 0.00199999986 module "Envelope"
+clap param 5 entry 5 id 651215103 flags 0x0 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Legacy Port Post-port" code Jlg1 scheme JUCELegacyIndex category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core overrides indexedThroughVersion 1
@@ -273,3 +313,11 @@ aax param entry 3 id "3" automatable 1
 aax param entry 4 id "4" automatable 1
 aax param entry 5 id "1ad55026" automatable 0
 aax param entry 6 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Jlg1"
+clap param 0 entry 0 id 2945903597 flags 0x20 min 0 max 1 default 0.404752135 module ""
+clap param 1 entry 1 id 3357091 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 2685373249 flags 0x21 min 0 max 1 default 1 module ""
+clap param 3 entry 3 id 3483977089 flags 0x20 min 0 max 1 default 0.466666669 module ""
+clap param 4 entry 4 id 2887708232 flags 0x20 min 0 max 1 default 0.00199999986 module "Envelope"
+clap param 5 entry 5 id 651215103 flags 0x0 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0

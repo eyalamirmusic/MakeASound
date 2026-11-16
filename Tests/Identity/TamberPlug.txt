@@ -70,6 +70,18 @@ aax param entry 6 id "5934bf79" automatable 1
 aax param entry 7 id "0b2599c7" automatable 1
 aax param entry 8 id "1c87ecbe" automatable 1
 aax param entry 9 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Svf1"
+clap param 0 entry 0 id 683117885 flags 0x21 min 0 max 1 default 0 module "HP"
+clap param 1 entry 1 id 775432387 flags 0x20 min 0 max 1 default 0.232989997 module "HP"
+clap param 2 entry 2 id 1379585250 flags 0x20 min 0 max 1 default 0.200000003 module "HP"
+clap param 3 entry 3 id 664886655 flags 0x21 min 0 max 1 default 0 module "BP"
+clap param 4 entry 4 id 1545060885 flags 0x20 min 0 max 1 default 0.56632334 module "BP"
+clap param 5 entry 5 id 1678901360 flags 0x20 min 0 max 1 default 0.200000003 module "BP"
+clap param 6 entry 6 id 1496629113 flags 0x21 min 0 max 1 default 1 module "LP"
+clap param 7 entry 7 id 187013575 flags 0x20 min 0 max 1 default 0.725363731 module "LP"
+clap param 8 entry 8 id 478670014 flags 0x20 min 0 max 1 default 0.200000003 module "LP"
+clap param 9 entry 9 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Chorus" code Chr1 scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Input Level" key "Input Level" hint 1 automatable 1 session 0 bypass no hostId 1478329769 address 1478329769 identifier "Input Level" aaxId "581d85a9" groups {}
@@ -140,6 +152,20 @@ aax param entry 8 id "5f83f6d6" automatable 1
 aax param entry 9 id "3c945c01" automatable 1
 aax param entry 10 id "34540dcd" automatable 1
 aax param entry 11 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Chr1"
+clap param 0 entry 0 id 1478329769 flags 0x10021 min 0 max 1 default 0 module ""
+clap param 1 entry 1 id 461402910 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 595907114 flags 0x20 min 0 max 1 default 0 module ""
+clap param 3 entry 3 id 783280263 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 4 entry 4 id 1404369322 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 5 entry 5 id 1245253519 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 6 entry 6 id 1397651250 flags 0x10021 min 0 max 1 default 0 module ""
+clap param 7 entry 7 id 376431897 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 8 entry 8 id 1602483926 flags 0x20 min 0 max 1 default 1 module ""
+clap param 9 entry 9 id 1016355841 flags 0x20 min 0 max 1 default 1 module ""
+clap param 10 entry 10 id 877923789 flags 0x21 min 0 max 1 default 0 module ""
+clap param 11 entry 11 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "SVFFilter" code Svf1 scheme TamberPlug category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "HP/Enable" key "Enable" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "HP/Enable" aaxId "00000000" groups {[HP|HP]}
@@ -198,6 +224,18 @@ aax param entry 6 id "00000006" automatable 1
 aax param entry 7 id "00000007" automatable 1
 aax param entry 8 id "00000008" automatable 1
 aax param entry 9 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Svf1"
+clap param 0 entry 0 id 0 flags 0x21 min 0 max 1 default 0 module "HP"
+clap param 1 entry 1 id 1 flags 0x20 min 0 max 1 default 0.232989997 module "HP"
+clap param 2 entry 2 id 2 flags 0x20 min 0 max 1 default 0.200000003 module "HP"
+clap param 3 entry 3 id 3 flags 0x21 min 0 max 1 default 0 module "BP"
+clap param 4 entry 4 id 4 flags 0x20 min 0 max 1 default 0.56632334 module "BP"
+clap param 5 entry 5 id 5 flags 0x20 min 0 max 1 default 0.200000003 module "BP"
+clap param 6 entry 6 id 6 flags 0x21 min 0 max 1 default 1 module "LP"
+clap param 7 entry 7 id 7 flags 0x20 min 0 max 1 default 0.725363731 module "LP"
+clap param 8 entry 8 id 8 flags 0x20 min 0 max 1 default 0.200000003 module "LP"
+clap param 9 entry 9 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Chorus" code Chr1 scheme TamberPlug category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Input Level" key "Input Level" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Input Level" aaxId "00000000" groups {}
@@ -266,6 +304,20 @@ aax param entry 8 id "00000008" automatable 1
 aax param entry 9 id "00000009" automatable 1
 aax param entry 10 id "0000000a" automatable 1
 aax param entry 11 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Chr1"
+clap param 0 entry 0 id 0 flags 0x10021 min 0 max 1 default 0 module ""
+clap param 1 entry 1 id 1 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 2 id 2 flags 0x20 min 0 max 1 default 0 module ""
+clap param 3 entry 3 id 3 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 4 entry 4 id 4 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 5 entry 5 id 5 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 6 entry 6 id 6 flags 0x10021 min 0 max 1 default 0 module ""
+clap param 7 entry 7 id 7 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 8 entry 8 id 8 flags 0x20 min 0 max 1 default 1 module ""
+clap param 9 entry 9 id 9 flags 0x20 min 0 max 1 default 1 module ""
+clap param 10 entry 10 id 10 flags 0x21 min 0 max 1 default 0 module ""
+clap param 11 entry 11 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Sparse" code Sprs scheme TamberPlug category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Level" key "Level" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Level" aaxId "00000000" groups {}
@@ -291,3 +343,8 @@ aax native 2:0x53707275
 aax param entry 0 id "00000000" automatable 1
 aax param entry 2 id "00000002" automatable 1
 aax param entry 3 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Sprs"
+clap param 0 entry 0 id 0 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 1 entry 2 id 2 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 2 entry 3 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0

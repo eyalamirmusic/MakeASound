@@ -35,6 +35,13 @@ aax param entry 1 id "Cutoff" automatable 1
 aax param entry 2 id "Mode" automatable 1
 aax param entry 3 id "MasterBypassID" automatable 1
 aax param entry 4 id "Width" automatable 1
+clap plugin "com.makeasound.tests.Gnul"
+clap param 0 entry 0 id 2211743 flags 0x20 min 0 max 1 default 0.833333313 module ""
+clap param 1 entry 1 id 2029770765 flags 0x20 min 0 max 1 default 0.549002707 module "Filter"
+clap param 2 entry 2 id 2403779 flags 0x20 min 0 max 1 default 0 module ""
+clap param 3 entry 3 id 2004703496 flags 0x31 min 0 max 1 default 0 module ""
+clap param 4 entry 4 id 83574182 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Listed Bypass Gain" code Gnli scheme JUCE category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
@@ -72,3 +79,10 @@ aax param entry 1 id "Cutoff" automatable 1
 aax param entry 2 id "Mode" automatable 1
 aax param entry 3 id "MasterBypassID" automatable 1
 aax param entry 4 id "Width" automatable 1
+clap plugin "com.makeasound.tests.Gnli"
+clap param 0 entry 0 id 2211743 flags 0x20 min 0 max 1 default 0.833333313 module ""
+clap param 1 entry 1 id 2029770765 flags 0x20 min 0 max 1 default 0.549002707 module "Filter"
+clap param 2 entry 2 id 2403779 flags 0x20 min 0 max 1 default 0 module ""
+clap param 3 entry 3 id 2004703496 flags 0x31 min 0 max 1 default 0 module ""
+clap param 4 entry 4 id 83574182 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0

@@ -11,6 +11,11 @@
 #   VST3        the adapter driven as a DAW drives it: busy blocks of automation,
 #               notes, mapped controllers and a transport, reconfigured and
 #               offline; setParamNormalized; the plugin's own moves; a held edit.
+#   CLAP        the adapter driven through its C API as a host drives it: busy
+#               blocks of values, notes, MIDI and a transport, reactivated and
+#               offline; params.flush; the plugin's own moves; editor gestures,
+#               held while processing and flushed while not (with
+#               MAKEASOUND_BUILD_CLAP).
 #   AU          the module's AU entry built into a test archive and registered
 #               in process, driven through AudioToolbox: busy renders, re-init,
 #               held parameters, the plugin's own moves (macOS).
@@ -83,6 +88,11 @@ function(makeasound_add_allocation_tests plugin)
     if ("VST3" IN_LIST formats AND TARGET MakeASoundVST3)
         list(APPEND sources "${dir}/PluginAllocations/VST3.cpp")
         list(APPEND links MakeASoundVST3 vst3sdk-hosting)
+    endif ()
+
+    if ("CLAP" IN_LIST formats AND TARGET MakeASoundCLAP)
+        list(APPEND sources "${dir}/PluginAllocations/CLAP.cpp")
+        list(APPEND links MakeASoundCLAP)
     endif ()
 
     if ("Standalone" IN_LIST formats AND TARGET MakeASoundStandaloneCore)

@@ -174,6 +174,19 @@ if (MAKEASOUND_BUILD_PLUGIN)
         endif ()
     endif ()
 
+    # The CLAP adapter hosted in-process through its C API, and the module's entry
+    # compiled in under a bundle id of the tests' own, so clap_entry serves
+    # PluginTests.cpp's describeModule(). Out of unity: its definition is its own.
+    if (TARGET MakeASoundCLAP)
+        get_target_property(clap_entry MakeASoundCLAP MAKEASOUND_CLAP_ENTRY)
+        list(APPEND MAKEASOUND_TEST_SOURCES
+                CLAPTests.cpp IdentityManifestCLAP.cpp "${clap_entry}")
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundCLAP)
+        set_source_files_properties("${clap_entry}" PROPERTIES
+                COMPILE_DEFINITIONS MAKEASOUND_CLAP_BUNDLE_ID="com.makeasound.tests"
+                SKIP_UNITY_BUILD_INCLUSION ON)
+    endif ()
+
     # The AU adapter hosted in-process through AudioToolbox's C API. The suites
     # stay C++20 and include no adapter header; the module's entry point and view,
     # which include the C++23 SDK, build into a test-only archive that links the
@@ -445,6 +458,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     if (TARGET MakeASoundVST3)
         list(APPEND MAKEASOUND_TEST_SOURCES VST3AllocationTests.cpp)
+    endif ()
+
+    if (TARGET MakeASoundCLAP)
+        list(APPEND MAKEASOUND_TEST_SOURCES CLAPAllocationTests.cpp)
     endif ()
 
     if (TARGET MakeASoundAU)

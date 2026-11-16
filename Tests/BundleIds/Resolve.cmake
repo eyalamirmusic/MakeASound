@@ -21,7 +21,7 @@ endfunction()
 
 macro(clear_ids)
     foreach (variable BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID AAX_BUNDLE_ID
-            AUV3_APP_BUNDLE_ID)
+            CLAP_BUNDLE_ID AUV3_APP_BUNDLE_ID)
         unset(ARG_${variable})
     endforeach ()
 endmacro()
@@ -35,6 +35,7 @@ if (CASE STREQUAL "resolve")
     expect(ARG_AU_BUNDLE_ID "com.makeasound.myplugin.component")
     expect(ARG_AUV3_BUNDLE_ID "com.makeasound.myplugin.auv3")
     expect(ARG_AAX_BUNDLE_ID "com.makeasound.myplugin.aaxplugin")
+    expect(ARG_CLAP_BUNDLE_ID "com.makeasound.myplugin.clap")
 
     # BUNDLE_ID alone: its case kept, the suffixes appended.
     clear_ids()

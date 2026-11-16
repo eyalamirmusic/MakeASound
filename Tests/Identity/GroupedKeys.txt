@@ -32,6 +32,12 @@ aax param entry 0 id "Gain" automatable 1
 aax param entry 1 id "Drive-Filter-Amount" automatable 1
 aax param entry 2 id "Drive-Filter-EQ-Low" automatable 1
 aax param entry 3 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Grpd"
+clap param 0 entry 0 id 2211743 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 1 entry 1 id 3305049386 flags 0x20 min 0 max 1 default 0.5 module "Drive-Filter"
+clap param 2 entry 2 id 3391701829 flags 0x20 min 0 max 1 default 0.5 module "Drive-Filter/EQ"
+clap param 3 entry 3 id 2004703496 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Grouped Leaf Keys" code Grpl scheme JUCE category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
@@ -66,6 +72,12 @@ aax param entry 0 id "Gain" automatable 1
 aax param entry 1 id "Amount" automatable 1
 aax param entry 2 id "Low" automatable 1
 aax param entry 3 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Grpl"
+clap param 0 entry 0 id 2211743 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 1 entry 1 id 1964981368 flags 0x20 min 0 max 1 default 0.5 module "Drive-Filter"
+clap param 2 entry 2 id 76596 flags 0x20 min 0 max 1 default 0.5 module "Drive-Filter/EQ"
+clap param 3 entry 3 id 2004703496 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Grouped Native" code Grpn scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 461402910 address 461402910 identifier "Gain" aaxId "1b80731e" groups {}
@@ -100,6 +112,12 @@ aax param entry 0 id "1b80731e" automatable 1
 aax param entry 1 id "27974f89" automatable 1
 aax param entry 2 id "060b1826" automatable 1
 aax param entry 3 id "34540dcd" automatable 1
+clap plugin "com.makeasound.tests.Grpn"
+clap param 0 entry 0 id 461402910 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 1 entry 1 id 664227721 flags 0x20 min 0 max 1 default 0.5 module "Drive-Filter"
+clap param 2 entry 2 id 101390374 flags 0x20 min 0 max 1 default 0.5 module "Drive-Filter/EQ"
+clap param 3 entry 3 id 877923789 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Twin Groups" code Twng scheme JUCE category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core overrides indexedThroughVersion -1 declaredBypassInAU Unlisted juceKeyGroupSeparator '-'
@@ -172,6 +190,18 @@ aax param entry 6 id "MasterFilter-Reso" automatable 1
 aax param entry 7 id "MasterFilter-EQ-Low" automatable 1
 aax param entry 8 id "MasterFilter-EQ-High" automatable 1
 aax param entry 9 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Twng"
+clap param 0 entry 0 id 2373 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 1 entry 1 id 2533999288 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter"
+clap param 2 entry 2 id 3077925210 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter"
+clap param 3 entry 3 id 2555862334 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter/EQ"
+clap param 4 entry 4 id 1922195704 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter/EQ"
+clap param 5 entry 5 id 980376736 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter"
+clap param 6 entry 6 id 600333634 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter"
+clap param 7 entry 7 id 1002239782 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter/EQ"
+clap param 8 entry 8 id 1004536848 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter/EQ"
+clap param 9 entry 9 id 2004703496 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Twin Groups Native" code Twnn scheme Native category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "In" key "In" hint 1 automatable 1 session 0 bypass no hostId 1088997566 address 1088997566 identifier "In" aaxId "40e8c8be" groups {}
@@ -244,3 +274,15 @@ aax param entry 6 id "57e15285" automatable 1
 aax param entry 7 id "71d30e61" automatable 1
 aax param entry 8 id "142bfa5d" automatable 1
 aax param entry 9 id "34540dcd" automatable 1
+clap plugin "com.makeasound.tests.Twnn"
+clap param 0 entry 0 id 1088997566 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 1 entry 1 id 1054430807 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter"
+clap param 2 entry 2 id 557378441 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter"
+clap param 3 entry 3 id 1486085965 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter/EQ"
+clap param 4 entry 4 id 374443457 flags 0x20 min 0 max 1 default 0.5 module "DriveFilter/EQ"
+clap param 5 entry 5 id 312825867 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter"
+clap param 6 entry 6 id 1474384517 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter"
+clap param 7 entry 7 id 1909657185 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter/EQ"
+clap param 8 entry 8 id 338426461 flags 0x20 min 0 max 1 default 0.5 module "MasterFilter/EQ"
+clap param 9 entry 9 id 877923789 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0

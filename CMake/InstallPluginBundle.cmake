@@ -1,6 +1,7 @@
 # cmake -D SOURCE=<bundle> -D DEST_DIR=<folder> -P InstallPluginBundle.cmake
 #
-# Copies a built plug-in bundle into the user's plug-in folder, replacing the one
+# Copies a built plug-in bundle (or single-file plug-in) into the user's plug-in
+# folder, replacing the one
 # there. Best effort: a folder that cannot be written is a warning, never a failed
 # build, because the bundle in the build tree is already complete.
 
@@ -23,10 +24,13 @@ execute_process(
         RESULT_VARIABLE removed
         ERROR_QUIET)
 
+# A single-file plug-in (a .clap off macOS) is copied as the file it is.
 if (CMAKE_HOST_APPLE)
     set(copy_bundle ditto)
-else ()
+elseif (IS_DIRECTORY "${SOURCE}")
     set(copy_bundle "${CMAKE_COMMAND}" -E copy_directory)
+else ()
+    set(copy_bundle "${CMAKE_COMMAND}" -E copy)
 endif ()
 
 execute_process(
