@@ -35,6 +35,13 @@ aax param entry 1 id "6a3793ed" automatable 1
 aax param entry 2 id "534e7732" automatable 1
 aax param entry 3 id "3b42dfbf" automatable 1
 aax param entry 4 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Gnub"
+clap param 0 entry 0 id 461402910 flags 0x20 min 0 max 1 default 0.833333313 module ""
+clap param 1 entry 1 id 1782027245 flags 0x20 min 0 max 1 default 0.549002707 module "Filter"
+clap param 2 entry 2 id 1397651250 flags 0x10021 min 0 max 2 default 0 module ""
+clap param 3 entry 3 id 994238399 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 4 entry 4 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0
 plugin "Unbypassed Gain" code Gnub scheme JUCE category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 2211743 address 74151583 identifier "Gain" aaxId "Gain" groups {}
@@ -71,6 +78,12 @@ aax param entry 1 id "Cutoff" automatable 1
 aax param entry 2 id "Mode" automatable 1
 aax param entry 3 id "Width" automatable 1
 aax param entry 4 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Gnub"
+clap param 0 entry 0 id 2211743 flags 0x20 min 0 max 1 default 0.833333313 module ""
+clap param 1 entry 1 id 2029770765 flags 0x20 min 0 max 1 default 0.549002707 module "Filter"
+clap param 2 entry 2 id 2403779 flags 0x20 min 0 max 1 default 0 module ""
+clap param 3 entry 3 id 83574182 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Unbypassed Gain" code Gnub scheme JUCELegacyIndex category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Gain" aaxId "0" groups {}
@@ -107,6 +120,12 @@ aax param entry 1 id "1" automatable 1
 aax param entry 2 id "2" automatable 1
 aax param entry 3 id "3" automatable 1
 aax param entry 4 id "MasterBypassID" automatable 1
+clap plugin "com.makeasound.tests.Gnub"
+clap param 0 entry 0 id 2211743 flags 0x20 min 0 max 1 default 0.833333313 module ""
+clap param 1 entry 1 id 2029770765 flags 0x20 min 0 max 1 default 0.549002707 module "Filter"
+clap param 2 entry 2 id 2403779 flags 0x20 min 0 max 1 default 0 module ""
+clap param 3 entry 3 id 83574182 flags 0x20 min 0 max 1 default 0.5 module ""
+clap ports audio 1/1 note 0/0
 plugin "Unbypassed Gain" code Gnub scheme TamberPlug category Effect
 core juce studioOne 1 legacyAutomation 0 replaceVst2 1 midiControllers 0
 core entry 0 "Gain" key "Gain" hint 1 automatable 1 session 0 bypass no hostId 0 address 0 identifier "Gain" aaxId "00000000" groups {}
@@ -140,3 +159,10 @@ aax param entry 1 id "00000001" automatable 1
 aax param entry 2 id "00000002" automatable 1
 aax param entry 3 id "00000003" automatable 1
 aax param entry 4 id "54d1526f" automatable 1
+clap plugin "com.makeasound.tests.Gnub"
+clap param 0 entry 0 id 0 flags 0x20 min 0 max 1 default 0.833333313 module ""
+clap param 1 entry 1 id 1 flags 0x20 min 0 max 1 default 0.549002707 module "Filter"
+clap param 2 entry 2 id 2 flags 0x10021 min 0 max 2 default 0 module ""
+clap param 3 entry 3 id 3 flags 0x20 min 0 max 1 default 0.5 module ""
+clap param 4 entry 4 id 1423004271 flags 0x31 min 0 max 1 default 0 module ""
+clap ports audio 1/1 note 0/0

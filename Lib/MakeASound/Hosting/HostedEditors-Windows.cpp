@@ -1,5 +1,6 @@
 #include "../Plugin/VST3/VST3Common.h"
 #include "HostedEditor.h"
+#include "HostedEditorsCLAP.h"
 #include "VST3/HostedVST3Editor.h"
 #include "VST3/VST3HostedPlugin.h"
 
@@ -12,7 +13,10 @@ HostedEditorFactory hostedEditors()
     {
         auto* vst3 = dynamic_cast<VST3HostedPlugin*>(&plugin);
 
-        if (vst3 == nullptr || vst3->editController() == nullptr)
+        if (vst3 == nullptr)
+            return hostedCLAPEditor(plugin);
+
+        if (vst3->editController() == nullptr)
             return {};
 
         return HostedVST3Editor::create(

@@ -89,7 +89,8 @@ auto tDefaults = test("HostingAUScan/theDefaultFormatsAreVST3ThenAU") = []
 {
     const auto formats = DefaultFormats();
 
-    check(formats.size() == 2);
+    // CLAP after them, in a build that hosts it.
+    check(formats.size() == (formats.find(PluginFormat::CLAP) != nullptr ? 3 : 2));
     check(formats[0].format() == PluginFormat::VST3);
     check(formats[1].format() == PluginFormat::AU);
     check(formats.findForTarget(appleDelay) == &formats[1]);

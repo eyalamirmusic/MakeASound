@@ -262,6 +262,33 @@ enum class Vst3ControllerLayout
     JuceContiguous
 };
 
+// The CLAP clap_id of an entry (ParameterList::Entry::clapId).
+enum class ClapIdRule
+{
+    // The host id (Entry::hostId), the VST3 ParamID, a pinned one included.
+    HostId,
+
+    // clap-juce-extensions': (uint32) String::hashCode of the hostKey, never
+    // masked to 31 bits and never an index, under either JUCE profile, and
+    // regardless of a pinned VST3 host id.
+    JuceKeyHash
+};
+
+// The range a CLAP host sees for an entry, and which entries are stepped.
+enum class ClapValueSpace
+{
+    // A parameter whose steps are the whole numbers from its minValue to its
+    // maxValue (an int, a choice, a bool; Parameter::numSteps() equal to the
+    // span) publishes that plain range, CLAP_PARAM_IS_STEPPED, a choice also
+    // CLAP_PARAM_IS_ENUM. Any other, a stepped float off the whole-number grid
+    // included, publishes its normalized value 0..1, unstepped.
+    Native,
+
+    // clap-juce-extensions': every parameter 0..1 normalized, and only a
+    // boolean one (Parameter::isBoolean) CLAP_PARAM_IS_STEPPED.
+    JuceNormalized
+};
+
 // JUCE's first MIDI controller parameter id, 'mcm' << 8.
 constexpr uint32_t juceMidiControllerBase = 0x6d636d00u;
 
@@ -358,6 +385,14 @@ struct ParameterIdentity
     // them wins over the controller; identityProblems() lists it.
     Vst3Controllers vst3Controllers = {};
     bool vst3MidiControllers = false;
+
+    // The CLAP adapter's rules: each entry's clap_id, the range and steps it
+    // publishes, and whether a CLAP host sees the bypass PluginWrapper adds
+    // (with CLAP_PARAM_IS_BYPASS where Listed; clap-juce-extensions added none,
+    // so a JUCE profile leaves it Unlisted). A declared bypass is always listed.
+    ClapIdRule clapIds = ClapIdRule::HostId;
+    ClapValueSpace clapValues = ClapValueSpace::Native;
+    BypassPlacement addedBypassInCLAP = BypassPlacement::Listed;
 
     // Whether a pinned host id (ParameterOptions::hostId) may use all 32 bits.
     // Off, one at 2^31 or above is reported, since VST3 reserves that range for

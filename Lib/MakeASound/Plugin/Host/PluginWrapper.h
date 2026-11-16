@@ -15,7 +15,7 @@ namespace MakeASound
 // In order: parameters (the setters, or pushParameterChange then
 //   applyParameterChanges), setPlayhead and setOffline,
 //   clearMidi/pushMidiIn/sortMidiInByOffset, bindInput/bindOutput per bus,
-//   process(), drain midiOut().
+//   process(), optionally sortMidiOutByOffset, drain midiOut().
 //
 // An effect that declares no bypass parameter gets one here (under a JUCE
 // IdScheme, any plugin, instruments included, as JUCE's wrappers do): a
@@ -158,6 +158,11 @@ public:
     // Stable, so an adapter merging several host sources keeps a note-off ahead
     // of a note-on at the same offset.
     void sortMidiInByOffset() noexcept;
+
+    // Audio thread, after process(): each MIDI out bus in time order, stably and
+    // in place, for a format whose host wants a sorted list (CLAP). The plugin
+    // core does not order what a plugin writes.
+    void sortMidiOutByOffset() noexcept;
 
     const Vector<MIDI::Buffer>& midiOut() const noexcept { return context.midiOut; }
 

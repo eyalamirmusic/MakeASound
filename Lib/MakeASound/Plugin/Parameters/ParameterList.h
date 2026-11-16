@@ -140,6 +140,14 @@ public:
         // declaredBypassInAU) is BypassPlacement::Unlisted.
         bool listedInAU = true;
 
+        // The CLAP clap_id, by ClapIdRule: the host id, or String::hashCode of
+        // the hostKey, unmasked.
+        uint32_t clapId = 0;
+
+        // False only for the added bypass under addedBypassInCLAP Unlisted. A
+        // CLAP host sees an entry that is registered (isRegistered) and listed.
+        bool listedInCLAP = true;
+
         // Under ParamIdRule::Index, an entry added after the port: its
         // versionHint is past ParameterIdentity::indexedThroughVersion. It takes
         // FNV-1a of its path for every id an index would give, counts toward no
@@ -210,6 +218,10 @@ public:
     // one as not automatable, as JUCE's wrappers do). Bounds-tolerant.
     bool isRegistered(int index) const noexcept;
 
+    // Whether the CLAP adapter lists the entry: registered, and listedInCLAP.
+    // Bounds-tolerant.
+    bool isListedInCLAP(int index) const noexcept;
+
     // The first host-exposed entry whose parameter isBypass(), -1 when none.
     int bypassIndex() const noexcept { return bypass; }
 
@@ -244,6 +256,7 @@ private:
     void indexHostIds();
     void findBypass();
     void findDuplicateHostIds(Vector<std::string>& problems) const;
+    void findDuplicateClapIds(Vector<std::string>& problems) const;
     Vector<std::string> problemsWith(bool controllerClashes) const;
 
     // Among the VST3 MIDI controller parameters' ids, where there are any.

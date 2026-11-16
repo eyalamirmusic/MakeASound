@@ -64,6 +64,8 @@ option(MAKEASOUND_BUILD_EXAMPLES
 option(MAKEASOUND_INSTALL_PLUGINS "Copy each built plug-in bundle into the user's plug-in folder" ON)
 option(MAKEASOUND_BUILD_AAX
        "Fetch Avid's AAX SDK and build the AAX format (macOS, Windows x64; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
+option(MAKEASOUND_BUILD_CLAP
+       "Fetch the CLAP headers (MIT) and build the CLAP format (desktop; needs MAKEASOUND_BUILD_PLUGIN)" OFF)
 
 # PACE signing of each AAX bundle after it builds, on when wraptool is there, the
 # identity is set and the plugin names its AAX_WCGUID. No password is passed:
@@ -176,7 +178,8 @@ if (PROJECT_IS_TOP_LEVEL)
     cmake_language(DEFER CALL makeasound_group_external_targets)
 endif ()
 
-# The vendored VST3 SDK and, on macOS, the fetched AudioUnitSDK; see ThirdParty/README.md.
+# The vendored VST3 SDK, the fetched CLAP headers and, on macOS, the fetched
+# AudioUnitSDK; see ThirdParty/README.md.
 if (MAKEASOUND_BUILD_PLUGIN AND NOT MAKEASOUND_DESCRIBE_BUILD)
     add_subdirectory(ThirdParty)
 endif ()

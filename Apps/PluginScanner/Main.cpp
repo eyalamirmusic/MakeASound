@@ -80,9 +80,11 @@ int sweep(const FormatManager& formats, ScanSessionOptions options)
                          plan.cachePath.c_str());
 
         std::fprintf(stderr,
-                     "PluginScanner: %d VST3 module(s) in %d folder(s), %d Audio "
-                     "Unit(s); %d cached, %d to scan; %d worker(s), %d ms timeout\n",
+                     "PluginScanner: %d VST3 and %d CLAP module(s) in %d "
+                     "folder(s), %d Audio Unit(s); %d cached, %d to scan; %d "
+                     "worker(s), %d ms timeout\n",
                      plan.targetsOf(PluginFormat::VST3),
+                     plan.targetsOf(PluginFormat::CLAP),
                      plan.folders,
                      plan.targetsOf(PluginFormat::AU),
                      plan.cached,

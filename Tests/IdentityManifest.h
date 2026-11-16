@@ -4,8 +4,8 @@
 // stable line each, so a golden copy (Tests/Identity/) catches any change to a
 // shipped identity. Each line starts with a tag: `plugin` and `core` lines come
 // from the SDK-free core, the rest from a format, whose TU adds its section only
-// where that format is built (IdentityManifestVST3.cpp, -AU, -AAX). A golden's
-// lines of a format this build lacks are left out of the comparison.
+// where that format is built (IdentityManifestVST3.cpp, -AU, -AAX, -CLAP). A
+// golden's lines of a format this build lacks are left out of the comparison.
 
 #include <MakeASound/Plugin/MakeASoundPlugin.h>
 

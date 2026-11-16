@@ -765,6 +765,12 @@ void PluginWrapper::sortMidiInByOffset() noexcept
         buffer.sortByOffset();
 }
 
+void PluginWrapper::sortMidiOutByOffset() noexcept
+{
+    for (auto& buffer: context.midiOut)
+        buffer.sortByOffset();
+}
+
 void PluginWrapper::bindInput(int bus,
                               const float* const* channels,
                               int numChannels,

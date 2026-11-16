@@ -1,5 +1,6 @@
 #include "../Plugin/VST3/VST3Common.h"
 #include "HostedEditor.h"
+#include "HostedEditorsCLAP.h"
 #include "AU/HostedAudioUnit.h"
 #include "AU/HostedAudioUnitEditor.h"
 #include "VST3/HostedVST3Editor.h"
@@ -26,7 +27,7 @@ HostedEditorFactory hostedEditors()
         if (auto* unit = dynamic_cast<HostedAudioUnit*>(&plugin))
             return EA::makeOwned<HostedAudioUnitEditor>(unit->audioUnit());
 
-        return {};
+        return hostedCLAPEditor(plugin);
     };
 }
 

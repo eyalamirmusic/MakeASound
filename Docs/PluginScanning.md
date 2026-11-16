@@ -17,7 +17,7 @@ runs in the host's own process, as ordinary objects with callbacks:
 
 | piece | what it does | where |
 | --- | --- | --- |
-| `FormatManager` | the formats this host knows (VST3; AU on macOS), how a target is claimed, stamped and scanned | host |
+| `FormatManager` | the formats this host knows (VST3; AU on macOS; CLAP with `MAKEASOUND_BUILD_CLAP`), how a target is claimed, stamped and scanned | host |
 | `ScanSession` | one sweep: discover, plan against the cache, scan what changed, save | host |
 | `ScanCoordinator` | the worker pool: N children at a time, a timeout each, every failure turned into a result | host |
 | `PluginCache` | the database, its blacklist, and the JSON file | host |
@@ -53,7 +53,7 @@ has the same pair.
 The folders a sweep walks are its formats' `defaultSearchFolders()` (unless
 `useDefaultFolders` is off) plus `searchFolders`, resolved in the host when the
 sweep starts; a worker is handed one target and never reads them, so `VST3_PATH`
-on Linux needs to be set only in the host's environment.
+on Linux and `CLAP_PATH` need to be set only in the host's environment.
 
 `ScanMode::InProcess` runs the same scans on a background thread of the host, with
 no isolation at all. It exists for tests and for stepping through a format in a

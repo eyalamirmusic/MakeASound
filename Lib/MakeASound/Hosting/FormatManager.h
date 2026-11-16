@@ -33,7 +33,7 @@ struct TargetScan
 // rather than by which object files the linker kept.
 //
 //     auto formats = FormatManager();
-//     formats.addDefaultFormats();   // VST3, plus Audio Units on macOS
+//     formats.addDefaultFormats();   // VST3, Audio Units on macOS, CLAP
 //
 // Message thread. The manager must outlive whatever it is handed to.
 class FormatManager
@@ -49,8 +49,9 @@ public:
     // replaces the first, keeping the first one's place in the claiming order.
     void add(OwningPointer<HostFormat> formatToAdd);
 
-    // Every format this platform hosts, in claiming order. Defined per platform
-    // (DefaultFormats-<os>.cpp).
+    // Every format this platform hosts, in claiming order: VST3, then Audio Units
+    // on macOS, then CLAP where the build hosts it (MAKEASOUND_BUILD_CLAP, on the
+    // desktop). Defined per platform (DefaultFormats-<os>.cpp).
     void addDefaultFormats();
 
     int size() const noexcept;

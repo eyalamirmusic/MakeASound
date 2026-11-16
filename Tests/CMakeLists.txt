@@ -174,6 +174,45 @@ if (MAKEASOUND_BUILD_PLUGIN)
         endif ()
     endif ()
 
+    # The CLAP adapter hosted in-process through its C API, and the module's entry
+    # compiled in under a bundle id of the tests' own, so clap_entry serves
+    # PluginTests.cpp's describeModule(). Out of unity: its definition is its own.
+    if (TARGET MakeASoundCLAP)
+        get_target_property(clap_entry MakeASoundCLAP MAKEASOUND_CLAP_ENTRY)
+        list(APPEND MAKEASOUND_TEST_SOURCES
+                CLAPTests.cpp IdentityManifestCLAP.cpp "${clap_entry}")
+        list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundCLAP)
+        set_source_files_properties("${clap_entry}" PROPERTIES
+                COMPILE_DEFINITIONS MAKEASOUND_CLAP_BUNDLE_ID="com.makeasound.tests"
+                SKIP_UNITY_BUILD_INCLUSION ON)
+
+        # The gui, where the adapter has one (the same condition as its own),
+        # and each platform's window API, scaling and native parent window: an
+        # NSView, a hidden Win32 popup, an X11 window over xcb.
+        if (TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+            if (APPLE)
+                set(clap_gui_platform CLAPGuiTests-macOS.mm)
+                set_source_files_properties(CLAPGuiTests-macOS.mm PROPERTIES
+                        COMPILE_OPTIONS -fobjc-arc)
+            elseif (WIN32)
+                set(clap_gui_platform CLAPGuiTests-Windows.cpp)
+
+                # Out of unity: its windows.h defines near/far/min/max for every
+                # file after it in the batch.
+                set_source_files_properties(CLAPGuiTests-Windows.cpp PROPERTIES
+                        SKIP_UNITY_BUILD_INCLUSION ON)
+            else ()
+                set(clap_gui_platform CLAPGuiTests-Linux.cpp)
+                find_package(PkgConfig REQUIRED)
+                pkg_check_modules(MAKEASOUND_TEST_XCB REQUIRED IMPORTED_TARGET xcb)
+                list(APPEND MAKEASOUND_TEST_TARGETS PkgConfig::MAKEASOUND_TEST_XCB)
+            endif ()
+
+            list(APPEND MAKEASOUND_TEST_SOURCES CLAPGuiTests.cpp ${clap_gui_platform})
+            list(APPEND MAKEASOUND_TEST_TARGETS eacp-graphics)
+        endif ()
+    endif ()
+
     # The AU adapter hosted in-process through AudioToolbox's C API. The suites
     # stay C++20 and include no adapter header; the module's entry point and view,
     # which include the C++23 SDK, build into a test-only archive that links the
@@ -320,6 +359,45 @@ if (MAKEASOUND_BUILD_PLUGIN)
             list(APPEND MAKEASOUND_TEST_SOURCES HostingVST3ScanTests.cpp HostedVST3Tests.cpp)
             set(MAKEASOUND_TEST_HOST_FIXTURES ON)
 
+            # The same fixtures as CLAP modules, where the hosting library scans
+            # CLAP (the clap headers are there) and the adapter builds them.
+            if (TARGET MakeASoundCLAP AND TARGET clap)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostingCLAPScanTests.cpp
+                        HostedCLAPTests.cpp)
+                set(MAKEASOUND_TEST_HOST_FIXTURES_CLAP ON)
+
+                # clap.posix-fd-support, which the host offers on Linux only.
+                if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                    list(APPEND MAKEASOUND_TEST_SOURCES HostedCLAPTests-Linux.cpp)
+                endif ()
+
+                # Hosted CLAP editors, where the fixtures have GUIs: windowless
+                # everywhere, and in a window on macOS (a plain NSView), Windows
+                # (an eacp window) and Linux (an X11 window, with the VST3 editor
+                # suite below).
+                if (TARGET MakeASoundHostedEditor AND TARGET MakeASoundPluginUI)
+                    list(APPEND MAKEASOUND_TEST_SOURCES HostedCLAPEditorTests.cpp)
+                    list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHostedEditor)
+                    set(MAKEASOUND_TEST_CLAP_EDITORS ON)
+
+                    if (APPLE)
+                        list(APPEND MAKEASOUND_TEST_SOURCES
+                                HostedCLAPEditorTests-macOS.mm)
+                        set_source_files_properties(HostedCLAPEditorTests-macOS.mm
+                                PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+                    elseif (WIN32)
+                        list(APPEND MAKEASOUND_TEST_SOURCES
+                                HostedCLAPEditorTests-Windows.cpp)
+                        list(APPEND MAKEASOUND_TEST_TARGETS eacp-graphics)
+
+                        # Out of unity: its windows.h defines near/far/min/max
+                        # for every file after it in the batch.
+                        set_source_files_properties(HostedCLAPEditorTests-Windows.cpp
+                                PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+                    endif ()
+                endif ()
+            endif ()
+
             # Apps/PluginScanner, run as a program over the fixtures.
             if (TARGET PluginScanner)
                 list(APPEND MAKEASOUND_TEST_SOURCES HostingScannerAppTests.cpp)
@@ -350,6 +428,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
                     list(APPEND MAKEASOUND_TEST_TARGETS
                             MakeASoundHostedEditor eacp-graphics
                             PkgConfig::MAKEASOUND_TEST_XCB)
+
+                    if (MAKEASOUND_TEST_CLAP_EDITORS)
+                        list(APPEND MAKEASOUND_TEST_SOURCES
+                                HostedCLAPEditorTests-Linux.cpp)
+                    endif ()
                 endif ()
             endif ()
         endif ()
@@ -447,6 +530,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND MAKEASOUND_TEST_SOURCES VST3AllocationTests.cpp)
     endif ()
 
+    if (TARGET MakeASoundCLAP)
+        list(APPEND MAKEASOUND_TEST_SOURCES CLAPAllocationTests.cpp)
+    endif ()
+
     if (TARGET MakeASoundAU)
         list(APPEND MAKEASOUND_TEST_SOURCES AUAllocationTests.cpp)
     endif ()
@@ -462,6 +549,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     if (MAKEASOUND_TEST_HOST_FIXTURES)
         list(APPEND MAKEASOUND_TEST_SOURCES HostingAllocationTests.cpp)
+    endif ()
+
+    if (MAKEASOUND_TEST_HOST_FIXTURES_CLAP)
+        list(APPEND MAKEASOUND_TEST_SOURCES HostingCLAPAllocationTests.cpp)
     endif ()
 
     if (TARGET MakeASoundHosting AND TARGET MakeASoundAU)
@@ -488,6 +579,11 @@ nano_add_executable(MakeASoundTests
 # defines the cases it reads.
 set_property(DIRECTORY APPEND PROPERTY
         TEST_INCLUDE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/VirtualMidiPortLock.cmake")
+
+# Likewise the hosted editor cases, which share an X server whose DPI one of them
+# changes (see the file).
+set_property(DIRECTORY APPEND PROPERTY
+        TEST_INCLUDE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/HostedEditorLock.cmake")
 
 # Release LTO as every target of ours has: eacp's Release archives are LTO bitcode
 # under Clang, which a link without -flto cannot read.
@@ -526,6 +622,24 @@ if (MAKEASOUND_TEST_HOST_FIXTURES)
                 HostFixtureEffect-AU HostFixtureInstrument-AU)
         target_compile_definitions(MakeASoundTests PRIVATE
                 MAKEASOUND_HOST_FIXTURE_AU_DIR="${MAKEASOUND_HOST_FIXTURE_AU_DIR}")
+    endif ()
+endif ()
+
+if (MAKEASOUND_TEST_HOST_FIXTURES_CLAP)
+    add_dependencies(MakeASoundTests
+            HostFixtureEffect-CLAP HostFixtureInstrument-CLAP
+            HostFixtureScanCrash-CLAP HostFixtureScanHang-CLAP HostFixturePair-CLAP)
+    target_compile_definitions(MakeASoundTests PRIVATE
+            MAKEASOUND_HOST_FIXTURE_CLAP_DIR="${MAKEASOUND_HOST_FIXTURE_CLAP_DIR}")
+
+    # The instrument's editor, and the gui extension offering it, exist only
+    # with eacp graphics and the plugin UI.
+    if (TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+        target_compile_definitions(MakeASoundTests PRIVATE
+                MAKEASOUND_HOST_FIXTURE_CLAP_HAS_EDITOR=1)
+    else ()
+        target_compile_definitions(MakeASoundTests PRIVATE
+                MAKEASOUND_HOST_FIXTURE_CLAP_HAS_EDITOR=0)
     endif ()
 endif ()
 

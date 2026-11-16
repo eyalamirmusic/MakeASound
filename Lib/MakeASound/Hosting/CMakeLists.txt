@@ -1,6 +1,7 @@
 set(CMAKE_FOLDER Lib/Hosting)
 
-# MakeASoundHosting: scanning third-party plugins, in process or out of it, and the
+# MakeASoundHosting: scanning third-party plugins (VST3, Audio Units on macOS,
+# CLAP with MAKEASOUND_BUILD_CLAP), in process or out of it, and the
 # cache of what a scan found. Deliberately slim, so a scanner's worker process can
 # link it: eacp-core (processes, timers, files) and the format SDKs, and no
 # graphics. Hosted editors go in a library of their own.
@@ -88,6 +89,47 @@ else ()
     target_sources(MakeASoundHosting PRIVATE VST3/VST3RunLoop-Default.cpp)
 endif ()
 
+# CLAP, over the C API alone, where the headers are (MAKEASOUND_BUILD_CLAP, on
+# the desktop). No public hosting header includes them: CLAPFormat.h declares the
+# format, and addDefaultFormats() reaches it through DefaultFormatsCLAP-On.cpp,
+# or -Off.cpp where CLAP is not built.
+if (MAKEASOUND_BUILD_CLAP AND TARGET clap)
+    target_sources(MakeASoundHosting PRIVATE
+            CLAP/CLAPEvents.cpp
+            CLAP/CLAPFolders.cpp
+            CLAP/CLAPFormat.cpp
+            CLAP/CLAPHost.cpp
+            CLAP/CLAPHostedParameter.cpp
+            CLAP/CLAPHostedPlugin.cpp
+            CLAP/CLAPModule.cpp
+            CLAP/CLAPStreams.cpp
+            DefaultFormatsCLAP-On.cpp)
+
+    # macOS loads a .clap bundle through CFBundle; elsewhere it is the shared
+    # library itself, loaded through eacp. Only Linux offers a loaded plugin
+    # clap.posix-fd-support, over eacp's loop.
+    if (APPLE)
+        target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFdWatches-Default.cpp
+                CLAP/CLAPFolders-macOS.cpp
+                CLAP/CLAPModule-macOS.cpp)
+    elseif (WIN32)
+        target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFdWatches-Default.cpp
+                CLAP/CLAPFolders-Windows.cpp
+                CLAP/CLAPModule-Default.cpp)
+    else ()
+        target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFdWatches-Linux.cpp
+                CLAP/CLAPFolders-Linux.cpp
+                CLAP/CLAPModule-Default.cpp)
+    endif ()
+
+    target_link_libraries(MakeASoundHosting PRIVATE clap)
+else ()
+    target_sources(MakeASoundHosting PRIVATE DefaultFormatsCLAP-Off.cpp)
+endif ()
+
 target_link_libraries(MakeASoundHosting
         PUBLIC MakeASoundPlugin
         PRIVATE eacp-core vst3sdk-hosting)
@@ -129,6 +171,29 @@ if (TARGET eacp-graphics)
         target_sources(MakeASoundHostedEditor PRIVATE
                 HostedEditors-Linux.cpp
                 VST3/VST3EditorPlatform-Linux.cpp)
+    endif ()
+
+    # CLAP editors where the hosting library hosts CLAP: hostedEditors() reaches
+    # them through HostedEditorsCLAP-On.cpp, or -Off.cpp (none) elsewhere.
+    if (MAKEASOUND_BUILD_CLAP AND TARGET clap)
+        target_sources(MakeASoundHostedEditor PRIVATE
+                CLAP/HostedCLAPEditor.cpp
+                HostedEditorsCLAP-On.cpp)
+
+        if (APPLE)
+            target_sources(MakeASoundHostedEditor PRIVATE
+                    CLAP/CLAPEditorPlatform-macOS.cpp)
+        elseif (WIN32)
+            target_sources(MakeASoundHostedEditor PRIVATE
+                    CLAP/CLAPEditorPlatform-Windows.cpp)
+        else ()
+            target_sources(MakeASoundHostedEditor PRIVATE
+                    CLAP/CLAPEditorPlatform-Linux.cpp)
+        endif ()
+
+        target_link_libraries(MakeASoundHostedEditor PRIVATE clap)
+    else ()
+        target_sources(MakeASoundHostedEditor PRIVATE HostedEditorsCLAP-Off.cpp)
     endif ()
 
     target_link_libraries(MakeASoundHostedEditor

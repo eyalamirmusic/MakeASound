@@ -4,7 +4,7 @@
 #         [OUTPUT_NAME <display name>]
 #         [BUNDLE_ID <reverse.dns.id>]
 #         [VST3_BUNDLE_ID <id>] [AU_BUNDLE_ID <id>] [AUV3_BUNDLE_ID <id>]
-#         [AAX_BUNDLE_ID <id>]
+#         [AAX_BUNDLE_ID <id>] [CLAP_BUNDLE_ID <id>]
 #         [COMPANY <vendor>]
 #         [VERSION <x.y.z>]
 #         [AAX_WCGUID <PACE wrap configuration guid>]
@@ -24,7 +24,12 @@
 # built into <build>/AU/<OUTPUT_NAME>.component, whose Info.plist <Name>-AUPlistGen
 # writes from describeModule() after every link; and with MAKEASOUND_BUILD_AAX on
 # macOS or Windows x64 <Name>-AAX, a module built into
-# <build>/AAX/<OUTPUT_NAME>.aaxplugin. The company and display name go into eacp's embedded app info; the app's settings are filed under the module's
+# <build>/AAX/<OUTPUT_NAME>.aaxplugin; and with MAKEASOUND_BUILD_CLAP on the
+# desktop <Name>-CLAP, a module built as
+# <build>/CLAP/<OUTPUT_NAME>.clap: on macOS a bundle laid out by hand, its plist
+# configured here, elsewhere the shared library itself, named .clap, exporting
+# clap_entry alone, its plugin ids "<BUNDLE_ID>.<plugin code>" unless the
+# description names a clapId. The company and display name go into eacp's embedded app info; the app's settings are filed under the module's
 # vendor and the plugin's name. VERSION (default 1.0.0) is the app's and the
 # VST3 bundle's version string; a VST3 host reads the version from the factory
 # instead, and the AU bundle takes ModuleDescription::version. Every target
@@ -52,13 +57,15 @@
 #
 # BUNDLE_ID (default com.makeasound.<name>, lowercased) is the app's identifier,
 # and each plug-in bundle's is it plus the format's suffix: <BUNDLE_ID>.vst3,
-# .component, .auv3 and .aaxplugin, one per format, since the macOS Installer
-# resolves a package's components by bundle id. VST3_BUNDLE_ID, AU_BUNDLE_ID,
-# AUV3_BUNDLE_ID and AAX_BUNDLE_ID replace one format's whole identifier, for a
+# .component, .auv3, .aaxplugin and .clap, one per format, since the macOS
+# Installer resolves a package's components by bundle id. VST3_BUNDLE_ID,
+# AU_BUNDLE_ID, AUV3_BUNDLE_ID, AAX_BUNDLE_ID and CLAP_BUNDLE_ID replace one
+# format's whole identifier, for a
 # plugin ported from another framework whose installed bundles must keep the id
 # they shipped with. They set only the bundle's CFBundleIdentifier, and so its
-# code signature's identifier: the Objective-C class suffixes and the AAX effect
-# ids still derive from BUNDLE_ID, which is identity a host stores. An extension's
+# code signature's identifier: the Objective-C class suffixes, the AAX effect
+# ids and the CLAP plugin ids still derive from BUNDLE_ID, which is identity a
+# host stores. An extension's
 # identifier must extend its app's, so AUV3_BUNDLE_ID must begin with
 # <BUNDLE_ID>. (FATAL_ERROR otherwise).
 #
@@ -130,8 +137,8 @@ set(MAKEASOUND_DESCRIBE_CMAKE_ARGS "" CACHE STRING
 
 function(makeasound_add_plugin name)
     set(one_value OUTPUT_NAME BUNDLE_ID VST3_BUNDLE_ID AU_BUNDLE_ID AUV3_BUNDLE_ID
-            AAX_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER BUNDLE_DIRECTORY
-            AUV3_APP ORIENTATION)
+            AAX_BUNDLE_ID CLAP_BUNDLE_ID COMPANY VERSION AAX_WCGUID FOLDER
+            BUNDLE_DIRECTORY AUV3_APP ORIENTATION)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_AUDIO_INPUT;NO_INSTALL;HOSTS_PLUGINS"
             "${one_value}"
             "FORMATS;SOURCES;STANDALONE_SOURCES;STANDALONE_LIBRARIES;DEVICE_FAMILY")
@@ -353,6 +360,12 @@ function(makeasound_add_plugin name)
             endif ()
 
             _makeasound_add_aax(${name})
+        elseif (format STREQUAL "CLAP")
+            if (NOT TARGET MakeASoundCLAP)
+                continue()
+            endif ()
+
+            _makeasound_add_clap(${name})
         else ()
             message(FATAL_ERROR
                     "makeasound_add_plugin(${name}): unknown format '${format}'")
@@ -393,7 +406,7 @@ function(_makeasound_bundle_ids name)
         set(app_id "${ARG_BUNDLE_ID}")
     endif ()
 
-    foreach (pair VST3:vst3 AU:component AUV3:auv3 AAX:aaxplugin)
+    foreach (pair VST3:vst3 AU:component AUV3:auv3 AAX:aaxplugin CLAP:clap)
         string(REPLACE ":" ";" pair "${pair}")
         list(GET pair 0 format)
         list(GET pair 1 suffix)
@@ -595,6 +608,98 @@ function(_makeasound_add_vst3 name)
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${exports}")
 
         set(install_dir "$ENV{HOME}/.vst3")
+    endif ()
+
+    _makeasound_install_bundle(${target} "${bundle}" "${install_dir}")
+endfunction()
+
+# <Name>-CLAP: the module and our clap_entry, exported alone. On macOS a .clap
+# bundle laid out by hand, as the .component is, with its plist configured here
+# (a CLAP host reads identity from the factory, never the plist), PkgInfo and an
+# ad-hoc signature over both; on Windows and Linux the shared library itself,
+# named <OUTPUT_NAME>.clap. Reads the caller's ARG_* variables.
+function(_makeasound_add_clap name)
+    get_target_property(clap_entry MakeASoundCLAP MAKEASOUND_CLAP_ENTRY)
+
+    set(target ${name}-CLAP)
+    add_library(${target} MODULE "${clap_entry}")
+    # The format first, as for the others: the core defines describeModule().
+    target_link_libraries(${target} PRIVATE MakeASoundCLAP ${name})
+    # The plugin ids' base: identity a host stores, so BUNDLE_ID's whatever
+    # CLAP_BUNDLE_ID makes the bundle's identifier.
+    target_compile_definitions(${target} PRIVATE
+            MAKEASOUND_CLAP_BUNDLE_ID="${ARG_BUNDLE_ID}")
+
+    set(bundle_dir "${ARG_BUNDLE_DIRECTORY}/CLAP")
+    set(bundle "${bundle_dir}/${ARG_OUTPUT_NAME}.clap")
+
+    # $<1:...> keeps a multi-config generator from appending a per-config folder;
+    # the import library, .exp and .pdb stay out of the plug-in folder and are
+    # named apart from the standalone's and the VST3's, which share the output
+    # name (LNK1201, LNK1149), as the VST3's are.
+    set_target_properties(${target} PROPERTIES
+            FOLDER "${ARG_FOLDER}"
+            OUTPUT_NAME "${ARG_OUTPUT_NAME}"
+            PREFIX ""
+            ARCHIVE_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            ARCHIVE_OUTPUT_NAME "${ARG_OUTPUT_NAME}-CLAP"
+            PDB_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}>"
+            PDB_NAME "${ARG_OUTPUT_NAME}-CLAP"
+            COMPILE_PDB_NAME "${ARG_OUTPUT_NAME}-CLAP"
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+            MAKEASOUND_CLAP_BUNDLE "${bundle}")
+
+    if (APPLE)
+        get_target_property(clap_exports MakeASoundCLAP MAKEASOUND_CLAP_MAC_EXPORTS)
+        get_target_property(clap_plist MakeASoundCLAP MAKEASOUND_CLAP_PLIST)
+        get_target_property(clap_pkginfo MakeASoundCLAP MAKEASOUND_CLAP_PKGINFO)
+
+        set_target_properties(${target} PROPERTIES
+                SUFFIX ""
+                LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle}/Contents/MacOS>")
+
+        # clap_entry alone leaves the image, so nothing else can coalesce with
+        # the copy another plugin in the same host process carries.
+        target_link_options(${target} PRIVATE "LINKER:-exported_symbols_list,${clap_exports}")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${clap_exports}")
+
+        # One identifier per format: the macOS Installer resolves a package's
+        # components by bundle id.
+        set(CLAP_EXECUTABLE "${ARG_OUTPUT_NAME}")
+        set(CLAP_BUNDLE_ID "${ARG_CLAP_BUNDLE_ID}")
+        set(CLAP_BUNDLE_NAME "${ARG_OUTPUT_NAME}")
+        set(CLAP_VERSION "${ARG_VERSION}")
+        set(CLAP_COPYRIGHT "${ARG_COMPANY}")
+        set(plist "${CMAKE_CURRENT_BINARY_DIR}/${target}-Info.plist")
+        configure_file("${clap_plist}" "${plist}" @ONLY)
+
+        # The plist and PkgInfo, then the signature over both.
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy "${plist}" "${bundle}/Contents/Info.plist"
+                COMMAND ${CMAKE_COMMAND} -E copy "${clap_pkginfo}" "${bundle}/Contents/PkgInfo"
+                COMMAND codesign --force --sign - "${bundle}"
+                VERBATIM)
+
+        set(install_dir "$ENV{HOME}/Library/Audio/Plug-Ins/CLAP")
+    elseif (WIN32)
+        # Only CLAP_EXPORT symbols leave a DLL, so there is no export list.
+        set_target_properties(${target} PROPERTIES
+                SUFFIX .clap
+                LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle_dir}>")
+
+        file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/Programs/Common/CLAP" install_dir)
+    else ()
+        get_target_property(clap_exports MakeASoundCLAP MAKEASOUND_CLAP_LINUX_EXPORTS)
+
+        set_target_properties(${target} PROPERTIES
+                SUFFIX .clap
+                LIBRARY_OUTPUT_DIRECTORY "$<1:${bundle_dir}>")
+
+        # local: * binds the module's own MakeASound, eacp and Miro internally.
+        target_link_options(${target} PRIVATE "LINKER:--version-script=${clap_exports}")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${clap_exports}")
+
+        set(install_dir "$ENV{HOME}/.clap")
     endif ()
 
     _makeasound_install_bundle(${target} "${bundle}" "${install_dir}")

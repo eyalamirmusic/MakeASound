@@ -202,6 +202,10 @@ jobs:
             args+=( -DMAKEASOUND_BUILD_AAX=ON )
           fi
 
+          # CLAP is opt-in like AAX, but MIT with nothing under NDA, so every
+          # desktop lane builds its modules, cases and allocation suites.
+          args+=( -DMAKEASOUND_BUILD_CLAP=ON )
+
           cmake "${args[@]}"
 
       # Default target: the library plus the test executable (apps are off).

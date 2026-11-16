@@ -1,30 +1,13 @@
 #include "VST3Common.h"
 #include "PlugView.h"
 
-#include <eacp/Graphics/Window/EmbeddedView.h>
-
 namespace MakeASound::VST3
 {
 
+// The parent is an X11 window id, which travels in attached()'s pointer.
 FIDString PlugView::nativeViewType() noexcept
 {
     return Steinberg::kPlatformTypeX11EmbedWindowID;
-}
-
-float PlugView::rectScale() const noexcept
-{
-    return scale;
-}
-
-void PlugView::applyContentScale() noexcept
-{
-    if (embedded)
-        embedded->setPixelsPerPoint(scale);
-}
-
-bool PlugView::unhandledKey(const eacp::Graphics::KeyEvent&)
-{
-    return false;
 }
 
 } // namespace MakeASound::VST3

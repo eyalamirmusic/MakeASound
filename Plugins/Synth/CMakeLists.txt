@@ -2,7 +2,7 @@
 # the target now would move its build outputs.
 # An instrument, so the app asks for no microphone.
 makeasound_add_plugin(SynthPlugin
-        FORMATS Standalone VST3 AU AUv3 AAX
+        FORMATS Standalone VST3 AU AUv3 AAX CLAP
         NO_AUDIO_INPUT
         OUTPUT_NAME "MakeASound Synth"
         BUNDLE_ID com.makeasound.synth

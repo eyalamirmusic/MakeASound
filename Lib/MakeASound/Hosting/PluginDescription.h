@@ -16,8 +16,8 @@ namespace MakeASound::Hosting
 {
 
 // The format of a scanned plugin is the framework's own PluginFormat. A scanned
-// plugin is VST3 or AU (an AUv3 is reached through the v2 API, so it scans as AU);
-// the other enumerators never appear here.
+// plugin is VST3, AU (an AUv3 is reached through the v2 API, so it scans as AU)
+// or CLAP; the other enumerators never appear here.
 //
 // Miro writes an enum as the enumerator's NAME, so the cache stays readable when
 // a format is inserted ahead of an existing one. "VST3" and "AU" are the names
@@ -66,8 +66,8 @@ struct PluginDescription
     std::string path;
 
     // The format's stable class identity: the VST3 class UID as 32 hex digits,
-    // or for an Audio Unit the same identifier as `path`, since a component is
-    // exactly one class.
+    // the CLAP descriptor's id ("com.vendor.plugin"), or for an Audio Unit the
+    // same identifier as `path`, since a component is exactly one class.
     std::string classId;
 
     std::string name;
@@ -75,7 +75,9 @@ struct PluginDescription
     std::string version;
 
     // The format's class category ("Audio Module Class" for VST3, the component
-    // type for an AU) and the '|'-separated sub-categories ("Instrument|Synth").
+    // type for an AU, "Instrument", "Note Effect" or "Audio Effect" for CLAP) and
+    // the '|'-separated sub-categories ("Instrument|Synth"; a CLAP plugin's
+    // features, "instrument|synthesizer").
     std::string category;
     std::string subCategories;
 

@@ -35,6 +35,7 @@ A C++20 library for platform-agnostic audio, MIDI and audio plugins.
 | AU v2 | macOS |
 | AUv3 | iOS |
 | AAX (opt-in, `-DMAKEASOUND_BUILD_AAX=ON`) | macOS, Windows x64 |
+| CLAP (opt-in, `-DMAKEASOUND_BUILD_CLAP=ON`) | macOS, Windows, Linux |
 
 - Parameters declared in nested groups, with stable host ids and automation in every format.
 - Versioned JSON state for presets and sessions.
@@ -101,7 +102,7 @@ xcodebuild archive -project build-ios-xcode/MakeASound.xcodeproj \
 
 The archive holds the app in `Products/Applications`, its extension embedded.
 
-Main options: `MAKEASOUND_BUILD_DEVICES`, `MAKEASOUND_BUILD_PLUGIN`, `MAKEASOUND_BUILD_HOSTING`, `MAKEASOUND_BUILD_AAX`, `MAKEASOUND_INSTALL_PLUGINS`, `MAKEASOUND_IOS_TEAM`.
+Main options: `MAKEASOUND_BUILD_DEVICES`, `MAKEASOUND_BUILD_PLUGIN`, `MAKEASOUND_BUILD_HOSTING`, `MAKEASOUND_BUILD_AAX`, `MAKEASOUND_BUILD_CLAP`, `MAKEASOUND_INSTALL_PLUGINS`, `MAKEASOUND_IOS_TEAM`.
 
 ## Using it in your project
 

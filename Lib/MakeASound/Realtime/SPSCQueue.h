@@ -34,6 +34,16 @@ public:
         return true;
     }
 
+    // Producer thread only. How many pushes will succeed from here at least: the
+    // consumer may free more meanwhile, never fewer.
+    std::size_t freeSlots() const noexcept
+    {
+        const auto write = writeIndex.load(std::memory_order_relaxed);
+        const auto read = readIndex.load(std::memory_order_acquire);
+        const auto used = (write + bufferSize - read) % bufferSize;
+        return Capacity - used;
+    }
+
     // Consumer thread only. Leaves `out` untouched when empty.
     bool pop(T& out) noexcept
     {
