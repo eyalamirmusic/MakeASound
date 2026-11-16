@@ -1,5 +1,6 @@
 #include "CLAPFormat.h"
 #include "CLAPHost.h"
+#include "CLAPHostedPlugin.h"
 #include "CLAPModule.h"
 #include "../Scan/Scanner.h"
 
@@ -161,7 +162,7 @@ ModuleScan CLAPFormat::scan(std::string_view target) const
     scan.setStamp(stamp(target));
 
     auto error = std::string();
-    auto module = CLAPModule::load(scan.path, error);
+    auto module = openModule(scan.path, error);
 
     if (!module)
     {
@@ -207,6 +208,85 @@ ModuleScan CLAPFormat::scan(std::string_view target) const
     }
 
     return scan;
+}
+
+LoadResult CLAPFormat::load(const PluginDescription& description,
+                            const HostInfo& host) const
+{
+    auto failure = [](std::string error)
+    {
+        auto result = LoadResult();
+        result.error = std::move(error);
+        return result;
+    };
+
+    auto error = std::string();
+    auto module = openModule(description.path, error);
+
+    if (!module)
+        return failure(error.empty() ? "the module failed to load" : error);
+
+    const auto* factory = static_cast<const clap_plugin_factory*>(
+        module->getFactory(CLAP_PLUGIN_FACTORY_ID));
+
+    if (factory == nullptr || factory->get_plugin_count == nullptr
+        || factory->get_plugin_descriptor == nullptr
+        || factory->create_plugin == nullptr)
+        return failure("the module has no plugin factory");
+
+    // By id, never position: the class a selection names survives an update
+    // that reorders the module's plugins.
+    const clap_plugin_descriptor* chosen = nullptr;
+    const auto count = factory->get_plugin_count(factory);
+
+    for (auto i = uint32_t {0}; i < count && chosen == nullptr; ++i)
+    {
+        const auto* descriptor = factory->get_plugin_descriptor(factory, i);
+
+        if (descriptor != nullptr && descriptor->id != nullptr
+            && clap_version_is_compatible(descriptor->clap_version)
+            && description.classId == descriptor->id)
+            chosen = descriptor;
+    }
+
+    if (chosen == nullptr)
+        return failure("the module has no plugin with id " + description.classId);
+
+    // The id outlives the call: the descriptor is the module's, and the module
+    // stays loaded as long as the plugin.
+    const auto* id = chosen->id;
+
+    return CLAPHostedPlugin::create(
+        description,
+        std::move(module),
+        [factory, id](const clap_host* clapHost)
+        { return factory->create_plugin(factory, clapHost, id); },
+        host);
+}
+
+std::shared_ptr<CLAPModule> CLAPFormat::openModule(std::string_view path,
+                                                   std::string& error) const
+{
+    // Held across the load: two threads asking for one path get one init().
+    const auto lock = std::scoped_lock(modulesLock);
+
+    if (auto found = modules.find(path); found != modules.end())
+    {
+        if (auto alive = found->second.lock())
+            return alive;
+
+        modules.erase(found);
+    }
+
+    // Whatever else let go meanwhile is dropped too, so the map stays small.
+    std::erase_if(modules, [](const auto& entry) { return entry.second.expired(); });
+
+    auto module = CLAPModule::load(path, error);
+
+    if (module)
+        modules.emplace(std::string(path), module);
+
+    return module;
 }
 
 } // namespace MakeASound::Hosting

@@ -77,7 +77,8 @@ bypass (`wantsHostBypass()`).
 Its `parameters()` are the plugin's, in its order, hidden ones left out. Each has
 the plugin's own id as its host id, any of the 32 bits (`hostedPluginIdentity()`),
 that id in decimal as its id, and the plugin's normalized range as its plain one
-(0..1, stepped where the plugin says). Text goes through the plugin
+(0..1, stepped where the plugin says; a CLAP or Audio Unit parameter's plain range
+is the plugin's own). Text goes through the plugin
 (`valueToText`, `textToValue`). Setting a value from the message thread
 (`setValue`) reaches the plugin's controller and its processor's next block;
 `setParameterFromAudioThread` does the same from the audio thread, for a host's
@@ -88,7 +89,7 @@ What only a host needs is on `HostedPlugin`:
 | call | thread | what |
 | --- | --- | --- |
 | `setParameterFromAudioThread(i, v)` | audio | a value for the next block, allocation-free |
-| `syncEditorWithProcessor()` | message (UI timer) | values the processor reported, pushed to the plugin's own GUI |
+| `syncEditorWithProcessor()` | message (UI timer) | values the processor reported, pushed to the plugin's own GUI; for CLAP, what the plugin asked of the main thread, run now |
 | `refreshParameterValue(i)` | message | re-read a value the plugin's GUI moved without saying (AU) |
 | `takeParameterInfoChanged()` | any | the plugin renamed parameters, already re-read in place |
 | `takeLatencyChanged()` | any | `latencySamples()` moved |
@@ -168,6 +169,56 @@ with MIDI out lists its outputs (`kAudioUnitProperty_MIDIOutputCallbackInfo`) as
 during a render lands in the block's `midiOut`, each packet's time stamp its
 sample offset. An AUv3 reaches the host the same way through the v2 bridge, so
 `MIDIOutputEventListBlock` is not asked for.
+
+`CLAP/CLAPHostedPlugin.h` is the CLAP side (desktop, with `MAKEASOUND_BUILD_CLAP`),
+over the C API alone. `CLAPFormat::load()` loads the module, finds the plugin
+whose descriptor id is the class id, and creates and `init()`s it against a
+`clap_host` of its own (`host_data` is the instance), keeping the module, its
+entry `init()`ed, as long as the plugin. A `CLAPFormat` loads each path once
+while anything holds it (`openModule`, a cache of `weak_ptr`s that is the
+instance's own, not process-wide): its scans and every instance of the module
+share one `init()`, and `deinit()` runs after the last of them. The host offers `clap.log`,
+`clap.thread-check`, `clap.params`, `clap.state`, `clap.latency`, `clap.tail`,
+`clap.audio-ports`, `clap.note-ports`, `clap.timer-support` (eacp timers) and, on
+Linux only, `clap.posix-fd-support` (eacp's `FdWatcher`, `CLAPFdWatches-Linux.cpp`;
+MakeASound's own CLAP adapter registers its message loop's descriptor through it,
+or a timer without it). Ports are read when inactive: every CLAP port is
+processed, so each is `activeByDefault`, and `acceptsLayout` takes only the
+channel counts the plugin declares. A port whose `get()` fails keeps its slot, so
+indices stay the plugin's: a note port takes nothing, and an audio port, its
+channels unknown, fails the load (or, refused at a later `prepare()`, leaves the
+plugin inactive). Parameters keep CLAP's plain doubles
+(`clap_param_info`'s range, whole-number steps where stepped, hidden ones left
+out, read-only ones neither automatable nor writable); a normalized value from
+`setParameterFromAudioThread` is mapped linearly onto that range, in double, by
+`CLAPHostedParameter::plainFromNormalized`. `prepare()` deactivates if active,
+then activates (rate, 1, the most frames); `start_processing` runs in the first
+block after each activation, `stop_processing` (as the audio thread, with blocks
+held off) and `deactivate` before the next activation and before `destroy`. An
+edit made while active rides the next block as `CLAP_EVENT_PARAM_VALUE` at its
+start; one made while inactive goes out at once through `params.flush` on the
+message thread. Active but idle (no block for four of the longest, and at least
+100 ms), a service holds blocks off and flushes as the audio thread, which
+delivers the queued edits and any `request_flush` no block took. An edit the full
+queue (1024) refuses is kept per parameter and sent at its latest value once
+there is room, and `loadState` discards edits still queued (a generation stamp),
+so none lands on the state just loaded. A block's events are the audio thread's own writes, then the
+queued edits, then the MIDI, sorted stably by time. MIDI goes in as note events
+(and pressure as a note expression) where the note port prefers the CLAP dialect,
+else as raw MIDI, SysEx as `CLAP_EVENT_MIDI_SYSEX`; the plugin's note, MIDI and
+SysEx events come back into `midiOut`, as many as the list holds (what does not
+fit is dropped whole). Its output parameter events are kept in the parameters
+and reach the `HostEditListener` on the message thread, after the block or flush
+that produced them: gestures with the values inside them. A value outside any
+gesture is only kept in the parameter, read-only or not, and raises no edit and
+no `parameterValuesChanged`, as a hosted VST3 processor's output parameters are
+only cached. A gesture whose begin finds the queue full is
+dropped whole, and each reported gesture keeps a slot for its end, so the
+listener never sees half of one. The state is `clap.state`, or
+`clap.state-context` where the plugin has it (a preset as `FOR_PRESET`, a session
+as `FOR_PROJECT`). A rescan of values or names re-reads them (a load this host
+asked for raises no `parameterValuesChanged`); a rescan of the parameter set, or
+of the ports past their names, raises `takeIoChanged()`.
 
 ## Editors
 
@@ -298,18 +349,17 @@ A CLAP module is scanned as every plugin its factory lists, one description each
 with the descriptor's id as its class id, a category of "Instrument", "Note
 Effect" or "Audio Effect" and its features `|`-separated as its sub-categories.
 Each plugin is created and `init()`ed, never activated, to read its audio ports,
-note ports and whether it offers `clap.gui`. Loading one is not here yet:
-`CLAPFormat` leaves `load()` to `HostFormat`, which loads nothing and says so.
+note ports and whether it offers `clap.gui`. A load is described under
+[Loading and running a plugin](#loading-and-running-a-plugin).
 
 | | VST3 scan | AU scan | CLAP scan | VST3 load | AU load | CLAP load | hosted editors |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes | later | yes (VST3, AU) |
-| Windows | yes | - | yes | yes | - | later | yes (VST3, HWND child, DPI conversion) |
-| Linux | yes | - | yes | yes | - | later | yes (VST3, X11 child, needs an X11 window) |
+| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes | yes | yes (VST3, AU) |
+| Windows | yes | - | yes | yes | - | yes | yes (VST3, HWND child, DPI conversion) |
+| Linux | yes | - | yes | yes | - | yes | yes (VST3, X11 child, needs an X11 window) |
 | iOS | later | later | - | later | later | - | later |
 
-CLAP loading and editors come next; out-of-process audio processing is not
-planned.
+CLAP editors come next; out-of-process audio processing is not planned.
 
 ## Threading
 
@@ -329,6 +379,34 @@ atomics and a dirty flag that `syncEditorWithProcessor()` consumes. A bus the
 caller does not supply reads silence and writes into a scratch channel, since a
 VST3 plugin may touch every channel of every bus it declares.
 
+A hosted **CLAP** plugin names its threads through `clap.thread-check`: the main
+thread is the message thread (eacp's), and the audio thread is whichever thread
+is inside `process()`, told by a `thread_local` flag, or the message thread while
+it calls `stop_processing` with blocks held off. Whatever must not overlap a
+block (`prepare`, a restart, the destructor) first holds blocks off with a
+store-then-load handshake on two atomics, waiting out at most the block in
+flight; a block arriving meanwhile outputs silence. Its event lists are
+fixed-capacity, reserved in `prepare` and sorted with an allocation-free
+insertion sort over an index (`CLAP/CLAPEvents.h`,
+`Tests/HostingCLAPAllocationTests.cpp`); gestures reach the message thread
+through a second SPSC queue. What the plugin asks of the main thread
+(`request_callback`, `request_restart`, `request_flush`) only sets a flag, since
+it may ask from the audio thread; a timer of the instance (30 Hz) or
+`syncEditorWithProcessor()` runs it on the message thread, and a request made on
+the message thread is posted to the loop as well, through a weak handle, so
+nothing reaches a plugin once it is destroyed. A restart deactivates and
+activates again, and the latency is read after each activation (a change raises
+`takeLatencyChanged()` and the listener's `latencyChanged`); a port changed
+meanwhile leaves the plugin inactive and raises `takeIoChanged()` instead.
+`request_process` is a no-op, since a prepared plugin is processed whenever its
+host runs a block. A flush while active is left to the next block, or, with no
+block lately, run on the message thread as the audio thread with blocks held off.
+`clap.tail` is asked on the message thread, or as the audio thread from any
+other. The timer and fd calls (`register_`, `unregister_timer`, `register_`,
+`modify_`, `unregister_fd`) are refused off the main thread, and a timer
+unregistered inside its own tick is released only by a service outside every
+tick, since a tick may pump a modal loop.
+
 ## Platform code
 
 Selected in CMake, never with `#if`, like the rest of MakeASound:
@@ -336,8 +414,8 @@ Selected in CMake, never with `#if`, like the rest of MakeASound:
 - `DefaultFormats-<os>.cpp`, `Scan/ExecutablePath-<os>.cpp`,
   `Scan/WorkerProcess-<os>.cpp`, `VST3/VST3Folders-<os>.cpp`
 - `AU/`, added on macOS only
-- `CLAP/CLAPModule-<macOS|Default>.cpp` and `CLAP/CLAPFolders-<os>.cpp`, with
-  `MAKEASOUND_BUILD_CLAP`
+- `CLAP/CLAPModule-<macOS|Default>.cpp`, `CLAP/CLAPFolders-<os>.cpp` and
+  `CLAP/CLAPFdWatches-<Linux|Default>.cpp`, with `MAKEASOUND_BUILD_CLAP`
 - the SDK's `module_mac.mm` / `module_win32.cpp` / `module_linux.cpp`, one per
   platform in `vst3sdk-hosting` (`ThirdParty/CMakeLists.txt`), and none on
   iOS, where `MakeASoundHosting` is not built
@@ -352,5 +430,7 @@ The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 - **Windows hosted-editor tests** (pixels and points against a DPI): the code is
   in, built and tested on macOS only so far.
 - A typing keyboard in `Apps/PluginHost`.
+- **CLAP editors** (`clap.gui`): `hasEditor()` tells whether the plugin offers
+  one, and `createEditor()` makes none yet.
 - **Linux editor scale on a real HiDPI display**: tested only by setting
   `Xft.dpi` on a headless Xvfb.

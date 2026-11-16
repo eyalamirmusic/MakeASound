@@ -95,24 +95,32 @@ endif ()
 # or -Off.cpp where CLAP is not built.
 if (MAKEASOUND_BUILD_CLAP AND TARGET clap)
     target_sources(MakeASoundHosting PRIVATE
+            CLAP/CLAPEvents.cpp
             CLAP/CLAPFolders.cpp
             CLAP/CLAPFormat.cpp
             CLAP/CLAPHost.cpp
+            CLAP/CLAPHostedParameter.cpp
+            CLAP/CLAPHostedPlugin.cpp
             CLAP/CLAPModule.cpp
+            CLAP/CLAPStreams.cpp
             DefaultFormatsCLAP-On.cpp)
 
     # macOS loads a .clap bundle through CFBundle; elsewhere it is the shared
-    # library itself, loaded through eacp.
+    # library itself, loaded through eacp. Only Linux offers a loaded plugin
+    # clap.posix-fd-support, over eacp's loop.
     if (APPLE)
         target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFdWatches-Default.cpp
                 CLAP/CLAPFolders-macOS.cpp
                 CLAP/CLAPModule-macOS.cpp)
     elseif (WIN32)
         target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFdWatches-Default.cpp
                 CLAP/CLAPFolders-Windows.cpp
                 CLAP/CLAPModule-Default.cpp)
     else ()
         target_sources(MakeASoundHosting PRIVATE
+                CLAP/CLAPFdWatches-Linux.cpp
                 CLAP/CLAPFolders-Linux.cpp
                 CLAP/CLAPModule-Default.cpp)
     endif ()

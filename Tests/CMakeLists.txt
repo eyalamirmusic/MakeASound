@@ -362,8 +362,14 @@ if (MAKEASOUND_BUILD_PLUGIN)
             # The same fixtures as CLAP modules, where the hosting library scans
             # CLAP (the clap headers are there) and the adapter builds them.
             if (TARGET MakeASoundCLAP AND TARGET clap)
-                list(APPEND MAKEASOUND_TEST_SOURCES HostingCLAPScanTests.cpp)
+                list(APPEND MAKEASOUND_TEST_SOURCES HostingCLAPScanTests.cpp
+                        HostedCLAPTests.cpp)
                 set(MAKEASOUND_TEST_HOST_FIXTURES_CLAP ON)
+
+                # clap.posix-fd-support, which the host offers on Linux only.
+                if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                    list(APPEND MAKEASOUND_TEST_SOURCES HostedCLAPTests-Linux.cpp)
+                endif ()
             endif ()
 
             # Apps/PluginScanner, run as a program over the fixtures.
@@ -512,6 +518,10 @@ if (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     if (MAKEASOUND_TEST_HOST_FIXTURES)
         list(APPEND MAKEASOUND_TEST_SOURCES HostingAllocationTests.cpp)
+    endif ()
+
+    if (MAKEASOUND_TEST_HOST_FIXTURES_CLAP)
+        list(APPEND MAKEASOUND_TEST_SOURCES HostingCLAPAllocationTests.cpp)
     endif ()
 
     if (TARGET MakeASoundHosting AND TARGET MakeASoundAU)
