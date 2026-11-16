@@ -173,6 +173,29 @@ if (TARGET eacp-graphics)
                 VST3/VST3EditorPlatform-Linux.cpp)
     endif ()
 
+    # CLAP editors where the hosting library hosts CLAP: hostedEditors() reaches
+    # them through HostedEditorsCLAP-On.cpp, or -Off.cpp (none) elsewhere.
+    if (MAKEASOUND_BUILD_CLAP AND TARGET clap)
+        target_sources(MakeASoundHostedEditor PRIVATE
+                CLAP/HostedCLAPEditor.cpp
+                HostedEditorsCLAP-On.cpp)
+
+        if (APPLE)
+            target_sources(MakeASoundHostedEditor PRIVATE
+                    CLAP/CLAPEditorPlatform-macOS.cpp)
+        elseif (WIN32)
+            target_sources(MakeASoundHostedEditor PRIVATE
+                    CLAP/CLAPEditorPlatform-Windows.cpp)
+        else ()
+            target_sources(MakeASoundHostedEditor PRIVATE
+                    CLAP/CLAPEditorPlatform-Linux.cpp)
+        endif ()
+
+        target_link_libraries(MakeASoundHostedEditor PRIVATE clap)
+    else ()
+        target_sources(MakeASoundHostedEditor PRIVATE HostedEditorsCLAP-Off.cpp)
+    endif ()
+
     target_link_libraries(MakeASoundHostedEditor
             PUBLIC MakeASoundHosting
             PRIVATE eacp-graphics vst3sdk-hosting)

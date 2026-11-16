@@ -24,8 +24,8 @@ public:
 };
 
 // The factory to pass as HostInfo::editors: the editor for each format this
-// platform shows (VST3 everywhere, Audio Units on macOS), or null when
-// the plugin has none. One TU per platform.
+// platform shows (VST3 everywhere, Audio Units on macOS, CLAP where the build
+// hosts it), or null when the plugin has none. One TU per platform.
 HostedEditorFactory hostedEditors();
 
 } // namespace MakeASound::Hosting

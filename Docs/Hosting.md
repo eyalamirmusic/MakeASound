@@ -261,6 +261,50 @@ a host that passes none gets no editors. `createEditor()` answers a
   AUv3 answers it too through the v2 API), else Apple's `AUGenericView`, which is
   the only resizable kind; a view that changes its own frame asks the host to
   follow, through `Editor::requestOwnResize`.
+- **CLAP** (`HostedCLAPEditor`, macOS, Windows and Linux, with
+  `MAKEASOUND_BUILD_CLAP`): the plugin's `clap.gui`, embedded (never floating)
+  in the same `NativeChildSurface` through the platform's window API: `cocoa`
+  (points; `set_scale` is never called, as the spec asks), `win32` and `x11`
+  (physical pixels, converted at the scale the plugin is told through
+  `set_scale`: the child window's DPI on Windows, the surface's `backingScale()`
+  on Linux, again whenever it changes). All of it on the main thread, in the
+  spec's order: the factory calls `is_api_supported(api, false)`, `create(api,
+  false)`, `set_scale` where the API takes one, and `get_size`;
+  `onAttached()` calls `get_size` (asking the host to follow a size that
+  differs), `set_parent`, `set_size` only if the host settled elsewhere and the
+  GUI can resize, then `show`; `onRemoved()` calls `hide`, then `destroy`, and
+  attaching again creates the GUI anew. `constraints()` reads `can_resize` and
+  `get_resize_hints` (a preserved ratio becomes `aspectRatio`),
+  `constrainSize()` keeps an axis the hints lock and asks `adjust_size`, and a
+  host-driven resize becomes `set_size`, never sent to a GUI that cannot resize
+  nor of a size it has already (compared in points, so at a fractional scale the
+  pixels' rounding echoes nothing back). The spec allows one GUI per instance: an
+  editor holds it, and is the plugin's listener, from its creation (or a later
+  attach) until it is removed, so a second editor of the same plugin is null
+  while the first holds it, and a removed editor attached again while another
+  holds it stays empty (as a VST3 editor's view, removed, keeps no frame). A
+  plugin destroyed before its editor destroys the GUI first, and the editor
+  reaches neither again.
+- **The host side of `clap.gui`** is in `CLAPHostedPlugin` (the hosting library),
+  which links no graphics: the editor registers as its `CLAPGuiListener`. Every
+  call is `[thread-safe]` in the spec. On the main thread it reaches the
+  listener at once and the plugin gets the listener's answer: `request_resize`
+  becomes `Editor::requestOwnResize`, as VST3's `resizeView` does, with no
+  `set_size` echoing the size it asked for; `request_show` / `request_hide` show
+  or hide an attached GUI; `resize_hints_changed` fires
+  `HostedCLAPEditor::onConstraintsChanged`; `closed` with `was_destroyed` stops
+  every call into the GUI at once, and its `destroy` waits for the next service
+  (posted then), since the plugin is inside one of its own calls (its timer,
+  `set_parent`, `show`). From any other thread (or as the audio thread) the
+  call is answered yes when an editor listens, kept (the latest resize, the
+  latest of show and hide, closed and destroyed) and delivered once by the next
+  main-thread service (the plugin's service timer, or
+  `syncEditorWithProcessor()`); a deferred resize the host refuses is undone
+  through `set_size`, as the spec has it. A service run from a loop the plugin
+  pumps inside its timer, or inside a call the editor made, delivers nothing
+  until the next one. With no editor every request is no and nothing is kept,
+  and whatever was kept is dropped whenever a GUI is created or destroyed, so a
+  request made of one GUI never reaches the next.
 
 `constraints().resizable` is whether the host's user may drag the plugin's window
 (`canResize()` on VST3; only the generic view on AU). A resize the plugin asks for
@@ -270,7 +314,11 @@ whether or not the view is resizable, and the plugin hears that it took (VST3
 `kResultOk`).
 
 The platform parts are per-platform TUs (`HostedEditors-<os>.cpp`,
-`VST3/VST3EditorPlatform-<os>.cpp`, `AU/` on macOS). The editor library defines no
+`VST3/VST3EditorPlatform-<os>.cpp`, `CLAP/CLAPEditorPlatform-<os>.cpp`, `AU/` on
+macOS). Each `HostedEditors-<os>.cpp` asks `hostedCLAPEditor()`
+(`HostedEditorsCLAP.h`) for a CLAP plugin's editor, defined in
+`HostedEditorsCLAP-On.cpp` where the build hosts CLAP and in `-Off.cpp` (always
+null) elsewhere, so no `#if` decides it. The editor library defines no
 Objective-C class, so a hosting plugin loaded twice in one DAW has nothing to
 clash on.
 
@@ -354,12 +402,12 @@ note ports and whether it offers `clap.gui`. A load is described under
 
 | | VST3 scan | AU scan | CLAP scan | VST3 load | AU load | CLAP load | hosted editors |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes | yes | yes (VST3, AU) |
-| Windows | yes | - | yes | yes | - | yes | yes (VST3, HWND child, DPI conversion) |
-| Linux | yes | - | yes | yes | - | yes | yes (VST3, X11 child, needs an X11 window) |
+| macOS | yes | yes (v2, and v3 through the v2 API) | yes | yes | yes | yes | yes (VST3, AU, CLAP) |
+| Windows | yes | - | yes | yes | - | yes | yes (VST3, CLAP; HWND child, DPI conversion) |
+| Linux | yes | - | yes | yes | - | yes | yes (VST3, CLAP; X11 child, needs an X11 window) |
 | iOS | later | later | - | later | later | - | later |
 
-CLAP editors come next; out-of-process audio processing is not planned.
+Out-of-process audio processing is not planned.
 
 ## Threading
 
@@ -430,7 +478,8 @@ The rest of Tamber Plug's hosting layer moves here in steps. Waiting:
 - **Windows hosted-editor tests** (pixels and points against a DPI): the code is
   in, built and tested on macOS only so far.
 - A typing keyboard in `Apps/PluginHost`.
-- **CLAP editors** (`clap.gui`): `hasEditor()` tells whether the plugin offers
-  one, and `createEditor()` makes none yet.
+- **CLAP editors on Windows and Linux**: `CLAPEditorPlatform-Windows.cpp` and
+  `-Linux.cpp` are in, but only the macOS suites have run so far; there is no
+  Windows window suite for either format yet.
 - **Linux editor scale on a real HiDPI display**: tested only by setting
   `Xft.dpi` on a headless Xvfb.

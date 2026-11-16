@@ -370,6 +370,32 @@ if (MAKEASOUND_BUILD_PLUGIN)
                 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
                     list(APPEND MAKEASOUND_TEST_SOURCES HostedCLAPTests-Linux.cpp)
                 endif ()
+
+                # Hosted CLAP editors, where the fixtures have GUIs: windowless
+                # everywhere, and in a window on macOS (a plain NSView), Windows
+                # (an eacp window) and Linux (an X11 window, with the VST3 editor
+                # suite below).
+                if (TARGET MakeASoundHostedEditor AND TARGET MakeASoundPluginUI)
+                    list(APPEND MAKEASOUND_TEST_SOURCES HostedCLAPEditorTests.cpp)
+                    list(APPEND MAKEASOUND_TEST_TARGETS MakeASoundHostedEditor)
+                    set(MAKEASOUND_TEST_CLAP_EDITORS ON)
+
+                    if (APPLE)
+                        list(APPEND MAKEASOUND_TEST_SOURCES
+                                HostedCLAPEditorTests-macOS.mm)
+                        set_source_files_properties(HostedCLAPEditorTests-macOS.mm
+                                PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+                    elseif (WIN32)
+                        list(APPEND MAKEASOUND_TEST_SOURCES
+                                HostedCLAPEditorTests-Windows.cpp)
+                        list(APPEND MAKEASOUND_TEST_TARGETS eacp-graphics)
+
+                        # Out of unity: its windows.h defines near/far/min/max
+                        # for every file after it in the batch.
+                        set_source_files_properties(HostedCLAPEditorTests-Windows.cpp
+                                PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+                    endif ()
+                endif ()
             endif ()
 
             # Apps/PluginScanner, run as a program over the fixtures.
@@ -402,6 +428,11 @@ if (MAKEASOUND_BUILD_PLUGIN)
                     list(APPEND MAKEASOUND_TEST_TARGETS
                             MakeASoundHostedEditor eacp-graphics
                             PkgConfig::MAKEASOUND_TEST_XCB)
+
+                    if (MAKEASOUND_TEST_CLAP_EDITORS)
+                        list(APPEND MAKEASOUND_TEST_SOURCES
+                                HostedCLAPEditorTests-Linux.cpp)
+                    endif ()
                 endif ()
             endif ()
         endif ()
@@ -548,6 +579,11 @@ nano_add_executable(MakeASoundTests
 # defines the cases it reads.
 set_property(DIRECTORY APPEND PROPERTY
         TEST_INCLUDE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/VirtualMidiPortLock.cmake")
+
+# Likewise the hosted editor cases, which share an X server whose DPI one of them
+# changes (see the file).
+set_property(DIRECTORY APPEND PROPERTY
+        TEST_INCLUDE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/HostedEditorLock.cmake")
 
 # Release LTO as every target of ours has: eacp's Release archives are LTO bitcode
 # under Clang, which a link without -flto cannot read.

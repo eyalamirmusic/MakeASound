@@ -44,6 +44,41 @@ namespace MakeASound::Hosting
 
 class CLAPModule;
 
+// What the host side of clap.gui hands whoever shows the plugin's GUI (a hosted
+// CLAP editor, which registers through setGuiListener()), so the hosting library
+// links no graphics. Every call is on the main thread. Sizes are the window API's
+// units, as the plugin gave them.
+class CLAPGuiListener
+{
+public:
+    virtual ~CLAPGuiListener() = default;
+
+    // request_resize. `deferred` when the plugin asked from another thread and
+    // was already told yes: a refusal must then set_size the size it had.
+    virtual bool
+        guiResizeRequested(uint32_t width, uint32_t height, bool deferred) = 0;
+
+    virtual void guiResizeHintsChanged() = 0;
+    virtual bool guiShowRequested() = 0;
+    virtual bool guiHideRequested() = 0;
+
+    // closed: with `wasDestroyed`, the listener owes the plugin its destroy(),
+    // and calls nothing else on the GUI from now on. Never `deferred` it comes
+    // on the main thread from inside the plugin's own call, so the destroy()
+    // waits: a closed with `wasDestroyed` always comes again, `deferred`, from
+    // the next service, outside every plugin call, and is when to destroy.
+    virtual void guiClosed(bool wasDestroyed, bool deferred) = 0;
+
+    // Whether the listener is inside a call into the GUI (one that may pump the
+    // event loop the service runs on): the service then delivers nothing and
+    // keeps every request for the next one.
+    virtual bool guiCallInProgress() const noexcept = 0;
+
+    // The plugin is about to be destroyed: whatever GUI it has goes first, and
+    // the listener reaches the plugin no more.
+    virtual void guiPluginDestroying() = 0;
+};
+
 // A loaded CLAP plugin: one clap_plugin, created against a clap_host of its own
 // whose host_data is this object, init()ed, and driven through the spec's
 // lifecycle. The module stays loaded while the plugin lives.
@@ -123,7 +158,8 @@ public:
     // thread: a caller off the main thread must not overlap a block.
     int tailSamples() const noexcept override;
 
-    // Whether the plugin offers clap.gui. No CLAP editor is made yet.
+    // Whether the plugin offers clap.gui; createEditor() makes a HostedCLAPEditor
+    // through the HostInfo::editors it was loaded with.
     bool hasEditor() const override { return gui != nullptr; }
 
     // clap.state, or clap.state-context where the plugin has it (a preset as
@@ -153,6 +189,22 @@ public:
 
     // The plugin's clap.gui, or null.
     const clap_plugin_gui* guiExtension() const noexcept { return gui; }
+
+    // Who hears the plugin's clap_host_gui calls, or null (the default) for
+    // none: the plugin is then told no to a resize, a show or a hide. One at a
+    // time; the listener must unregister (null) before it goes. A call the
+    // plugin makes on the main thread reaches it at once, with the answer the
+    // listener gives; one from any other thread (or as the audio thread) is
+    // acknowledged with yes when a listener is set, kept (the latest resize, the
+    // latest of show and hide, whether closed and whether destroyed) and
+    // delivered by the next main-thread service. With no listener nothing is
+    // kept, and setting one (or null) drops whatever was kept: a request the
+    // plugin made of one GUI never reaches the next. Main thread.
+    void setGuiListener(CLAPGuiListener* listener) noexcept;
+
+    // Whether a listener is set: a GUI is created through it already, and the
+    // spec allows one. Main thread.
+    bool hasGuiListener() const noexcept { return guiListener.load() != nullptr; }
 
     // The parameter carrying `id`, or -1.
     int indexOfParamId(clap_id id) const noexcept;
@@ -257,6 +309,10 @@ private:
 
     void serviceMainThread();
     void requestService() noexcept;
+
+    // What the plugin's clap_host_gui calls from another thread left pending,
+    // delivered to the listener. Main thread.
+    void serviceGui() noexcept;
     void pushGesture(GestureEvent::Kind kind, int index, float normalized) noexcept;
     bool gestureRoomFor(int events) const noexcept;
     void drainGestures() noexcept;
@@ -300,6 +356,7 @@ private:
     clap_host_note_ports hostNotePorts {};
     clap_host_timer_support hostTimers {};
     clap_host_posix_fd_support hostFds {};
+    clap_host_gui hostGui {};
 
     const clap_plugin* plugin = nullptr;
 
@@ -392,6 +449,24 @@ private:
     std::atomic<bool> restartRequested {false};
     std::atomic<bool> flushRequested {false};
     std::atomic<bool> gesturesPending {false};
+
+    // clap.gui: the listener (set and read on the main thread; another thread
+    // only asks whether there is one), and what the plugin asked of it from
+    // another thread: the latest resize (width in the high half, 0 for none, so
+    // taking it is one exchange and it is delivered once), the latest of show
+    // and hide, and closed (bit 1) with was_destroyed (bit 2).
+    enum GuiVisibility : int
+    {
+        guiVisibilityNone,
+        guiVisibilityShow,
+        guiVisibilityHide
+    };
+
+    std::atomic<CLAPGuiListener*> guiListener {nullptr};
+    std::atomic<uint64_t> guiResizePending {0};
+    std::atomic<bool> guiHintsPending {false};
+    std::atomic<int> guiVisibilityPending {guiVisibilityNone};
+    std::atomic<int> guiClosedPending {0};
 
     // Blocks run so far, and the main thread's view of it: the count it last
     // saw, when it saw it move, and how long without a block counts as idle.

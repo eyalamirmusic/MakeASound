@@ -166,6 +166,9 @@ struct CLAPHostedPlugin::Callbacks
         if (is(CLAP_EXT_POSIX_FD_SUPPORT) && self.fdWatches != nullptr)
             return &self.hostFds;
 
+        if (is(CLAP_EXT_GUI))
+            return &self.hostGui;
+
         return nullptr;
     }
 
@@ -412,6 +415,135 @@ struct CLAPHostedPlugin::Callbacks
             return false;
         }
     }
+
+    // clap.gui: every call is [thread-safe]. On the main thread the listener
+    // answers at once; from any other thread (or as the audio thread) the
+    // request is kept for serviceGui(), and acknowledged with yes when there is
+    // a listener to deliver it to (with none, nothing is kept). Posting would
+    // allocate, so the service timer picks it up.
+    static void guiResizeHintsChanged(const clap_host* host) noexcept
+    {
+        auto& self = of(host);
+        auto* listener = self.guiListener.load();
+
+        if (listener == nullptr)
+            return;
+
+        if (!onMainThread())
+        {
+            self.guiHintsPending.store(true);
+            return;
+        }
+
+        try
+        {
+            listener->guiResizeHintsChanged();
+        }
+        catch (...)
+        {
+        }
+    }
+
+    static bool guiRequestResize(const clap_host* host,
+                                 uint32_t width,
+                                 uint32_t height) noexcept
+    {
+        auto& self = of(host);
+        auto* listener = self.guiListener.load();
+
+        if (listener == nullptr)
+            return false;
+
+        if (!onMainThread())
+        {
+            auto packed = (static_cast<uint64_t>(width) << 32) | height;
+
+            // 0 is the slot's "none": a 0 by 0 GUI is no size to say yes to.
+            if (packed == 0)
+                return false;
+
+            self.guiResizePending.store(packed);
+            return true;
+        }
+
+        try
+        {
+            return listener->guiResizeRequested(width, height, false);
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    static bool guiRequestVisibility(const clap_host* host, bool show) noexcept
+    {
+        auto& self = of(host);
+        auto* listener = self.guiListener.load();
+
+        if (listener == nullptr)
+            return false;
+
+        if (!onMainThread())
+        {
+            self.guiVisibilityPending.store(show ? guiVisibilityShow
+                                                 : guiVisibilityHide);
+            return true;
+        }
+
+        try
+        {
+            return show ? listener->guiShowRequested()
+                        : listener->guiHideRequested();
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    static bool guiRequestShow(const clap_host* host) noexcept
+    {
+        return guiRequestVisibility(host, true);
+    }
+
+    static bool guiRequestHide(const clap_host* host) noexcept
+    {
+        return guiRequestVisibility(host, false);
+    }
+
+    // A GUI lost on the main thread is lost from inside the plugin's own call
+    // (its timer, set_parent, show): the listener hears it at once and stops
+    // calling the GUI, and its destroy() waits for the service, posted here.
+    static void guiClosed(const clap_host* host, bool wasDestroyed) noexcept
+    {
+        auto& self = of(host);
+        auto* listener = self.guiListener.load();
+
+        if (listener == nullptr)
+            return;
+
+        if (!onMainThread())
+        {
+            self.guiClosedPending.fetch_or(wasDestroyed ? 3 : 1);
+            return;
+        }
+
+        try
+        {
+            listener->guiClosed(wasDestroyed, false);
+        }
+        catch (...)
+        {
+        }
+
+        // Unless the listener went from inside, which drops what was kept.
+        if (wasDestroyed && self.guiListener.load() == listener)
+        {
+            self.guiClosedPending.fetch_or(3);
+            self.requestService();
+        }
+    }
 };
 
 LoadResult CLAPHostedPlugin::create(PluginDescription description,
@@ -453,6 +585,18 @@ CLAPHostedPlugin::CLAPHostedPlugin(PluginDescription description,
 
 CLAPHostedPlugin::~CLAPHostedPlugin()
 {
+    // An editor still showing the GUI destroys it while the plugin lives.
+    if (auto* listener = guiListener.exchange(nullptr))
+    {
+        try
+        {
+            listener->guiPluginDestroying();
+        }
+        catch (...)
+        {
+        }
+    }
+
     // Nothing posted or ticking reaches this object from here on.
     serviceTimer.reset();
     self.reset();
@@ -508,6 +652,80 @@ void CLAPHostedPlugin::setUpHost()
     hostFds.register_fd = Callbacks::registerFd;
     hostFds.modify_fd = Callbacks::modifyFd;
     hostFds.unregister_fd = Callbacks::unregisterFd;
+    hostGui.resize_hints_changed = Callbacks::guiResizeHintsChanged;
+    hostGui.request_resize = Callbacks::guiRequestResize;
+    hostGui.request_show = Callbacks::guiRequestShow;
+    hostGui.request_hide = Callbacks::guiRequestHide;
+    hostGui.closed = Callbacks::guiClosed;
+}
+
+void CLAPHostedPlugin::setGuiListener(CLAPGuiListener* listener) noexcept
+{
+    guiListener.store(listener);
+
+    // What the plugin asked of the GUI before is not the new one's.
+    guiClosedPending.store(0);
+    guiHintsPending.store(false);
+    guiResizePending.store(0);
+    guiVisibilityPending.store(guiVisibilityNone);
+}
+
+void CLAPHostedPlugin::serviceGui() noexcept
+{
+    auto* current = guiListener.load();
+
+    // Run from a loop the plugin pumps inside its own call (a timer tick, or a
+    // call the listener made): everything waits for a service outside it.
+    if (current == nullptr || timerDepth > 0 || current->guiCallInProgress())
+        return;
+
+    auto closed = guiClosedPending.exchange(0);
+    auto hints = guiHintsPending.exchange(false);
+    auto size = guiResizePending.exchange(0);
+    auto visibility = guiVisibilityPending.exchange(guiVisibilityNone);
+
+    // Each looked up again: a listener may unregister from inside a call.
+    auto deliver = [this](auto&& call)
+    {
+        if (auto* listener = guiListener.load())
+        {
+            try
+            {
+                call(*listener);
+            }
+            catch (...)
+            {
+            }
+        }
+    };
+
+    // A GUI the plugin destroyed takes no more calls before its destroy().
+    if (closed != 0)
+    {
+        deliver([closed](CLAPGuiListener& listener)
+                { listener.guiClosed((closed & 2) != 0, true); });
+
+        if ((closed & 2) != 0)
+            return;
+    }
+
+    if (hints)
+        deliver([](CLAPGuiListener& listener) { listener.guiResizeHintsChanged(); });
+
+    if (size != 0)
+        deliver(
+            [size](CLAPGuiListener& listener)
+            {
+                listener.guiResizeRequested(
+                    static_cast<uint32_t>(size >> 32),
+                    static_cast<uint32_t>(size & 0xffffffffu),
+                    true);
+            });
+
+    if (visibility == guiVisibilityShow)
+        deliver([](CLAPGuiListener& listener) { listener.guiShowRequested(); });
+    else if (visibility == guiVisibilityHide)
+        deliver([](CLAPGuiListener& listener) { listener.guiHideRequested(); });
 }
 
 bool CLAPHostedPlugin::initialise(const CreateFunction& create, std::string& error)
@@ -1832,6 +2050,7 @@ void CLAPHostedPlugin::serviceMainThread()
 
     retryOverflowedEdits();
     drainGestures();
+    serviceGui();
 
     // Looked at every service, so the time since the last block is known.
     auto idle = active && audioIdle();
