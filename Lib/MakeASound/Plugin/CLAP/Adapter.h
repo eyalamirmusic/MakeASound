@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Gui.h"
 #include "Params.h"
 #include "Posix.h"
 #include "../Host/PluginWrapper.h"
@@ -16,8 +17,9 @@ namespace MakeASound::CLAP
 // One CLAP plugin instance over a PluginWrapper: the clap_plugin a host holds,
 // whose calls become the wrapper's per-block steps, and the extensions it
 // answers (params, state and state-context, audio and note ports, latency, tail,
-// render, track-info, and on Linux posix-fd-support or timer-support for the
-// message loop; no gui yet). The plugin's own edits leave through
+// render, track-info, gui where the UI is built and the plugin has an editor,
+// and on Linux posix-fd-support or timer-support for the message loop). The
+// plugin's own edits leave through
 // HostEditListener on the message thread and reach the host from the audio
 // thread, as gesture and value events out of the next process() or
 // params.flush(), which request_flush() asks for while the host is not
@@ -47,6 +49,12 @@ public:
 
     Plugin& plugin() noexcept;
     PluginWrapper& wrapper() noexcept;
+
+    const clap_host* clapHost() const noexcept { return host; }
+
+    // clap.gui's view (Gui.cpp), from create to destroy; null otherwise. The
+    // adapter's destructor drops one the host left, before the plugin goes.
+    GuiViewPointer& guiView() noexcept { return gui; }
 
     // clap_plugin. init() adopts the host's main thread, reads its extensions,
     // its name (the plugin's hostName()) and its track info.
@@ -207,6 +215,8 @@ private:
     bool mappingsStale = false;
 
     HostLoop hostLoop;
+
+    GuiViewPointer gui;
 
     std::atomic<bool> processing {false};
     std::atomic<bool> offline {false};

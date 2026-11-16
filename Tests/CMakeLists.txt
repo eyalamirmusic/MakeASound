@@ -185,6 +185,32 @@ if (MAKEASOUND_BUILD_PLUGIN)
         set_source_files_properties("${clap_entry}" PROPERTIES
                 COMPILE_DEFINITIONS MAKEASOUND_CLAP_BUNDLE_ID="com.makeasound.tests"
                 SKIP_UNITY_BUILD_INCLUSION ON)
+
+        # The gui, where the adapter has one (the same condition as its own),
+        # and each platform's window API, scaling and native parent window: an
+        # NSView, a hidden Win32 popup, an X11 window over xcb.
+        if (TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+            if (APPLE)
+                set(clap_gui_platform CLAPGuiTests-macOS.mm)
+                set_source_files_properties(CLAPGuiTests-macOS.mm PROPERTIES
+                        COMPILE_OPTIONS -fobjc-arc)
+            elseif (WIN32)
+                set(clap_gui_platform CLAPGuiTests-Windows.cpp)
+
+                # Out of unity: its windows.h defines near/far/min/max for every
+                # file after it in the batch.
+                set_source_files_properties(CLAPGuiTests-Windows.cpp PROPERTIES
+                        SKIP_UNITY_BUILD_INCLUSION ON)
+            else ()
+                set(clap_gui_platform CLAPGuiTests-Linux.cpp)
+                find_package(PkgConfig REQUIRED)
+                pkg_check_modules(MAKEASOUND_TEST_XCB REQUIRED IMPORTED_TARGET xcb)
+                list(APPEND MAKEASOUND_TEST_TARGETS PkgConfig::MAKEASOUND_TEST_XCB)
+            endif ()
+
+            list(APPEND MAKEASOUND_TEST_SOURCES CLAPGuiTests.cpp ${clap_gui_platform})
+            list(APPEND MAKEASOUND_TEST_TARGETS eacp-graphics)
+        endif ()
     endif ()
 
     # The AU adapter hosted in-process through AudioToolbox's C API. The suites

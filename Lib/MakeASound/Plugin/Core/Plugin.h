@@ -174,7 +174,8 @@ public:
     // createEditor()'s or, when that is null, MakeASound's GenericEditor. False:
     // the plugin has none, every format reports no view (VST3 createView answers
     // null, an AU names no CocoaUI, an AUv3 provides no user interface, an AAX
-    // registers no GUI), createEditor() is never asked, and the host shows its
+    // registers no GUI, a CLAP offers no clap.gui), createEditor() is never
+    // asked, and the host shows its
     // own generic parameter page. The standalone, which has no host page to fall
     // back on, shows GenericEditor either way. A property of the plugin's type,
     // not of its state: AAX asks it once, of the instance it describes with.

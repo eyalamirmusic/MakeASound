@@ -965,10 +965,24 @@ auto tTrackInfo = test("CLAP/theHostsTrackInfoReachesThePlugin") = []
     check(plugin.trackInfo().color == TrackColor {10, 20, 30, 255});
 };
 
-auto tNoGui = test("CLAP/noGuiExtensionIsOfferedYet") = []
+// hasEditor() false: no gui at all, createEditor() never asked, and the host
+// shows its own parameter page, whether or not the UI is built. A plugin with an
+// editor: CLAPGuiTests.cpp.
+auto tNoGui = test("CLAP/aPluginWithNoEditorOffersNoGui") = []
 {
-    auto host = PluginHost<GainPlugin> {};
+    auto asked = 0;
+    Module::editorFactory = [&asked](Plugin&)
+    {
+        ++asked;
+        return OwningPointer<Editor>();
+    };
+
+    auto host = PluginHost<NoEditorGainPlugin> {};
+    check(host.gui == nullptr);
     check(host.extension<void>(CLAP_EXT_GUI) == nullptr);
+    Module::editorFactory = nullptr;
+    check(asked == 0);
+
     check(host.extension<void>("clap.unknown") == nullptr);
     check(host.extension<void>(CLAP_EXT_TRACK_INFO_COMPAT) != nullptr);
 };

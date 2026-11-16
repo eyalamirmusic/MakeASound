@@ -161,6 +161,7 @@ Adapter::Adapter(const clap_host* hostToUse,
 
 Adapter::~Adapter()
 {
+    gui.reset();
     detachHostLoop(hostLoop);
     plugin().setHostEditListener(nullptr);
 }

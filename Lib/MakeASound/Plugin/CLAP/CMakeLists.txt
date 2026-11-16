@@ -26,10 +26,26 @@ else ()
     target_sources(MakeASoundCLAP PRIVATE Posix-Default.cpp)
 endif ()
 
-# No editor view yet: the gui extension is absent. A view goes in Gui.cpp and a
-# Gui-<platform>.cpp chosen here, as VST3's PlugView-<platform>.cpp, with
-# NoGui.cpp the twin where the UI is not built.
-target_sources(MakeASoundCLAP PRIVATE NoGui.cpp)
+# The editor view, clap.gui: the window API and the native handle differ per
+# platform, as do VST3's view types.
+if (APPLE)
+    set(platform_gui Gui-macOS.cpp)
+elseif (WIN32)
+    set(platform_gui Gui-Windows.cpp)
+else ()
+    set(platform_gui Gui-Linux.cpp)
+endif ()
+
+# One target either way: the view TUs or their null twin define guiExtension, so
+# the choice is made here at link time, as VST3's PlugView or NoPlugView.
+if (TARGET MakeASoundPluginUI AND TARGET eacp-graphics)
+    target_sources(MakeASoundCLAP PRIVATE Gui.cpp ${platform_gui})
+    target_link_libraries(MakeASoundCLAP PRIVATE MakeASoundPluginUI eacp-graphics)
+    target_compile_definitions(MakeASoundCLAP PUBLIC MAKEASOUND_CLAP_HAS_GUI=1)
+else ()
+    target_sources(MakeASoundCLAP PRIVATE NoGui.cpp)
+    message(STATUS "MakeASoundCLAP: no editor view (eacp graphics not built)")
+endif ()
 
 set_target_properties(MakeASoundCLAP PROPERTIES
         MAKEASOUND_CLAP_ENTRY "${CMAKE_CURRENT_LIST_DIR}/EntryPoint.cpp"

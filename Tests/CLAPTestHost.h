@@ -3,7 +3,8 @@
 // The CLAP adapter hosted in-process the way a DAW drives it, through the C API
 // alone, shared by the CLAP suites: a clap_host that records what the plugin
 // asks of it (flushes, rescans, dirty marks, restarts, callbacks, descriptors
-// and timers registered), vector-backed
+// and timers registered, and the gui's resize, hint, show and hide requests),
+// vector-backed
 // input and output event lists, memory streams, and a fixture owning the host's
 // buffers and process data. A plugin comes from an Adapter made over any
 // plugin, as the factory makes one, or from the factory itself.
@@ -17,6 +18,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -111,6 +113,31 @@ struct TestHost
             periods.erase(found);
             return true;
         };
+
+        gui.resize_hints_changed = [](const clap_host* h)
+        { self(h).resizeHintsChanges++; };
+        gui.request_resize = [](const clap_host* h, uint32_t width, uint32_t height)
+        {
+            auto& me = self(h);
+            me.resizeRequests.push_back({width, height});
+
+            if (me.onResizeRequest)
+                me.onResizeRequest(width, height);
+
+            return me.acceptResize;
+        };
+        gui.request_show = [](const clap_host* h)
+        {
+            self(h).showRequests++;
+            return true;
+        };
+        gui.request_hide = [](const clap_host* h)
+        {
+            self(h).hideRequests++;
+            return true;
+        };
+        gui.closed = [](const clap_host* h, bool wasDestroyed)
+        { self(h).closings.push_back(wasDestroyed); };
     }
 
     TestHost(const TestHost&) = delete;
@@ -146,6 +173,9 @@ struct TestHost
         if (std::strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0)
             return &me.timers;
 
+        if (std::strcmp(id, CLAP_EXT_GUI) == 0 && me.offersGui)
+            return &me.gui;
+
         return nullptr;
     }
 
@@ -162,6 +192,9 @@ struct TestHost
         flushRequests = restarts = processRequests = callbacks = 0;
         dirtyMarks = latencyChanges = 0;
         rescans.clear();
+        resizeHintsChanges = showRequests = hideRequests = 0;
+        resizeRequests.clear();
+        closings.clear();
     }
 
     clap_host host {};
@@ -172,6 +205,7 @@ struct TestHost
     clap_host_track_info trackInfo {};
     clap_host_posix_fd_support posixFd {};
     clap_host_timer_support timers {};
+    clap_host_gui gui {};
 
     // What track_info.get answers; nothing while empty.
     std::optional<clap_track_info> track;
@@ -190,6 +224,19 @@ struct TestHost
     int dirtyMarks = 0;
     int latencyChanges = 0;
     std::vector<uint32_t> rescans;
+
+    // clap.gui's host side, offered unless turned off before the plugin's init:
+    // each request_resize's size, answered with acceptResize after
+    // onResizeRequest ran (where a host would call set_size back), and the
+    // resize-hint changes, show and hide requests and closings.
+    bool offersGui = true;
+    bool acceptResize = true;
+    std::function<void(uint32_t, uint32_t)> onResizeRequest;
+    std::vector<std::pair<uint32_t, uint32_t>> resizeRequests;
+    int resizeHintsChanges = 0;
+    int showRequests = 0;
+    int hideRequests = 0;
+    std::vector<bool> closings;
 };
 
 // One event of any core type, as an event list stores it.
@@ -491,6 +538,7 @@ struct PluginHost
         tail = extension<clap_plugin_tail>(CLAP_EXT_TAIL);
         render = extension<clap_plugin_render>(CLAP_EXT_RENDER);
         trackInfo = extension<clap_plugin_track_info>(CLAP_EXT_TRACK_INFO);
+        gui = extension<clap_plugin_gui>(CLAP_EXT_GUI);
 
         configure(48000.0, maxBlock);
 
@@ -653,6 +701,7 @@ struct PluginHost
     const clap_plugin_tail* tail = nullptr;
     const clap_plugin_render* render = nullptr;
     const clap_plugin_track_info* trackInfo = nullptr;
+    const clap_plugin_gui* gui = nullptr;
 
     std::vector<HostBus> inputs;
     std::vector<HostBus> outputs;
