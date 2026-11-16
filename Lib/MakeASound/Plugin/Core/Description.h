@@ -218,6 +218,11 @@ struct PluginDescription
     // defaults to it).
     std::string_view aaxEffectId = {};
 
+    // The CLAP plugin id (clap_plugin_descriptor::id): "<bundle id>.<plugin
+    // code>" by default (clapIdFor()), the bundle id being makeasound_add_plugin's
+    // BUNDLE_ID. A port from clap-juce-extensions sets the CLAP_ID it shipped.
+    std::string_view clapId = {};
+
     // AAX_eProperty_PlugInID_Native per component, the hook JUCE calls
     // AAXClientExtensions::getPluginIDForMainBusConfig: by default the plugin
     // code plus the stem pair's index, JUCE's 'jcaa' derivation under a JUCE

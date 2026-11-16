@@ -52,4 +52,9 @@ uint32_t aaxNativeIdFor(const PluginDescription& plugin, const AAXStems& stems);
 std::string aaxEffectIdFor(std::string_view bundleId,
                            const PluginDescription& plugin);
 
+// The CLAP plugin id: the description's clapId, else "<bundle id>.<plugin
+// code>" under every profile (clap-juce-extensions derived none: its CLAP_ID was
+// the author's to give, which a port sets as clapId).
+std::string clapIdFor(std::string_view bundleId, const PluginDescription& plugin);
+
 } // namespace MakeASound

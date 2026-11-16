@@ -91,6 +91,11 @@ constexpr IdentityPolicy policyFor(IdScheme scheme,
     params.vst3Controllers.layout = Vst3ControllerLayout::JuceContiguous;
     params.vst3Controllers.base = juceMidiControllerBase;
 
+    // clap-juce-extensions: the key's hash in both profiles, 0..1, no bypass.
+    params.clapIds = ClapIdRule::JuceKeyHash;
+    params.clapValues = ClapValueSpace::JuceNormalized;
+    params.addedBypassInCLAP = BypassPlacement::Unlisted;
+
     policy.vst3Class =
         juce.vst3CanReplaceVst2 ? Vst3ClassRule::JuceVst2 : Vst3ClassRule::JuceVst3;
     policy.aaxPlugin = AAXPluginRule::Juce;

@@ -183,6 +183,25 @@ if (APPLE AND NOT IOS)
             UNITY_BUILD ON)
 endif ()
 
+# clap: the CLAP headers (MIT), fetched rather than vendored, for the CLAP format,
+# which uses the C API directly (no clap-helpers). Header only, so an INTERFACE
+# target, SYSTEM so a consumer's warnings stay off them. Desktop only, and a
+# consumer's own `clap` target (CLAP's CMake defines one) is used as it is.
+if (MAKEASOUND_BUILD_CLAP AND NOT IOS AND NOT ANDROID AND NOT TARGET clap)
+    include(CPM)
+
+    CPMAddPackage(
+            NAME clap
+            GITHUB_REPOSITORY free-audio/clap
+            GIT_TAG 1.2.10
+            DOWNLOAD_ONLY YES
+            QUIET)
+
+    add_library(clap INTERFACE)
+    target_include_directories(clap SYSTEM INTERFACE "${clap_SOURCE_DIR}/include")
+    set_target_properties(clap PROPERTIES FOLDER External/clap)
+endif ()
+
 # aaxsdk: Avid's AAX SDK 2.8.1 from the audiosdk/aax fork, fetched only with
 # MAKEASOUND_BUILD_AAX, so a default build compiles no Avid code. Dual-licensed:
 # Avid's AAX SDK License Agreement or GPLv3. Both ACF glue files belong to each

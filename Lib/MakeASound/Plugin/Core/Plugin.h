@@ -25,16 +25,18 @@ enum class PluginFormat
     AU,
     AUv3,
     AAX,
-    Standalone
+    Standalone,
+    CLAP
 };
 
 // The format this module was last loaded as, for code with no plugin instance at
 // hand (a static layout helper, a "which wrapper am I" check), as JUCE's
 // PluginHostType::jucePlugInClientCurrentWrapperType. Unknown until a format's
 // entry point sets it: the VST3 factory's createInstance, the AU and AUv3
-// instance creation, AAX's EffectInit and the StandaloneHost constructor, each
-// before it creates the plugin. One value per loaded module (each bundle links
-// its own copy), so in practice per process; a process that loads two formats
+// instance creation, AAX's EffectInit, the CLAP factory's create_plugin and the
+// StandaloneHost constructor, each before it creates the plugin. One value per
+// loaded module (each bundle links its own copy), so in practice per process; a
+// process that loads two formats
 // of the same module at once, such as a test binary linking every adapter,
 // sees whichever set it last, which this does not support. Prefer
 // Plugin::format() wherever an instance exists. Any thread.
@@ -115,7 +117,8 @@ public:
 
     // The host application's name as the host gives it ("Live", "Pro Tools
     // 2024.6.0"), empty when it gives none. VST3 tells it in initialize()
-    // (IHostApplication::getName), AAX in EffectInit (AAX_IController::
+    // (IHostApplication::getName), CLAP in init() (clap_host::name), AAX in
+    // EffectInit (AAX_IController::
     // GetHostName, which carries a version), the standalone as the plugin's own
     // name; AU and AUv3 have no API for it and leave it empty. Set by the adapter
     // before the layout is negotiated and before prepare(), never before the

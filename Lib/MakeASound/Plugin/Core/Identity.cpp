@@ -124,4 +124,15 @@ std::string aaxEffectIdFor(std::string_view bundleId,
     return id;
 }
 
+std::string clapIdFor(std::string_view bundleId, const PluginDescription& plugin)
+{
+    if (!plugin.clapId.empty())
+        return std::string(plugin.clapId);
+
+    auto id = std::string(bundleId);
+    id += '.';
+    id.append(plugin.pluginCode.chars, 4);
+    return id;
+}
+
 } // namespace MakeASound

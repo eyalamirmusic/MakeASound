@@ -184,6 +184,37 @@ void ParameterList::findDuplicateHostIds(Vector<std::string>& problems) const
                                 entries[byHostId[i].index].id));
 }
 
+// Only where the clap_id is not the host id, whose clashes are reported above,
+// and only for two keys that differ: a repeated key is JUCE's own check's.
+void ParameterList::findDuplicateClapIds(Vector<std::string>& problems) const
+{
+    if (ids.clapIds == ClapIdRule::HostId)
+        return;
+
+    auto listed = Vector<HostSlot> {};
+
+    for (auto i = 0; i < entries.size(); ++i)
+        if (isListedInCLAP(i))
+            listed.add(HostSlot {entries[i].clapId, i});
+
+    std::sort(listed.begin(),
+              listed.end(),
+              [](const HostSlot& a, const HostSlot& b)
+              { return a.hostId < b.hostId; });
+
+    for (auto i = 1; i < listed.size(); ++i)
+    {
+        const auto& first = entries[listed[i - 1].index];
+        const auto& second = entries[listed[i].index];
+
+        if (listed[i].hostId == listed[i - 1].hostId
+            && first.hostKey != second.hostKey)
+            problems.add(shared("the CLAP id " + std::to_string(listed[i].hostId),
+                                first.id,
+                                second.id));
+    }
+}
+
 void ParameterList::add(Parameter& param,
                         std::string_view id,
                         std::string_view displayName,
@@ -355,6 +386,12 @@ void ParameterList::finishIds(Entry& entry) const
         entry.addedBypass ? ids.addedBypassInAU : ids.declaredBypassInAU;
     entry.listedInAU = !(entry.bypass && placement == BypassPlacement::Unlisted);
 
+    entry.clapId = ids.clapIds == ClapIdRule::JuceKeyHash
+                       ? Compat::juceStringHash(entry.hostKey)
+                       : entry.hostId;
+    entry.listedInCLAP =
+        !(entry.addedBypass && ids.addedBypassInCLAP == BypassPlacement::Unlisted);
+
     for (auto& group: entry.groups)
         group.identifier = groupList[group.index].identifier;
 }
@@ -449,6 +486,7 @@ Vector<std::string> ParameterList::problemsWith(bool controllerClashes) const
 {
     auto problems = Vector<std::string> {};
     findDuplicateHostIds(problems);
+    findDuplicateClapIds(problems);
 
     // Its path cannot tell where such an id ends (IdPath.h).
     auto undelimited = std::set<std::string> {};
@@ -615,6 +653,11 @@ bool ParameterList::isRegistered(int index) const noexcept
         return index >= 0 && index < size();
 
     return isHostExposed(index);
+}
+
+bool ParameterList::isListedInCLAP(int index) const noexcept
+{
+    return isRegistered(index) && entries[index].listedInCLAP;
 }
 
 } // namespace MakeASound
