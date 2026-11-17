@@ -44,6 +44,14 @@ endif ()
 # standalone format, the main test suite).
 option(MAKEASOUND_BUILD_DEVICES
        "Build MakeASound, the device library (audio and MIDI I/O; fetches miniaudio)" ON)
+# Which MIDI backend the device library links. Auto takes the platform's own -
+# Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux - and
+# the null backend (no ports, every open fails) anywhere else, Android and
+# Emscripten included. Null asks for no MIDI on any platform: audio stays, and no
+# MIDI framework or library is linked.
+set(MAKEASOUND_MIDI_BACKEND "Auto" CACHE STRING
+    "The device library's MIDI backend: Auto (the platform's own, or Null where there is none) or Null")
+set_property(CACHE MAKEASOUND_MIDI_BACKEND PROPERTY STRINGS Auto Null)
 # What a top-level build builds beyond the libraries: the apps, the example plugins,
 # the tools and the tests, plus the plugin core and hosting by default. A consumer
 # gets none of it, but a workspace that adds this tree as a subdirectory to build it

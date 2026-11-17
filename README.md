@@ -14,7 +14,7 @@ A C++20 library for platform-agnostic audio, MIDI and audio plugins.
 
 **MIDI** (`MidiManager`)
 
-- Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux.
+- Core MIDI on macOS and iOS, WinMM on Windows, the ALSA sequencer on Linux. Elsewhere (Android, Emscripten), or with `-DMAKEASOUND_MIDI_BACKEND=Null`, a null backend: no ports, and every open fails with `SYSTEM_ERROR`.
 - Input and output ports, plus virtual ports on Core MIDI and ALSA.
 - Typed events (note, CC, pitch bend, aftertouch, program change, SysEx) with allocation-free conversion to and from bytes.
 - Callback delivery, or a queue drained in the audio callback with sample-accurate offsets.
@@ -102,7 +102,7 @@ xcodebuild archive -project build-ios-xcode/MakeASound.xcodeproj \
 
 The archive holds the app in `Products/Applications`, its extension embedded.
 
-Main options: `MAKEASOUND_BUILD_DEVICES`, `MAKEASOUND_BUILD_PLUGIN`, `MAKEASOUND_BUILD_HOSTING`, `MAKEASOUND_BUILD_AAX`, `MAKEASOUND_BUILD_CLAP`, `MAKEASOUND_INSTALL_PLUGINS`, `MAKEASOUND_IOS_TEAM`.
+Main options: `MAKEASOUND_BUILD_DEVICES`, `MAKEASOUND_MIDI_BACKEND` (`Auto` or `Null`), `MAKEASOUND_BUILD_PLUGIN`, `MAKEASOUND_BUILD_HOSTING`, `MAKEASOUND_BUILD_AAX`, `MAKEASOUND_BUILD_CLAP`, `MAKEASOUND_INSTALL_PLUGINS`, `MAKEASOUND_IOS_TEAM`.
 
 ## Using it in your project
 

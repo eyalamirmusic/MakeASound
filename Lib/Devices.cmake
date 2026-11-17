@@ -37,9 +37,32 @@ else()
 endif()
 
 # One MIDI backend per platform, picked the same way: Core MIDI on macOS and iOS,
-# WinMM on Windows, the ALSA sequencer on Linux. A platform with none of those has
-# no MIDI, so it fails here rather than linking a library with a dead façade.
-if(APPLE)
+# WinMM on Windows, the ALSA sequencer on Linux, and the null backend on anything
+# else (Android, Emscripten) or when MAKEASOUND_MIDI_BACKEND is Null. The null
+# backend's class is built everywhere, so its tests run on every platform; only its
+# factory decides whether it is the one the façade gets.
+target_sources(MakeASound PRIVATE MakeASound/NullMIDI/NullMidiManager.cpp)
+
+if (MAKEASOUND_MIDI_BACKEND STREQUAL "Null")
+    set(makeasound_midi_backend Null)
+elseif (NOT MAKEASOUND_MIDI_BACKEND STREQUAL "Auto")
+    message(FATAL_ERROR
+            "MAKEASOUND_MIDI_BACKEND is '${MAKEASOUND_MIDI_BACKEND}'; use Auto or Null")
+elseif (APPLE)
+    set(makeasound_midi_backend CoreMIDI)
+elseif (WIN32)
+    set(makeasound_midi_backend WinMIDI)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(makeasound_midi_backend ALSA)
+else ()
+    set(makeasound_midi_backend Null)
+endif ()
+
+# The tests pick their backend-specific suites from this.
+set_property(GLOBAL PROPERTY MAKEASOUND_MIDI_BACKEND_IN_USE ${makeasound_midi_backend})
+message(STATUS "MakeASound MIDI backend: ${makeasound_midi_backend}")
+
+if (makeasound_midi_backend STREQUAL "CoreMIDI")
     target_sources(MakeASound PRIVATE
             MakeASound/CoreMIDI/CoreMIDI-Backend.cpp
             MakeASound/CoreMIDI/CoreMIDIManager.cpp
@@ -47,7 +70,7 @@ if(APPLE)
     target_link_libraries(MakeASound PRIVATE
             "-framework CoreMIDI"
             "-framework CoreFoundation")
-elseif(WIN32)
+elseif (makeasound_midi_backend STREQUAL "WinMIDI")
     target_sources(MakeASound PRIVATE
             MakeASound/WinMIDI/WinMIDI-Backend.cpp
             MakeASound/WinMIDI/WinMidiManager.cpp
@@ -58,7 +81,7 @@ elseif(WIN32)
     # what would leave min/max as macros for the rest of the blob.
     target_compile_definitions(MakeASound PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(MakeASound PRIVATE winmm)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+elseif (makeasound_midi_backend STREQUAL "ALSA")
     find_package(ALSA REQUIRED)
     find_package(Threads REQUIRED)
 
@@ -67,9 +90,9 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             MakeASound/ALSA/ALSAMidiManager.cpp
             MakeASound/ALSA/ALSA-Factory.cpp)
     target_link_libraries(MakeASound PRIVATE ALSA::ALSA Threads::Threads)
-else()
-    message(FATAL_ERROR "No MIDI backend for ${CMAKE_SYSTEM_NAME}")
-endif()
+else ()
+    target_sources(MakeASound PRIVATE MakeASound/NullMIDI/NullMIDI-Factory.cpp)
+endif ()
 
 # The core PUBLIC, so everything that linked MakeASound for the vocabulary still
 # gets it from here.
