@@ -22,13 +22,6 @@
 #include <thread>
 #include <vector>
 
-// The Apple backend's timestamp conversion, reached directly: a loopback cannot
-// exercise it on its own, and the library's include root is already on the path.
-#if defined(__APPLE__)
-#include <MakeASound/CoreMIDI/CoreMIDI-Backend.h>
-#include <mach/mach_time.h>
-#endif
-
 namespace MidiManagerTests
 {
 using namespace nano;
@@ -113,37 +106,19 @@ int countNotifications(MidiManager& midi, MidiNotification wanted, Clock::durati
     return seen;
 }
 
-auto tAvailable = test("Midi/theAppleBackendComesUp") = []
+// A machine with no MIDI system at all is an ordinary state - a Linux kernel with
+// no snd-seq is exactly that, and so is a build on the null backend - so all that
+// is pinned is that one which did come up says nothing went wrong. Apple, where
+// Core MIDI is always there, holds its backend to more in CoreMIDIBackendTests.
+auto tAvailable = test("Midi/theBackendComesUp") = []
 {
     auto midi = MidiManager {};
 
-#if defined(__APPLE__)
-    // Core MIDI starts on both macOS and the iOS simulator, so Apple has no
-    // machine where the MIDI system is simply absent. A failure names the error,
-    // and Core MIDI's own status on a client asked for again from here.
-    if (!midi.isAvailable())
-    {
-        auto probe = MIDIClientRef {};
-        auto status = MIDIClientCreate(CFSTR("Probe"), nullptr, nullptr, &probe);
-
-        if (status == noErr)
-            MIDIClientDispose(probe);
-
-        check(false,
-              "MidiManager unavailable: lastError "
-                  + std::to_string(static_cast<int>(midi.getLastError()))
-                  + ", MIDIClientCreate now returns " + std::to_string(status));
-    }
-#else
-    // Elsewhere a machine with no MIDI system at all is an ordinary state - a
-    // Linux kernel with no snd-seq is exactly that - so all that is pinned is
-    // that one which did come up says nothing went wrong.
     if (!midi.isAvailable())
         return unavailable(noMidi);
 
     check(midi.getLastError() == Error::NoError);
     measured();
-#endif
 };
 
 auto tDefaults = test("Midi/theSysExLimitsAreWhatTheyClaim") = []
@@ -160,31 +135,6 @@ auto tDefaults = test("Midi/theSysExLimitsAreWhatTheyClaim") = []
     midi.setMaxSysExBytes(0);
     check(midi.getMaxSysExBytes() >= 3);
 };
-
-#if defined(__APPLE__)
-auto tClockConversion = test("Midi/aMachTimestampConvertsToTheManagersClock") = []
-{
-    // mach_absolute_time and steady_clock are different counters — the second
-    // keeps running while the machine sleeps and the first does not — so the
-    // backend measures the offset between them instead of assuming it is zero.
-    // A stamp taken right now has to come back as right now.
-    auto worst = Clock::duration {};
-
-    for (auto i = 0; i < 16; ++i)
-    {
-        auto converted = MakeASound::CoreMIDI::toTimePoint(mach_absolute_time());
-        auto now = MidiManager::now();
-        auto delta = now > converted ? now - converted : converted - now;
-
-        worst = std::max(worst, delta);
-    }
-
-    check(worst < 5ms);
-
-    // A stamp of 0 is Core MIDI's "as soon as you can", which is also now.
-    check(MidiManager::now() - MakeASound::CoreMIDI::toTimePoint(0) < 5ms);
-};
-#endif
 
 auto tArrival = test("Midi/aLoopbackArrivalSitsOnTheManagersClock") = []
 {
