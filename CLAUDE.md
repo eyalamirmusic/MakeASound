@@ -49,6 +49,11 @@ On Windows ARM64, build from a VS dev shell (see memory).
 - IDE folders are set with `CMAKE_FOLDER`. `CMake/ExternalFolders.cmake` files every dependency target under `External/`.
 - **Git:** never commit or push without explicit confirmation in the conversation. Feature branches come off `develop` and their PRs go into `develop`. Only `develop` goes into `main`.
 
+## Commit authorship
+
+- Claude must never be the author, committer or co-author of a commit. Commits are attributed only to the human developer.
+- Never add a `Co-Authored-By: Claude` trailer, or any other Claude or Anthropic attribution (such as a "Generated with Claude Code" line), to a commit message.
+
 ## Invariants: don't break these
 
 **Device library**
