@@ -81,6 +81,7 @@ set(MAKEASOUND_TEST_SOURCES
         MidiParserTests.cpp
         MidiFileTests.cpp
         MidiManagerTests.cpp
+        NullMidiBackendTests.cpp
         RealtimeTests.cpp
         TestSynthTests.cpp)
 
@@ -477,16 +478,27 @@ if (MAKEASOUND_BUILD_PLUGIN)
     add_subdirectory(InstallBundles)
 endif ()
 
-# The ALSA backend's conversions are the one half of a platform backend that can
-# be measured without the platform: alsa-lib turns events into bytes and back
-# with no sequencer open, so these run on a container where the loopback below
-# has nothing to open.
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# The suites that reach a MIDI backend directly, for whichever one the device
+# library linked (Lib/Devices.cmake). With MAKEASOUND_MIDI_BACKEND=Null the façade
+# itself is measured against the null backend instead.
+get_property(makeasound_midi_backend GLOBAL PROPERTY MAKEASOUND_MIDI_BACKEND_IN_USE)
+
+if (makeasound_midi_backend STREQUAL "CoreMIDI")
+    list(APPEND MAKEASOUND_TEST_SOURCES CoreMIDIBackendTests.cpp)
+elseif (makeasound_midi_backend STREQUAL "ALSA")
+    # The ALSA backend's conversions are the one half of a platform backend that
+    # can be measured without the platform: alsa-lib turns events into bytes and
+    # back with no sequencer open, so these run on a container where the loopback
+    # below has nothing to open.
     find_package(ALSA REQUIRED)
 
     list(APPEND MAKEASOUND_TEST_SOURCES ALSABackendTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS ALSA::ALSA)
+elseif (makeasound_midi_backend STREQUAL "Null")
+    list(APPEND MAKEASOUND_TEST_SOURCES NullMidiFacadeTests.cpp)
+endif ()
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # miniaudio's PulseAudio device lookups, through its own context.
     list(APPEND MAKEASOUND_TEST_SOURCES PulseDeviceInfoTests.cpp)
     list(APPEND MAKEASOUND_TEST_TARGETS miniaudio)
