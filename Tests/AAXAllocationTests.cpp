@@ -42,7 +42,7 @@ auto tFlood = test("Allocations/aaxAutomationPastTheQueueIsOffTheHeap") = []
 auto tInstrument = test("Allocations/aaxInstrumentRenderIsOffTheHeap") = []
 {
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
     check(allocationsOverBlocks(host) == 0);
 
     busyBlock(host, 0, blockSize);
@@ -77,7 +77,7 @@ auto tHeld = test("Allocations/aaxHeldParameterRenderIsOffTheHeap") = []
     }
 
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
     checkHeldRenderIsOffTheHeap(host);
 };
 } // namespace

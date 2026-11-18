@@ -132,7 +132,10 @@ void describeComponent(AAX_IEffectDescriptor& effect,
              AAX_CPropertyValue(plugin.pluginCode.toUint32()));
     property(AAX_eProperty_PlugInID_Native,
              AAX_CPropertyValue(nativePluginId(plugin, stemIndex)));
-    property(AAX_eProperty_InputStemFormat, pair.input);
+    // Pro Tools drops a component whose input stem is None, so a no-input one
+    // publishes its output stem, as JUCE does; the adapter ignores that input.
+    auto input = pair.input == AAX_eStemFormat_None ? pair.output : pair.input;
+    property(AAX_eProperty_InputStemFormat, input);
     property(AAX_eProperty_OutputStemFormat, pair.output);
     property(AAX_eProperty_CanBypass, canBypass);
     property(AAX_eProperty_UsesTransport, true);

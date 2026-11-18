@@ -189,10 +189,14 @@ auto tStems = test("AAX/describesOnlyTheStemPairsThePluginAccepts") = []
     check(stemIndicesOf(*collection.effect("com.makeasound.tests.Echo"), "Echo")
           == std::set<int> {4});
 
-    for (auto* component: collection.effect("com.makeasound.tests.Gain")->components)
+    for (auto* id: {"com.makeasound.tests.Gain", "com.makeasound.tests.Echo"})
     {
-        auto input = component->property(AAX_eProperty_InputStemFormat);
-        check(input == component->property(AAX_eProperty_OutputStemFormat));
+        for (auto* component: collection.effect(id)->components)
+        {
+            auto input = component->property(AAX_eProperty_InputStemFormat);
+            check(input == component->property(AAX_eProperty_OutputStemFormat));
+            check(input != AAX_eStemFormat_None);
+        }
     }
 };
 
@@ -409,10 +413,25 @@ auto tInstrument = test("AAX/anInstrumentRendersWithNoInput") = []
     check(near(host.output(1, blockSize - 1), 0.5f));
 };
 
+auto tInstrumentInputStem =
+    test("AAX/anInstrumentIgnoresTheInputStemTheHostReports") = []
+{
+    auto host = AdapterHost<SynthPlugin>(
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
+    check(host.context.inputs != nullptr);
+    check(host.wrapper().busLayout().getMainInputChannels() == 0);
+    check(host.wrapper().busLayout().getMainOutputChannels() == 2);
+
+    host.fillInputs(9.f);
+    host.render(blockSize);
+    check(near(host.output(0, 0), 0.5f));
+    check(near(host.output(1, blockSize - 1), 0.5f));
+};
+
 auto tLongBlock = test("AAX/aBlockPastTheMaximumIsRenderedInSlices") = []
 {
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
 
     host.fillOutputs(9.f);
     host.midiIn.add(1500, {0x90, 60, 100});
@@ -588,7 +607,7 @@ auto tBypass = test("AAX/theMasterBypassIsTheBypassParameter") = []
     }
 
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
     auto id = AAX_CString("x");
     check(host.adapter->GetMasterBypassParameter(&id) == AAX_SUCCESS);
     check(id.StdString().empty());
@@ -862,7 +881,7 @@ auto tJuceOffThread = test("AAX/aJuceChunkFromAWorkerLoadsOnTheMessageThread") =
 auto tMidiIn = test("AAX/notesArriveAtTheirTimestamps") = []
 {
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
 
     host.midiIn.add(40, {0x80, 60, 0});
     host.midiIn.add(10, {0x91, 60, 127});
@@ -886,7 +905,7 @@ auto tMidiIn = test("AAX/notesArriveAtTheirTimestamps") = []
 auto tSysEx = test("AAX/aSysExSplitAcrossPacketsIsAssembled") = []
 {
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
 
     host.midiIn.add(5, {0xf0, 0x7e, 0x7f, 0x09});
     host.midiIn.add(5, {0x01, 0xf7});
@@ -907,7 +926,7 @@ auto tSysEx = test("AAX/aSysExSplitAcrossPacketsIsAssembled") = []
 auto tMidiOut = test("AAX/theEchoLeavesThroughTheOutputNode") = []
 {
     auto host = AdapterHost<SynthPlugin>(
-        "Echo", AAX_eStemFormat_None, AAX_eStemFormat_Stereo);
+        "Echo", AAX_eStemFormat_Stereo, AAX_eStemFormat_Stereo);
 
     host.midiIn.add(3, {0x90, 64, 90});
     host.midiIn.add(30, {0xe0, 0, 0x50});
@@ -1284,7 +1303,7 @@ auto tJuceInstrumentBypass =
         check(component->property(AAX_eProperty_CanBypass) == 0);
 
     auto host = AdapterHost<SynthPlugin>(JuceEffect {"com.juce.tests.echo"},
-                                         AAX_eStemFormat_None,
+                                         AAX_eStemFormat_Stereo,
                                          AAX_eStemFormat_Stereo);
     const auto& list = host.plugin().parameters();
     auto ids = registeredIds(*host.adapter);
