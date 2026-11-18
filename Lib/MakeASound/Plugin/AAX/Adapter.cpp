@@ -130,6 +130,9 @@ AAX_Result Adapter::createWrapper()
     if (controller->GetHostName(&hostName) == AAX_SUCCESS)
         wrapper->setHostName(hostName.StdString());
 
+    if (wrapper->busLayout().inputs.empty())
+        input = AAX_eStemFormat_None;
+
     auto layout = layoutFor(wrapper->busLayout(), {input, output});
 
     if (!layout || !wrapper->setLayout(*layout))
