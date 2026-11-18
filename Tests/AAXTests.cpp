@@ -636,7 +636,6 @@ Chunk saveChunk(AdapterHost<P>& host)
 
     auto chunk = Chunk {};
     chunk.storage.resize(sizeof(AAX_SPlugInChunk) + size);
-    chunk.get().fSize = static_cast<int32_t>(size);
     check(host.adapter->GetChunk(id, &chunk.get()) == AAX_SUCCESS);
     check(chunk.get().fSize == static_cast<int32_t>(size));
     check(chunk.get().fChunkID == Format::chunkId);
@@ -675,6 +674,32 @@ auto tState = test("AAX/theChunkRoundTripsTheState") = []
 
     check(target.adapter->SetChunk('abcd', &chunk.get())
           == AAX_ERROR_INVALID_CHUNK_ID);
+};
+
+auto tStateZeroSize = test("AAX/aChunkWhoseSizeTheHostLeftZeroIsFilledAndSized") = []
+{
+    auto source = AdapterHost<GainPlugin>("Gain");
+    moveEveryParameter(source.plugin().params);
+
+    auto size = uint32_t {};
+    check(source.adapter->GetChunkSize(Format::chunkId, &size) == AAX_SUCCESS);
+    check(size > 0);
+
+    auto chunk = Chunk {};
+    chunk.storage.resize(sizeof(AAX_SPlugInChunk) + size);
+    chunk.get().fSize = 0;
+    check(source.adapter->GetChunk(Format::chunkId, &chunk.get()) == AAX_SUCCESS);
+    check(chunk.get().fSize == static_cast<int32_t>(size));
+    check(chunk.get().fChunkID == Format::chunkId);
+    check(chunk.get().fVersion == 1);
+
+    auto target = AdapterHost<GainPlugin>("Gain");
+    check(target.adapter->SetChunk(Format::chunkId, &chunk.get()) == AAX_SUCCESS);
+
+    const auto& params = target.plugin().params;
+    check(near(params.gain.getValue(), -12.f));
+    check(params.mode.getIndex() == 2);
+    check(params.bypass.isOn());
 };
 
 auto tStateInserted = test("AAX/aParameterInsertedMidListKeepsTheOthers") = []
@@ -769,8 +794,7 @@ Chunk chunkOf(AAX_CTypeID id, std::string_view bytes)
 {
     auto chunk = Chunk {};
     chunk.storage.resize(sizeof(AAX_SPlugInChunk) + bytes.size());
-    chunk.get().fSize = static_cast<int32_t>(bytes.size());
-    check(Format::writeChunk(chunk.get(), bytes));
+    Format::writeChunk(chunk.get(), bytes);
     chunk.get().fChunkID = id;
     return chunk;
 }

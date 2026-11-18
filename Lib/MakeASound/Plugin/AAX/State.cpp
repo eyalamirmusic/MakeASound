@@ -52,17 +52,13 @@ Miro::Json::Value paramsOf(std::string_view document, std::string_view bypassId)
 }
 } // namespace
 
-bool writeChunk(AAX_SPlugInChunk& chunk, std::string_view document) noexcept
+void writeChunk(AAX_SPlugInChunk& chunk, std::string_view document) noexcept
 {
-    if (chunk.fSize < 0 || static_cast<size_t>(chunk.fSize) < document.size())
-        return false;
-
     chunk.fVersion = 1;
     std::memset(chunk.fName, 0, sizeof(chunk.fName));
     std::memcpy(chunk.fName, chunkName, sizeof(chunkName));
     std::memcpy(chunk.fData, document.data(), document.size());
     chunk.fSize = static_cast<int32_t>(document.size());
-    return true;
 }
 
 std::string_view readChunk(const AAX_SPlugInChunk& chunk) noexcept
