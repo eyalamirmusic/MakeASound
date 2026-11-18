@@ -16,9 +16,9 @@ constexpr AAX_CTypeID chunkId = ('M' << 24) | ('k' << 16) | ('a' << 8) | 'S';
 constexpr AAX_CTypeID juceChunkId = ('j' << 24) | ('u' << 16) | ('c' << 8) | 'e';
 constexpr AAX_CTypeID controlsChunkId = ('e' << 24) | ('l' << 16) | ('c' << 8) | 'k';
 
-// The document into the host's chunk, whose fSize says what it holds; false when
-// it does not fit.
-bool writeChunk(AAX_SPlugInChunk& chunk, std::string_view document) noexcept;
+// The host sizes fData from GetChunkSize and passes fSize as 0 for the plug-in to
+// set, so `document` must be exactly what GetChunkSize reported.
+void writeChunk(AAX_SPlugInChunk& chunk, std::string_view document) noexcept;
 
 std::string_view readChunk(const AAX_SPlugInChunk& chunk) noexcept;
 

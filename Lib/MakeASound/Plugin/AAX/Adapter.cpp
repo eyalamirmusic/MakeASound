@@ -473,9 +473,10 @@ AAX_Result Adapter::GetChunk(AAX_CTypeID id, AAX_SPlugInChunk* chunk) const
 
     auto lock = std::lock_guard {chunkMutex};
 
-    if (!writeChunk(*chunk, savedChunk))
+    if (savedChunk.empty())
         return AAX_ERROR_INCORRECT_CHUNK_SIZE;
 
+    writeChunk(*chunk, savedChunk);
     chunk->fChunkID = chunkId;
     return AAX_SUCCESS;
 }
