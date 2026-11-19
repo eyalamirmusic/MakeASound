@@ -163,6 +163,7 @@ jobs:
           OSX_ARCHS: ${{ matrix.osx_archs }}
           DEPLOY: ${{ matrix.deployment_target }}
           AAX: ${{ matrix.aax }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
         run: |
           set -euo pipefail
           # ccache launches every compile, Objective-C++ included on macOS.
@@ -181,6 +182,19 @@ jobs:
             macOS)   args+=( -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache ) ;;
             Windows) args+=( -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded ) ;;
           esac
+
+          # clang-cl is the one Visual Studio bundles, which keeps pace with
+          # its STL. The image's standalone LLVM comes first on PATH and can
+          # lag behind it: Clang 20 against the 14.52 STL, which wants 22.
+          if [ "$RUNNER_OS" = "Windows" ] && [ "$CC_COMPILER" = "clang-cl" ]; then
+            case "$MSVC_ARCH" in
+              arm64) llvm_arch=ARM64 ;;
+              *)     llvm_arch=x64 ;;
+            esac
+            CC_COMPILER=$(cygpath -m "${VCINSTALLDIR}Tools/Llvm/$llvm_arch/bin/clang-cl.exe")
+            CXX_COMPILER=$CC_COMPILER
+            test -f "$CC_COMPILER"
+          fi
 
           # Compiler selection (empty for macOS -> default AppleClang).
           if [ -n "$CC_COMPILER" ]; then
